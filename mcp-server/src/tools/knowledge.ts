@@ -17,14 +17,14 @@ function formatInsightId(id: number): string {
 
 const AddInsightSchema = z.object({
   scope: InsightScope.describe(
-    '"global" for cross-project insights, "project" for project-scoped. project_slug is required when scope is "project".'
+    '"global" for cross-codebase insights, "repository" for repository-scoped. repository_name is required when scope is "repository".'
   ),
-  project_slug: z
+  repository_name: z
     .string()
     .regex(PROJECT_SLUG_REGEX)
     .optional()
     .describe(
-      'Required when scope is "project". Slug of the project (alphanumeric, hyphens, underscores only).'
+      'Required when scope is "repository". Slug of the repository (alphanumeric, hyphens, underscores only).'
     ),
   title: z.string().describe('Short title for the insight.'),
   content: z.string().describe('Full description of the insight.'),
@@ -42,6 +42,15 @@ const AddInsightSchema = z.object({
     .number()
     .optional()
     .describe('Confidence score 0–1 indicating reliability. Defaults to 1 if omitted.'),
+  origin_plan: z
+    .string()
+    .regex(PROJECT_SLUG_REGEX)
+    .optional()
+    .describe(
+      'Optional provenance metadata — the plan slug where this insight was first discovered. ' +
+      'Distinct from source (a reference link/URL); origin_plan records the planning artefact ' +
+      'that produced the insight (e.g. a plan folder slug).'
+    ),
 });
 
 async function addInsight(args: z.infer<typeof AddInsightSchema>) {
@@ -50,7 +59,8 @@ async function addInsight(args: z.infer<typeof AddInsightSchema>) {
   try {
     const insight = await manager.addInsight({
       scope: args.scope,
-      project_slug: args.project_slug,
+      repository_name: args.repository_name,
+      origin_plan: args.origin_plan,
       title: args.title,
       content: args.content,
       category: args.category,
@@ -89,17 +99,17 @@ const SearchInsightsSchema = z.object({
     .describe(
       'Search string — case-insensitive substring match against title, content, and tags.'
     ),
-  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "project".'),
+  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "repository".'),
   category: z.string().optional().describe('Optional. Filter by category.'),
   tags: z
     .array(z.string())
     .optional()
     .describe('Optional. Filter results to those containing ALL specified tags.'),
-  project_slug: z
+  repository_name: z
     .string()
     .regex(PROJECT_SLUG_REGEX)
     .optional()
-    .describe('Optional. Restrict search to a specific project store.'),
+    .describe('Optional. Restrict search to a specific repository store.'),
   limit: z
     .number()
     .int()
@@ -115,10 +125,10 @@ async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
     let results = await manager.searchInsights(args.query, {
       scope: args.scope,
       category: args.category,
-      project_slug: args.project_slug,
+      repository_name: args.repository_name,
     });
 
-    // Apply tags filter post-search (searchInsights supports scope/category/project_slug only)
+    // Apply tags filter post-search (searchInsights supports scope/category/repository_name only)
     if (args.tags && args.tags.length > 0) {
       const filterTags = args.tags;
       results = results.filter((insight) =>
@@ -159,17 +169,17 @@ async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
 // ─── Tool: ledger_list_insights ───────────────────────────────────────────
 
 const ListInsightsSchema = z.object({
-  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "project".'),
+  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "repository".'),
   category: z.string().optional().describe('Optional. Filter by category.'),
   tags: z
     .array(z.string())
     .optional()
     .describe('Optional. Filter to insights matching ALL specified tags.'),
-  project_slug: z
+  repository_name: z
     .string()
     .regex(PROJECT_SLUG_REGEX)
     .optional()
-    .describe('Optional. Restrict to a specific project store.'),
+    .describe('Optional. Restrict to a specific repository store.'),
   limit: z
     .number()
     .int()
@@ -192,7 +202,7 @@ async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
       scope: args.scope,
       category: args.category,
       tags: args.tags,
-      project_slug: args.project_slug,
+      repository_name: args.repository_name,
       limit: args.limit,
       offset: args.offset,
     });
@@ -233,17 +243,17 @@ const UpdateInsightSchema = z.object({
       'Numeric ID of the insight to update (as returned in the id field of a previous response).'
     ),
   scope: InsightScope.optional().describe(
-    'Optional. Restrict the update to stores of this scope ("global" or "project"). ' +
-    'Recommended when the same numeric ID may exist in both global and project stores — ' +
+    'Optional. Restrict the update to stores of this scope ("global" or "repository"). ' +
+    'Recommended when the same numeric ID may exist in both global and repository stores — ' +
     'prevents accidental global-insight mutation.'
   ),
-  project_slug: z
+  repository_name: z
     .string()
     .regex(PROJECT_SLUG_REGEX)
     .optional()
     .describe(
-      'Optional. Restrict the update to the specified project store. ' +
-      'When provided, only that project\'s store is searched — prevents ambiguous resolution ' +
+      'Optional. Restrict the update to the specified repository store. ' +
+      'When provided, only that repository\'s store is searched — prevents ambiguous resolution ' +
       'when the same numeric ID exists in multiple stores.'
     ),
   title: z.string().optional().describe('Optional. New title for the insight.'),
@@ -279,7 +289,7 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
   try {
     const insight = await manager.updateInsight(args.id, updates, {
       scope: args.scope,
-      project_slug: args.project_slug,
+      repository_name: args.repository_name,
     });
 
     return {
@@ -322,7 +332,7 @@ export function register(server: McpServer): void {
     'ledger_add_insight',
     {
       description:
-        'Add a reusable insight to the knowledge base. REQUIRED params: scope, title, content, category, tags. scope is "global" or "project" — if "project", project_slug is also required.',
+        'Add a reusable insight to the knowledge base. REQUIRED params: scope, title, content, category, tags. scope is "global" or "repository" — if "repository", repository_name is also required. OPTIONAL: origin_plan (provenance plan slug — the plan where this insight was first discovered or generated).',
       inputSchema: AddInsightSchema,
     },
     addInsight as any
@@ -332,7 +342,7 @@ export function register(server: McpServer): void {
     'ledger_search_insights',
     {
       description:
-        'Search the knowledge base for insights matching a query string. REQUIRED params: query. Optional filters: scope, category, tags, project_slug, limit.',
+        'Search the knowledge base for insights matching a query string. REQUIRED params: query. Optional filters: scope, category, tags, repository_name, limit.',
       inputSchema: SearchInsightsSchema,
     },
     searchInsights as any
@@ -342,7 +352,7 @@ export function register(server: McpServer): void {
     'ledger_list_insights',
     {
       description:
-        'List all insights in the knowledge base with optional filters and pagination. All params optional: scope, category, tags, project_slug, limit, offset.',
+        'List all insights in the knowledge base with optional filters and pagination. All params optional: scope, category, tags, repository_name, limit, offset.',
       inputSchema: ListInsightsSchema,
     },
     listInsights as any
@@ -352,7 +362,7 @@ export function register(server: McpServer): void {
     'ledger_update_insight',
     {
       description:
-        'Update an existing insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, project_slug (recommended when the same numeric ID may exist in both global and project stores). Optional update fields: title, content, category, tags, source, confidence, superseded_by.',
+        'Update an existing insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same numeric ID may exist in both global and repository stores). Optional update fields: title, content, category, tags, source, confidence, superseded_by.',
       inputSchema: UpdateInsightSchema,
     },
     updateInsight as any

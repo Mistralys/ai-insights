@@ -13,11 +13,11 @@ function renderKnowledge(app) {
   /* 0–33 → Low */
 
   /* ── View state ──────────────────────────────────────────── */
-  var allInsights     = [];
-  var activeTab       = 'global';   /* 'global' | 'project' */
-  var filterCategory  = '';
-  var filterProject   = '';
-  var filterQuery     = '';
+  var allInsights        = [];
+  var activeTab          = 'global';   /* 'global' | 'repository' */
+  var filterCategory     = '';
+  var filterRepository   = '';
+  var filterQuery        = '';
   var editingId       = null;       /* numeric id of card in edit mode */
   var confirmDeleteId = null;       /* numeric id of card in delete-confirm mode */
   var movingId        = null;       /* numeric id of card in move mode */
@@ -38,11 +38,11 @@ function renderKnowledge(app) {
 
   /* ── applyFilters ────────────────────────────────────────── */
   function applyFilters() {
-    var scopeValue = activeTab === 'global' ? 'global' : 'project';
+    var scopeValue = activeTab === 'global' ? 'global' : 'repository';
     return allInsights.filter(function (ins) {
       if (ins.scope !== scopeValue) return false;
       if (filterCategory && ins.category !== filterCategory) return false;
-      if (activeTab === 'project' && filterProject && ins.project_slug !== filterProject) return false;
+      if (activeTab === 'repository' && filterRepository && ins.repository_name !== filterRepository) return false;
       if (filterQuery) {
         var q = filterQuery.toLowerCase();
         var titleMatch    = ins.title   && ins.title.toLowerCase().indexOf(q) !== -1;
@@ -55,23 +55,23 @@ function renderKnowledge(app) {
   }
 
   /* ── getDistinctValues ───────────────────────────────────── */
-  /* Returns { categories: string[], projects: string[] } — both arrays are
+  /* Returns { categories: string[], repositories: string[] } — both arrays are
      sorted alphabetically and contain only distinct non-empty values from
      the provided insights array. */
   function getDistinctValues(insights) {
-    var categories = [];
-    var projects   = [];
+    var categories   = [];
+    var repositories = [];
     insights.forEach(function (ins) {
-      if (ins.category     && categories.indexOf(ins.category)     === -1) categories.push(ins.category);
-      if (ins.project_slug && projects.indexOf(ins.project_slug)   === -1) projects.push(ins.project_slug);
+      if (ins.category        && categories.indexOf(ins.category)               === -1) categories.push(ins.category);
+      if (ins.repository_name && repositories.indexOf(ins.repository_name)      === -1) repositories.push(ins.repository_name);
     });
     categories.sort();
-    projects.sort();
-    return { categories: categories, projects: projects };
+    repositories.sort();
+    return { categories: categories, repositories: repositories };
   }
 
   /* ── buildFilterBarHtml ──────────────────────────────────── */
-  function buildFilterBarHtml(categories, projects) {
+  function buildFilterBarHtml(categories, repositories) {
     var catOptions = categories.map(function (c) {
       return '<option value="' + escapeHtml(c) + '"' + (filterCategory === c ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
     }).join('');
@@ -84,14 +84,14 @@ function renderKnowledge(app) {
       '<label for="kn-query">Search:</label>' +
       '<input id="kn-query" type="text" class="form-control form-control-sm" placeholder="Title, content or tag…" value="' + escapeHtml(filterQuery) + '">';
 
-    if (activeTab === 'project') {
-      var projOptions = projects.map(function (p) {
-        return '<option value="' + escapeHtml(p) + '"' + (filterProject === p ? ' selected' : '') + '>' + escapeHtml(p) + '</option>';
+    if (activeTab === 'repository') {
+      var repoOptions = repositories.map(function (r) {
+        return '<option value="' + escapeHtml(r) + '"' + (filterRepository === r ? ' selected' : '') + '>' + escapeHtml(r) + '</option>';
       }).join('');
       return (
-        '<label for="kn-project">Project:</label>' +
-        '<select id="kn-project" class="form-control form-control-sm">' +
-          '<option value="">All projects</option>' + projOptions +
+        '<label for="kn-repository">Repository:</label>' +
+        '<select id="kn-repository" class="form-control form-control-sm">' +
+          '<option value="">All repositories</option>' + repoOptions +
         '</select>' +
         baseBar
       );
@@ -114,8 +114,8 @@ function renderKnowledge(app) {
       var isMoving    = movingId === id;
 
       /* ── Scope badge ── */
-      var scopeBadgeClass = isGlobal ? 'badge badge-scope-global' : 'badge badge-scope-project';
-      var scopeLabel      = isGlobal ? 'Global' : 'Project';
+      var scopeBadgeClass = isGlobal ? 'badge badge-scope-global' : 'badge badge-scope-repository';
+      var scopeLabel      = isGlobal ? 'Global' : 'Repository';
 
       /* ── Tags ── */
       var tagsHtml = '';
@@ -173,33 +173,38 @@ function renderKnowledge(app) {
       if (isConfirm) {
         deleteHtml =
           '<span>Delete this entry?</span>' +
-          '<button class="btn btn-danger btn-sm" data-action="confirm-delete" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-slug="' + escapeHtml(ins.project_slug || '') + '">Confirm</button>' +
+          '<button class="btn btn-danger btn-sm" data-action="confirm-delete" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-repository="' + escapeHtml(ins.repository_name || '') + '">Confirm</button>' +
           '<button class="btn btn-sm" data-action="cancel-delete" data-id="' + id + '">Cancel</button>';
       } else {
         deleteHtml = '<button class="btn btn-danger btn-sm" data-action="delete" data-id="' + id + '">Delete</button>';
       }
 
       var promoteHtml = !isGlobal
-        ? '<button class="btn btn-sm" data-action="promote" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-slug="' + escapeHtml(ins.project_slug || '') + '">Promote to Global</button>'
+        ? '<button class="btn btn-sm" data-action="promote" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-repository="' + escapeHtml(ins.repository_name || '') + '">Promote to Global</button>'
         : '';
 
       var moveHtml;
       if (isMoving) {
         moveHtml =
           '<span class="knowledge-move-input">' +
-            '<input id="kn-move-slug-' + id + '" class="form-control form-control-sm" type="text" placeholder="target-project-slug">' +
-            '<button class="btn btn-primary btn-sm" data-action="confirm-move" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-slug="' + escapeHtml(ins.project_slug || '') + '">Confirm</button>' +
+            '<input id="kn-move-repo-' + id + '" class="form-control form-control-sm" type="text" placeholder="target-repository-name">' +
+            '<button class="btn btn-primary btn-sm" data-action="confirm-move" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-repository="' + escapeHtml(ins.repository_name || '') + '">Confirm</button>' +
             '<button class="btn btn-sm" data-action="cancel-move" data-id="' + id + '">Cancel</button>' +
           '</span>';
       } else {
-        moveHtml = '<button class="btn btn-sm" data-action="move" data-id="' + id + '">Move to Project</button>';
+        moveHtml = '<button class="btn btn-sm" data-action="move" data-id="' + id + '">Move to Repository</button>';
       }
+
+      var originPlanHtml = ins.origin_plan
+        ? '<a href="#/projects/' + encodeURIComponent(ins.origin_plan) + '" style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</a>'
+        : '';
 
       return '<div class="card" data-id="' + id + '">' +
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
           '<span class="' + scopeBadgeClass + '">' + scopeLabel + '</span>' +
           (ins.category ? '<span class="category-pill">' + escapeHtml(ins.category) + '</span>' : '') +
-          (ins.project_slug ? '<span class="text-muted" style="font-size:12px">' + escapeHtml(ins.project_slug) + '</span>' : '') +
+          (ins.repository_name ? '<span class="text-muted" style="font-size:12px">' + escapeHtml(ins.repository_name) + '</span>' : '') +
+          (originPlanHtml ? originPlanHtml : '') +
         '</div>' +
         '<h3 style="margin:0 0 6px 0;font-size:15px">' + escapeHtml(ins.title || '(no title)') + '</h3>' +
         (tagsHtml ? '<div style="margin-bottom:6px">' + tagsHtml + '</div>' : '') +
@@ -227,9 +232,9 @@ function renderKnowledge(app) {
   function render(insights) {
     allInsights = insights;
 
-    var vals     = getDistinctValues(insights);
-    var categories = vals.categories;
-    var projects   = vals.projects;
+    var vals         = getDistinctValues(insights);
+    var categories   = vals.categories;
+    var repositories = vals.repositories;
 
     var filtered = applyFilters();
 
@@ -237,10 +242,10 @@ function renderKnowledge(app) {
       '<div class="page-header"><h1>Knowledge</h1></div>' +
       '<div class="knowledge-tabs">' +
         '<button class="knowledge-tab' + (activeTab === 'global' ? ' active' : '') + '" data-tab="global">Global</button>' +
-        '<button class="knowledge-tab' + (activeTab === 'project' ? ' active' : '') + '" data-tab="project">Repository</button>' +
+        '<button class="knowledge-tab' + (activeTab === 'repository' ? ' active' : '') + '" data-tab="repository">Repository</button>' +
       '</div>' +
       '<div class="filter-bar" id="kn-filter-bar">' +
-        buildFilterBarHtml(categories, projects) +
+        buildFilterBarHtml(categories, repositories) +
       '</div>' +
       '<div id="knowledge-list">' + buildKnowledgeHtml(filtered) + '</div>';
 
@@ -252,7 +257,7 @@ function renderKnowledge(app) {
    *
    * Rebuilds #kn-filter-bar and re-wires its event handlers.
    * Called when activeTab changes because only then does the bar layout
-   * change (project dropdown appears / disappears).
+   * change (repository dropdown appears / disappears).
    * NOT called on every keystroke or card action — that was the root
    * cause of the focus-theft issue resolved here.
    */
@@ -260,7 +265,7 @@ function renderKnowledge(app) {
     var vals = getDistinctValues(allInsights);
     var filterBarEl = document.getElementById('kn-filter-bar');
     if (filterBarEl) {
-      filterBarEl.innerHTML = buildFilterBarHtml(vals.categories, vals.projects);
+      filterBarEl.innerHTML = buildFilterBarHtml(vals.categories, vals.repositories);
       wireFilterBarEvents(filterBarEl);
     }
   }
@@ -295,7 +300,7 @@ function renderKnowledge(app) {
   /* ── wireFilterBarEvents ─── attach change/input to filter controls ── */
   function wireFilterBarEvents(filterBarEl) {
     var catEl  = filterBarEl.querySelector('#kn-category');
-    var projEl = filterBarEl.querySelector('#kn-project');
+    var repoEl = filterBarEl.querySelector('#kn-repository');
     var qEl    = filterBarEl.querySelector('#kn-query');
 
     if (catEl) {
@@ -304,9 +309,9 @@ function renderKnowledge(app) {
         renderList();
       });
     }
-    if (projEl) {
-      projEl.addEventListener('change', function () {
-        filterProject = this.value;
+    if (repoEl) {
+      repoEl.addEventListener('change', function () {
+        filterRepository = this.value;
         renderList();
       });
     }
@@ -326,10 +331,10 @@ function renderKnowledge(app) {
       btn.addEventListener('click', function () {
         var newTab = this.getAttribute('data-tab');
         if (newTab === activeTab) return;
-        activeTab       = newTab;
-        filterCategory  = '';
-        filterProject   = '';
-        filterQuery     = '';
+        activeTab          = newTab;
+        filterCategory     = '';
+        filterRepository   = '';
+        filterQuery        = '';
         editingId       = null;
         confirmDeleteId = null;
         movingId        = null;
@@ -339,7 +344,7 @@ function renderKnowledge(app) {
           b.classList.toggle('active', b.getAttribute('data-tab') === activeTab);
         });
 
-        /* Tab change alters the filter bar layout (project dropdown appears/
+        /* Tab change alters the filter bar layout (repository dropdown appears/
            disappears), so rebuild the bar first, then re-render the card list. */
         renderFilterBar();
         renderList();
@@ -407,8 +412,8 @@ function renderKnowledge(app) {
       /* ── Confirm delete ── */
       if (action === 'confirm-delete') {
         var delScope = btn.getAttribute('data-scope');
-        var delSlug  = btn.getAttribute('data-slug') || null;
-        API.deleteKnowledge(id, delScope, delSlug).then(function () {
+        var delRepo  = btn.getAttribute('data-repository') || null;
+        API.deleteKnowledge(id, delScope, delRepo).then(function () {
           allInsights = allInsights.filter(function (ins) { return ins.id !== id; });
           confirmDeleteId = null;
           renderList();
@@ -421,8 +426,8 @@ function renderKnowledge(app) {
       /* ── Promote to Global ── */
       if (action === 'promote') {
         var promScope = btn.getAttribute('data-scope');
-        var promSlug  = btn.getAttribute('data-slug') || null;
-        API.promoteKnowledge(id, promScope, promSlug).then(function (newInsight) {
+        var promRepo  = btn.getAttribute('data-repository') || null;
+        API.promoteKnowledge(id, promScope, promRepo).then(function (newInsight) {
           allInsights = allInsights.filter(function (ins) { return ins.id !== id; });
           allInsights.push(newInsight);
           renderList();
@@ -434,12 +439,12 @@ function renderKnowledge(app) {
 
       /* ── Confirm move ── */
       if (action === 'confirm-move') {
-        var moveScope    = btn.getAttribute('data-scope');
-        var moveSlug     = btn.getAttribute('data-slug') || null;
-        var targetInput  = document.getElementById('kn-move-slug-' + id);
-        var targetSlug   = targetInput ? targetInput.value.trim() : '';
-        if (!targetSlug) return;
-        API.moveKnowledge(id, moveScope, moveSlug, targetSlug).then(function (newInsight) {
+        var moveScope      = btn.getAttribute('data-scope');
+        var moveRepo       = btn.getAttribute('data-repository') || null;
+        var targetInput    = document.getElementById('kn-move-repo-' + id);
+        var targetRepoName = targetInput ? targetInput.value.trim() : '';
+        if (!targetRepoName) return;
+        API.moveKnowledge(id, moveScope, moveRepo, targetRepoName).then(function (newInsight) {
           allInsights = allInsights.filter(function (ins) { return ins.id !== id; });
           allInsights.push(newInsight);
           movingId = null;
@@ -460,7 +465,7 @@ function renderKnowledge(app) {
       var formId = form.id.replace('kn-edit-form-', '');
       var eid    = parseInt(formId, 10);
 
-      /* Find insight to get scope/project_slug */
+      /* Find insight to get scope/repository_name */
       var original = allInsights.find(function (ins) { return ins.id === eid; });
       if (!original) return;
 
@@ -482,7 +487,7 @@ function renderKnowledge(app) {
         confidence: confEl     ? parseFloat(confEl.value) : original.confidence,
       };
 
-      API.updateKnowledge(eid, original.scope, original.project_slug || null, updateData)
+      API.updateKnowledge(eid, original.scope, original.repository_name || null, updateData)
         .then(function (updated) {
           allInsights = allInsights.map(function (ins) {
             return ins.id === eid ? updated : ins;

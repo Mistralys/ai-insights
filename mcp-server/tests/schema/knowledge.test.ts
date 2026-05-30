@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  InsightScope,
   InsightSchema,
   KnowledgeStoreSchema,
+  PROJECT_SLUG_REGEX,
   type Insight,
   type KnowledgeStore,
 } from '../../src/schema/knowledge.js';
@@ -20,11 +22,11 @@ const validInsight: Insight = {
   confidence: 0.9,
 };
 
-const validProjectInsight: Insight = {
+const validRepositoryInsight: Insight = {
   ...validInsight,
   id: 2,
-  scope: 'project',
-  project_slug: 'ai-insights',
+  scope: 'repository',
+  repository_name: 'hcp-editor',
 };
 
 const validKnowledgeStore: KnowledgeStore = {
@@ -34,6 +36,52 @@ const validKnowledgeStore: KnowledgeStore = {
   insights: [],
 };
 
+// ─── InsightScope ──────────────────────────────────────────────────────────
+
+describe('InsightScope', () => {
+  it("parses 'global' successfully", () => {
+    expect(InsightScope.safeParse('global').success).toBe(true);
+  });
+
+  it("parses 'repository' successfully", () => {
+    expect(InsightScope.safeParse('repository').success).toBe(true);
+  });
+
+  it("rejects 'project' (removed scope value)", () => {
+    expect(InsightScope.safeParse('project').success).toBe(false);
+  });
+
+  it('rejects arbitrary strings', () => {
+    expect(InsightScope.safeParse('team').success).toBe(false);
+    expect(InsightScope.safeParse('').success).toBe(false);
+  });
+});
+
+// ─── PROJECT_SLUG_REGEX ────────────────────────────────────────────────────
+
+describe('PROJECT_SLUG_REGEX', () => {
+  it('accepts valid slugs', () => {
+    expect(PROJECT_SLUG_REGEX.test('hcp-editor')).toBe(true);
+    expect(PROJECT_SLUG_REGEX.test('some-plan-slug')).toBe(true);
+    expect(PROJECT_SLUG_REGEX.test('my_project')).toBe(true);
+    expect(PROJECT_SLUG_REGEX.test('abc123')).toBe(true);
+    expect(PROJECT_SLUG_REGEX.test('A')).toBe(true);
+  });
+
+  it('rejects slugs with disallowed characters', () => {
+    expect(PROJECT_SLUG_REGEX.test('my/project')).toBe(false);
+    expect(PROJECT_SLUG_REGEX.test('my\\project')).toBe(false);
+    expect(PROJECT_SLUG_REGEX.test('../escape')).toBe(false);
+    expect(PROJECT_SLUG_REGEX.test('has space')).toBe(false);
+    expect(PROJECT_SLUG_REGEX.test('dot.name')).toBe(false);
+  });
+
+  it('rejects slugs that do not start with alphanumeric', () => {
+    expect(PROJECT_SLUG_REGEX.test('-starts-with-dash')).toBe(false);
+    expect(PROJECT_SLUG_REGEX.test('_starts-with-underscore')).toBe(false);
+  });
+});
+
 // ─── InsightSchema ─────────────────────────────────────────────────────────
 
 describe('InsightSchema', () => {
@@ -41,15 +89,37 @@ describe('InsightSchema', () => {
     expect(InsightSchema.safeParse(validInsight).success).toBe(true);
   });
 
-  it('accepts a valid project-scoped insight with project_slug', () => {
-    expect(InsightSchema.safeParse(validProjectInsight).success).toBe(true);
+  it('accepts a valid repository-scoped insight with repository_name', () => {
+    expect(InsightSchema.safeParse(validRepositoryInsight).success).toBe(true);
   });
 
-  it('accepts a project-scoped insight without project_slug (storage layer enforces that constraint)', () => {
-    // The scope === 'project' → project_slug required constraint is owned by the
+  it('accepts a repository-scoped insight without repository_name (storage layer enforces that constraint)', () => {
+    // The scope === 'repository' → repository_name required constraint is owned by the
     // storage layer (KnowledgeStoreManager), not by this schema.
-    const { project_slug: _removed, ...input } = validProjectInsight;
+    const { repository_name: _removed, ...input } = validRepositoryInsight;
     expect(InsightSchema.safeParse(input).success).toBe(true);
+  });
+
+  it('accepts objects with scope: repository, repository_name, and origin_plan', () => {
+    const input = {
+      ...validInsight,
+      scope: 'repository',
+      repository_name: 'hcp-editor',
+      origin_plan: 'some-plan-slug',
+    };
+    expect(InsightSchema.safeParse(input).success).toBe(true);
+  });
+
+  it('accepts objects omitting both repository_name and origin_plan (both are optional)', () => {
+    expect(InsightSchema.safeParse(validInsight).success).toBe(true);
+  });
+
+  it('does not populate project_slug on parsed result (field removed from schema)', () => {
+    const input = { ...validInsight, project_slug: 'some-project' };
+    const result = InsightSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    // Zod strips unknown keys by default; project_slug should not appear
+    expect((result.data as Record<string, unknown>).project_slug).toBeUndefined();
   });
 
   it.each([
@@ -68,14 +138,15 @@ describe('InsightSchema', () => {
     expect(InsightSchema.safeParse(rest).success).toBe(false);
   });
 
-  it('accepts when all optional fields are omitted (updated_at, project_slug, superseded_by)', () => {
+  it('accepts when all optional fields are omitted (updated_at, repository_name, origin_plan, superseded_by)', () => {
     expect(InsightSchema.safeParse(validInsight).success).toBe(true);
   });
 
   it('accepts when all optional fields are present', () => {
     const full = {
       ...validInsight,
-      project_slug: 'my-project',
+      repository_name: 'my-repo',
+      origin_plan: 'my-plan',
       updated_at: '2026-05-28T13:00:00Z',
       superseded_by: 5,
     };

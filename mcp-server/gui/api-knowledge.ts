@@ -13,6 +13,31 @@
  *   (unhandled)      → 500
  *
  * STDIO discipline: this file never writes to process.stdout.
+ *
+ * @known-limitation Partial repository_name validation in DELETE and promote handlers:
+ *   `handleDeleteKnowledge` and `handlePromoteKnowledge` accept `repository_name` as a
+ *   raw query-parameter string and do NOT validate it against `PROJECT_SLUG_REGEX` at
+ *   the handler level. The storage layer's `_validateSlug()` enforces the regex before
+ *   constructing any file path, making path-traversal attacks impossible. However, because
+ *   `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
+ *   propagates to the server's unhandled-error branch and returns HTTP 500 rather than
+ *   a semantically correct HTTP 400 `VALIDATION_ERROR`.
+ *   Contrast with `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name`
+ *   is validated via Zod (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching the
+ *   storage layer. A future hardening pass should add an explicit `PROJECT_SLUG_REGEX`
+ *   guard to `handleDeleteKnowledge` and `handlePromoteKnowledge` (mirroring the Zod
+ *   pattern used in the move/update handlers) so all five knowledge endpoints return
+ *   consistent, well-typed HTTP 400 responses for malformed slug values.
+ *
+ * ID-change semantics (promote / move):
+ *   handlePromoteKnowledge and handleMoveKnowledge both delegate to
+ *   KnowledgeStoreManager.moveInsight(), which performs an atomic cross-store
+ *   read-modify-write. The insight is deleted from the source store and inserted
+ *   into the target store with a **new numeric ID** assigned by the target store's
+ *   `next_id` counter. The original ID is no longer valid after the operation.
+ *   Frontend consumers that need to track the moved insight must capture the
+ *   pre-operation ID before calling promote/move and match by that ID — not by
+ *   the new ID returned in the response.
  */
 
 import { z } from 'zod';
@@ -49,7 +74,7 @@ function validationError(message: string, details?: unknown): never {
 export const KnowledgeUpdateBodySchema = z
   .object({
     scope: InsightScope,
-    project_slug: z.string().regex(PROJECT_SLUG_REGEX).optional(),
+    repository_name: z.string().regex(PROJECT_SLUG_REGEX).optional(),
     title: z.string().optional(),
     content: z.string().optional(),
     category: z.string().optional(),
@@ -64,22 +89,22 @@ export const KnowledgeUpdateBodySchema = z
  * Zod schema for the POST /api/knowledge/:id/move request body.
  *
  * Fields validated by the Zod schema (format/type constraints):
- * - `source_scope`        — "global" or "project" (InsightScope enum)
- * - `source_project_slug` — optional in the schema (`z.string().regex(PROJECT_SLUG_REGEX).optional()`);
- *                           the conditional-required constraint (required when source_scope is "project")
- *                           is enforced in handler logic, not here.
- * - `project_slug`        — destination project slug (required; must match PROJECT_SLUG_REGEX)
+ * - `source_scope`        — "global" or "repository" (InsightScope enum)
+ * - `source_repository_name` — optional in the schema (`z.string().regex(PROJECT_SLUG_REGEX).optional()`);
+ *                              the conditional-required constraint (required when source_scope is "repository")
+ *                              is enforced in handler logic, not here.
+ * - `repository_name`        — destination repository name (required; must match PROJECT_SLUG_REGEX)
  *
- * Note: `source_project_slug` is `.optional()` at the Zod layer so that the schema can parse
+ * Note: `source_repository_name` is `.optional()` at the Zod layer so that the schema can parse
  * a body that omits it — the handler then checks the combination of `source_scope` and
- * `source_project_slug` and throws VALIDATION_ERROR if the conditional constraint is violated.
+ * `source_repository_name` and throws VALIDATION_ERROR if the conditional constraint is violated.
  * This is consistent with how other conditional-required fields are handled across this API.
  */
 export const KnowledgeMoveBodySchema = z
   .object({
     source_scope: InsightScope,
-    source_project_slug: z.string().regex(PROJECT_SLUG_REGEX).optional(),
-    project_slug: z.string().regex(PROJECT_SLUG_REGEX),
+    source_repository_name: z.string().regex(PROJECT_SLUG_REGEX).optional(),
+    repository_name: z.string().regex(PROJECT_SLUG_REGEX),
   })
   .strict();
 
@@ -124,7 +149,7 @@ export interface KnowledgeListParams {
   category?: string;
   /** Comma-separated list of tags to filter by. */
   tags?: string;
-  project_slug?: string;
+  repository_name?: string;
   /** Full-text search query — delegates to searchInsights when present. */
   query?: string;
   limit?: number | string;
@@ -159,7 +184,7 @@ export async function handleListKnowledge(
   const scope = scopeResult.success ? scopeResult.data : undefined;
 
   const category = params.category ?? undefined;
-  const project_slug = params.project_slug ?? undefined;
+  const repository_name = params.repository_name ?? undefined;
 
   // Split comma-separated tags; ignore empty segments.
   const tags =
@@ -178,10 +203,10 @@ export async function handleListKnowledge(
   const offset = !isNaN(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
   if (params.query && params.query.trim().length > 0) {
-    return manager.searchInsights(params.query.trim(), { scope, project_slug, category, tags, limit, offset });
+    return manager.searchInsights(params.query.trim(), { scope, repository_name, category, tags, limit, offset });
   }
 
-  return manager.listInsights({ scope, category, tags, project_slug, limit, offset });
+  return manager.listInsights({ scope, category, tags, repository_name, limit, offset });
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +219,7 @@ export async function handleListKnowledge(
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
  * for non-integer, zero, or floating-point strings). Validates the request body
  * via `KnowledgeUpdateBodySchema` (throws VALIDATION_ERROR for unknown fields or
- * type mismatches). Extracts `scope` and `project_slug` discriminator fields to
+ * type mismatches). Extracts `scope` and `repository_name` discriminator fields to
  * scope the update to the correct store.
  *
  * `superseded_by: null` in the body is mapped to `undefined` so the field is
@@ -219,7 +244,7 @@ export async function handleUpdateKnowledge(
     validationError('Invalid knowledge update body.', parseResult.error.issues);
   }
 
-  const { scope, project_slug, superseded_by, ...rest } = parseResult.data;
+  const { scope, repository_name, superseded_by, ...rest } = parseResult.data;
 
   // Map superseded_by: null → undefined so the field is cleared on the stored insight.
   const updates: Parameters<KnowledgeStoreManager['updateInsight']>[1] = {
@@ -230,7 +255,7 @@ export async function handleUpdateKnowledge(
   const manager = new KnowledgeStoreManager(ledgerRoot);
 
   try {
-    return await manager.updateInsight(id, updates, { scope, project_slug });
+    return await manager.updateInsight(id, updates, { scope, repository_name });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('not found')) {
@@ -249,43 +274,56 @@ export async function handleUpdateKnowledge(
  *
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
  * for non-integer, zero, or floating-point strings). Requires `scope` as a
- * query parameter; when `scope === 'project'`, `project_slug` is also required
+ * query parameter; when `scope === 'repository'`, `repository_name` is also required
  * (throws VALIDATION_ERROR if absent). Scopes the deletion to the correct store
  * to prevent accidental cross-scope deletion when the same numeric ID exists in
  * multiple stores.
  *
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
- * @param ledgerRoot   Absolute path to the central ledger root.
- * @param rawId        Raw ID string from the URL parameter (e.g. "42").
- * @param scope        Required scope query parameter ('global' or 'project').
- * @param project_slug Required when scope is 'project'; the project slug.
+ * **Defence-in-depth note:** `repository_name` is accepted as a raw query-parameter
+ * string and is NOT validated against `PROJECT_SLUG_REGEX` at this handler level.
+ * The storage layer's `_validateSlug()` enforces the regex before constructing any
+ * file path, making path-traversal attacks impossible in practice. However, because
+ * `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
+ * will propagate to the server's unhandled-error branch and return HTTP 500 rather
+ * than a semantically correct HTTP 400 `VALIDATION_ERROR`. Contrast with
+ * `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name` is
+ * validated via Zod schema (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching
+ * the storage layer. A future hardening pass should add an explicit regex guard here
+ * (mirroring the Zod pattern) to return a proper 400 and remove reliance on the
+ * storage layer as the sole validation point for this field.
+ *
+ * @param ledgerRoot      Absolute path to the central ledger root.
+ * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param scope           Required scope query parameter ('global' or 'repository').
+ * @param repository_name Required when scope is 'repository'; the repository name.
  * @returns `null` — consistent with other delete handlers.
  */
 export async function handleDeleteKnowledge(
   ledgerRoot: string,
   rawId: string,
   scope: string | undefined,
-  project_slug?: string
+  repository_name?: string
 ): Promise<null> {
   const id = parseKnowledgeId(rawId);
 
   // Validate scope — required and must be a recognised InsightScope value.
   const scopeResult = InsightScope.safeParse(scope);
   if (!scopeResult.success) {
-    validationError('scope query parameter is required and must be "global" or "project".');
+    validationError('scope query parameter is required and must be "global" or "repository".');
   }
   const validatedScope = scopeResult.data;
 
-  // project_slug is required when scope === 'project'.
-  if (validatedScope === 'project' && !project_slug) {
-    validationError('project_slug query parameter is required when scope is "project".');
+  // repository_name is required when scope === 'repository'.
+  if (validatedScope === 'repository' && !repository_name) {
+    validationError('repository_name query parameter is required when scope is "repository".');
   }
 
   const manager = new KnowledgeStoreManager(ledgerRoot);
 
   try {
-    await manager.deleteInsight(id, { scope: validatedScope, project_slug });
+    await manager.deleteInsight(id, { scope: validatedScope, repository_name });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('not found')) {
@@ -302,33 +340,46 @@ export async function handleDeleteKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Promotes a project-scoped insight to global scope using the atomic
+ * Promotes a repository-scoped insight to global scope using the atomic
  * KnowledgeStoreManager.moveInsight() method.
  *
  * The returned insight is the newly created global-scoped copy — it has a
  * **different numeric ID** than the original (assigned by the global store's
  * `next_id` counter). The frontend must match by pre-promote ID, not the new ID.
  *
- * @param ledgerRoot  Absolute path to the central ledger root.
- * @param rawId       Raw ID string from the URL parameter (e.g. "42").
- * @param scope       Source scope — must be "project" (global insights cannot be promoted).
- * @param project_slug Required when scope is "project"; the source project slug.
+ * **Defence-in-depth note:** `repository_name` is accepted as a raw query-parameter
+ * string and is NOT validated against `PROJECT_SLUG_REGEX` at this handler level.
+ * The storage layer's `_validateSlug()` enforces the regex before constructing any
+ * file path, making path-traversal attacks impossible in practice. However, because
+ * `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
+ * will propagate to the server's unhandled-error branch and return HTTP 500 rather
+ * than a semantically correct HTTP 400 `VALIDATION_ERROR`. Contrast with
+ * `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name` is
+ * validated via Zod schema (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching
+ * the storage layer. A future hardening pass should add an explicit regex guard here
+ * (mirroring the Zod pattern) to return a proper 400 and remove reliance on the
+ * storage layer as the sole validation point for this field.
+ *
+ * @param ledgerRoot      Absolute path to the central ledger root.
+ * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param scope           Source scope — must be "repository" (global insights cannot be promoted).
+ * @param repository_name Required when scope is "repository"; the source repository name.
  * @returns The newly created global Insight.
- * @throws ApiError VALIDATION_ERROR if scope is not "project", or insight is already global.
+ * @throws ApiError VALIDATION_ERROR if scope is not "repository", or insight is already global.
  * @throws ApiError NOT_FOUND if no matching insight exists in the specified scope.
  */
 export async function handlePromoteKnowledge(
   ledgerRoot: string,
   rawId: string,
   scope: string | undefined,
-  project_slug?: string
+  repository_name?: string
 ): Promise<Insight> {
   const id = parseKnowledgeId(rawId);
 
-  // Validate scope — must be 'project' (global insights are already global).
+  // Validate scope — must be 'repository' (global insights are already global).
   const scopeResult = InsightScope.safeParse(scope);
   if (!scopeResult.success) {
-    validationError('scope query parameter is required and must be "global" or "project".');
+    validationError('scope query parameter is required and must be "global" or "repository".');
   }
   const validatedScope = scopeResult.data;
 
@@ -336,9 +387,9 @@ export async function handlePromoteKnowledge(
     validationError('Insight is already global and cannot be promoted.');
   }
 
-  // project_slug is required when scope === 'project'.
-  if (!project_slug) {
-    validationError('project_slug query parameter is required when scope is "project".');
+  // repository_name is required when scope === 'repository'.
+  if (!repository_name) {
+    validationError('repository_name query parameter is required when scope is "repository".');
   }
 
   const manager = new KnowledgeStoreManager(ledgerRoot);
@@ -346,7 +397,7 @@ export async function handlePromoteKnowledge(
   try {
     return await manager.moveInsight(
       id,
-      { scope: validatedScope, project_slug },
+      { scope: validatedScope, repository_name },
       'global'
     );
   } catch (err) {
@@ -363,12 +414,12 @@ export async function handlePromoteKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Moves an insight from one scope/project to a different project using the
+ * Moves an insight from one scope/repository to a different repository using the
  * atomic KnowledgeStoreManager.moveInsight() method.
  *
  * Supports two move variants:
- * - global → project: promotes the global insight into a named project store
- * - project → project: moves a project insight to a different project
+ * - global → repository: moves the global insight into a named repository store
+ * - repository → repository: moves a repository insight to a different repository
  *
  * The returned insight is the newly created copy — it has a **different numeric
  * ID** (assigned by the target store's `next_id` counter).
@@ -376,9 +427,9 @@ export async function handlePromoteKnowledge(
  * @param ledgerRoot  Absolute path to the central ledger root.
  * @param rawId       Raw ID string from the URL parameter (e.g. "42").
  * @param body        Parsed request body (validated against KnowledgeMoveBodySchema).
- * @returns The newly created Insight in the target project store.
+ * @returns The newly created Insight in the target repository store.
  * @throws ApiError VALIDATION_ERROR when source and destination are identical, body is invalid,
- *   or the destination slug fails PROJECT_SLUG_REGEX.
+ *   or the destination name fails PROJECT_SLUG_REGEX.
  * @throws ApiError NOT_FOUND when no matching insight exists in the source scope.
  */
 export async function handleMoveKnowledge(
@@ -393,17 +444,17 @@ export async function handleMoveKnowledge(
     validationError('Invalid knowledge move body.', parseResult.error.issues);
   }
 
-  const { source_scope, source_project_slug, project_slug } = parseResult.data;
+  const { source_scope, source_repository_name, repository_name } = parseResult.data;
 
-  // Require source_project_slug when source_scope is 'project'.
-  if (source_scope === 'project' && !source_project_slug) {
-    validationError('source_project_slug is required when source_scope is "project".');
+  // Require source_repository_name when source_scope is 'repository'.
+  if (source_scope === 'repository' && !source_repository_name) {
+    validationError('source_repository_name is required when source_scope is "repository".');
   }
 
   // Validate that source and destination are not identical.
-  // global → project always changes scope, so no identity check is needed for that case.
-  if (source_scope === 'project' && source_project_slug === project_slug) {
-    validationError('Source and destination project are identical; nothing to move.');
+  // global → repository always changes scope, so no identity check is needed for that case.
+  if (source_scope === 'repository' && source_repository_name === repository_name) {
+    validationError('Source and destination repository are identical; nothing to move.');
   }
 
   const manager = new KnowledgeStoreManager(ledgerRoot);
@@ -411,9 +462,9 @@ export async function handleMoveKnowledge(
   try {
     return await manager.moveInsight(
       id,
-      { scope: source_scope, project_slug: source_project_slug },
-      'project',
-      project_slug
+      { scope: source_scope, repository_name: source_repository_name },
+      'repository',
+      repository_name
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

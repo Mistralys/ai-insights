@@ -1,10 +1,15 @@
 /**
- * Tests for WP-001: Knowledge Handler Foundations
+ * Tests for the Knowledge API handler layer (WP-001, WP-004, WP-005).
  *
- * Covers:
- * - handleListKnowledge (AC-1 through AC-7)
- * - parseKnowledgeId    (AC-8)
- * - findInsightById     (AC-9)
+ * WP-001 — Knowledge Handler Foundations:
+ *   handleListKnowledge (AC-1 through AC-7), parseKnowledgeId (AC-8), findInsightById (AC-9)
+ *
+ * WP-004 — Knowledge Update, Delete, and Move Handlers:
+ *   handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge
+ *
+ * WP-005 — Repository-Scope Model:
+ *   Explicit AC-1 through AC-6 coverage for all five mutating handlers
+ *   operating on repository-scoped stores.
  *
  * Uses real temp directories and KnowledgeStoreManager to seed fixture data.
  */
@@ -70,25 +75,25 @@ describe('WP-001 Knowledge Handler Foundations', () => {
       expect(result).toEqual([]);
     });
 
-    // AC-1: no params returns all insights from both global and project stores
-    it('AC-1: returns all insights from global and project stores when no params given', async () => {
+    // AC-1: no params returns all insights from both global and repository stores
+    it('AC-1: returns all insights from global and repository stores when no params given', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global insight' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'my-project', title: 'Project insight' })
+        makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Repository insight' })
       );
 
       const result = await handleListKnowledge(ledgerRoot);
       expect(result).toHaveLength(2);
       const titles = result.map((i) => i.title);
       expect(titles).toContain('Global insight');
-      expect(titles).toContain('Project insight');
+      expect(titles).toContain('Repository insight');
     });
 
     // AC-2: scope: 'global' returns only global insights
     it('AC-2: scope: global returns only global insights', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global A' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'proj', title: 'Project B' })
+        makeInsightInput({ scope: 'repository', repository_name: 'repo', title: 'Repository B' })
       );
 
       const result = await handleListKnowledge(ledgerRoot, { scope: 'global' });
@@ -97,23 +102,23 @@ describe('WP-001 Knowledge Handler Foundations', () => {
       expect(result[0]!.title).toBe('Global A');
     });
 
-    // AC-3: scope: 'project' + project_slug returns only that project's insights
-    it('AC-3: scope: project with project_slug returns only that project\'s insights', async () => {
+    // AC-3: scope: 'repository' + repository_name returns only that repository's insights
+    it('AC-3: scope: repository with repository_name returns only that repository\'s insights', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'alpha', title: 'Alpha insight' })
+        makeInsightInput({ scope: 'repository', repository_name: 'alpha', title: 'Alpha insight' })
       );
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'beta', title: 'Beta insight' })
+        makeInsightInput({ scope: 'repository', repository_name: 'beta', title: 'Beta insight' })
       );
 
       const result = await handleListKnowledge(ledgerRoot, {
-        scope: 'project',
-        project_slug: 'alpha',
+        scope: 'repository',
+        repository_name: 'alpha',
       });
       expect(result).toHaveLength(1);
       expect(result[0]!.title).toBe('Alpha insight');
-      expect(result[0]!.project_slug).toBe('alpha');
+      expect(result[0]!.repository_name).toBe('alpha');
     });
 
     // AC-4: category filter returns matching insights
@@ -238,7 +243,7 @@ describe('WP-001 Knowledge Handler Foundations', () => {
     it('silently ignores unrecognised scope values and returns all insights', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'G' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'p', title: 'P' })
+        makeInsightInput({ scope: 'repository', repository_name: 'r', title: 'R' })
       );
 
       const result = await handleListKnowledge(ledgerRoot, { scope: 'bogus-scope' });
@@ -372,12 +377,12 @@ describe('WP-001 Knowledge Handler Foundations', () => {
         makeInsightInput({ scope: 'global', title: 'Global only' })
       );
 
-      // Filter to project scope — the global insight is excluded
+      // Filter to repository scope — the global insight is excluded
       await expect(
-        findInsightByIdMirror(manager, insight.id, { scope: 'project' })
+        findInsightByIdMirror(manager, insight.id, { scope: 'repository' })
       ).rejects.toThrow(ApiError);
       await expect(
-        findInsightByIdMirror(manager, insight.id, { scope: 'project' })
+        findInsightByIdMirror(manager, insight.id, { scope: 'repository' })
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
 
@@ -471,7 +476,7 @@ describe('WP-004 handleUpdateKnowledge', () => {
 
   it('AC-3: throws NOT_FOUND when insight exists in a different scope', async () => {
     const created = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Project insight' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Repository insight' })
     );
 
     // Try to update with scope: 'global' — should not find it
@@ -522,27 +527,27 @@ describe('WP-004 handleUpdateKnowledge', () => {
   });
 
   // AC-6: updates the correct insight when two stores share the same numeric id (scope disambiguation)
-  it('AC-6: scope disambiguates when global and project stores share the same numeric id', async () => {
+  it('AC-6: scope disambiguates when global and repository stores share the same numeric id', async () => {
     // Both stores start at next_id=1, so their first insight will have id=1
     const globalInsight = await manager.addInsight(
       makeInsightInput({ scope: 'global', title: 'Global id=1' })
     );
-    const projectInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Project id=1' })
+    const repoInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
     );
 
     expect(globalInsight.id).toBe(1);
-    expect(projectInsight.id).toBe(1);
+    expect(repoInsight.id).toBe(1);
 
-    // Update only the project-scoped insight
+    // Update only the repository-scoped insight
     const updated = await handleUpdateKnowledge(ledgerRoot, '1', {
-      scope: 'project',
-      project_slug: 'proj-a',
-      title: 'Updated project',
+      scope: 'repository',
+      repository_name: 'repo-a',
+      title: 'Updated repository',
     });
 
-    expect(updated.title).toBe('Updated project');
-    expect(updated.scope).toBe('project');
+    expect(updated.title).toBe('Updated repository');
+    expect(updated.scope).toBe('repository');
 
     // Verify global insight is unchanged
     const globalInsights = await manager.listInsights({ scope: 'global' });
@@ -579,16 +584,16 @@ describe('WP-004 handleDeleteKnowledge', () => {
     expect(remaining).toHaveLength(0);
   });
 
-  it('AC-7: removes insight from project store and returns null', async () => {
+  it('AC-7: removes insight from repository store and returns null', async () => {
     const created = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Project insight' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Repository insight' })
     );
 
-    const result = await handleDeleteKnowledge(ledgerRoot, String(created.id), 'project', 'my-proj');
+    const result = await handleDeleteKnowledge(ledgerRoot, String(created.id), 'repository', 'my-repo');
 
     expect(result).toBeNull();
 
-    const remaining = await manager.listInsights({ scope: 'project', project_slug: 'my-proj' });
+    const remaining = await manager.listInsights({ scope: 'repository', repository_name: 'my-repo' });
     expect(remaining).toHaveLength(0);
   });
 
@@ -608,8 +613,8 @@ describe('WP-004 handleDeleteKnowledge', () => {
       handleDeleteKnowledge(
         ledgerRoot,
         String(created.id),
-        'project',
-        'some-proj'
+        'repository',
+        'some-repo'
       )
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
@@ -645,36 +650,36 @@ describe('WP-004 handleDeleteKnowledge', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('AC-9: throws VALIDATION_ERROR when scope is project but project_slug is missing', async () => {
+  it('AC-9: throws VALIDATION_ERROR when scope is repository but repository_name is missing', async () => {
     const created = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Test' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Test' })
     );
 
     await expect(
-      handleDeleteKnowledge(ledgerRoot, String(created.id), 'project')
+      handleDeleteKnowledge(ledgerRoot, String(created.id), 'repository')
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  // AC-10: deletes from the project store without affecting a same-id insight in the global store
-  it('AC-10: deletes from project store without affecting same-id insight in global store', async () => {
+  // AC-10: deletes from the repository store without affecting a same-id insight in the global store
+  it('AC-10: deletes from repository store without affecting same-id insight in global store', async () => {
     // Both stores start at next_id=1, so their first insight will have id=1
     const globalInsight = await manager.addInsight(
       makeInsightInput({ scope: 'global', title: 'Global id=1' })
     );
-    const projectInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Project id=1' })
+    const repoInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
     );
 
     expect(globalInsight.id).toBe(1);
-    expect(projectInsight.id).toBe(1);
+    expect(repoInsight.id).toBe(1);
 
-    // Delete only the project-scoped insight
-    const result = await handleDeleteKnowledge(ledgerRoot, '1', 'project', 'proj-a');
+    // Delete only the repository-scoped insight
+    const result = await handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'repo-a');
     expect(result).toBeNull();
 
-    // Project insight is gone
-    const projectInsights = await manager.listInsights({ scope: 'project', project_slug: 'proj-a' });
-    expect(projectInsights).toHaveLength(0);
+    // Repository insight is gone
+    const repoInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
+    expect(repoInsights).toHaveLength(0);
 
     // Global insight is untouched
     const globalInsights = await manager.listInsights({ scope: 'global' });
@@ -700,33 +705,33 @@ describe('WP-005 handlePromoteKnowledge', () => {
     await rm(ledgerRoot, { recursive: true, force: true });
   });
 
-  // AC-1: converts a project-scoped insight to global scope and returns the new insight
-  it('AC-1: converts a project-scoped insight to global scope and returns the new insight', async () => {
+  // AC-1: converts a repository-scoped insight to global scope and returns the new insight
+  it('AC-1: converts a repository-scoped insight to global scope and returns the new insight', async () => {
     const original = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'To promote' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'To promote' })
     );
 
     const promoted = await handlePromoteKnowledge(
       ledgerRoot,
       String(original.id),
-      'project',
-      'my-proj'
+      'repository',
+      'my-repo'
     );
 
     expect(promoted.scope).toBe('global');
     expect(promoted.title).toBe('To promote');
-    expect(promoted.project_slug).toBeUndefined();
+    expect(promoted.repository_name).toBeUndefined();
   });
 
-  // AC-2: removes the original project-scoped insight after promotion
-  it('AC-2: removes the original project-scoped insight after promotion', async () => {
+  // AC-2: removes the original repository-scoped insight after promotion
+  it('AC-2: removes the original repository-scoped insight after promotion', async () => {
     const original = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Will be removed' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Will be removed' })
     );
 
-    await handlePromoteKnowledge(ledgerRoot, String(original.id), 'project', 'my-proj');
+    await handlePromoteKnowledge(ledgerRoot, String(original.id), 'repository', 'my-repo');
 
-    const remaining = await manager.listInsights({ scope: 'project', project_slug: 'my-proj' });
+    const remaining = await manager.listInsights({ scope: 'repository', repository_name: 'my-repo' });
     expect(remaining).toHaveLength(0);
   });
 
@@ -742,17 +747,17 @@ describe('WP-005 handlePromoteKnowledge', () => {
   // AC-4: throws NOT_FOUND for unknown id in the specified scope
   it('AC-4: throws NOT_FOUND for unknown id in the specified scope', async () => {
     await expect(
-      handlePromoteKnowledge(ledgerRoot, '99999', 'project', 'my-proj')
+      handlePromoteKnowledge(ledgerRoot, '99999', 'repository', 'my-repo')
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('AC-4: throws NOT_FOUND when id exists in a different project', async () => {
+  it('AC-4: throws NOT_FOUND when id exists in a different repository', async () => {
     const insight = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Proj A' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repo A' })
     );
 
     await expect(
-      handlePromoteKnowledge(ledgerRoot, String(insight.id), 'project', 'proj-b')
+      handlePromoteKnowledge(ledgerRoot, String(insight.id), 'repository', 'repo-b')
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -762,23 +767,23 @@ describe('WP-005 handlePromoteKnowledge', () => {
     const globalInsight = await manager.addInsight(
       makeInsightInput({ scope: 'global', title: 'Global id=1' })
     );
-    const projectInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Project id=1' })
+    const repoInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
     );
 
     expect(globalInsight.id).toBe(1);
-    expect(projectInsight.id).toBe(1);
+    expect(repoInsight.id).toBe(1);
 
-    // Promote the project insight (id=1, scope=project)
-    const promoted = await handlePromoteKnowledge(ledgerRoot, '1', 'project', 'proj-a');
+    // Promote the repository insight (id=1, scope=repository)
+    const promoted = await handlePromoteKnowledge(ledgerRoot, '1', 'repository', 'repo-a');
 
-    // The promoted insight is the project-scoped one
+    // The promoted insight is the repository-scoped one
     expect(promoted.scope).toBe('global');
-    expect(promoted.title).toBe('Project id=1');
+    expect(promoted.title).toBe('Repository id=1');
 
-    // The original project insight is gone
-    const projInsights = await manager.listInsights({ scope: 'project', project_slug: 'proj-a' });
-    expect(projInsights).toHaveLength(0);
+    // The original repository insight is gone
+    const repoInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
+    expect(repoInsights).toHaveLength(0);
 
     // The global insight is untouched (different object despite same original id)
     const globalInsights = await manager.listInsights({ scope: 'global' });
@@ -786,27 +791,27 @@ describe('WP-005 handlePromoteKnowledge', () => {
     expect(globalInsights).toHaveLength(2);
     const titles = globalInsights.map((i) => i.title);
     expect(titles).toContain('Global id=1');
-    expect(titles).toContain('Project id=1');
+    expect(titles).toContain('Repository id=1');
   });
 
   // Validation: missing scope throws VALIDATION_ERROR
   it('throws VALIDATION_ERROR when scope is missing', async () => {
     await expect(
-      handlePromoteKnowledge(ledgerRoot, '1', undefined, 'my-proj')
+      handlePromoteKnowledge(ledgerRoot, '1', undefined, 'my-repo')
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  // Validation: project scope without project_slug throws VALIDATION_ERROR
-  it('throws VALIDATION_ERROR when scope is "project" but project_slug is missing', async () => {
+  // Validation: repository scope without repository_name throws VALIDATION_ERROR
+  it('throws VALIDATION_ERROR when scope is "repository" but repository_name is missing', async () => {
     await expect(
-      handlePromoteKnowledge(ledgerRoot, '1', 'project')
+      handlePromoteKnowledge(ledgerRoot, '1', 'repository')
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   // Validation: non-integer id throws VALIDATION_ERROR
   it('throws VALIDATION_ERROR for non-integer id', async () => {
     await expect(
-      handlePromoteKnowledge(ledgerRoot, 'abc', 'project', 'my-proj')
+      handlePromoteKnowledge(ledgerRoot, 'abc', 'repository', 'my-repo')
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
@@ -816,17 +821,17 @@ describe('WP-005 handlePromoteKnowledge', () => {
     await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Pre-existing global' }));
 
     const original = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Will be promoted' })
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Will be promoted' })
     );
 
     const promoted = await handlePromoteKnowledge(
       ledgerRoot,
       String(original.id),
-      'project',
-      'my-proj'
+      'repository',
+      'my-repo'
     );
 
-    // The original had id=1 in the project store; the promoted copy should get id=2 in global store
+    // The original had id=1 in the repository store; the promoted copy should get id=2 in global store
     expect(promoted.id).not.toBe(original.id);
   });
 });
@@ -848,96 +853,96 @@ describe('WP-005 handleMoveKnowledge', () => {
     await rm(ledgerRoot, { recursive: true, force: true });
   });
 
-  // AC-6: moves a global insight to a named project and returns the new insight
-  it('AC-6: moves a global insight to a named project and returns the new insight', async () => {
+  // AC-6: moves a global insight to a named repository and returns the new insight
+  it('AC-6: moves a global insight to a named repository and returns the new insight', async () => {
     const global = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Will move to project' })
+      makeInsightInput({ scope: 'global', title: 'Will move to repository' })
     );
 
     const moved = await handleMoveKnowledge(ledgerRoot, String(global.id), {
       source_scope: 'global',
-      project_slug: 'target-proj',
+      repository_name: 'target-repo',
     });
 
-    expect(moved.scope).toBe('project');
-    expect(moved.project_slug).toBe('target-proj');
-    expect(moved.title).toBe('Will move to project');
+    expect(moved.scope).toBe('repository');
+    expect(moved.repository_name).toBe('target-repo');
+    expect(moved.title).toBe('Will move to repository');
   });
 
-  it('AC-6: removes the original global insight after moving to project', async () => {
+  it('AC-6: removes the original global insight after moving to repository', async () => {
     const global = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Move me' }));
 
     await handleMoveKnowledge(ledgerRoot, String(global.id), {
       source_scope: 'global',
-      project_slug: 'target-proj',
+      repository_name: 'target-repo',
     });
 
     const globalInsights = await manager.listInsights({ scope: 'global' });
     expect(globalInsights).toHaveLength(0);
   });
 
-  // AC-7: moves a project insight to a different project and returns the new insight
-  it('AC-7: moves a project insight to a different project and returns the new insight', async () => {
+  // AC-7: moves a repository insight to a different repository and returns the new insight
+  it('AC-7: moves a repository insight to a different repository and returns the new insight', async () => {
     const original = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Move between projects' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Move between repositories' })
     );
 
     const moved = await handleMoveKnowledge(ledgerRoot, String(original.id), {
-      source_scope: 'project',
-      source_project_slug: 'proj-a',
-      project_slug: 'proj-b',
+      source_scope: 'repository',
+      source_repository_name: 'repo-a',
+      repository_name: 'repo-b',
     });
 
-    expect(moved.scope).toBe('project');
-    expect(moved.project_slug).toBe('proj-b');
-    expect(moved.title).toBe('Move between projects');
+    expect(moved.scope).toBe('repository');
+    expect(moved.repository_name).toBe('repo-b');
+    expect(moved.title).toBe('Move between repositories');
 
     // Original is gone
-    const projAInsights = await manager.listInsights({ scope: 'project', project_slug: 'proj-a' });
-    expect(projAInsights).toHaveLength(0);
+    const repoAInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
+    expect(repoAInsights).toHaveLength(0);
 
-    // Target project has the insight
-    const projBInsights = await manager.listInsights({ scope: 'project', project_slug: 'proj-b' });
-    expect(projBInsights).toHaveLength(1);
-    expect(projBInsights[0]!.title).toBe('Move between projects');
+    // Target repository has the insight
+    const repoBInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-b' });
+    expect(repoBInsights).toHaveLength(1);
+    expect(repoBInsights[0]!.title).toBe('Move between repositories');
   });
 
   // AC-8: throws VALIDATION_ERROR when source and destination are identical
   it('AC-8: throws VALIDATION_ERROR when source and destination are identical', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
-        source_scope: 'project',
-        source_project_slug: 'same-proj',
-        project_slug: 'same-proj',
+        source_scope: 'repository',
+        source_repository_name: 'same-repo',
+        repository_name: 'same-repo',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   // AC-9: throws VALIDATION_ERROR for invalid slug (path-traversal attempt rejected by PROJECT_SLUG_REGEX)
-  it('AC-9: throws VALIDATION_ERROR for invalid destination slug (path traversal)', async () => {
+  it('AC-9: throws VALIDATION_ERROR for invalid destination repository name (path traversal)', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
         source_scope: 'global',
-        project_slug: '../evil',
+        repository_name: '../evil',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('AC-9: throws VALIDATION_ERROR for slug with spaces', async () => {
+  it('AC-9: throws VALIDATION_ERROR for repository name with spaces', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
         source_scope: 'global',
-        project_slug: 'has spaces',
+        repository_name: 'has spaces',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it('AC-9: throws VALIDATION_ERROR for invalid source_project_slug', async () => {
+  it('AC-9: throws VALIDATION_ERROR for invalid source_repository_name', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
-        source_scope: 'project',
-        source_project_slug: '../evil',
-        project_slug: 'valid-target',
+        source_scope: 'repository',
+        source_repository_name: '../evil',
+        repository_name: 'valid-target',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
@@ -947,21 +952,21 @@ describe('WP-005 handleMoveKnowledge', () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '99999', {
         source_scope: 'global',
-        project_slug: 'target-proj',
+        repository_name: 'target-repo',
       })
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  it('AC-10: throws NOT_FOUND when id exists in a different project', async () => {
+  it('AC-10: throws NOT_FOUND when id exists in a different repository', async () => {
     await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'In proj-a' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'In repo-a' })
     );
 
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
-        source_scope: 'project',
-        source_project_slug: 'proj-b',
-        project_slug: 'proj-c',
+        source_scope: 'repository',
+        source_repository_name: 'repo-b',
+        repository_name: 'repo-c',
       })
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
@@ -971,27 +976,27 @@ describe('WP-005 handleMoveKnowledge', () => {
     const globalInsight = await manager.addInsight(
       makeInsightInput({ scope: 'global', title: 'Global id=1' })
     );
-    const projectInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'project', project_slug: 'proj-a', title: 'Project id=1' })
+    const repoInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
     );
 
     expect(globalInsight.id).toBe(1);
-    expect(projectInsight.id).toBe(1);
+    expect(repoInsight.id).toBe(1);
 
-    // Move only the project insight (id=1, source_scope=project, source_project_slug=proj-a)
+    // Move only the repository insight (id=1, source_scope=repository, source_repository_name=repo-a)
     const moved = await handleMoveKnowledge(ledgerRoot, '1', {
-      source_scope: 'project',
-      source_project_slug: 'proj-a',
-      project_slug: 'proj-b',
+      source_scope: 'repository',
+      source_repository_name: 'repo-a',
+      repository_name: 'repo-b',
     });
 
-    expect(moved.scope).toBe('project');
-    expect(moved.project_slug).toBe('proj-b');
-    expect(moved.title).toBe('Project id=1');
+    expect(moved.scope).toBe('repository');
+    expect(moved.repository_name).toBe('repo-b');
+    expect(moved.title).toBe('Repository id=1');
 
-    // proj-a is now empty
-    const projAInsights = await manager.listInsights({ scope: 'project', project_slug: 'proj-a' });
-    expect(projAInsights).toHaveLength(0);
+    // repo-a is now empty
+    const repoAInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
+    expect(repoAInsights).toHaveLength(0);
 
     // Global insight is untouched
     const globalInsights = await manager.listInsights({ scope: 'global' });
@@ -1004,14 +1009,14 @@ describe('WP-005 handleMoveKnowledge', () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
         source_scope: 'global',
-        project_slug: 'target',
+        repository_name: 'target',
         unexpected_field: 'bad',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  // Validation: missing project_slug throws VALIDATION_ERROR
-  it('throws VALIDATION_ERROR when project_slug is missing from body', async () => {
+  // Validation: missing repository_name throws VALIDATION_ERROR
+  it('throws VALIDATION_ERROR when repository_name is missing from body', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {
         source_scope: 'global',
@@ -1024,7 +1029,222 @@ describe('WP-005 handleMoveKnowledge', () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, 'bad-id', {
         source_scope: 'global',
-        project_slug: 'target',
+        repository_name: 'target',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005 Acceptance Criteria — explicit AC coverage
+// ---------------------------------------------------------------------------
+
+/**
+ * This suite maps directly to the six acceptance criteria in WP-005.
+ *
+ * AC-1: POST /api/knowledge/:id/promote with scope=repository&repository_name=hcp-editor promotes the insight to global.
+ * AC-2: POST /api/knowledge/:id/move with valid body moves global → repository and repository → repository.
+ * AC-3: DELETE /api/knowledge/:id with scope=repository&repository_name=hcp-editor deletes from the correct store.
+ * AC-4: Any handler receiving scope: 'project' returns a VALIDATION_ERROR response.
+ * AC-5: handleMoveKnowledge with missing target_repository_name returns VALIDATION_ERROR.
+ * AC-6: handleMoveKnowledge with same source and target repository name returns VALIDATION_ERROR.
+ */
+
+describe('WP-005 Acceptance Criteria', () => {
+  let ledgerRoot: string;
+  let manager: KnowledgeStoreManager;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'wp005-ac-test-'));
+    manager = new KnowledgeStoreManager(ledgerRoot);
+  });
+
+  afterEach(async () => {
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  // ── AC-1: POST /api/knowledge/:id/promote with scope=repository&repository_name=hcp-editor ──
+
+  it('AC-1: promotes a repository insight to global using repository_name=hcp-editor', async () => {
+    const original = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'hcp-editor', title: 'Editor knowledge' })
+    );
+
+    const promoted = await handlePromoteKnowledge(
+      ledgerRoot,
+      String(original.id),
+      'repository',
+      'hcp-editor'
+    );
+
+    expect(promoted.scope).toBe('global');
+    expect(promoted.title).toBe('Editor knowledge');
+    expect(promoted.repository_name).toBeUndefined();
+
+    // Original should be removed from the repository store
+    const repoInsights = await manager.listInsights({ scope: 'repository', repository_name: 'hcp-editor' });
+    expect(repoInsights).toHaveLength(0);
+  });
+
+  // ── AC-2a: POST /api/knowledge/:id/move — global → repository ────────────
+
+  it('AC-2a: moves a global insight to a named repository store', async () => {
+    const global = await manager.addInsight(
+      makeInsightInput({ scope: 'global', title: 'Global insight to move' })
+    );
+
+    const moved = await handleMoveKnowledge(ledgerRoot, String(global.id), {
+      source_scope: 'global',
+      repository_name: 'target-repo',
+    });
+
+    expect(moved.scope).toBe('repository');
+    expect(moved.repository_name).toBe('target-repo');
+    expect(moved.title).toBe('Global insight to move');
+
+    // Global store should now be empty
+    const globalInsights = await manager.listInsights({ scope: 'global' });
+    expect(globalInsights).toHaveLength(0);
+  });
+
+  // ── AC-2b: POST /api/knowledge/:id/move — repository → repository ─────────
+
+  it('AC-2b: moves a repository insight to a different repository store', async () => {
+    const original = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'source-repo', title: 'Repo insight to move' })
+    );
+
+    const moved = await handleMoveKnowledge(ledgerRoot, String(original.id), {
+      source_scope: 'repository',
+      source_repository_name: 'source-repo',
+      repository_name: 'dest-repo',
+    });
+
+    expect(moved.scope).toBe('repository');
+    expect(moved.repository_name).toBe('dest-repo');
+    expect(moved.title).toBe('Repo insight to move');
+
+    // Source repository should now be empty
+    const srcInsights = await manager.listInsights({ scope: 'repository', repository_name: 'source-repo' });
+    expect(srcInsights).toHaveLength(0);
+
+    // Destination repository should have the insight
+    const dstInsights = await manager.listInsights({ scope: 'repository', repository_name: 'dest-repo' });
+    expect(dstInsights).toHaveLength(1);
+  });
+
+  // ── AC-3: DELETE /api/knowledge/:id with scope=repository&repository_name=hcp-editor ──
+
+  it('AC-3: deletes from the repository store identified by repository_name=hcp-editor', async () => {
+    const insight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'hcp-editor', title: 'To delete' })
+    );
+
+    const result = await handleDeleteKnowledge(ledgerRoot, String(insight.id), 'repository', 'hcp-editor');
+
+    expect(result).toBeNull();
+
+    // Insight must be gone from the hcp-editor store
+    const remaining = await manager.listInsights({ scope: 'repository', repository_name: 'hcp-editor' });
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('AC-3: deleting from repository store does not affect insights in other stores', async () => {
+    // Both stores start at next_id=1 — deliberately create the same-id situation.
+    const globalInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+    );
+    const editorInsight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'hcp-editor', title: 'Editor id=1' })
+    );
+
+    expect(globalInsight.id).toBe(1);
+    expect(editorInsight.id).toBe(1);
+
+    await handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'hcp-editor');
+
+    // hcp-editor store is empty
+    const editorRemaining = await manager.listInsights({ scope: 'repository', repository_name: 'hcp-editor' });
+    expect(editorRemaining).toHaveLength(0);
+
+    // Global store is untouched
+    const globalRemaining = await manager.listInsights({ scope: 'global' });
+    expect(globalRemaining).toHaveLength(1);
+    expect(globalRemaining[0]!.title).toBe('Global id=1');
+  });
+
+  // ── AC-4: scope: 'project' returns VALIDATION_ERROR in all mutating handlers ──
+
+  it('AC-4: handleDeleteKnowledge with scope "project" returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleDeleteKnowledge(ledgerRoot, '1', 'project')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-4: handlePromoteKnowledge with scope "project" returns VALIDATION_ERROR', async () => {
+    await expect(
+      handlePromoteKnowledge(ledgerRoot, '1', 'project', 'some-repo')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-4: handleUpdateKnowledge with scope "project" in body returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleUpdateKnowledge(ledgerRoot, '1', { scope: 'project', title: 'x' })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-4: handleMoveKnowledge with source_scope "project" in body returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleMoveKnowledge(ledgerRoot, '1', {
+        source_scope: 'project',
+        repository_name: 'target-repo',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  // ── AC-5: handleMoveKnowledge with missing target (repository_name) returns VALIDATION_ERROR ──
+
+  it('AC-5: handleMoveKnowledge with missing repository_name (target) returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleMoveKnowledge(ledgerRoot, '1', {
+        source_scope: 'global',
+        // repository_name intentionally omitted — this is the target repository
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-5: handleMoveKnowledge with missing repository_name for repository source returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleMoveKnowledge(ledgerRoot, '1', {
+        source_scope: 'repository',
+        source_repository_name: 'source-repo',
+        // repository_name intentionally omitted
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  // ── AC-6: handleMoveKnowledge with same source and target returns VALIDATION_ERROR ──
+
+  it('AC-6: handleMoveKnowledge with same source_repository_name and repository_name returns VALIDATION_ERROR', async () => {
+    await expect(
+      handleMoveKnowledge(ledgerRoot, '1', {
+        source_scope: 'repository',
+        source_repository_name: 'same-repo',
+        repository_name: 'same-repo',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-6: handleMoveKnowledge identity move is rejected even when the insight exists', async () => {
+    const insight = await manager.addInsight(
+      makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Same repo move' })
+    );
+
+    await expect(
+      handleMoveKnowledge(ledgerRoot, String(insight.id), {
+        source_scope: 'repository',
+        source_repository_name: 'my-repo',
+        repository_name: 'my-repo',
       })
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });

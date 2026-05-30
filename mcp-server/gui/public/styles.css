@@ -2442,8 +2442,8 @@ th[data-sort="total_work_packages"] {
   color: #1d4ed8;
 }
 
-/* Project scope — green tones (AC: distinct colours per scope) */
-.badge-scope-project {
+/* Repository scope — green tones (AC: distinct colours per scope) */
+.badge-scope-repository {
   background: #dcfce7;
   color: #15803d;
 }
@@ -2514,7 +2514,7 @@ th[data-sort="total_work_packages"] {
   color: #93c5fd;
 }
 
-[data-theme="dark"] .badge-scope-project {
+[data-theme="dark"] .badge-scope-repository {
   background: #14532d;
   color: #86efac;
 }

@@ -41,7 +41,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_get_next_action | cwd_path or project_path, agent_role | Get next recommended action (optional: max_results for batch mode) |
 | ledger_get_handoff_status | cwd_path or project_path, current_agent | Check handoff status |
 | ledger_add_insight | scope, title, content, category, tags | Add a reusable insight to the knowledge base |
-| ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, project_slug, limit) |
+| ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, repository_name, limit) |
 | ledger_list_insights | None required | List insights with optional filters and pagination |
 | ledger_update_insight | id | Update an existing insight by numeric ID |
 
@@ -561,7 +561,7 @@ key. Useful for projects with many independent WPs where you want to process sev
 ## Required Parameters
 ${CWD_PATH_PARAM}
 ${PROJECT_PATH_PARAM}
-- **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
+- **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"
 
 ## Optional Parameters
 - **max_results** (number, integer, positive): Maximum number of actionable WPs to return. Default: 1 (single-action mode). When > 1, response format changes to { "actions": [...], "total": N }.
@@ -739,19 +739,20 @@ ${PROJECT_PATH_PARAM}
   ledger_add_insight: `
 # ledger_add_insight
 
-Add a reusable insight to the global or project-scoped knowledge base.
+Add a reusable insight to the global or repository-scoped knowledge base.
 
 ## Required Parameters
-- **scope** (string): \`"global"\` for cross-project insights; \`"project"\` for project-scoped insights.
-  When scope is \`"project"\`, **project_slug is also required**.
+- **scope** (string): \`"global"\` for cross-repository insights; \`"repository"\` for repository-scoped insights.
+  When scope is \`"repository"\`, **repository_name is also required**.
 - **title** (string): Short title for the insight.
 - **content** (string): Full description of the insight.
 - **category** (string): Category string (e.g., \`"architecture"\`, \`"testing"\`, \`"workflow"\`, \`"security"\`).
 - **tags** (array): Array of tag strings for filtering and search.
 
 ## Optional Parameters
-- **project_slug** (string): Slug of the project store. Required when scope is \`"project"\`.
-  Alphanumeric characters, hyphens, and underscores only (e.g., \`"my-project"\`).
+- **repository_name** (string): Name of the repository store. Required when scope is \`"repository"\`.
+  Alphanumeric characters, hyphens, and underscores only (e.g., \`"my-repo"\`). The name \`"global"\` is reserved and cannot be used.
+- **origin_plan** (string): Provenance metadata — the plan slug where this insight was first discovered or generated (e.g., \`"2026-05-29-knowledge-repository-scope"\`). Alphanumeric characters, hyphens, and underscores only. Optional; stored as-is for traceability.
 - **source** (string): Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string.
 - **confidence** (number): Confidence score 0–1 indicating reliability. Defaults to 1.
 
@@ -772,13 +773,14 @@ The created insight object, including the auto-assigned numeric **id** and a **f
 \`\`\`
 \`\`\`json
 {
-  "scope": "project",
-  "project_slug": "2026-05-28-knowledge-system",
+  "scope": "repository",
+  "repository_name": "hcp-editor",
   "title": "Knowledge store uses numeric IDs internally",
   "content": "The KN-NNNN display format is produced at the tool layer; only the numeric id is stored.",
   "category": "architecture",
   "tags": ["storage", "ids"],
-  "source": "WP-003"
+  "source": "WP-003",
+  "origin_plan": "2026-05-29-knowledge-repository-scope"
 }
 \`\`\`
 `,
@@ -795,10 +797,10 @@ Returns an empty array when no insights match.
 - **query** (string): Search string — matched case-insensitively against title, content, and tags.
 
 ## Optional Parameters
-- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **scope** (string): Filter by scope: \`"global"\` or \`"repository"\`.
 - **category** (string): Filter by category (exact match).
 - **tags** (array): Filter results to those containing ALL specified tags.
-- **project_slug** (string): Restrict search to a specific project store.
+- **repository_name** (string): Restrict search to a specific repository store.
 - **limit** (number): Maximum number of results to return.
 
 ## Response
@@ -823,10 +825,10 @@ List all insights in the knowledge base with optional filters and pagination.
 All parameters are optional — calling with no parameters returns all insights across all stores.
 
 ## Optional Parameters
-- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **scope** (string): Filter by scope: \`"global"\` or \`"repository"\`.
 - **category** (string): Filter by category (exact match).
 - **tags** (array): Filter to insights matching ALL specified tags.
-- **project_slug** (string): Restrict to a specific project store.
+- **repository_name** (string): Restrict to a specific repository store.
 - **limit** (number): Maximum number of results to return (for pagination).
 - **offset** (number): Number of results to skip (for pagination). Defaults to 0.
 
@@ -841,7 +843,7 @@ Array of insight objects (filtered and paginated), each including **formatted_id
 { "scope": "global", "category": "architecture", "limit": 20, "offset": 0 }
 \`\`\`
 \`\`\`json
-{ "project_slug": "my-project", "tags": ["security"], "limit": 5, "offset": 10 }
+{ "repository_name": "my-repo", "tags": ["security"], "limit": 5, "offset": 10 }
 \`\`\`
 `,
 
@@ -853,21 +855,21 @@ Update an existing insight by its numeric ID.
 Accepts any combination of updatable fields — only the specified fields are changed.
 The \`updated_at\` timestamp is set automatically.
 
-Immutable fields (id, scope, project_slug, created_at) cannot be changed.
+Immutable fields (id, scope, repository_name, created_at) cannot be changed.
 
 > **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
-> in both the global store and a project store. Use \`scope\` and/or \`project_slug\` to make
+> in both the global store and a repository store. Use \`scope\` and/or \`repository_name\` to make
 > your intent unambiguous and prevent accidental global-insight mutation.
 
 ## Required Parameters
 - **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
 
 ## Optional Scope Parameters (recommended when IDs may overlap)
-- **scope** ("global" | "project"): Restrict the search to stores of this scope.
-  Use \`"global"\` to ensure only the global store is searched; use \`"project"\` combined
-  with \`project_slug\` to target a specific project store exclusively.
-- **project_slug** (string): Restrict the search to a specific project store.
-  Accepts only alphanumeric slugs with hyphens and underscores.
+- **scope** ("global" | "repository"): Restrict the search to stores of this scope.
+  Use \`"global"\` to ensure only the global store is searched; use \`"repository"\` combined
+  with \`repository_name\` to target a specific repository store exclusively.
+- **repository_name** (string): Restrict the search to a specific repository store.
+  Accepts only alphanumeric names with hyphens and underscores.
 
 ## Optional Update Parameters (at least one recommended)
 - **title** (string): New title.
@@ -890,7 +892,7 @@ The updated insight object, including **formatted_id** (KN-NNNN) and the new **u
 { "id": 1, "scope": "global", "confidence": 0.8 }
 \`\`\`
 \`\`\`json
-{ "id": 1, "scope": "project", "project_slug": "my-project", "title": "Revised title" }
+{ "id": 1, "scope": "repository", "repository_name": "my-repo", "title": "Revised title" }
 \`\`\`
 \`\`\`json
 { "id": 1, "superseded_by": 5 }
