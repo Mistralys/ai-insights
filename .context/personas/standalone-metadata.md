@@ -240,7 +240,7 @@ cc_tools:
 ###  Path: `/personas/standalone/src/meta/knowledge-archiver.yaml`
 
 ```yaml
-slug: knowledge-archiver
+slug: standalone-knowledge-archiver
 name: "Knowledge Archiver"
 description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
 vs_file_name: knowledge-archiver.agent.md
