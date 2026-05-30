@@ -1,5 +1,13 @@
 # AI Insights Changelog
 
+## v1.28.0 - Knowledge Repository Scope
+> mcp v1.32.0
+
+- MCP: Replaced `'project'` knowledge scope with `'repository'` — `InsightScope` is now `['global', 'repository']`.
+- MCP: Repository-scoped insights use `repository_name` as store discriminator; `origin_plan` added as provenance metadata.
+- MCP: `'global'` is now a reserved repository name; attempting to use it as a `repository_name` is rejected.
+- GUI: Knowledge page tabs updated to Global / Repository; client-side filtering uses `repository_name`.
+
 ## v1.27.0 - Knowledge Store and Browser Tool Support
 > mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
 

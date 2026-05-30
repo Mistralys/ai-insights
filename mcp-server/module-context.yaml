@@ -92,6 +92,26 @@ documents:
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "file-tree.md"
 
+  - description: 'MCP Server - Source (GUI API Handlers)'
+    outputPath: 'mcp-server/source-gui-api-handlers.md'
+    sources:
+      - type: file
+        description: "GUI REST route handlers: knowledge, queue, run-log, server bootstrap"
+        sourcePaths:
+          - gui
+        filePattern: "*.ts"
+        excludePatterns:
+          - 'public/'
+
+  - description: 'MCP Server - Source (GUI Frontend)'
+    outputPath: 'mcp-server/source-gui-frontend.md'
+    sources:
+      - type: file
+        description: "GUI static frontend: app shell, views, router, and utilities"
+        sourcePaths:
+          - gui/public
+        filePattern: "*.js"
+
   - description: 'MCP Server - Workflow Spec (State & Data)'
     outputPath: 'mcp-server/workflow-spec-state.md'
     sources:

@@ -1345,7 +1345,7 @@ gui/api.ts — handleListProjects processing pipeline:
 ### N.1 Deduplication Check
 
 ```
-Synthesis agent → ledger_search_insights(query, scope?, category?, project_slug?, limit?)
+Synthesis agent → ledger_search_insights(query, scope?, category?, repository_name?, limit?)
   ↓
 resolveLedgerRoot()  ← centralised ledger root (same root used by all ledger operations)
   ↓
@@ -1353,10 +1353,10 @@ KnowledgeStoreManager.searchInsights(query, filters)
   ↓
 _loadInsights(filters)
   Store selection:
-    scope: 'project' + project_slug → readProjectStore(slug)   only
-    scope: 'global'                  → readGlobalStore()         only
-    no filters                       → readGlobalStore() +
-                                        all {slug}-insights.json stores
+    scope: 'repository' + repository_name → readRepositoryStore(repoName)   only
+    scope: 'global'                        → readGlobalStore()                only
+    no filters                             → readGlobalStore() +
+                                             all {repository_name}-insights.json stores
   ↓
 For each loaded KnowledgeStore:
   InsightSchema.parse() on each entry  ← schema validation; malformed entries skipped
@@ -1375,16 +1375,16 @@ Return matched Insight[] (each augmented with formatted_id: 'KN-NNNN') to agent
 ### N.2 Insight Commit
 
 ```
-Synthesis agent → ledger_add_insight(scope, project_slug?, title, content, category, tags, source?, confidence?)
+Synthesis agent → ledger_add_insight(scope, repository_name?, title, content, category, tags, source?, confidence?)
   ↓
 KnowledgeStoreManager.addInsight(fields)
   ↓
-Scope guard: scope === 'project' && !project_slug → throw Error (project_slug required)
+Scope guard: scope === 'repository' && !repository_name → throw Error (repository_name required)
   ↓
 withLock(knowledgeDir(), async () => {        ← single lock scope for entire read-modify-write
   storePath = scope === 'global'
     ? globalStorePath()
-    : projectStorePath(slug)   ← _validateSlug(slug) enforced (PROJECT_SLUG_REGEX)
+    : repositoryStorePath(repoName)   ← _validateSlug(repoName) enforced (PROJECT_SLUG_REGEX); 'global' is reserved
     ↓
   store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
     ↓
@@ -1399,14 +1399,14 @@ withLock(knowledgeDir(), async () => {        ← single lock scope for entire r
 Return { ...insight, formatted_id: 'KN-NNNN' } to agent
 ```
 
-**Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{slug}-insights.json` (scope: project). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
+**Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{repository_name}-insights.json` (scope: repository). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
 
 **Storage layout:**
 ```
 {ledgerRoot}/.knowledge/
-  .lock                     — lock file created by withLock
-  global-insights.json      — scope: 'global' insights
-  {slug}-insights.json      — scope: 'project' insights for each project slug
+  .lock                              — lock file created by withLock
+  global-insights.json               — scope: 'global' insights
+  {repository_name}-insights.json    — scope: 'repository' insights for each repository
 ```
 
 ---
@@ -1431,14 +1431,14 @@ Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&quer
   ↓
 gui/server.ts matchRoute()
   method === 'GET', rest === ['knowledge']
-  → parse query string: scope, category, tags (comma-split), project_slug, query, limit, offset
+  → parse query string: scope, category, tags (comma-split), repository_name, query, limit, offset
   ↓
 handleListKnowledge(ledgerRoot, params)
   ↓
   query present?
-    YES → KnowledgeStoreManager.searchInsights(query, { scope, category, project_slug, tags, limit, offset })
+    YES → KnowledgeStoreManager.searchInsights(query, { scope, category, repository_name, tags, limit, offset })
           (substring match → tag intersection filter → offset/limit pagination — all in searchInsights())
-    NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, project_slug, limit, offset })
+    NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, repository_name, limit, offset })
   ↓
   Return Insight[] (each augmented with formatted_id)
   ↓
@@ -1446,7 +1446,7 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ```
 
 **Key notes:**
-- `scope` validated via `InsightScope.safeParse()` — unknown values fall back to `undefined` (no scope filter), no error.
+- `scope` validated via `InsightScope.safeParse()` — unknown values (including the removed `'project'` scope) fall back to `undefined` (no scope filter), no error. **This is intentionally lenient:** the list/search operation is read-only and non-destructive, so an unrecognised scope is safely treated as "return all scopes" rather than an error. Contrast with `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleUpdateKnowledge`, and `handleMoveKnowledge`, which all throw `VALIDATION_ERROR` for absent or unrecognised scope values — those handlers require an explicit, unambiguous scope to prevent accidental cross-store mutations.
 - `tags` is comma-separated: `"ts,vitest"` → `["ts", "vitest"]`.
 - `limit` and `offset` coerced to non-negative integers; invalid values default to `undefined`/`0`.
 - When `query` is present, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call.
@@ -1456,20 +1456,20 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ### O.2: DELETE /api/knowledge/:id — Delete Insight
 
 ```
-Browser → DELETE /api/knowledge/42?scope=project&project_slug=my-repo
+Browser → DELETE /api/knowledge/42?scope=repository&repository_name=my-repo
   ↓
 gui/server.ts matchRoute()
   method === 'DELETE', rest === ['knowledge', '42']
   → parse :id (decodeURIComponent, raw string)
-  → parse scope, project_slug from query string
+  → parse scope, repository_name from query string
   ↓
-handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug)
+handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
-  InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'project'
-  project_slug required when scope === 'project'  ← throws VALIDATION_ERROR if absent
+  InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'repository'
+  repository_name required when scope === 'repository'  ← throws VALIDATION_ERROR if absent
   ↓
-  KnowledgeStoreManager.deleteInsight(id, { scope, project_slug })
+  KnowledgeStoreManager.deleteInsight(id, { scope, repository_name })
     withLock(knowledgeDir())
       readStore → find insight by id → splice → atomicWriteJson
   ↓
@@ -1485,30 +1485,30 @@ gui/server.ts → HTTP 204 No Content
 ### O.3: POST /api/knowledge/:id/promote — Promote Project Insight to Global
 
 ```
-Browser → POST /api/knowledge/42/promote?scope=project&project_slug=my-repo
+Browser → POST /api/knowledge/42/promote?scope=repository&repository_name=my-repo
   ↓
 gui/server.ts matchRoute()
   method === 'POST', rest === ['knowledge', '42', 'promote']
   → parse :id (decodeURIComponent)
-  → parse scope, project_slug from query string
+  → parse scope, repository_name from query string
   ↓
-handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug)
+handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
-  scope must be 'project'  ← scope='global' throws VALIDATION_ERROR ("already global")
-  project_slug required    ← throws VALIDATION_ERROR if absent
+  scope must be 'repository'  ← scope='global' throws VALIDATION_ERROR ("already global")
+  repository_name required    ← throws VALIDATION_ERROR if absent
   ↓
-  KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+  KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
     ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
     → new insight assigned next_id from global store; new ID differs from original
     → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
   ↓
-  Return new global Insight (new numeric ID — NOT the original project-scoped ID)
+  Return new global Insight (new numeric ID — NOT the original repository-scoped ID)
   ↓
 gui/server.ts → HTTP 200 { data: Insight }
 ```
 
-**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote project-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
+**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote repository-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
 
 **Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable.
 
@@ -1518,7 +1518,7 @@ gui/server.ts → HTTP 200 { data: Insight }
 
 ```
 Browser → PATCH /api/knowledge/42
-  Body: { "scope": "project", "project_slug": "my-repo", "title": "Updated title", "tags": ["ts"] }
+  Body: { "scope": "repository", "repository_name": "my-repo", "title": "Updated title", "tags": ["ts"] }
   ↓
 gui/server.ts handleRequest() special case
   knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path)
@@ -1533,13 +1533,13 @@ handleUpdateKnowledge(ledgerRoot, rawId, body)
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
   KnowledgeUpdateBodySchema.safeParse(body)
     .strict() — unknown fields rejected
-    scope required; project_slug required when scope === 'project'
+    scope required; repository_name required when scope === 'repository'
     superseded_by: null is valid (field-clearing semantics)
     → throws VALIDATION_ERROR on parse failure
   ↓
   superseded_by: null → mapped to undefined before forwarding
   ↓
-  KnowledgeStoreManager.updateInsight(id, updates, { scope, project_slug })
+  KnowledgeStoreManager.updateInsight(id, updates, { scope, repository_name })
     withLock(knowledgeDir())
       readStore → find insight by id → merge updates → sets updated_at → atomicWriteJson
   ↓
@@ -1548,15 +1548,15 @@ handleUpdateKnowledge(ledgerRoot, rawId, body)
 gui/server.ts → HTTP 200 { data: Insight }
 ```
 
-**Immutable fields:** `id`, `scope`, `project_slug`, `created_at` cannot be changed via PATCH — they are excluded from `KnowledgeUpdateBodySchema`.
+**Immutable fields:** `id`, `scope`, `repository_name`, `created_at` cannot be changed via PATCH — they are excluded from `KnowledgeUpdateBodySchema`.
 
 ---
 
-### O.5: POST /api/knowledge/:id/move — Move Insight to Another Project
+### O.5: POST /api/knowledge/:id/move — Move Insight to Another Repository
 
 ```
 Browser → POST /api/knowledge/42/move
-  Body: { "source_scope": "global", "project_slug": "target-repo" }
+  Body: { "source_scope": "global", "repository_name": "target-repo" }
   ↓
 gui/server.ts handleRequest() special case
   knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path)
@@ -1571,12 +1571,12 @@ handleMoveKnowledge(ledgerRoot, rawId, body)
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
   KnowledgeMoveBodySchema.safeParse(body)
     .strict() — unknown fields rejected
-    source_scope required; source_project_slug required (handler-enforced) when source_scope === 'project'
-    project_slug required (destination)
-    source and destination must differ (source_scope='project' + source_project_slug === project_slug → VALIDATION_ERROR)
+    source_scope required; source_repository_name required (handler-enforced) when source_scope === 'repository'
+    repository_name required (destination)
+    source and destination must differ (source_scope='repository' + source_repository_name === repository_name → VALIDATION_ERROR)
     → throws VALIDATION_ERROR on parse failure
   ↓
-  KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+  KnowledgeStoreManager.moveInsight(id, { scope: source_scope, repository_name: source_repository_name }, 'repository', repository_name)
     ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
     → new insight assigned next_id from target store; new ID differs from original
     → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
@@ -1587,7 +1587,7 @@ gui/server.ts → HTTP 200 { data: Insight }
 ```
 
 **Supported move variants:**
-- `global → project`: moves a global insight into a named project store.
-- `project → project`: moves a project insight to a different project (`source_project_slug !== project_slug` enforced).
+- `global → repository`: moves a global insight into a named repository store.
+- `repository → repository`: moves a repository insight to a different repository (`source_repository_name !== repository_name` enforced).
 
 **Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.

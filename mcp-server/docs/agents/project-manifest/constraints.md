@@ -1935,11 +1935,62 @@ function _bindQueueActions(container, entries) { /* ... */ }
 
 ## Knowledge Store Constraints
 
+### 73a. `'global'` Is a Reserved Repository Name
+
+**Rule:** The string `"global"` MUST NOT be used as a `repository_name` when adding or moving a repository-scoped insight. Attempting to call `addInsight` or `repositoryStorePath()` with `repository_name === 'global'` throws an error.
+
+**Rationale:** The global knowledge store file is named `global-insights.json`. If a repository were also named `"global"`, its store file would collide with the global store, corrupting both stores. The reserved-name guard is applied in `KnowledgeStoreManager.repositoryStorePath()` before any file path is constructed.
+
+**Enforcement:** `KnowledgeStoreManager.repositoryStorePath(repoName)` throws `Error('Repository name "global" is reserved...')` when `repoName === 'global'`. This is the only enforcement point — the Zod `InsightSchema` and the MCP tool input schemas do NOT validate the reserved name; the guard is storage-layer-only.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — 'global' is reserved; this will throw at the storage layer
+await manager.addInsight({ scope: 'repository', repository_name: 'global', ... });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — use a real repository name (e.g. derived from repo root dir basename)
+await manager.addInsight({ scope: 'repository', repository_name: 'my-repo', ... });
+
+// ✅ CORRECT — to add cross-repository knowledge, use global scope instead
+await manager.addInsight({ scope: 'global', ... });
+```
+
+---
+
+### 73b. `origin_plan` Is Provenance Metadata Only — Not a Storage Key
+
+**Rule:** The `origin_plan` field on an `Insight` is strictly a provenance annotation — it records which plan folder produced the insight. It MUST NOT be used as a storage discriminator, a routing key, or a scope identifier. The two valid storage scopes are `'global'` and `'repository'`; there is no `'project'` scope and `origin_plan` does not create one.
+
+**Rationale:** A previous design used a `'project'` scope (with `project_slug` as the store key) that conflated storage location with planning provenance. The current design separates these concerns: `scope` + `repository_name` determine where an insight is stored; `origin_plan` records where it was first discovered, regardless of where it is stored. An insight discovered in plan `2026-05-01-my-feature` (i.e. `origin_plan: '2026-05-01-my-feature'`) may be stored globally or under any repository — the plan slug does not change its storage location.
+
+**Forbidden patterns:**
+- Using `origin_plan` as a scope value (e.g. `scope: origin_plan`) ❌
+- Using `origin_plan` as a `repository_name` discriminator ❌
+- Passing `origin_plan` to any store-selection method (`searchInsights`, `listInsights`, `updateInsight`, `deleteInsight`) as a filter ❌
+- Treating `origin_plan` as equivalent to `project_slug` in the sense of defining a per-project store ❌
+
+**Correct usage:**
+```typescript
+// ✅ CORRECT — origin_plan is metadata only; scope + repository_name determine storage
+await manager.addInsight({
+  scope: 'repository',
+  repository_name: 'ai-insights',   // storage key — where it lives
+  origin_plan: '2026-05-01-my-feature', // provenance — where it was discovered
+  title: '...',
+  // ...
+});
+```
+
+---
+
 ### 73. `.knowledge/` Directory Uses a Single Lock Scope for All Writes; Excluded from Project Enumeration
 
 **Rule:** All write operations on the `.knowledge/` store (`addInsight`, `updateInsight`) MUST acquire a single `withLock(knowledgeDir(), ...)` scope that covers the entire read-modify-write sequence. Pure reads (`searchInsights`, `listInsights`) do NOT acquire a lock, consistent with the `LedgerStore` read pattern. The `.knowledge/` directory lives at `{ledgerRoot}/.knowledge/` and MUST NOT be included in project enumeration (`listAllProjects`, `detectProjectByCwd`) — it is global infrastructure, not a per-project ledger.
 
-**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{slug}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
+**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{repository_name}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
 
 **Lock target:** Always `knowledgeDir()` — never a per-file path and never `store.storageDir` (that is the per-project lock target, not the knowledge store lock target).
 

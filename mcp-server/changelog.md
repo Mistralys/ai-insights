@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.32.0 - Knowledge Repository Scope Model
+- Schema: Replaced `'project'` scope with `'repository'` scope in `InsightScope` — valid scopes are now `['global', 'repository']` only.
+- Schema: `project_slug` store discriminator replaced by `repository_name`; `origin_plan` added as provenance-only metadata field.
+- Storage: `KnowledgeStoreManager.repositoryStorePath()` uses `{repository_name}-insights.json` naming; enforces `'global'` reserved-name guard.
+- Storage: `addInsight`, `updateInsight`, `deleteInsight`, `moveInsight` updated to use `repository_name` throughout.
+- Tools: `ledger_add_insight` — `scope: 'repository'` now requires `repository_name`; `repository_name: 'global'` is rejected.
+- Tools: `ledger_add_insight` — `origin_plan` field accepted as provenance metadata; stored but not used as a storage key.
+- GUI: Knowledge page `#/knowledge` tab labels updated to Global / Repository; `repository_name` filter replaces `project_slug`.
+- GUI: All five knowledge REST handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) updated to use `repository_name` / `source_repository_name` field names.
+- GUI: `api-client.js` updated — `addInsight`, `moveInsight`, `promoteInsight` use `repository_name` / `source_repository_name`.
+- Tests: `knowledge-repository-scope.test.ts` — 31 integration tests covering storage layer and GUI REST handlers for repository scope.
+- Docs: Updated `api-surface.md`, `constraints.md` (§73a reserved-name, §73b provenance-only), `file-tree.md` (`.knowledge/` layout), `AGENTS.md` (Knowledge Collection cross-system row).
+
 ## v1.31.0 - Knowledge Store, GUI, and Namespaced Storage
 - Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo slug collisions.
 - Storage: One-time idempotent migration to namespaced layout runs on startup.
