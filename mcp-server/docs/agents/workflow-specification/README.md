@@ -2,12 +2,17 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.5.0
-**Date:** 2026-05-04
+**Version:** 2.5.1
+**Date:** 2026-05-30
 
 ---
 
 ## Changelog
+
+### v2.5.1 - Mixed-Routing Forward Progress
+
+- **Next-stage routing clarified (§13.1):** When multiple ready WPs route to different next agents (e.g., QA handoff with one WP routing to Security Auditor and another to Reviewer), the handoff returns the first ready WP's `READY_FOR_*` status rather than `WAIT`. Remaining WPs are dispatched via subsequent per-agent handoff calls — each agent's `getNextAction` is role-scoped, so dispatching the first agent never misroutes the other WPs. This eliminates false WAIT states that caused IDE stalls in mixed-stage projects.
+- **Design notes added (§13.1):** Added mixed-routing design notes to the QA and Reviewer handoff pseudocode blocks documenting the first-match dispatch behavior and its safety guarantees.
 
 ### v2.5.0 - Cross-WP Dispatch from Non-PM Agents
 

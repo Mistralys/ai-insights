@@ -954,25 +954,48 @@ export class KnowledgeStoreManager {
    * Searches insights across all (or filtered) stores for the query string.
    *
    * Applies a case-insensitive substring match against title, content, and every
-   * entry in the tags array.
+   * entry in the tags array. Optionally narrows by tags (intersection), then
+   * applies offset/limit pagination — in that order.
    *
-   * @param query - Substring to search for
-   * @param filters - Optional scope/category/project_slug filters to narrow the stores searched
-   * @returns Insights matching the query
+   * @param query - Substring to search for (case-insensitive)
+   * @param filters - Optional scope/category/project_slug filters to narrow the stores searched,
+   *   plus optional tags (intersection filter), limit, and offset for pagination.
+   *   - `filters.tags` — Case-sensitive intersection filter; every tag in this array must be
+   *     present in `insight.tags` using exact-case matching. This contrasts with the
+   *     case-insensitive text search applied to `query`. Pass tags in the exact casing
+   *     they were stored with.
+   * @returns Insights matching the query, filtered by tags, and paginated
    */
   async searchInsights(
     query: string,
-    filters?: { scope?: InsightScope; project_slug?: string; category?: string }
+    filters?: {
+      scope?: InsightScope;
+      project_slug?: string;
+      category?: string;
+      tags?: string[];
+      limit?: number;
+      offset?: number;
+    }
   ): Promise<Insight[]> {
-    const allInsights = await this._loadInsights(filters);
+    const { tags: tagFilter, limit, offset = 0, ...loadFilters } = filters ?? {};
+
+    const allInsights = await this._loadInsights(loadFilters);
     const q = query.toLowerCase();
 
-    return allInsights.filter(
+    let results = allInsights.filter(
       (insight) =>
         insight.title.toLowerCase().includes(q) ||
         insight.content.toLowerCase().includes(q) ||
         insight.tags.some((tag) => tag.toLowerCase().includes(q))
     );
+
+    if (tagFilter && tagFilter.length > 0) {
+      results = results.filter((insight) =>
+        tagFilter.every((tag) => insight.tags.includes(tag))
+      );
+    }
+
+    return results.slice(offset, limit !== undefined ? offset + limit : undefined);
   }
 
   /**
@@ -1058,6 +1081,102 @@ export class KnowledgeStoreManager {
       }
 
       throw new Error(`Insight with id ${id} not found`);
+    });
+  }
+
+  /**
+   * Moves an insight from one store to another in a single atomic lock span,
+   * eliminating the TOCTOU window inherent in the previous add→delete two-step pattern.
+   *
+   * The operation performs these steps inside a single withLock(knowledgeDir) span:
+   *   1. Resolve the source store path(s) from sourceFilter.
+   *   2. Find the insight by id in the source store — throws if not found.
+   *   3. Construct the moved insight: new id (from the target store's next_id counter),
+   *      corrected scope/project_slug, and a fresh updated_at timestamp.
+   *   4. Validate the new insight with InsightSchema.parse(…).
+   *   5. Write the updated target store (with the new insight appended) via atomicWriteJson.
+   *   6. Remove the original insight from the source store and write it via atomicWriteJson.
+   *
+   * @param id - Numeric id of the insight to move
+   * @param sourceFilter - Scope (and optional project_slug) of the store containing the insight
+   * @param targetScope - Destination scope ('global' or 'project')
+   * @param targetProjectSlug - Required when targetScope === 'project'
+   * @returns The moved Insight with new id, corrected scope/project_slug, and updated_at
+   * @throws Error if the insight is not found in the source store(s)
+   * @throws Error if targetScope === 'project' and targetProjectSlug is absent
+   * @warning Do NOT call from inside a withLock(knowledgeDir, …) callback.
+   *   This method acquires the lock itself; a nested call would deadlock.
+   */
+  async moveInsight(
+    id: number,
+    sourceFilter: { scope: InsightScope; project_slug?: string },
+    targetScope: InsightScope,
+    targetProjectSlug?: string
+  ): Promise<Insight> {
+    if (targetScope === 'project' && !targetProjectSlug) {
+      throw new Error('targetProjectSlug is required when targetScope is "project"');
+    }
+
+    return await withLock(this.knowledgeDir(), async () => {
+      // 1. Resolve source path(s)
+      const sourcePaths = await this._storePathsForFilter(sourceFilter);
+
+      // 2. Find insight in source store
+      let sourceStorePath: string | undefined;
+      let sourceStore: KnowledgeStore | undefined;
+      let sourceIdx = -1;
+
+      for (const storePath of sourcePaths) {
+        const store = await this._readStore(storePath);
+        const idx = store.insights.findIndex((i) => i.id === id);
+        if (idx !== -1) {
+          sourceStorePath = storePath;
+          sourceStore = store;
+          sourceIdx = idx;
+          break;
+        }
+      }
+
+      if (!sourceStorePath || !sourceStore || sourceIdx === -1) {
+        throw new Error(`Insight with id ${id} not found`);
+      }
+
+      const originalInsight = sourceStore.insights[sourceIdx];
+
+      // 3. Resolve target store path and read it
+      const targetStorePath =
+        targetScope === 'global'
+          ? this.globalStorePath()
+          : this.projectStorePath(targetProjectSlug!);
+
+      const targetStore = await this._readStore(targetStorePath);
+
+      // 4. Construct the moved insight with new id, scope, and updated_at
+      const newNumericId = targetStore.next_id;
+      targetStore.next_id = newNumericId + 1;
+      const movedAt = now(); // capture once — reused for both movedInsight.updated_at and store.last_updated
+
+      const movedInsight: Insight = InsightSchema.parse({
+        ...originalInsight,
+        id: newNumericId,
+        scope: targetScope,
+        project_slug: targetScope === 'global' ? undefined : targetProjectSlug,
+        updated_at: movedAt,
+      });
+
+      // 5. Append to target store and write atomically
+      targetStore.insights.push(movedInsight);
+      targetStore.last_updated = movedAt;
+      const validatedTarget = KnowledgeStoreSchema.parse(targetStore);
+      await atomicWriteJson(targetStorePath, validatedTarget);
+
+      // 6. Remove from source store and write atomically
+      sourceStore.insights.splice(sourceIdx, 1);
+      sourceStore.last_updated = now();
+      const validatedSource = KnowledgeStoreSchema.parse(sourceStore);
+      await atomicWriteJson(sourceStorePath, validatedSource);
+
+      return movedInsight;
     });
   }
 
