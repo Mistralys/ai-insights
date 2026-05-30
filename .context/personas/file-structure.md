@@ -121,7 +121,6 @@ _SOURCE: Directory tree_
         │   └── reviewer-output-format.md
         │   └── security-auditor-operational-protocol.md
         │   └── security-auditor-output-format.md
-        │   └── synthesis-knowledge-collection.md
         │   └── synthesis-operational-protocol.md
         │   └── synthesis-output-format.md
     └── standalone/

@@ -242,12 +242,12 @@ cc_tools:
 ```yaml
 slug: knowledge-archiver
 name: "Knowledge Archiver"
-description: "Extract and commit reusable knowledge from archived ledger project folders into the knowledge base."
+description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
 vs_file_name: knowledge-archiver.agent.md
 id: standalone-knowledge-archiver
 cc_file_name: knowledge-archiver.md
-version: "1.3.1"
-last_updated: "2026-05-29"
+version: "1.4.0"
+last_updated: "2026-05-30"
 mcp_server_name: central_pm
 
 tools:
