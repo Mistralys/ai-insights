@@ -1,4 +1,4 @@
-moduleMetaData:
+﻿moduleMetaData:
   id: "mcp-server"
   label: "Project Ledger MCP Server"
   description: "MCP server providing typed tools for managing project ledgers in AI agent workflows."
@@ -16,101 +16,168 @@ documents:
   - description: 'MCP Server - Overview'
     outputPath: 'mcp-server/overview.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Overview
+          README for the Project Ledger MCP Server: purpose, full tool catalog, quick-start, and usage notes for agent workflows.
       - type: file
         description: "Overview"
         sourcePaths:
           - README.md
         filePattern: "README.md"
 
-  - description: 'MCP Server - Manifest'
-    outputPath: 'mcp-server/manifest.md'
+  - description: 'MCP Server - Manifest (README)'
+    outputPath: 'mcp-server/manifest-readme.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Project Overview
+          Project manifest README: module scope, architectural summary, and index of all manifest documents.
       - type: file
-        description: "Public Interfaces and APIs"
-        sourcePaths:
-          - docs/agents/project-manifest
-        filePattern: "*.md"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "README.md"
 
-  - description: 'MCP Server - Workflow Specification'
-    outputPath: 'mcp-server/workflow-specification.md'
+  - description: 'MCP Server - Manifest (API Surface)'
+    outputPath: 'mcp-server/manifest-api-surface.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: API Surface
+          All MCP tool signatures, input schemas, return types, and error codes. The authoritative reference for any agent calling MCP tools.
       - type: file
-        description: "Workflow logic: state machines, routing, handoffs, edge cases"
-        sourcePaths:
-          - docs/agents/workflow-specification
-        filePattern: "*.md"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "api-surface.md"
 
-  - description: 'MCP Server - Source (Tools)'
-    outputPath: 'mcp-server/source-tools.md'
+  - description: 'MCP Server - Manifest (Constraints)'
+    outputPath: 'mcp-server/manifest-constraints.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Constraints
+          Architectural invariants, naming conventions, status transition rules, and known limitations. Read this before making any changes to the MCP server.
       - type: file
-        description: "MCP tool handler implementations"
-        sourcePaths:
-          - src/tools
-        filePattern: "*.ts"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "constraints.md"
 
-  - description: 'MCP Server - Source (Storage & Schema)'
-    outputPath: 'mcp-server/source-storage.md'
+  - description: 'MCP Server - Manifest (Tech Stack)'
+    outputPath: 'mcp-server/manifest-tech-stack.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Tech Stack
+          Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server.
       - type: file
-        description: "LedgerStore, schema validation, and data models"
-        sourcePaths:
-          - src/storage
-          - src/schema
-        filePattern: "*.ts"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "tech-stack.md"
 
-  - description: 'MCP Server - Source (Utils)'
-    outputPath: 'mcp-server/source-utils.md'
+  - description: 'MCP Server - Manifest (Data Flows)'
+    outputPath: 'mcp-server/manifest-data-flows.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Data Flows
+          Tool invocation lifecycle, storage paths, inter-module data movement, and ledger read/write patterns.
       - type: file
-        description: "Utility modules: constants, agent registry, pipeline maps, formatters"
-        sourcePaths:
-          - src/utils
-        filePattern: "*.ts"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "data-flows.md"
 
-  - description: 'MCP Server - Source (GUI)'
-    outputPath: 'mcp-server/source-gui.md'
+  - description: 'MCP Server - Manifest (File Tree)'
+    outputPath: 'mcp-server/manifest-file-tree.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: File Tree
+          Annotated directory listing of every source file with its role and relationships. Use to locate files before reading them.
       - type: file
-        description: "GUI layer: queue management, run-log handlers, config, error types"
-        sourcePaths:
-          - src/gui
-        filePattern: "*.ts"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "file-tree.md"
 
-  - description: 'MCP Server - Source (GUI Frontend)'
-    outputPath: 'mcp-server/source-gui-frontend.md'
+  - description: 'MCP Server - Workflow Spec (State & Data)'
+    outputPath: 'mcp-server/workflow-spec-state.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: State Machines & Data Model
+          Specification overview, project/WP/pipeline lifecycle state machines, and the complete ledger data model.
       - type: file
-        description: "GUI frontend SPA: API client, router, views, and utility modules"
-        sourcePaths:
-          - gui/public
-        filePattern: "*.js"
-        excludePatterns:
-          - 'libs/'
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "README.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "state-machines.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "data-model.md"
+
+  - description: 'MCP Server - Workflow Spec (Operations & Routing)'
+    outputPath: 'mcp-server/workflow-spec-operations.md'
+    sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: Operations & Routing
+          Tool operations, pipeline routing maps, agent handoff logic, and step-by-step workflow walkthrough.
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "operations.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "pipeline-routing.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "handoff.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "walkthrough.md"
+
+  - description: 'MCP Server - Workflow Spec (Edge Cases & Guidance)'
+    outputPath: 'mcp-server/workflow-spec-edge-cases.md'
+    sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: Edge Cases & Guidance
+          Edge case handling, dependency and rework patterns, auxiliary systems, and agent recommendations.
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "edge-cases.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "dependencies-and-rework.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "auxiliary-systems.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "recommendations.md"
 
   - description: 'MCP Server - Tests'
     outputPath: 'mcp-server/tests.md'
     sources:
-      - type: file
-        description: "Test suite (unit, integration)"
+      - type: text
+        content: |
+          # MCP Server - Tests
+          Directory tree of the Vitest test suite. Use to locate test files before running or editing them.
+      - type: tree
+        description: 'Test suite directory structure'
         sourcePaths:
           - tests
-        filePattern: "*.ts"
-        excludePatterns:
-          - 'helpers/'
+        filePattern: '*'
 
   - description: 'MCP Server - File Structure'
     outputPath: 'mcp-server/file-structure.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - File Structure
+          Full directory tree of the MCP server module. Use to locate source files before reading them.
       - type: tree
-        description: 'Directory tree'
+        description: 'MCP server source directory tree'
         sourcePaths:
           - ./
         filePattern: '*'
-        renderFormat: ascii
-        maxDepth: 8
+        maxDepth: 6
         notPath:
           - 'node_modules/'
           - 'dist/'
-          - 'storage/ledger/'
+          - 'coverage/'
+          - 'storage/'
 

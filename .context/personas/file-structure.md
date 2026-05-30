@@ -1,4 +1,10 @@
 # Personas - File Structure
+<INSTRUCTION>
+# Personas - File Structure
+Complete directory tree of the personas build system (depth 8). Covers source templates, shared partials, and generated output for all suites and targets.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Directory tree_
 # Directory tree
 ###  
@@ -121,7 +127,6 @@ _SOURCE: Directory tree_
         │   └── reviewer-output-format.md
         │   └── security-auditor-operational-protocol.md
         │   └── security-auditor-output-format.md
-        │   └── synthesis-knowledge-collection.md
         │   └── synthesis-operational-protocol.md
         │   └── synthesis-output-format.md
     └── standalone/

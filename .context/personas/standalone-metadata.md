@@ -1,6 +1,11 @@
 # Personas - Standalone Metadata
-_SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)_
-# YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)
+<INSTRUCTION>
+# Personas - Standalone Persona Metadata
+YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
+</INSTRUCTION>
+------------------------------------------------------------
+_SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)_
+# YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)
 ```
 // Structure of documents
 └── personas/
@@ -134,8 +139,8 @@ description: "Design, generate, and maintain CTX Generator context documentation
 vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
-version: "1.1.1"
-last_updated: "2026-04-08"
+version: "1.2.0"
+last_updated: "2026-05-27"
 
 tools:
   - vscode
@@ -240,14 +245,14 @@ cc_tools:
 ###  Path: `/personas/standalone/src/meta/knowledge-archiver.yaml`
 
 ```yaml
-slug: knowledge-archiver
+slug: standalone-knowledge-archiver
 name: "Knowledge Archiver"
-description: "Extract and commit reusable knowledge from archived ledger project folders into the knowledge base."
+description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
 vs_file_name: knowledge-archiver.agent.md
 id: standalone-knowledge-archiver
 cc_file_name: knowledge-archiver.md
-version: "1.3.1"
-last_updated: "2026-05-29"
+version: "1.4.0"
+last_updated: "2026-05-30"
 mcp_server_name: central_pm
 
 tools:

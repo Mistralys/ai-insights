@@ -10,6 +10,11 @@
 - Scripts: Root scripts migrated to ESM; added `migrate-synthesis-insights` conversion utility.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
 - GUI: Fixed breadcrumb project name, dismiss button for dead orchestrator runs, and filter focus.
+- MCP: INVOKE_AGENT action promotes auto-handoff signals; eliminates contradictory WAIT + auto_handoff.
+- MCP: Orchestrator supervisor skips INVOKE_AGENT actions and routes independently via auto_handoff.
+- MCP: QA, Reviewer, and Documentation WAIT reasons now distinguish work-complete WPs from blocked ones.
+- Personas: Git Committer excludes CTX files from commits on feature branches.
+- Personas: CTX Architect integrates updated CTX Generator documentation.
 
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0

@@ -147,10 +147,10 @@
     "number": 9,
     "id": "ledger-9-synthesis",
     "role": "Synthesis",
-    "version": "3.5.3",
+    "version": "3.6.0",
     "vscode": {
       "file_name": "9-synthesis.agent.md",
-      "agent_name": "9 - Synthesis v3.5.3"
+      "agent_name": "9 - Synthesis v3.6.0"
     },
     "claude_code": {
       "file_name": "9-synthesis.md",

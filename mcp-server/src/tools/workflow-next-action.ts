@@ -915,12 +915,38 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
     }
   }
 
+  // Build a specific WAIT reason by categorising the non-terminal, non-blocked WPs
+  // that include qa in their active stages.
+  const eligibleQaWps = wpDetails.filter((wp) => {
+    if (isTerminalStatus(wp.status) || wp.status === 'BLOCKED') return false;
+    const stages: readonly PipelineType[] =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!stages.includes('qa')) return false;
+    if (hasDependencyBlocked(wp)) return false;
+    return true;
+  });
+  const passedQaCount = eligibleQaWps.filter((wp) =>
+    wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS' && !p.auto_cancelled)
+  ).length;
+  const waitingForQaPrereqCount = eligibleQaWps.length - passedQaCount;
+
+  let qaWaitReason: string;
+  if (eligibleQaWps.length === 0) {
+    qaWaitReason = 'No work packages have qa as an active pipeline stage.';
+  } else if (passedQaCount > 0 && waitingForQaPrereqCount === 0) {
+    qaWaitReason = `All QA runs complete. ${passedQaCount} work package(s) have PASS qa and are ready for the next stage.`;
+  } else if (waitingForQaPrereqCount > 0 && passedQaCount === 0) {
+    qaWaitReason = `No work packages ready for QA. ${waitingForQaPrereqCount} work package(s) are waiting for their upstream prerequisite to pass before QA can begin.`;
+  } else {
+    qaWaitReason = `No new work packages ready for QA. ${passedQaCount} work package(s) have PASS qa; ${waitingForQaPrereqCount} work package(s) are still waiting for their upstream prerequisite.`;
+  }
+
   return {
     content: [{
       type: 'text' as const,
       text: JSON.stringify({
         action: 'WAIT',
-        reason: 'No work packages ready for QA. All WPs either lack implementation pipelines or already have QA pipelines.',
+        reason: qaWaitReason,
       }, null, 2),
     }],
   };
@@ -1134,12 +1160,38 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
     }
   }
 
+  // Build a specific WAIT reason by categorising the non-terminal, non-blocked WPs
+  // that include code-review in their active stages.
+  const eligibleWps = wpDetails.filter((wp) => {
+    if (isTerminalStatus(wp.status) || wp.status === 'BLOCKED') return false;
+    const stages: readonly PipelineType[] =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!stages.includes('code-review')) return false;
+    if (hasDependencyBlocked(wp)) return false;
+    return true;
+  });
+  const passedReviewCount = eligibleWps.filter((wp) =>
+    wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS' && !p.auto_cancelled)
+  ).length;
+  const waitingForPrereqCount = eligibleWps.length - passedReviewCount;
+
+  let waitReason: string;
+  if (eligibleWps.length === 0) {
+    waitReason = 'No work packages have code-review as an active pipeline stage.';
+  } else if (passedReviewCount > 0 && waitingForPrereqCount === 0) {
+    waitReason = `All code reviews complete. ${passedReviewCount} work package(s) have PASS code-review and are ready for the next stage.`;
+  } else if (waitingForPrereqCount > 0 && passedReviewCount === 0) {
+    waitReason = `No work packages ready for review. ${waitingForPrereqCount} work package(s) are waiting for their upstream prerequisite to pass before code-review can begin.`;
+  } else {
+    waitReason = `No new work packages ready for review. ${passedReviewCount} work package(s) have PASS code-review; ${waitingForPrereqCount} work package(s) are still waiting for their upstream prerequisite.`;
+  }
+
   return {
     content: [{
       type: 'text' as const,
       text: JSON.stringify({
         action: 'WAIT',
-        reason: 'No work packages ready for review. All WPs either lack QA pipelines or already have code-review pipelines.',
+        reason: waitReason,
       }, null, 2),
     }],
   };
@@ -1759,16 +1811,37 @@ export async function getDocumentationAction(
     }
   }
 
+  // Build a specific WAIT reason by categorising the non-terminal, non-blocked WPs
+  // that include documentation in their active stages.
+  const eligibleDocWps = wpDetails.filter((wp) => {
+    if (isTerminalStatus(wp.status) || wp.status === 'BLOCKED') return false;
+    const stages: readonly PipelineType[] =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!stages.includes('documentation')) return false;
+    return true;
+  });
+  const passedDocCount = eligibleDocWps.filter((wp) =>
+    wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS' && !p.auto_cancelled)
+  ).length;
+  const waitingForDocPrereqCount = eligibleDocWps.length - passedDocCount;
+
+  let docWaitReason: string;
+  if (eligibleDocWps.length === 0) {
+    docWaitReason = 'No work packages have documentation as an active pipeline stage.';
+  } else if (passedDocCount > 0 && waitingForDocPrereqCount === 0) {
+    docWaitReason = `All documentation runs complete. ${passedDocCount} work package(s) have PASS documentation and are ready for finalization.`;
+  } else if (waitingForDocPrereqCount > 0 && passedDocCount === 0) {
+    docWaitReason = `No work packages ready for documentation. ${waitingForDocPrereqCount} work package(s) are waiting for their upstream prerequisite to pass before documentation can begin.`;
+  } else {
+    docWaitReason = `No new work packages ready for documentation. ${passedDocCount} work package(s) have PASS documentation; ${waitingForDocPrereqCount} work package(s) are still waiting for their upstream prerequisite.`;
+  }
+
   return {
     content: [
       {
         type: 'text' as const,
         text: JSON.stringify(
-          {
-            action: 'WAIT',
-            reason:
-              'No work packages ready for documentation. All WPs either lack code-review pipelines or already have up-to-date documentation.',
-          },
+          { action: 'WAIT', reason: docWaitReason },
           null,
           2
         ),

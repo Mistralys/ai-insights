@@ -1,3 +1,22 @@
+# MCP Server - Manifest (README)
+<INSTRUCTION>
+# MCP Server - Manifest: Project Overview
+Project manifest README: module scope, architectural summary, and index of all manifest documents.
+
+</INSTRUCTION>
+------------------------------------------------------------
+```
+// Structure of documents
+└── mcp-server/
+    └── docs/
+        └── agents/
+            └── project-manifest/
+                └── README.md
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/README.md`
+
+```md
 # Project Manifest: Project Ledger MCP Server
 
 **Version:** 1.1.0  
@@ -57,27 +76,10 @@ See [constraints.md](constraints.md#development--build-constraints) for more det
 
 ---
 
-## Setup (Global MCP Registration)
-
-The recommended setup path is **global registration** via `scripts/install-mcp-global.js`,
-invoked through the workspace CLI:
-
-```bash
-node scripts/cli.js install-mcp
-```
-
-This command installs a stable shim at `~/.ai-insights/bin/launch-server.js` and merges
-the `central_pm` server key into the VS Code user-level `mcp.json`, making the MCP server
-available across all workspaces without per-project configuration. A `--dry-run` flag previews
-the changes without writing.
-
-For workspace-only registration, copy `.mcp.dist.json` to `.mcp.json` and update the
-server path to point to `mcp-server/dist/index.js`.
-
----
-
 ## Related Documentation
 
 - **Ledger Schema:** `/personas/ledger/project-ledger-schema.md`
 - **Workflow Plans:** `/docs/agents/plans/`
 - **Agent Personas:** `/personas/ledger/`
+
+```

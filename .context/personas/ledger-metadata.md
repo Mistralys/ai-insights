@@ -1,4 +1,10 @@
 # Personas - Ledger Metadata
+<INSTRUCTION>
+# Personas - Ledger Persona Metadata
+YAML metadata for all 9 ledger personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, role name, file names, and feature flags.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)_
 # YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)
 ```
@@ -400,8 +406,8 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-version: "3.5.3"
-last_updated: "2026-03-04"
+version: "3.6.0"
+last_updated: "2026-05-30"
 
 tools:
   - vscode
@@ -413,6 +419,9 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+subagents:
+  - standalone-knowledge-archiver
 
 has_mcp: true
 has_detect_project: true
@@ -430,10 +439,6 @@ mcp_tools:
     purpose: Read full WP detail including all pipelines, metrics, and comments.
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
-  - tool: ledger_search_insights
-    purpose: Search the knowledge base for existing insights before committing new ones (deduplication).
-  - tool: ledger_add_insight
-    purpose: Commit a reusable insight (pattern, pitfall, principle, or architectural decision) to the knowledge base.
   - tool: ledger_complete_synthesis
     purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
   - tool: ledger_get_handoff_status

@@ -1,3 +1,22 @@
+# MCP Server - Manifest (Tech Stack)
+<INSTRUCTION>
+# MCP Server - Manifest: Tech Stack
+Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server.
+
+</INSTRUCTION>
+------------------------------------------------------------
+```
+// Structure of documents
+└── mcp-server/
+    └── docs/
+        └── agents/
+            └── project-manifest/
+                └── tech-stack.md
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/tech-stack.md`
+
+```md
 # Tech Stack & Patterns
 
 ## Runtime & Language
@@ -252,3 +271,5 @@ Adding or renaming a role, pipeline type, or status value in the manifest propag
 - **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, `noEmitOnError: true`, and `noUnusedLocals: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output; `noUnusedLocals` makes dead imports and unused variables hard compile errors, preventing structural noise from accumulating silently after refactors
 - **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
 - **File Naming:** Work package IDs follow the pattern `WP-###` (minimum 3 digits; no upper bound — supports `WP-001` through `WP-9999+`)
+
+```
