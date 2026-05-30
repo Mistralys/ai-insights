@@ -1,4 +1,10 @@
 # Orchestrator - Manifest
+<INSTRUCTION>
+# Orchestrator - Project Manifest
+Complete project manifest: tech stack, architectural constraints, API surface, data flows, and file tree for the orchestrator module.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Project manifest (overview, tech stack, constraints, API surface, architecture)_
 # Project manifest (overview, tech stack, constraints, API surface, architecture)
 ```

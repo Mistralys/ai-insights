@@ -1,4 +1,10 @@
 # Personas - Ledger Suite Guide
+<INSTRUCTION>
+# Personas - Ledger Suite Guide
+9-agent ledger workflow user guide: prerequisites, step-by-step pipeline usage for VS Code and Claude Code.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Ledger workflow user guide (9-agent pipeline usage, prerequisites, step-by-step)_
 # Ledger workflow user guide (9-agent pipeline usage, prerequisites, step-by-step)
 ```

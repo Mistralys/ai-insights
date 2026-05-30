@@ -1,4 +1,10 @@
 # Personas - Manifest
+<INSTRUCTION>
+# Personas - Project Manifest
+Complete project manifest: tech stack, architectural constraints, API surface (template syntax, feature flags, partials), data flows, and file tree.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Project manifest (tech stack, constraints, API surface, data flows, file tree)_
 # Project manifest (tech stack, constraints, API surface, data flows, file tree)
 ```

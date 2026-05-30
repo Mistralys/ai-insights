@@ -1,4 +1,10 @@
 # AI Insights - Agent Operating System
+<INSTRUCTION>
+# AI Insights - Agent Operating System
+Authoritative entry point for AI agents. Covers workspace architecture, manifest navigation, efficiency rules, failure protocol, cross-system dependencies, and changelog conventions.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Authoritative entry point for AI agents entering this workspace_
 # Authoritative entry point for AI agents entering this workspace
 ```
@@ -179,12 +185,23 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
 | `.context/project-manifest.md` | Root manifest hub (module links, cross-system deps) |
 | `.context/mcp-server/overview.md` | MCP server README |
-| `.context/mcp-server/manifest.md` | MCP server project manifest (all 6 docs) |
-| `.context/mcp-server/workflow-specification.md` | Workflow spec docs |
-| `.context/mcp-server/source-tools.md` | Tool handler source |
+| `.context/mcp-server/manifest-readme.md` | MCP server manifest: project overview |
+| `.context/mcp-server/manifest-api-surface.md` | MCP server manifest: full API surface |
+| `.context/mcp-server/manifest-constraints.md` | MCP server manifest: constraints and conventions |
+| `.context/mcp-server/manifest-tech-stack.md` | MCP server manifest: tech stack and patterns |
+| `.context/mcp-server/manifest-data-flows.md` | MCP server manifest: data flows |
+| `.context/mcp-server/manifest-file-tree.md` | MCP server manifest: annotated file tree |
+| `.context/mcp-server/workflow-spec-state.md` | Workflow spec: overview, state machines, data model |
+| `.context/mcp-server/workflow-spec-operations.md` | Workflow spec: operations, routing, handoffs, walkthrough |
+| `.context/mcp-server/workflow-spec-edge-cases.md` | Workflow spec: edge cases, dependencies, auxiliary systems |
+| `.context/mcp-server/source-tools-project.md` | Tool source: project lifecycle |
+| `.context/mcp-server/source-tools-workpackage.md` | Tool source: work packages, begin-work, observations |
+| `.context/mcp-server/source-tools-pipeline.md` | Tool source: pipeline |
+| `.context/mcp-server/source-tools-workflow.md` | Tool source: workflow, handoffs, next-action |
+| `.context/mcp-server/source-tools-help.md` | Tool source: help content |
 | `.context/mcp-server/source-storage.md` | LedgerStore + schema source |
 | `.context/mcp-server/source-utils.md` | Utility module source |
-| `.context/mcp-server/tests.md` | Test suite source |
+| `.context/mcp-server/tests.md` | Test suite directory tree |
 | `.context/mcp-server/file-structure.md` | MCP server directory tree |
 | `.context/orchestrator/overview.md` | Orchestrator README |
 | `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
@@ -192,7 +209,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/orchestrator/source-core.md` | Core modules (CLI, config, graph, state, supervisor) |
 | `.context/orchestrator/source-nodes.md` | Pipeline stage node factories |
 | `.context/orchestrator/source-utils.md` | Utility modules (tool wrappers, persona loader, etc.) |
-| `.context/orchestrator/tests.md` | Test suite source |
+| `.context/orchestrator/tests.md` | Test suite directory tree |
 | `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
 | `.context/personas/overview.md` | Personas README |
 | `.context/personas/manifest.md` | Personas project manifest |

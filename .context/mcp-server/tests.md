@@ -1,8 +1,14 @@
 # MCP Server - Tests
-_SOURCE: Test suite (unit, integration)_
-# Test suite (unit, integration)
+<INSTRUCTION>
+# MCP Server - Tests
+Directory tree of the Vitest test suite. Use to locate test files before running or editing them.
+
+</INSTRUCTION>
+------------------------------------------------------------
+_SOURCE: Test suite directory structure_
+# Test suite directory structure
+###  
 ```
-// Structure of documents
 └── mcp-server/
     └── tests/
         └── gui-server.test.ts
@@ -41,6 +47,10 @@ _SOURCE: Test suite (unit, integration)_
             ├── server-knowledge-routes.test.ts
             ├── server-queue.test.ts
             ├── stale-check.test.ts
+        └── helpers/
+            ├── create-temp-store.ts
+            ├── fixtures.ts
+            ├── test-utils.ts
         └── integration/
             ├── auto-handoff.test.ts
             ├── full-workflow.test.ts

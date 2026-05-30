@@ -1,4 +1,10 @@
 # Orchestrator - File Structure
+<INSTRUCTION>
+# Orchestrator - File Structure
+Directory tree of the orchestrator module. Runtime artifacts (pycache, venv, logs, checkpoints) are excluded.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Directory tree_
 # Directory tree
 ###  

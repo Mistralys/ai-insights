@@ -1,4 +1,9 @@
 # Personas - Standalone Metadata
+<INSTRUCTION>
+# Personas - Standalone Persona Metadata
+YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)_
 # YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)
 ```
@@ -134,8 +139,8 @@ description: "Design, generate, and maintain CTX Generator context documentation
 vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
-version: "1.1.1"
-last_updated: "2026-04-08"
+version: "1.2.0"
+last_updated: "2026-05-27"
 
 tools:
   - vscode

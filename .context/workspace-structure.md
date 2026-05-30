@@ -1,4 +1,10 @@
 # AI Insights - Workspace Structure
+<INSTRUCTION>
+# AI Insights - Workspace Structure
+Top-level directory tree of the ai-insights monorepo (depth 3). Use for initial orientation before navigating into specific modules.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Top-level directory tree_
 # Top-level directory tree
 ###  
@@ -26,6 +32,7 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
+    │       ├── ctx-generator-guide.md
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
     │       └── chat.json

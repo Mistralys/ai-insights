@@ -1,4 +1,10 @@
 # Orchestrator - Core Source
+<INSTRUCTION>
+# Orchestrator - Core Source Modules
+Python source for core modules: CLI entry point, Config, LangGraph StateGraph definition, AgentState, and supervisor node.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Core modules: CLI, config, graph, state, supervisor, MCP client_
 # Core modules: CLI, config, graph, state, supervisor, MCP client
 ```
@@ -2109,8 +2115,11 @@ _DEST_SYNTHESIS = ROLE_IDS["Synthesis"]
 _TERMINAL_STATUSES: frozenset[str] = WP_TERMINAL_STATUSES
 
 # Actions where the role has nothing to do this iteration.
+# INVOKE_AGENT is the IDE-facing variant of WAIT emitted when auto_handoff is present;
+# the orchestrator handles routing itself so it treats it as a skip too.
 _SKIP_ACTIONS: frozenset[str] = frozenset({
     "WAIT",
+    "INVOKE_AGENT",
     "WAIT_FOR_REWORK",
     "WAIT_FOR_DOWNSTREAM",
     "WAIT_FOR_UPSTREAM_REWORK_LIMIT",

@@ -1,16 +1,16 @@
-# MCP Server - Workflow Specification
-_SOURCE: Workflow logic: state machines, routing, handoffs, edge cases_
-# Workflow logic: state machines, routing, handoffs, edge cases
+# MCP Server - Workflow Spec (Edge Cases & Guidance)
+<INSTRUCTION>
+# MCP Server - Workflow Spec: Edge Cases & Guidance
+Edge case handling, dependency and rework patterns, auxiliary systems, and agent recommendations.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/
     └── docs/
         └── agents/
             └── workflow-specification/
-                └── README.md
-                └── auxiliary-systems.md
-                └── data-model.md
-                └── dependencies-and-rework.md
                 └── edge-cases.md
                 └── handoff.md
                 └── operations.md
@@ -1897,7 +1897,16 @@ Cross-WP dispatch is a **best-effort optimization for IDE runners**. The orchest
 
 **Related sections:** [§13.5](handoff.md#135-findnextreadydispatch-algorithm) (`findNextReadyDispatch` algorithm), [§13.1](handoff.md#131-per-agent-handoff-functions) (per-agent handoff functions — QA, Security Auditor, Reviewer, Release Engineer, Documentation each call `findNextReadyDispatch()` before final WAIT), [§21.70](#2170-pm-pipeline-routing-for-in_progress-wps) (PM equivalent for IN_PROGRESS WP routing)
 ```
-###  Path: `/mcp-server/docs/agents/workflow-specification/handoff.md`
+```
+// Structure of documents
+└── mcp-server/
+    └── docs/
+        └── agents/
+            └── workflow-specification/
+                └── dependencies-and-rework.md
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/dependencies-and-rework.md`
 
 ```md
 # Handoff Logic
@@ -2330,1166 +2339,697 @@ function nextAgentFromStatus(status, currentAgent):
 
 ---
 
-## 9b. Work Package Creation
+## 15. Dependency Management
 
-Creating a WP initializes it from plan data and adds it to the project ledger. This section consolidates guards and behaviors that are defined individually in §3.6, §15.1, §15.2, §21.3, §21.50, and §21.51.
+### 15.1 Initial Status Based on Dependencies
 
-### 9b.1 Algorithm
+When creating a WP:
 
 ```
-function createWorkPackage(root, wpData, agentRole):
-  acquire lock
-
-  // --- WP ID generation (§3.6) ---
-  existingIds = root.work_packages.map(wp => parseNumericSuffix(wp.work_package_id))
-  nextNum = (max(existingIds) ?? 0) + 1
-  wpId = "WP-" + zeroPad(nextNum, 3)    // e.g., "WP-001", "WP-012"
-
-  // --- Acceptance criteria validation (§21.3) ---
-  if wpData.acceptance_criteria is empty:
-    ERROR("At least one acceptance criterion is required")
-  for each ac in wpData.acceptance_criteria:
-    if ac.criterion is empty or whitespace-only:
-      ERROR("Acceptance criterion text must be non-empty")
-
-  // --- Dependency validation (§15.2) ---
-  for each depId in wpData.dependencies:
-    if not root.work_packages.any(wp => wp.work_package_id == depId):
-      ERROR("Dependency {depId} not found in project")
-
-  // --- Cycle detection (§15.2) ---
-  if hasCycle(wpId, wpData.dependencies, root.work_packages):
-    ERROR("Adding dependencies would create a circular dependency")
-
-  // --- Initial status determination (§15.1) ---
-  unresolvedDeps = wpData.dependencies.filter(depId =>
-    dep = root.work_packages.find(wp => wp.work_package_id == depId)
-    return NOT isTerminalStatus(dep.status)
-  )
-
-  if unresolvedDeps is empty:
-    initialStatus = "READY"
-    blockedBy = null
-  else:
-    initialStatus = "BLOCKED"
-    blockedBy = {
-      type: "dependency",
-      description: "Depends on " + unresolvedDeps.join(", "),
-      blocking_work_package: unresolvedDeps[0]
-    }
-
-  // --- Synthesis invalidation on COMPLETE project (§21.51) ---
-  if root.status == "COMPLETE" OR root.synthesis_generated == true:
-    root.synthesis_generated = false
-
-  // --- Create WP detail file ---
-  wpDetail = WorkPackageDetail {
-    work_package_id: wpId,
-    work_package_file: "{storageDir}/{wpId}.json",
-    status: initialStatus,
-    assigned_to: null,
-    dependencies: wpData.dependencies,
-    blocked_by: blockedBy,
-    acceptance_criteria: wpData.acceptance_criteria,
-    revision: 0,
-    active_pipeline_stages: wpData.active_pipeline_stages ?? null,  // See §9b.2
-    pipelines: []
+if dependencies is empty OR all dependencies have terminal status:
+  initial_status = READY
+  blocked_by = null
+else:
+  initial_status = BLOCKED
+  unresolvedDeps = dependencies.filter(d => NOT isTerminalStatus(d.status))
+  blocked_by = {
+    type: "dependency",
+    description: "Depends on " + unresolvedDeps.map(d => d.work_package_id).join(", "),
+    blocking_work_package: unresolvedDeps[0].work_package_id
   }
-
-  // --- Soft guardrail warnings (§9b.2) ---
-  warnings = validateActiveStages(wpData.active_pipeline_stages)
-  for each warning in warnings:
-    root.project_comments.append(ProjectComment {
-      type: "warning",
-      priority: "low",
-      timestamp: now(),
-      agent: agentRole ?? "system",
-      note: warning
-    })
-
-  // --- Update root index ---
-  root.work_packages.append(WorkPackageSummary {
-    work_package_id: wpId,
-    status: initialStatus,
-    assigned_to: null,
-    dependencies: wpData.dependencies,
-    active_pipeline_stages: wpData.active_pipeline_stages ?? null,
-    file: wpDetail.work_package_file
-  })
-  root.total_work_packages = root.work_packages.length
-  root.pending_work_packages = count(wp in root.work_packages where NOT isTerminalStatus(wp.status))
-  root.last_updated = now()
-
-  write wpDetail
-  write root
-  release lock
-  return wpDetail
 ```
 
-> **No agent guard (§21.50):** Unlike `claimWorkPackage` (§10.1) and `startPipeline` (§11.1), WP creation does not enforce an agent role guard. In practice only the PM creates WPs; implementations that require stricter control MAY add a guard.
+> **Single-blocker limitation:** The `blocking_work_package` field references only the first unresolved dependency. The `description` field lists all unresolved dependencies for diagnostic visibility, but `blocked_by` is a single object (see [§21.35](edge-cases.md#2135-single-blocker-metadata-limitation)). This does not affect auto-unblock correctness — `propagateDependencyUnblock` (§15.4) checks **all** dependencies regardless of the `blocked_by` content.
 
-### 9b.2 Active Pipeline Stages Validation
+### 15.2 Dependency Validation on Creation
 
-When `active_pipeline_stages` is provided during WP creation, validation enforces structural correctness with **hard rejects** and emits **soft guardrail warnings** for unusual compositions. The PM retains full authority to compose any valid subsequence.
+All dependency IDs must exist in the root index. Unknown IDs are rejected.
 
-#### Hard Rejects (block creation)
-
-1. **All entries must be valid `PipelineType` values** — reject unknown pipeline type strings
-2. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
-3. **No duplicates** — each pipeline type may appear at most once
-4. **Non-empty** — at least one stage must be included
-
-#### Soft Guardrails (emit warning project comments, do not block creation)
-
-5. **Implementation without QA** — if `implementation` is present but `qa` is absent, warn: `"WP has implementation without QA — consider adding qa for quality assurance"`
-6. **Single-stage chain** — if exactly one stage is provided, warn: `"WP has a single-stage pipeline ({stage}) — verify this is intentional"`
-7. **Non-default composition** — if the provided list differs from `DEFAULT_PIPELINE_STAGES` and is not the full 6-stage list, warn: `"WP uses a custom pipeline composition: [{stages}] — ensure this matches the work package's intent"`
-
-When `active_pipeline_stages` is omitted or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` at read time (not stored as an explicit value). This ensures full backward compatibility with existing ledger files created before this field existed.
+Dependency graphs must be **acyclic**. On creation, perform a cycle check:
 
 ```
-function validateActiveStages(stages):
-  warnings = []
+function hasCycle(newWpId, dependencies, allSummaries):
+  visited = Set()
+  queue = [...dependencies]
   
-  if stages is null:
-    return warnings    // null/absent is valid — uses default
-
-  // Rule 1: Valid types
-  for each stage in stages:
-    if stage not in CANONICAL_PIPELINE_ORDERING:
-      ERROR("Unknown pipeline type: {stage}")
-
-  // Rule 2: Subsequence of canonical ordering
-  lastIndex = -1
-  for each stage in stages:
-    index = CANONICAL_PIPELINE_ORDERING.indexOf(stage)
-    if index <= lastIndex:
-      ERROR("Active stages must follow canonical ordering")
-    lastIndex = index
-
-  // Rule 3: No duplicates
-  if stages.length != unique(stages).length:
-    ERROR("Duplicate pipeline type in active_pipeline_stages")
-
-  // Rule 4: Non-empty
-  if stages.length == 0:
-    ERROR("active_pipeline_stages must contain at least one stage")
-
-  // Soft guardrail 5: Implementation without QA
-  if "implementation" in stages AND "qa" not in stages:
-    warnings.append("WP has implementation without QA — consider adding qa for quality assurance")
-
-  // Soft guardrail 6: Single-stage chain
-  if stages.length == 1:
-    warnings.append("WP has a single-stage pipeline ({stages[0]}) — verify this is intentional")
-
-  // Soft guardrail 7: Non-default composition
-  if stages != DEFAULT_PIPELINE_STAGES AND stages != CANONICAL_PIPELINE_ORDERING:
-    warnings.append("WP uses a custom pipeline composition: [{stages}] — ensure this matches the work package's intent")
-
-  return warnings
-```
-
-> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
-
-### 9b.3 Artifact Declaration Expectation
-
-Implementation agents **must** declare all files modified during a pipeline in `artifacts.files_modified` when completing a pipeline. This includes ancillary changes, minor out-of-scope improvements, and any file touched by the work — not just the primary deliverables.
-
-**Enforcement:** This is a process rule, not a hard validation gate.
-
-- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent **and** the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (see implementation in §12.1).
-- `ARTIFACT_EXPECTED_PIPELINE_TYPES` contains `implementation`, `code-review`, `release-engineering`, and `documentation` — pipeline types where agents may modify files.
-- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** from this warning because those agents verify but do not modify files.
-- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared for traceability.
-- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline`.
-- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
-
-**Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
-
----
-
-## 10. Work Package Claiming
-
-Claiming transitions a WP from READY to IN_PROGRESS and assigns an agent.
-
-### 10.1 Algorithm
-
-```
-function claimWorkPackage(wp, root, agentName, overrideFlag):
-  // Guard: Status must be READY (checked first for clearer error messages)
-  if wp.status != "READY":
-    ERROR("Cannot claim: status is {wp.status}, expected READY")
-  
-  // Guard: Only pipeline-owning agents or PM can claim (see §21.49)
-  // CLAIMABLE_ROLES is derived programmatically: AGENT_ROLES minus ORCHESTRATING_ROLES
-  // (i.e. excludes 'Planner' and 'Synthesis'), including both bare names and 'X Agent' variants.
-  // Derivation rule defined here (§10.1). Implementation: CLAIMABLE_ROLES export in src/tools/work-package.ts.
-  CLAIMABLE_ROLES = AGENT_ROLES.filter(r => r not in ORCHESTRATING_ROLES)
-                  + [r + " Agent" for r in AGENT_ROLES if r not in ORCHESTRATING_ROLES]
-  if agentName not in CLAIMABLE_ROLES:
-    ERROR("Agent role {agentName} cannot claim work packages. "
-          + "Only pipeline-owning agents and Project Manager may claim.")
-  
-  // Guard: WP assignment check
-  if wp.assigned_to is set AND wp.assigned_to != agentName:
-    if overrideFlag is false:
-      ERROR("Cannot claim: assigned to {wp.assigned_to}, not {agentName}")
-    
-    if overrideFlag is true:
-      if agentName != "Project Manager":
-        ERROR("override restricted to Project Manager")
-  
-  // Guard: Dependencies must be met
-  result = canStartWorkPackage(wp, root.work_packages)
-  if not result.allowed:
-    ERROR(result.reason)
-  
-  // Validate transition
-  if not isValidStatusTransition("READY", "IN_PROGRESS"):
-    ERROR("Invalid transition")
-  
-  // Apply changes
-  wp.status = "IN_PROGRESS"
-  wp.assigned_to = agentName
-  wp.status_changed_at = now()      // Track for REVIEW_ABANDONED grace period (§14.12)
-  root.work_packages[wp.id].status = "IN_PROGRESS"
-  root.work_packages[wp.id].assigned_to = agentName
-  root.last_updated = now()
-```
-
-### 10.2 Override Rules
-
-The override flag is only relevant when `wp.assigned_to` is set to a *different* agent than the caller. In that case:
-
-| Caller | Override Allowed? |
-|--------|------------------|
-| Project Manager | Yes |
-| Any other agent (including current assignee — but the outer guard already passed for current assignee) | No — hard rejection |
-
-> **Design principle — point-in-time dependency validation:** Dependency checks (`canStartWorkPackage`) are enforced at claim time (§10.1) only. Once a WP is IN_PROGRESS, `startPipeline` (§11.1) does **not** re-check dependencies. If a dependency is reopened (COMPLETE → IN_PROGRESS) after a dependent WP has already been claimed, the cascade reblock mechanism (§15.5) is the sole line of defense for direct dependents, and transitive dependents are not reblocked at all (§21.42). This is a conscious trade-off: continuous dependency validation would add complexity and performance cost to every pipeline operation, whereas the cascade reblock mechanism handles the common case (direct dependents). The recommendation engine’s `hasNewUpstreamPassSince` (§14.6) provides soft enforcement for the remaining cases.
-
----
-
-## 10b. Updating Work Package Status
-
-The core status-transition operation for work packages. All WP status changes — except `READY → IN_PROGRESS`, handled exclusively by `claimWorkPackage` ([§10.1](#101-algorithm)) — flow through this function. It consolidates the transition guards ([§6.2](state-machines.md#62-transition-table)), agent guards ([§6.5](state-machines.md#65-agent-guards)), counter updates ([§6.4](state-machines.md#64-counter-updates-on-transitions)), and post-transition side effects that are specified individually throughout the document.
-
-### 10b.1 Algorithm
-
-```
-function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
-  acquire lock
-  currentStatus = wp.status
-
-  // --- Reject transitions from CANCELLED (§21.32) ---
-  if currentStatus == "CANCELLED":
-    ERROR("CANCELLED is terminal — no transitions allowed (including self-transitions)")
-
-  // --- Same-state transitions ---
-  if currentStatus == targetStatus:
-    if currentStatus == "BLOCKED":
-      goto BLOCKED_HANDLING    // Substantive: replace blocked_by (§6.2, §21.17)
-    if currentStatus == "COMPLETE":
-      terminalAgent = PIPELINE_AGENT_MAP[lastActiveStage(wp)]  // §6.2.1
-      if agentRole not in [terminalAgent, "Project Manager"]:
-        ERROR("COMPLETE → COMPLETE requires {terminalAgent} or PM")
-      release lock
-      return    // Agent check only — no data modification (§6.2 same-state note)
-    release lock
-    return      // All other same-state: pure no-op
-
-  // --- Validate transition exists in §6.2 table ---
-  if not isValidTransition(currentStatus, targetStatus):
-    ERROR("Invalid transition: {currentStatus} → {targetStatus}")
-
-  // --- Agent guards (§6.5) ---
-  validateAgentGuard(currentStatus, targetStatus, agentRole, wp.assigned_to, wp)
-
-  // --- Transition-specific guards and side effects ---
-
-  if targetStatus == "COMPLETE":
-    // Full completion guards (§6.2, §21.10)
-    if not wp.acceptance_criteria.every(ac => ac.met == true):
-      ERROR("Not all acceptance criteria are met")
-    lastStage = lastActiveStage(wp)                    // §6.2.1
-    lastStagePipelines = wp.pipelines.filter(p => p.type == lastStage)
-    if lastStagePipelines is empty OR lastStagePipelines.last().status != "PASS":
-      ERROR("Most recent {lastStage} pipeline must be PASS")
-    // Freshness check (§21.10)
-    firstStage = firstActiveStage(wp)                  // §6.2.1
-    if firstStage != lastStage:                        // Single-stage: vacuous pass
-      firstStagePipelines = wp.pipelines.filter(p => p.type == firstStage)
-      if firstStagePipelines is not empty:
-        if lastStagePipelines.last().completed_at < firstStagePipelines.last().started_at:
-          ERROR("{lastStage} PASS predates most recent {firstStage} start (freshness)")
-    // NOTE: This comparison is intentionally asymmetric — it compares the
-    // last-active-stage pipeline's completed_at against the first-active-stage
-    // pipeline's started_at (not completed_at). A terminal-stage PASS that
-    // occurs after a first-stage pipeline starts but before it completes would
-    // satisfy this check, even though the terminal stage validated pre-rework
-    // output. In practice, the pipeline ordering prerequisites (§8.1) prevent
-    // this race: a later-stage pipeline cannot start without a PASS from its
-    // prerequisite, which chains back to the first active stage. A new
-    // first-stage pipeline invalidates the prerequisite chain, so no new
-    // terminal-stage pipeline can start until the full chain re-PASSes.
-    // the full chain re-PASSes. The asymmetry only matters if an existing
-    // IN_PROGRESS documentation pipeline overlaps with a new implementation
-    // pipeline — a scenario that requires two agents acting on the same WP
-    // simultaneously outside the recommended flow.
-    // Guard: No IN_PROGRESS pipelines allowed on COMPLETE
-    if wp.pipelines.any(p => p.status == "IN_PROGRESS"):
-      ERROR("Cannot mark COMPLETE: IN_PROGRESS pipelines exist on this WP")
-
-  if targetStatus == "BLOCKED":
-    BLOCKED_HANDLING:
-    if opts.blocked_by is null:
-      ERROR("Transition to BLOCKED requires a blocked_by object (§21.11)")
-    if currentStatus == "BLOCKED":
-      // Same-state: agent guard + replacement rule (§21.47, §6.2)
-      if agentRole not in ["Project Manager"] AND agentRole != wp.assigned_to:
-        ERROR("BLOCKED → BLOCKED requires PM or current assignee")
-      if wp.blocked_by?.type == "dependency" AND opts.blocked_by.type != "dependency":
-        if agentRole != "Project Manager":
-          ERROR("Only PM can overwrite dependency blocker with non-dependency type")
-    if currentStatus == "IN_PROGRESS":
-      // Auto-cancel IN_PROGRESS pipelines (§21.14b, §21.27)
-      for each pipeline in wp.pipelines where pipeline.status == "IN_PROGRESS":
-        pipeline.status = "FAIL"
-        pipeline.completed_at = now()
-        pipeline.summary = ["Auto-cancelled: WP transitioned to BLOCKED"]
-        pipeline.auto_cancelled = true
-    wp.blocked_by = opts.blocked_by    // assigned_to preserved (not cleared)
-
-  if targetStatus == "CANCELLED" AND currentStatus == "IN_PROGRESS":
-    // Auto-cancel IN_PROGRESS pipelines (§21.14b)
-    for each pipeline in wp.pipelines where pipeline.status == "IN_PROGRESS":
-      pipeline.status = "FAIL"
-      pipeline.completed_at = now()
-      pipeline.summary = ["Auto-cancelled: WP cancelled"]
-      pipeline.auto_cancelled = true
-
-  if currentStatus == "IN_PROGRESS" AND targetStatus == "READY":
-    // Unclaim (§21.13)
-    if wp.pipelines.any(p => p.status == "IN_PROGRESS"):
-      ERROR("Cannot unclaim: IN_PROGRESS pipelines exist on this WP")
-    wp.assigned_to = null
-    root.work_packages[wp.id].assigned_to = null
-
-  if currentStatus == "BLOCKED" AND targetStatus in ["IN_PROGRESS", "READY"]:
-    // Clear blocker (§21.12)
-    wp.blocked_by = null
-
-  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
-    // Reopen side effects (§6.2, §21.4, §21.26, §21.44)
-    wp.revision = (wp.revision ?? 0) + 1
-    wp.rework_counts = null           // Reset rework budget (§21.44)
-    root.synthesis_generated = false  // Invalidate synthesis (§21.26)
-
-  // --- Counter updates (§6.4) ---
-  if NOT isTerminalStatus(currentStatus) AND isTerminalStatus(targetStatus):
-    root.pending_work_packages -= 1
-  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
-    root.pending_work_packages += 1
-  // COMPLETE → CANCELLED: no counter change (terminal → terminal)
-
-  // --- Apply status ---
-  wp.status = targetStatus
-  wp.status_changed_at = now()     // Track for REVIEW_ABANDONED grace period (§14.12)
-  root.work_packages[wp.id].status = targetStatus
-  root.last_updated = now()
-
-  write wp
-  write root
-  release lock
-
-  // --- Post-transition hooks (outside main lock — see §20.4) ---
-  if isTerminalStatus(targetStatus) AND NOT isTerminalStatus(currentStatus):
-    propagateDependencyUnblock(projectPath, wp.work_package_id)    // §15.4
-  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
-    propagateDependencyReblock(projectPath, wp.work_package_id)    // §15.5
-```
-
-### 10b.2 Agent Guard Helper
-
-```
-function validateAgentGuard(from, to, agentRole, assignedTo, wp):
-  PM = "Project Manager"
-  terminalAgent = PIPELINE_AGENT_MAP[lastActiveStage(wp)]  // §6.2.1
-
-  if to == "COMPLETE":
-    if agentRole not in [terminalAgent, PM]:
-      ERROR("Only {terminalAgent} (or PM) can mark COMPLETE")
-  else if to == "CANCELLED":
-    if agentRole != PM:
-      ERROR("Only Project Manager can cancel a WP")
-  else if from == "BLOCKED" AND to == "IN_PROGRESS":
-    if agentRole not in [PM, "system"] AND agentRole != assignedTo:
-      ERROR("BLOCKED → IN_PROGRESS requires PM, assignee, or system")
-  else if from == "BLOCKED" AND to == "READY":
-    if agentRole != "system":
-      ERROR("BLOCKED → READY is system-only (auto-unblock via §15.4)")
-  else if from == "IN_PROGRESS" AND to == "READY":
-    if agentRole != PM AND agentRole != assignedTo:
-      ERROR("Unclaim requires PM or current assignee")
-  else if from == "COMPLETE" AND to == "IN_PROGRESS":
-    if agentRole not in [PM, terminalAgent]:
-      ERROR("Reopen requires PM or {terminalAgent}")
-
-  // → BLOCKED: no agent guard (§6.5 design note)
-  // READY → IN_PROGRESS: use claimWorkPackage (§10.1), not this function
-```
-
-> **Relationship to `claimWorkPackage`:** The `READY → IN_PROGRESS` transition is **not** handled by `updateWorkPackageStatus`. It is handled exclusively by `claimWorkPackage` ([§10.1](#101-algorithm)), which enforces additional guards (assignment check, override flag, dependency validation) specific to the claiming workflow. Implementations that receive a `READY → IN_PROGRESS` request through `updateWorkPackageStatus` SHOULD redirect to `claimWorkPackage` or reject with an error directing the caller to use the claiming operation.
-
-> **Post-transition hooks and lock separation:** `propagateDependencyUnblock` ([§15.4](dependencies-and-rework.md#154-automatic-unblocking-propagatedependencyunblock)) and `propagateDependencyReblock` ([§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)) execute **after** the main lock is released, per the cascade lock separation principle ([§20.4](auxiliary-systems.md#204-cascade-lock-separation)). Both acquire their own locks. The brief inconsistency window is acceptable because both are idempotent (see §20.4 for crash recovery).
-
-> **Centralization rationale:** Prior to this section, status transition side effects were specified individually across [§6.2](state-machines.md#62-transition-table) (guards), [§6.4](state-machines.md#64-counter-updates-on-transitions) (counters), [§6.5](state-machines.md#65-agent-guards) (agent guards), [§15.4](dependencies-and-rework.md#154-automatic-unblocking-propagatedependencyunblock)/[§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock) (cascades), and §21.4/§21.12/§21.13/§21.14b/§21.26/§21.44 (edge-case side effects). This algorithm consolidates all into a single implementable function. The original sections remain authoritative for *rationale*; this section provides the consolidation for implementation.
-
----
-
-## 11. Starting a Pipeline
-
-### 11.1 Algorithm
-
-```
-function startPipeline(wp, root, pipelineType, agentRole):
-  // Guard: WP must be IN_PROGRESS
-  if wp.status != "IN_PROGRESS":
-    ERROR("WP status must be IN_PROGRESS")
-  
-  // Guard: Pipeline type must be in the WP's active stages
-  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
-  if pipelineType not in activeStages:
-    ERROR("Pipeline type '{pipelineType}' is not active for this work package. "
-          + "Active stages: {activeStages}")
-  
-  // Guard: No duplicate IN_PROGRESS pipeline of same type  
-  if hasDuplicateInProgress(wp, pipelineType):
-    ERROR("Duplicate in-progress pipeline")
-  
-  // Guard: Prerequisites must be met (dynamic resolution — §8.1.1)
-  prerequisite = resolvePrerequisite(pipelineType, activeStages)
-  if prerequisite is not null:
-    prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)
-    if prereqPipelines is empty OR prereqPipelines.last().status != "PASS":
-      ERROR("Requires PASS {prerequisite} pipeline first")
-  
-  // Guard: Re-validation after upstream rework (prevents skipping stages)
-  // Two-layer check: (1) unconditional upstream rework detection, then
-  // (2) temporal consistency for same-type re-runs (self-rework allowance).
-  // Use filtered list (excluding auto-cancelled) for temporal baseline,
-  // consistent with the §21.27 invariant that auto-cancelled pipelines are
-  // excluded from quality-related decisions.
-  samePipelines = wp.pipelines.filter(p => p.type == pipelineType)
-  effectiveSamePipelines = samePipelines.filter(p => NOT p.auto_cancelled)
-  if prerequisite is not null:
-    prereqPass = prereqPipelines.last()   // Already confirmed PASS above
-
-    // --- Upstream rework check (applies regardless of prior runs) ---
-    // Detects if any pipeline upstream of the current type was started
-    // AFTER the prerequisite PASSed — indicating stale prerequisite.
-    // This check is decoupled from effectiveSamePipelines so it also
-    // catches first-run stage-skipping (e.g., code-review starting for
-    // the first time while a new implementation is in progress).
-    upstreamTypes = getUpstreamTypes(pipelineType, activeStages)
-    hasUpstreamRework = upstreamTypes.any(type =>
-      wp.pipelines.any(p => p.type == type
-        AND p.started_at > prereqPass.completed_at))
-    if hasUpstreamRework:
-      ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
-            + "An upstream pipeline was started after the most recent "
-            + "{prerequisite} PASS.")
-
-    // --- Temporal consistency check (same-type re-runs only) ---
-    // When the current pipeline type has been run before, verify the
-    // prerequisite PASSed AFTER the most recent effective run. This
-    // catches scenarios where the prerequisite is temporally stale
-    // relative to prior runs of this type, even without upstream rework
-    // (defense-in-depth).
-    if effectiveSamePipelines is not empty:
-      lastSame = effectiveSamePipelines.last()
-      if prereqPass.completed_at is not null
-         AND lastSame.completed_at is not null
-         AND prereqPass.completed_at < lastSame.completed_at:
-        // Prerequisite passed BEFORE the current pipeline type last ran.
-        // Since hasUpstreamRework was already checked above, reaching here
-        // means no upstream rework occurred — this is a self-rework
-        // scenario (e.g., documentation retrying after its own FAIL).
-        // Allow the pipeline to start.
-        pass    // skip guard — prerequisite still valid for self-rework
-  
-  // Guard: Agent role validation
-  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
-  if agentRole is not provided:
-    ERROR("agentRole is required")
-  if agentRole != expectedRole:
-    if agentRole == "Project Manager":
-      // PM override: allowed (e.g., restarting a pipeline on behalf of absent agent)
-      log info: "PM override: {agentRole} starting {pipelineType} pipeline "
-                + "(normally owned by {expectedRole})"
-    else:
-      ERROR("Agent role {agentRole} cannot start {pipelineType} pipeline "
-            + "(owned by {expectedRole})")
-  
-  // Rework detection: Check if retrying after FAIL (same-type or downstream)
-  // (effectiveSamePipelines already computed above in re-validation guard —
-  // auto-cancelled pipelines excluded per §21.27)
-  isDirectRework = effectiveSamePipelines is not empty AND effectiveSamePipelines.last().status == "FAIL"
-  isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType, activeStages)
-  
-  if isDirectRework OR isDownstreamRework:
-    counts = wp.rework_counts ?? {}
-    // Initialize missing entries to 0 for active stages only
-    for each stage in activeStages:
-      if counts[stage] is undefined:
-        counts[stage] = 0
-    counts[pipelineType] = (counts[pipelineType] ?? 0) + 1
-    wp.rework_counts = counts
-    
-    // Circuit breaker (per-pipeline-type threshold)
-    if counts[pipelineType] >= MAX_REWORK_COUNT:   // default: 5
-      ERROR("Rework limit reached for {pipelineType}. Cancel or restructure this WP.")
-  
-  // Create pipeline
-  newPipeline = Pipeline {
-    type: pipelineType,
-    status: "IN_PROGRESS",
-    started_at: now(),
-    summary: []
-  }
-  wp.pipelines.append(newPipeline)
-  
-  // Auto-update assigned agent
-  wp.assigned_to = PIPELINE_AGENT_MAP[pipelineType]
-  root.work_packages[wp.id].assigned_to = wp.assigned_to
-  root.last_updated = now()
-```
-
-### 11.1.1 Re-Validation Guard
-
-The re-validation guard (added after the prerequisite check) prevents a subtle stage-skipping scenario during rework:
-
-1. impl-1 PASS → qa-1 PASS → review-1 **FAIL**
-2. Developer reworks: impl-2 **PASS**
-3. Without the guard, `startPipeline(type=code-review)` would succeed — qa-1 is PASS
-4. But qa-1 validated impl-1, not impl-2. QA has been **bypassed**.
-
-The guard detects that the prerequisite (QA) PASSed *before* any upstream pipeline was started after that PASS — indicating the prerequisite validated stale output and must re-PASS first.
-
-The guard operates in two layers:
-
-1. **Upstream rework check (unconditional):** Regardless of whether the current pipeline type has ever run, the guard checks whether any pipeline *upstream* of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If so, the prerequisite is stale and must re-PASS. This catches both first-run stage-skipping (e.g., code-review starting for the first time while a new implementation pipeline is in progress) and rework-induced staleness.
-
-2. **Temporal consistency check (same-type re-runs only):** When the current pipeline type has been run before, the guard additionally verifies the prerequisite PASSed *after* the most recent effective run. If the prerequisite is temporally stale but no upstream rework occurred, this is a self-rework scenario (e.g., documentation retrying after its own FAIL) and the guard allows the pipeline to start.
-
-**First-run stage-skipping example (code-review never run):**
-1. impl-1 PASS → qa-1 PASS → Developer starts impl-2 (rework)
-2. Reviewer calls `startPipeline(type=code-review)` for the first time
-3. Prerequisite check: `resolvePrerequisite("code-review")` = `"qa"` → qa-1 is PASS → passes
-4. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
-
-**Self-rework example (documentation):**
-1. impl-1 PASS → qa-1 PASS → review-1 PASS → doc-1 **FAIL**
-2. Documentation retries: `startPipeline(type=documentation)`
-3. Upstream rework check: `getUpstreamTypes("documentation")` = `[impl, qa, code-review]` — none started after review-1 PASSed → **no upstream rework** → guard does **not** fire ✓
-
-**Stage-skipping example (code-review after upstream rework):**
-1. impl-1 PASS → qa-1 PASS → review-1 **FAIL** → impl-2 **PASS**
-2. `startPipeline(type=code-review)` attempted
-3. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
-
-**WP reopen example (all prior pipelines PASS):**
-1. All pipelines PASS → WP COMPLETE → Reopen → Developer starts impl-2 PASS
-2. Reviewer calls `startPipeline(type=code-review)`
-3. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
-
-> **Note on the `lastSame.status` check:** The temporal consistency check (layer 2) intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
-
-> **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow. The guard now covers all scenarios including WP reopens and first-run pipeline starts.
-
-### 11.1.2 Agent Role Validation
-
-The `agentRole` parameter is mandatory. The agent must match the pipeline owner defined in `PIPELINE_AGENT_MAP` (§9.1), with one exception:
-
-- **PM override:** The Project Manager may start any pipeline type to handle operational scenarios (e.g., restarting a stale pipeline on behalf of an absent agent). A log entry is emitted for auditability.
-
-### 11.2 Rework Count Semantics
-
-| Most Recent Pipeline of Same Type | Downstream State | `rework_counts[pipelineType]` Change |
-|-----------------------------------|------------------|--------------------------------------|
-| None (first pipeline) | N/A | No change |
-| PASS | No downstream FAIL | No change |
-| PASS | Downstream FAIL exists | Increment by 1 |
-| PASS | Downstream IN_PROGRESS (no FAIL) | No change (downstream still validating) |
-| FAIL | N/A | Increment by 1 |
-| IN_PROGRESS | N/A | Cannot start (duplicate guard) |
-
-The `rework_counts` map is absent (`null`/`undefined`) until the first rework on any pipeline type. It is initialized with all-zero entries on first coalesce, then the specific pipeline type's counter is incremented.
-
-> **Per-pipeline isolation:** Documentation self-rework cycles (Documentation FAIL → Documentation re-runs) increment only `rework_counts.documentation`, not `rework_counts.implementation`. This prevents trivial documentation fixes from exhausting the implementation rework budget. Conversely, repeated QA/Review failures that trigger Developer rework increment `rework_counts.implementation` via downstream-fail detection.
-
-> **Parallel counter increments during rework chains:** In a typical QA-fail rework cycle, *both* `rework_counts.implementation` and `rework_counts.qa` increment: the Developer restarts implementation (downstream QA FAIL detected → `implementation++`), and QA restarts qa (direct rework of previous FAIL → `qa++`). In the simplest case (one implementation attempt per QA failure), both counters increment at the same rate and reach the circuit breaker limit at the same time after 5 cycles. However, if the Developer requires multiple implementation attempts per QA failure, `rework_counts.implementation` will reach the limit before `rework_counts.qa`. This is by design — each counter tracks how many times *that specific pipeline type* has been retried, regardless of the root cause. The circuit breaker engages on whichever pipeline type reaches the limit first.
-
-> **Auto-cancelled pipeline exclusion:** When determining the "most recent pipeline of same type" for rework detection, auto-cancelled pipelines (`auto_cancelled = true`) are filtered out. An auto-cancelled FAIL — from cascade reblock ([§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)) or manual IN_PROGRESS → BLOCKED transition — does not trigger rework count increments. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines).
-
-### 11.3 Downstream Fail Detection
-
-```
-function hasDownstreamFail(pipelines, pipelineType, activeStages?):
-  // Get the ordered list of downstream pipeline types (filtered to active stages)
-  downstreamTypes = getDownstreamTypes(pipelineType, activeStages)
-  // e.g., for "implementation" with default stages: ["qa", "code-review", "documentation"]
-  // e.g., for "implementation" with all stages: ["qa", "security-audit", "code-review", "release-engineering", "documentation"]
-  
-  for each dsType in downstreamTypes:
-    // Exclude auto-cancelled pipelines — they represent external interruptions
-    // (cascade reblock, manual BLOCKED), not quality failures (see §21.27)
-    dsPipelines = pipelines.filter(p => p.type == dsType AND NOT p.auto_cancelled)
-    if dsPipelines is not empty AND dsPipelines.last().status == "FAIL":
-      return true
+  while queue is not empty:
+    current = queue.pop()
+    if current == newWpId:
+      return true    // Cycle detected
+    if visited.has(current):
+      continue
+    visited.add(current)
+    dep = allSummaries.find(s => s.work_package_id == current)
+    if dep is not null:
+      queue.pushAll(dep.dependencies)
   
   return false
 ```
 
-This ensures the circuit breaker engages for the common pattern: QA/review fails → Developer restarts implementation.
+If a cycle is detected, the WP creation is rejected with an error identifying the cycle path.
 
-> **Naming note:** Despite its name, `hasDownstreamFail` is sometimes called with the *prerequisite* type (one step upstream of the current pipeline type) rather than the current type itself — see the re-validation guard in §11.1. This is because `getDownstreamTypes(prerequisite)` includes the current pipeline type, allowing the function to detect a FAIL of the current type (e.g., `hasDownstreamFail("qa")` detects a review-1 FAIL when starting code-review). The function name reflects its general purpose ("are there failures downstream of X?"), and the caller controls the scope by choosing the input type.
+> **Structural note — defense-in-depth only:** Under normal operation, cycles are impossible by construction. WP IDs are generated sequentially (§3.6) and dependencies must reference pre-existing IDs (§15.2 validation above), so no existing WP can list `newWpId` as a dependency — the traversal from the new WP's dependencies through the graph can never reach `newWpId`. This check exists as defense-in-depth against data corruption (e.g., a WP referencing a future ID due to manual file editing or interrupted writes). Implementations SHOULD still include it, but should not rely on it as the primary cycle-prevention mechanism — the sequential-ID + existing-ID-only invariants are the real guards.
+
+> **Deliberate limitation — no post-creation dependency updates:** The `dependencies` array is set at WP creation time and cannot be modified thereafter. No `updateDependencies` or `addDependency` operation exists. If the PM discovers mid-project that WP-005 depends on WP-003, the available workarounds are: (a) cancel WP-005 and recreate it with the correct dependencies (losing all pipeline history and rework counts), or (b) manually BLOCKED WP-005 with a `dependency` blocker referencing WP-003 — however, this workaround does not participate in `propagateDependencyUnblock` (§15.4) because auto-unblock checks the `dependencies` array, not the `blocked_by` field; the PM must manually unblock when WP-003 completes. This limitation keeps the dependency graph immutable after creation, simplifying cycle detection and cascade logic. Implementations that need post-creation dependency mutation SHOULD add an `updateDependencies` operation with cycle detection, auto-block/unblock re-evaluation, and root index synchronization.
+
+### 15.3 Dependency Check for Claiming
+
+```
+function canStartWorkPackage(wp, allSummaries):
+  for each depId in wp.dependencies:
+    dep = allSummaries.find(s => s.work_package_id == depId)
+    if dep is null:
+      return { allowed: false, reason: "Dependency not found" }
+    if not isTerminalStatus(dep.status):
+      return { allowed: false, reason: "Dependency not complete" }
+  return { allowed: true }
+```
+
+> Both COMPLETE and CANCELLED satisfy dependency requirements.
+>
+> **Design note on CANCELLED:** A cancelled WP unblocks its dependents even though the work was never completed. This is intentional — the Project Manager is responsible for validating that the dependency is no longer needed before cancelling. If dependent WPs still require the deliverables, the PM should restructure dependencies before cancelling.
+
+### 15.4 Automatic Unblocking (propagateDependencyUnblock)
+
+When a WP transitions to a terminal status (COMPLETE or CANCELLED):
+
+```
+function propagateDependencyUnblock(projectPath, completedWpId):
+  acquire lock
+  read root index
+  
+  candidates = root.work_packages.filter(
+    wp => wp.status == "BLOCKED" AND wp.dependencies.includes(completedWpId)
+  )
+  
+  for each candidate:
+    wpDetail = readWorkPackage(candidate.id)
+    
+    // Check ALL dependencies, not just the one that completed
+    if not canStartWorkPackage(wpDetail, root.work_packages).allowed:
+      continue    // Other dependencies still incomplete
+    
+    // Skip non-dependency blockers
+    if wpDetail.blocked_by AND wpDetail.blocked_by.type not in ["dependency", null]:
+      continue    // External/decision/technical blockers need manual resolution
+    
+    // Unblock
+    wpDetail.status = "READY"
+    wpDetail.blocked_by = null
+    root.work_packages[candidate.id].status = "READY"
+    
+    write wpDetail
+  
+  write root index
+  release lock
+```
+
+> **Design note — auto-unblock always transitions to READY (not back to IN_PROGRESS):**
+> When a WP was blocked, its context may have drifted — the agent that originally claimed it may no longer be in session, the implementation plan may have changed, or the unblocking dependency's output may differ from what was assumed. Requiring an explicit re-claim (READY → IN_PROGRESS) is a safe default that forces the agent to re-evaluate the WP before resuming.
+>
+> The `assigned_to` field is preserved through the block/unblock cycle, so the recommendation engine will still route the WP to the correct agent. The re-claim step is lightweight (single tool call) and provides explicit confirmation of intent.
+
+> **\u26a0 Stuck-agent limitation:** Because `assigned_to` is preserved through the block/unblock cycle, the WP is routed exclusively to the preserved agent after auto-unblock. If that agent is no longer available (session ended, agent crashed), no other pipeline agent can claim the WP without PM override (`claimWorkPackage` §10.1 rejects when `wp.assigned_to` is set and the caller differs). The WP will eventually be surfaced via the PM's `REVIEW_ABANDONED` action ([§14.1.2](recommendations.md#1412-project-manager-action-logic), priority 3b), but this requires the staleness threshold to elapse. Implementations that need faster recovery MAY detect assignment-to-absent-agent conditions (e.g., cross-referencing `assigned_to` with active agent sessions) and proactively unclaim the WP.
+
+### 15.5 Cascade Reblocking (propagateDependencyReblock)
+
+When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS):
+
+```
+function propagateDependencyReblock(projectPath, reopenedWpId):
+  acquire lock
+  read root index
+  
+  // Find non-terminal, non-BLOCKED WPs that depend on the reopened WP
+  candidates = root.work_packages.filter(
+    wp => not isTerminalStatus(wp.status)
+      AND wp.status != "BLOCKED"
+      AND wp.dependencies.includes(reopenedWpId)
+  )
+  
+  for each candidate:
+    wpDetail = readWorkPackage(candidate.id)
+    
+    // Cancel any IN_PROGRESS pipelines (they are now invalid)
+    for each pipeline in wpDetail.pipelines:
+      if pipeline.status == "IN_PROGRESS":
+        pipeline.status = "FAIL"
+        pipeline.completed_at = now()
+        pipeline.summary = ["Auto-cancelled: dependency {reopenedWpId} was reopened"]
+        pipeline.auto_cancelled = true    // Excludes from rework budget (§21.27)
+    
+    wpDetail.status = "BLOCKED"
+    wpDetail.blocked_by = {
+      type: "dependency",
+      description: "Dependency {reopenedWpId} was reopened",
+      blocking_work_package: reopenedWpId
+    }
+    root.work_packages[candidate.id].status = "BLOCKED"
+    
+    write wpDetail
+  
+  // Warn about transitive dependents that may be working on stale assumptions.
+  // Cascade reblock only targets DIRECT dependents of the reopened WP.
+  // Transitive dependents (WPs that depend on a direct dependent) are NOT
+  // automatically reblocked. Their in-flight pipelines continue executing
+  // against potentially invalidated assumptions. This is a known limitation:
+  // State-machine integrity is preserved: transitive dependents cannot
+  //   reach COMPLETE because their direct dependency (now BLOCKED) is
+  //   non-terminal, failing the freshness/dependency checks.
+  // - However, in-flight work on transitive dependents may be wasted.
+  // - Implementations MAY extend this function with recursive traversal to
+  //   reblock transitive dependents. If so, use the same auto_cancelled
+  //   pipeline closure pattern and dependency blocker as direct dependents.
+  // See §21.42 for the full discussion of this limitation.
+
+  // Warn about COMPLETE dependents that may now be stale
+  completeDependents = root.work_packages.filter(
+    wp => wp.status == "COMPLETE"
+      AND wp.dependencies.includes(reopenedWpId)
+  )
+  
+  for each completeDep in completeDependents:
+    root.project_comments.append({
+      type: "warning",
+      priority: "high",
+      timestamp: now(),
+      agent: "system",
+      note: "WP {completeDep.work_package_id} completed based on {reopenedWpId}, "
+            + "which has been reopened. Review whether {completeDep.work_package_id} "
+            + "needs rework."
+    })
+  
+  // Recompute pending counter
+  root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
+  
+  // Safety net: ensure synthesis_generated is reset when a WP is reopened.
+  // Primary reset happens during the COMPLETE → IN_PROGRESS transition (§6.2);
+  // this catches the case where that reset was missed due to a crash.
+  if root.synthesis_generated:
+    root.synthesis_generated = false
+    root.synthesis_generated_at = null    // §21.57: clear staleness timestamp
+  
+  root.last_updated = now()
+  write root index
+  release lock
+```
+
+### 15.6 Blocker Types
+
+| Type | Auto-Clearable? | Description |
+|------|----------------|-------------|
+| `dependency` | Yes | Cleared when all dependencies become terminal |
+| `decision` | No | Requires human decision |
+| `external` | No | External factor (third-party, infrastructure) |
+| `technical` | No | Technical issue requiring investigation |
+
+Only `dependency` blockers (or absent `blocked_by.type`) are auto-cleared by `propagateDependencyUnblock`. All other types require manual intervention.
 
 ---
 
-## 12. Completing a Pipeline
+## 16. Rework & Circuit Breaker
 
-### 12.1 Algorithm
+### 16.1 Rework Detection
 
-```
-function completePipeline(wp, root, pipelineType, status, summary, agentRole, opts):
-  // Guard: WP must be IN_PROGRESS (defense-in-depth — a non-IN_PROGRESS WP
-  // should not have IN_PROGRESS pipelines, but the brief lock gap between
-  // status transition and pipeline cancellation §20.4 could allow a race)
-  if wp.status != "IN_PROGRESS":
-    ERROR("WP status must be IN_PROGRESS, got {wp.status}")
-  
-  // Find the most recent IN_PROGRESS pipeline of the given type
-  pipeline = wp.pipelines
-    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
-    .last()
-  
-  if pipeline is null:
-    ERROR("No in-progress {pipelineType} pipeline found")
-  
-  // Guard: Agent role validation
-  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
-  if agentRole is not provided:
-    ERROR("agentRole is required")
-  if agentRole != expectedRole:
-    if agentRole == "Project Manager":
-      // PM override: allowed (e.g., cancelling a stale pipeline with FAIL)
-      log info: "PM override: {agentRole} completing {pipelineType} pipeline "
-                + "(normally owned by {expectedRole})"
-    else:
-      ERROR("Agent role {agentRole} cannot complete {pipelineType} pipeline "
-            + "(owned by {expectedRole})")
-  
-  // Guard: Status must be PASS or FAIL (the only terminal pipeline statuses per §7.1)
-  if status not in ["PASS", "FAIL"]:
-    ERROR("Invalid pipeline completion status: {status}. Must be PASS or FAIL.")
-
-  // Update pipeline
-  pipeline.status = status       // "PASS" or "FAIL"
-  pipeline.completed_at = now()
-  pipeline.summary = summary
-  pipeline.artifacts = opts.artifacts       // optional
-  pipeline.metrics = opts.metrics           // optional
-  pipeline.comments = opts.comments         // optional
-  
-  // Acceptance criteria updates (merge semantics)
-  if opts.acceptance_criteria_updates is provided:
-    for each update in opts.acceptance_criteria_updates:
-      existing = wp.acceptance_criteria.find(ac => ac.criterion == update.criterion)
-      if existing:
-        existing.met = update.met           // Update existing
-      else:
-        wp.acceptance_criteria.append({     // Append new
-          criterion: update.criterion,
-          met: update.met
-        })
-  
-  // Handoff notes
-  if opts.handoff_notes is provided:
-    // Use actual agent when PM override is active for accurate audit trail.
-    // Routing (to_agent) still uses the standard routing maps/functions.
-    if agentRole != expectedRole:
-      fromAgent = agentRole
-    else:
-      fromAgent = PIPELINE_AGENT_MAP[pipelineType]
-    activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
-    if status == "PASS":
-      toAgent = resolveNextAgent(pipelineType, activeStages)   // §9.2
-    else:  // FAIL
-      toAgent = resolveFailAgent(pipelineType, activeStages)   // §9.3.1
-    
-    handoffNote = HandoffNote {
-      from_agent: fromAgent,
-      to_agent: toAgent,
-      timestamp: now(),
-      notes: opts.handoff_notes
-    }
-    wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
-  
-  // Artifact completeness soft warning (scoped to creative/modifying pipeline types)
-  if status == "PASS" AND pipelineType in ARTIFACT_EXPECTED_PIPELINE_TYPES AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
-    root.project_comments.append(ProjectComment {
-      type: "warning",
-      priority: "low",
-      timestamp: now(),
-      agent: agentRole,
-      note: "Pipeline {pipelineType} on {wp.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability"
-    })
-
-  root.last_updated = now()
-```
-
-### 12.2 Handoff Note Routing Summary
-
-PASS routing is **dynamic** — it depends on the WP's `active_pipeline_stages` and is computed by `resolveNextAgent` (§9.2). FAIL routing uses the static `FAIL_ROUTING_MAP` (§9.3) with a **dynamic fallback** via `resolveFailAgent` (§9.3.1) when the standard target's stage is not active.
+Rework is detected when starting a pipeline where either:
+1. The most recent same-type pipeline has FAIL status (direct rework), OR
+2. The most recent same-type pipeline has PASS status but a downstream pipeline has FAIL status (downstream-triggered rework)
 
 ```
-On PASS (default 4 stages):          On PASS (all 6 stages):
-  implementation → QA                  implementation    → QA
-  qa             → Reviewer            qa                → Security Auditor
-  code-review    → Documentation       security-audit    → Reviewer
-  documentation  → Synthesis           code-review       → Release Engineer
-                                       release-engineering → Documentation
-                                       documentation     → Synthesis
-
-On FAIL (default — standard targets active):
-  implementation       → Developer (self-rework)
-  qa                   → Developer
-  security-audit       → Developer
-  code-review          → Developer
-  release-engineering  → Release Engineer (self-rework)
-  documentation        → Documentation (self-rework)
-
-On FAIL (fallback — standard target's stage not active):
-  Route to first active stage's agent (see §9.3.1)
+samePipelines = wp.pipelines.filter(p => p.type == pipelineType)
+isDirectRework = samePipelines is not empty AND samePipelines.last().status == "FAIL"
+isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType)
+needsRework = isDirectRework OR isDownstreamRework
 ```
 
-### 12.3 Acceptance Criteria Merge Semantics
+### 16.2 Rework Counts (Per-Pipeline)
 
-- Match by **exact** criterion text
-- Found → update the `met` flag
-- Not found → **append** as a new entry `{ criterion, met }`
+- Field: `rework_counts` on WorkPackageDetail (map of PipelineType → integer)
+- Initial value: absent; lazily initialized on first rework. For WPs with `active_pipeline_stages`, the map includes one entry per active stage: e.g., `{ implementation: 0, qa: 0, security-audit: 0, code-review: 0, release-engineering: 0, documentation: 0 }` for a full 6-stage WP, or `{ implementation: 0, qa: 0, code-review: 0, documentation: 0 }` for a default 4-stage WP (see §11.1 for initialization logic)
+- Each pipeline type's counter increments independently when starting that pipeline type after a direct or downstream FAIL
+- Not incremented when: no previous pipeline, or most recent same-type is PASS with no downstream FAIL
 
-### 12.3b Acceptance Criteria Management
+> **Backward compatibility:** If the legacy scalar `rework_count` field is present, treat its value as `rework_counts.implementation` and migrate to the map structure on next write.
 
-The merge semantics in [§12.3](#123-acceptance-criteria-merge-semantics) handle adding and updating criteria during `completePipeline`. Removing criteria or modifying criterion text requires a dedicated PM operation.
+### 16.3 Circuit Breaker
 
 ```
-function updateAcceptanceCriteria(wp, root, agentRole, operations):
+MAX_REWORK_COUNT = 5
+
+When rework_counts[pipelineType] >= MAX_REWORK_COUNT:
+  - startPipeline REJECTS the call for that specific pipeline type
+  - getNextAction returns BLOCK_FOR_REWORK_LIMIT
+  - Human intervention required: cancel or restructure the WP
+```
+
+The circuit breaker is evaluated **per pipeline type**. Reaching the limit on `documentation` does not block `implementation` rework, and vice versa.
+
+### 16.3b Circuit Breaker Reset
+
+When the circuit breaker trips, the only prescribed recovery paths are cancelling or "restructuring" the WP — but restructuring is undefined, and cancellation loses all pipeline history. The following PM-only operation provides a targeted recovery path.
+
+```
+function resetReworkCount(wp, root, pipelineType, agentRole, reason):
   // Guard: PM only
   if agentRole != "Project Manager":
-    ERROR("Only the Project Manager can remove or modify acceptance criteria text")
+    ERROR("Only the Project Manager can reset rework counts")
 
-  // Guard: WP must not be CANCELLED
-  if wp.status == "CANCELLED":
-    ERROR("Cannot modify acceptance criteria on a CANCELLED WP")
+  // Guard: Reason is required (audit trail)
+  if reason is empty:
+    ERROR("A reason is required when resetting rework counts")
 
-  for each op in operations:
-    if op.action == "remove":
-      index = wp.acceptance_criteria.findIndex(ac => ac.criterion == op.criterion)
-      if index == -1:
-        ERROR("Criterion not found: {op.criterion}")
-      wp.acceptance_criteria.removeAt(index)
+  counts = wp.rework_counts
+  if counts is null OR (counts[pipelineType] ?? 0) == 0:
+    return    // Nothing to reset
 
-    if op.action == "modify_text":
-      existing = wp.acceptance_criteria.find(ac => ac.criterion == op.old_criterion)
-      if existing is null:
-        ERROR("Criterion not found: {op.old_criterion}")
-      if op.new_criterion is empty or whitespace-only:
-        ERROR("Criterion text must be non-empty")
-      existing.criterion = op.new_criterion
+  previousValue = counts[pipelineType]
+  counts[pipelineType] = 0
+  wp.rework_counts = counts
 
-  // Guard: At least one criterion must remain (§21.3)
-  if wp.acceptance_criteria is empty:
-    ERROR("At least one acceptance criterion is required")
-
-  root.last_updated = now()
-  write wp
-  write root
-```
-
-> **Scope:** This operation manages the criteria list structure — removing criteria or changing their text. Toggling `met` status during pipeline completion is handled by [§12.3](#123-acceptance-criteria-merge-semantics) merge semantics. Use this operation for PM corrections: removing accidentally appended criteria, fixing typos in criterion text, or updating outdated requirements.
-
-### 12.4 Agent Role Validation on Completion
-
-The `agentRole` parameter is mandatory. The agent must match the pipeline owner defined in `PIPELINE_AGENT_MAP` (§9.1), with one exception:
-
-- **PM override:** The Project Manager may complete any pipeline type to handle operational scenarios (e.g., cancelling a stale pipeline by completing it with FAIL). A log entry is emitted for auditability.
-
-This guard is the completion counterpart of §11.1.2 (Agent Role Validation on start). Together they ensure that only the owning agent (or PM) can start and complete a given pipeline type.
-
----
-
-### 12.5 Pipeline Cancellation (cancelPipeline)
-
-The `cancelPipeline` operation forcibly closes the most recent IN_PROGRESS pipeline of a given type on a WP. It is used for operational cleanup, crash recovery, and rollback of orphaned pipelines (see §21.68). The operation exists as `ledger_cancel_pipeline` in the implementation.
-
-### 12.5.1 Algorithm
-
-```
-function cancelPipeline(wp, root, pipelineType, reason, agentRole, opts):
-  // Guard: Agent role validation — only owning agent or PM may cancel
-  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
-  if agentRole != expectedRole AND agentRole != "Project Manager":
-    ERROR("Agent role {agentRole} cannot cancel {pipelineType} pipeline "
-          + "(owned by {expectedRole})")
-
-  // Find the most recent IN_PROGRESS pipeline of the given type
-  pipeline = wp.pipelines
-    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
-    .last()
-
-  if pipeline is null:
-    ERROR("No in-progress {pipelineType} pipeline found on {wp.work_package_id}")
-
-  // Apply cancellation
-  pipeline.status = "FAIL"
-  pipeline.completed_at = now()
-  pipeline.summary = ["Cancelled: " + reason]
-  pipeline.auto_cancelled = opts.auto_cancelled ?? false   // See §12.5.2
+  // Record the reset for auditability
+  root.project_comments.append({
+    type: "rework_reset",
+    priority: "high",
+    timestamp: now(),
+    agent: "Project Manager",
+    note: "Reset rework count for {pipelineType} on {wp.work_package_id} "
+          + "from {previousValue} to 0. Reason: {reason}"
+  })
 
   root.last_updated = now()
   write wp
   write root
 ```
 
-### 12.5.2 auto_cancelled Semantics
+> **Use case:** After investigating a root cause (e.g., flaky test environment, misunderstood requirement), the PM resets the counter to allow retries. The mandatory reason and project comment ensure the decision is auditable. The PM should address the root cause before resetting — otherwise the circuit breaker will trip again after `MAX_REWORK_COUNT` additional attempts.
 
-The `auto_cancelled` parameter controls whether the cancellation consumes the per-pipeline rework budget (§16.2):
+### 16.3c Circuit Breaker Escalation for Automated Orchestrators
 
-| `auto_cancelled` | Effect |
-|-----------------|--------|
-| `false` (default) | Pipeline counts as a rework attempt — `rework_counts[pipelineType]` increments on the next `startPipeline` call |
-| `true` | Pipeline is excluded from rework detection and circuit-breaker calculations (§21.27) — does not consume rework budget |
+The circuit breaker (§16.3) is designed around a human Project Manager who can review `REVIEW_REWORK_LIMIT` recommendations and decide whether to cancel or restructure the affected WP (see §16.3b for the PM reset operation). In **automated (headless) orchestrators** where no interactive PM is available, a circuit-broken WP would block indefinitely — `startPipeline` rejects the call, no human can reset the counter, and the project can never reach synthesis because `pending_work_packages > 0`.
 
-**When to use `auto_cancelled = true`:** Cancellations caused by external interruptions rather than agent quality failures SHOULD set `auto_cancelled = true`. This includes:
+**Prescribed behavior for automated orchestrators:**
 
-- **Crash recovery:** The orchestrator cancelling an orphaned pipeline after an agent crash (§21.68)
-- **WP lifecycle transitions:** System-generated cancellations on `IN_PROGRESS → BLOCKED` or `IN_PROGRESS → CANCELLED` transitions (§21.14b)
-- **GUI reset cleanup:** Cancellations applied by the GUI reset tool to clear orphaned pipelines before re-running
+When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and no PM intervention is available (the system is running headlessly), the orchestrator SHOULD:
 
-**When to use `auto_cancelled = false` (default):** Explicit PM cancellations of running pipelines (e.g., aborting a pipeline whose output is known to be incorrect) are operational decisions, not external interruptions. These should not suppress rework budget tracking because the pipeline represents a genuine failure that required human intervention.
+1. **Log the circuit-breaker event** — Record the WP ID, the circuit-broken pipeline type, the rework count, and a diagnostic note explaining that the circuit breaker was reached. This ensures the operator has visibility into which WPs were affected and why.
+2. **Transition the WP to CANCELLED** — Call `updateWorkPackageStatus(CANCELLED)` on the circuit-broken WP. This is a PM-level operation; automated orchestrators acting as PM surrogates must invoke it with `agent_role: "Project Manager"`. Cancellation is terminal (§21.1) — the WP's pipeline history is preserved for post-run analysis, and `synthesis_generated` is not reset (§21.38).
+3. **Allow the project to proceed to synthesis** — Once all remaining WPs are terminal (COMPLETE or CANCELLED), `completeSynthesis` (§19.1) can proceed. The Synthesis agent's final report SHOULD document cancelled WPs and the reason for cancellation.
 
-### 12.5.3 Relationship to completePipeline
+> **Rationale:** The circuit breaker threshold (`MAX_REWORK_COUNT = 5`) represents a systemic failure — 5 rework cycles without resolution indicates either a persistent bug, a fundamentally flawed requirement, or an environmental issue. In a headless run, the correct recovery is to preserve the evidence (cancel rather than delete), proceed with the deliverable WPs, and document the failure in the synthesis report. This is preferable to leaving the project stuck indefinitely, which produces no output and obscures the partial progress made on other WPs.
 
-`cancelPipeline` is a restricted form of `completePipeline` with:
-- Status always `FAIL`
-- Summary always `["Cancelled: {reason}"]`
-- No acceptance criteria updates, handoff notes, or pipeline metrics
-- An additional `auto_cancelled` flag (absent on `completePipeline`)
+> **PM reset as alternative:** If the automated system has access to an emergency PM intervention path (e.g., a human-triggered override webhook), the PM MAY reset the rework count via `ledger_reset_rework_count` (§16.3b) and let the orchestrator retry. This is preferable to cancellation when the root cause has been identified and fixed (e.g., a flaky test environment was repaired). Cancellation should be the default when no such path exists.
 
-For normal pipeline completion — including PM-forced FAIL completions — use `completePipeline` (§12.1). Reserve `cancelPipeline` for cleanup and crash-recovery scenarios where the pipeline was never legitimately completed.
+> **Halted WPs and synthesis:** Some orchestrators implement a local circuit breaker (e.g., 3 consecutive failures → "halted" state) that prevents further invocation of the agent for that WP within the current run, even though the WP remains `IN_PROGRESS` in the ledger. Such halted WPs must be transitioned to `CANCELLED` before `completeSynthesis` is called, because the synthesis guard requires `pending_work_packages == 0` — a halted `IN_PROGRESS` WP still counts as pending.
+
+**Related sections:** [§16.3b](#163b-circuit-breaker-reset) (PM rework count reset), [§21.68](edge-cases.md#2168-orphaned-pipeline-recovery-agent-crash-between-begin_work-and-complete_pipeline) (orphaned pipeline recovery), [§19.1](auxiliary-systems.md#191-algorithm) (`completeSynthesis` pending guard)
+
+### 16.4 Rework Flow
+
+The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
 
 ```
-###  Path: `/mcp-server/docs/agents/workflow-specification/pipeline-routing.md`
+                    ┌───────────┐
+                    │ Developer │
+                    │implements │
+                    └─────┬─────┘
+                          │
+                    ┌─────▼─────┐
+                    │  QA runs  │
+                    │  tests    │
+                    └─────┬─────┘
+                          │
+                   ┌──────┴──────┐
+                 PASS           FAIL ──► Developer fixes
+                   │                    (rework_counts.implementation++)
+            ┌──────▼──────────┐
+            │[Security Audit] │  ◄── optional; skipped if not in active stages
+            └──────┬──────────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
+            │
+            ┌──────▼──────┐
+            │  Reviewer   │
+            │  reviews    │
+            └──────┬──────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
+            │
+     ┌──────▼─────────────────┐
+     │[Release Engineering]   │  ◄── optional; skipped if not in active stages
+     └──────┬─────────────────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Release Engineer self-reworks
+         │            (rework_counts.release-engineering++)
+         │
+     ┌───▼──────────┐
+     │Documentation │
+     │  writes      │
+     └──────┬───────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Documentation self-reworks
+         │            (rework_counts.documentation++)
+         │
+      COMPLETE → Synthesis (after all WPs complete)
+```
+
+> **FAIL routing summary:** QA, Security Audit, and Code Review FAILs route to Developer (`rework_counts.implementation++`). Release Engineering and Documentation FAILs route to self-rework (`rework_counts.release-engineering++` and `rework_counts.documentation++` respectively). Each rework budget is independent — reaching the circuit breaker limit on one pipeline type does not block other pipeline types (§16.3).
+>
+> **Stage skipping:** When a stage is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).
+
+```
+```
+// Structure of documents
+└── mcp-server/
+    └── docs/
+        └── agents/
+            └── workflow-specification/
+                └── auxiliary-systems.md
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/auxiliary-systems.md`
 
 ```md
-# Pipeline Routing
+# Auxiliary Systems
 
 > Part of the [Agent Workflow Specification](README.md).
 
 ---
 
-## 8. Pipeline Ordering & Prerequisites
+## 17. Self-Healing
 
-Pipelines within a work package follow a **canonical ordering** of six stages. The Project Manager selects which stages are active for each WP at creation time:
+The project status tool auto-corrects counters and project status on every read.
+
+### 17.1 Healed Fields
+
+- `total_work_packages`: recomputed as `work_packages.length`
+- `pending_work_packages`: recomputed as count of non-terminal WPs
+- `status`: corrected based on rules below
+
+### 17.2 Healing Rules (Applied in Order — First Match Wins)
+
+> **Numbering convention:** Rules are grouped by the project status they match against. Sub-rules (e.g., 1b, 1c) share the same status condition as their parent but differ in secondary conditions. Rules 1/1b/1c all match `pending == 0 AND total > 0` but diverge on `synthesis_generated` and the current project status.
+
+| # | Condition | Healed Status |
+|---|-----------|---------------|
+| 1 | (`IN_PROGRESS` or `READY`) AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
+| 1b | `READY` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis — see note below) |
+| 1c | `IN_PROGRESS` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | Preserve `IN_PROGRESS` (no change — awaiting synthesis) |
+| 2 | `COMPLETE` AND `pending > 0` | `IN_PROGRESS` (reopen/drift repair) |
+| 2b | `COMPLETE` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (synthesis not yet run — project completion requires synthesis) |
+| 3 | `READY` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` |
+| 3b | `READY` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (all remaining WPs are blocked) |
+| 3c | `IN_PROGRESS` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (drift repair: all remaining WPs are blocked) |
+| 4 | `BLOCKED` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` (progress possible despite some WPs still blocked) |
+| 4b | `BLOCKED` AND any WP is `READY` (none `IN_PROGRESS`) | `READY` (progress possible via READY WPs, even if other WPs remain blocked) |
+| 5a | `BLOCKED` AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
+| 5b | `BLOCKED` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
+| 6 | Empty project (no WPs) | Never auto-healed to `COMPLETE` |
+| 6b | (`IN_PROGRESS` or `BLOCKED`) AND `total == 0` | `READY` (drift repair: no WPs exist to process) |
+| 6c | `COMPLETE` AND `total == 0` | `READY` (drift repair: project marked complete with no WPs — see note below) |
+
+> **Rule 1b/1c/5b semantic note:** In the "all WPs terminal, awaiting synthesis" state, no WP is actively being worked on, yet the project is healed to `IN_PROGRESS`. This extends the §5.2 definition of `IN_PROGRESS` beyond its literal meaning ("at least one WP is being worked on") to also cover the post-completion, pre-synthesis phase. `IN_PROGRESS` is the best available status — the project is neither `READY` (work has been done), `BLOCKED` (synthesis can proceed), nor `COMPLETE` (synthesis hasn't run). Implementations should treat `IN_PROGRESS` with `pending == 0` and `synthesis_generated == false` as the "awaiting synthesis" sub-state.
+
+> **Rule 6b rationale:** If data corruption or an interrupted operation leaves a project `IN_PROGRESS` or `BLOCKED` with zero work packages, no agent can make progress and no other healing rule matches. Healing to `READY` is the most conservative repair — the Project Manager can then re-create work packages.
+
+> **Rule 6c rationale:** A `COMPLETE` project with zero work packages is contradictory — `completeSynthesis` (§19.1) explicitly requires at least one WP. This state can only arise from data corruption (e.g., WP files deleted after synthesis). Healing to `READY` allows the Project Manager to re-create work packages. Without this rule, a COMPLETE-but-empty project would persist in an inconsistent state with no self-repair path.
+
+> **Rule 4 rationale:** A project should not stay `BLOCKED` when some WPs can make progress. Even if other WPs remain `BLOCKED`, the presence of an `IN_PROGRESS` WP means at least one agent can advance. This mirrors rule 3 (which handles the `READY` → `IN_PROGRESS` case) for the `BLOCKED` → `IN_PROGRESS` case.
+
+> **Rule 4b rationale:** Extends rule 4 to the `READY` case. After a partial auto-unblock (§15.4), some WPs may become `READY` while others remain `BLOCKED`. Per §5.2, the project should not be `BLOCKED` when any WP is `READY` or `IN_PROGRESS`. Without rule 4b, a partially-unblocked project would remain stuck in `BLOCKED` until all blocked WPs resolved — the prior rule 5b required "no WP is `BLOCKED`" in its condition, missing the mixed READY/BLOCKED case. Rule 4b subsumes former rule 5b (which was removed as unreachable once 4b was added). Rules 5a and 5b were renumbered (formerly 5a and 5c) and their "no WP is `BLOCKED`" condition was removed as redundant — after rules 4 and 4b filter out any project with `IN_PROGRESS` or `READY` WPs, a `BLOCKED` project with `pending == 0` can only contain terminal WPs (none `BLOCKED`).
+
+> **Completeness note:** The healing rules above are designed for the four-status model (`READY`, `IN_PROGRESS`, `COMPLETE`, `BLOCKED`). The initial project state — `READY` with `total == 0` — intentionally matches no rule: self-healing is a no-op for this state because it is already correct (the PM has not yet created WPs). No catch-all rule exists — if a project enters a state that matches no rule (e.g., due to a future status value being added without corresponding healing rules), self-healing silently does nothing. Implementations that extend the status model MUST add corresponding healing rules to maintain the self-repair guarantee.
+
+> **Known gap — stale `synthesis_generated` with pending WPs:** If data corruption sets `synthesis_generated = true` while WPs are still pending (`pending > 0`) and the project is `IN_PROGRESS`, no healing rule resets `synthesis_generated`. Self-healing only corrects project `status`, not the `synthesis_generated` flag (which is reset by COMPLETE → IN_PROGRESS transitions §6.2, cascade reblock §15.5, and WP creation on COMPLETE projects §21.51). If the pending WPs subsequently complete, rule 1 fires (`IN_PROGRESS AND pending == 0 AND synthesis_generated`) and auto-completes the project with a stale synthesis. **Mitigation:** Implementations SHOULD add a defensive check: if `synthesis_generated == true` AND `pending > 0`, reset `synthesis_generated = false` during self-healing. This is a corruption-only scenario (no normal operation produces this combination), so the risk is low, but the impact (silent stale completion) is high.
+
+### 17.3 Write Optimization
 
 ```
-Canonical:  implementation → qa → security-audit → code-review → release-engineering → documentation
-```
-
-The PM may compose **any valid subsequence** of this ordering. Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
-
-```
-Default:    implementation → qa → code-review → documentation
-```
-
-A WP with all six stages active follows the full chain:
-
-```
-Full:       implementation → qa → security-audit → code-review → release-engineering → documentation
-```
-
-A documentation-only WP has a single stage:
-
-```
-Doc-only:   documentation
-```
-
-The active stages for a WP are always a **subsequence** of the canonical ordering — stages can be omitted, but never reordered. See [§4.2](data-model.md#42-pipeline-stage-constants) for the constant definitions and common composition patterns.
-
-### 8.1 Prerequisites Map
-
-The **static** prerequisites map defines the canonical prerequisite for each pipeline type — i.e., the immediately preceding stage in the canonical ordering:
-
-| Pipeline Type | Canonical Prerequisite |
-|--------------|----------------------|
-| `implementation` | None (can always start) |
-| `qa` | `implementation` |
-| `security-audit` | `qa` |
-| `code-review` | `security-audit` |
-| `release-engineering` | `code-review` |
-| `documentation` | `release-engineering` |
-
-Because inactive stages are skipped, the **effective** prerequisite for a given pipeline type depends on the work package's `active_pipeline_stages`. The `resolvePrerequisite` function dynamically computes the correct prerequisite by walking backward through the canonical ordering until it finds an active predecessor:
-
-#### 8.1.1 Dynamic Prerequisite Resolution
-
-```
-function resolvePrerequisite(pipelineType, activeStages):
-  // activeStages defaults to DEFAULT_PIPELINE_STAGES when absent/null
-  ordering = CANONICAL_PIPELINE_ORDERING
-  index = ordering.indexOf(pipelineType)
+function healProject(root):
+  healed = computeHealedStatus(root)    // Pure function, no I/O
   
-  if index <= 0:
-    return null  // implementation has no prerequisite
+  if not healed.needsWrite:
+    return root                          // No correction needed
   
-  // Walk backward from the position just before pipelineType
-  for i = index - 1 downto 0:
-    if ordering[i] in activeStages:
-      return ordering[i]
+  acquire lock
+  freshRoot = readRootIndex()            // Re-read under lock
+  freshHealed = computeHealedStatus(freshRoot)
   
-  return null  // First active stage — no active predecessor
-```
-
-**Effective prerequisite examples:**
-
-| Pipeline Type | Active Stages (default 4) | Active Stages (all 6) |
-|--------------|--------------------------|----------------------|
-| `implementation` | None | None |
-| `qa` | `implementation` | `implementation` |
-| `security-audit` | *(not active)* | `qa` |
-| `code-review` | `qa` | `security-audit` |
-| `release-engineering` | *(not active)* | `code-review` |
-| `documentation` | `code-review` | `release-engineering` |
-
-### 8.2 Prerequisite Check Algorithm
-
-```
-function canStartPipeline(wp, pipelineType):
-  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
-  prerequisite = resolvePrerequisite(pipelineType, activeStages)
-  if prerequisite is null:
-    return true
+  if freshHealed.needsWrite:
+    apply corrections to freshRoot
+    writeRootIndex(freshRoot)
   
-  prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)
-  if prereqPipelines is empty:
-    return false
-  
-  mostRecent = prereqPipelines.last()
-  return mostRecent.status == "PASS"
+  release lock
+  return corrected root
 ```
 
-> **Note:** This check validates that the prerequisite is PASS but does not verify temporal ordering. The full re-validation guard (ensuring the prerequisite PASSed *after* the most recent run of the current pipeline type) is enforced in `startPipeline` (see [§11.1](operations.md#111-algorithm)).
->
-> **Implementation note:** `startPipeline` (§11.1) implements the prerequisite check inline rather than delegating to `canStartPipeline`, because it extends the check with additional guards (re-validation, duplicate prevention, active-stage validation) in a single pass. This function is provided as a conceptual reference for the ordering rule; implementations are not required to expose it as a separate callable.
+The double-check (compute → lock → re-read → re-compute → write) prevents race conditions.
 
-### 8.3 Duplicate Prevention
+### 17.4 Optional Pipeline Ordering Validation
 
-Only one pipeline of a given type can be IN_PROGRESS at a time per work package.
-
-```
-function hasDuplicateInProgress(wp, pipelineType):
-  return wp.pipelines.any(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
-```
-
-### 8.4 Downstream Types
-
-Returns all pipeline types that follow a given type in the canonical pipeline ordering, filtered to only include active stages. When `activeStages` is omitted, defaults to `DEFAULT_PIPELINE_STAGES` (4-stage legacy behavior) for backward compatibility with pre-composable-stages callers.
-
-```
-function getDownstreamTypes(pipelineType, activeStages?):
-  ordering = CANONICAL_PIPELINE_ORDERING
-  stages = activeStages ?? DEFAULT_PIPELINE_STAGES
-  active = ordering.filter(t => t in stages)
-  index = active.indexOf(pipelineType)
-  if index == -1 OR index == active.length - 1:
-    return []
-  return active.slice(index + 1)
-```
-
-**Examples with default (4 stages):**
-
-| Input | Output |
-|-------|--------|
-| `implementation` | `["qa", "code-review", "documentation"]` |
-| `qa` | `["code-review", "documentation"]` |
-| `code-review` | `["documentation"]` |
-| `documentation` | `[]` |
-
-**Examples with all 6 stages active:**
-
-| Input | Output |
-|-------|--------|
-| `implementation` | `["qa", "security-audit", "code-review", "release-engineering", "documentation"]` |
-| `qa` | `["security-audit", "code-review", "release-engineering", "documentation"]` |
-| `security-audit` | `["code-review", "release-engineering", "documentation"]` |
-| `code-review` | `["release-engineering", "documentation"]` |
-| `release-engineering` | `["documentation"]` |
-| `documentation` | `[]` |
-
-> Used by `hasDownstreamFail` ([§11.3](operations.md#113-downstream-fail-detection)) and the re-validation guard ([§11.1](operations.md#111-algorithm)).
-
-### 8.5 Upstream Types
-
-Returns all pipeline types that precede a given type in the canonical pipeline ordering, filtered to only include active stages. When `activeStages` is omitted, defaults to `DEFAULT_PIPELINE_STAGES` (4-stage legacy behavior) for backward compatibility. Counterpart of `getDownstreamTypes` (§8.4).
-
-```
-function getUpstreamTypes(pipelineType, activeStages?):
-  ordering = CANONICAL_PIPELINE_ORDERING
-  stages = activeStages ?? DEFAULT_PIPELINE_STAGES
-  active = ordering.filter(t => t in stages)
-  index = active.indexOf(pipelineType)
-  if index <= 0:
-    return []
-  return active.slice(0, index)
-```
-
-**Examples with default (4 stages):**
-
-| Input | Output |
-|-------|--------|
-| `implementation` | `[]` |
-| `qa` | `["implementation"]` |
-| `code-review` | `["implementation", "qa"]` |
-| `documentation` | `["implementation", "qa", "code-review"]` |
-
-**Examples with all 6 stages active:**
-
-| Input | Output |
-|-------|--------|
-| `implementation` | `[]` |
-| `qa` | `["implementation"]` |
-| `security-audit` | `["implementation", "qa"]` |
-| `code-review` | `["implementation", "qa", "security-audit"]` |
-| `release-engineering` | `["implementation", "qa", "security-audit", "code-review"]` |
-| `documentation` | `["implementation", "qa", "security-audit", "code-review", "release-engineering"]` |
-
-> Used by the re-validation guard's upstream activity check ([§11.1](operations.md#111-algorithm)) to distinguish stale prerequisites from self-rework scenarios, and by upstream circuit breaker propagation ([§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation)).
+The `pipelines` array ordering invariant ([§3.4](data-model.md#34-pipeline)) is critical to the correctness of prerequisite checks, rework detection, and freshness checks. Implementations SHOULD add a defensive check during self-healing: verify that `started_at` timestamps across all pipelines in each WP are monotonically non-decreasing. If a violation is detected, emit a `"warning"` project comment identifying the affected WP. Self-healing does not attempt to reorder pipelines (the correct order may be ambiguous if timestamps were corrupted), but surfacing the violation allows the PM to investigate and repair the data.
 
 ---
 
-## 9. Pipeline Routing Maps
+## 18. Auto-Handoff Depth Counter
 
-Four maps control how agents are assigned and how failures/successes are routed. `PIPELINE_AGENT_MAP`, `FAIL_ROUTING_MAP`, and `AGENT_PIPELINE_MAP` are static (they cover all 6 pipeline types). `NEXT_AGENT_MAP` is replaced by the dynamic `resolveNextAgent` function because the next agent depends on which stages are active.
+Prevents infinite agent-chain loops.
 
-### 9.1 PIPELINE_AGENT_MAP
+### 18.1 Storage
 
-Maps pipeline type to the agent that owns it. Used to auto-update `assigned_to` when a pipeline starts.
+`auto_handoff_depth` field on the root index. Optional; absent = 0.
 
-| Pipeline Type | Agent |
-|--------------|-------|
-| `implementation` | Developer |
-| `qa` | QA |
-| `security-audit` | Security Auditor |
-| `code-review` | Reviewer |
-| `release-engineering` | Release Engineer |
-| `documentation` | Documentation |
-
-### 9.2 resolveNextAgent (Dynamic Next-Agent Resolution)
-
-In previous versions of this specification, `NEXT_AGENT_MAP` was a static map. With dynamic pipeline composition, the next agent on PASS depends on the work package's `active_pipeline_stages`. The `resolveNextAgent` function replaces the static map:
+### 18.2 Constants
 
 ```
-function resolveNextAgent(pipelineType, activeStages):
-  // activeStages defaults to DEFAULT_PIPELINE_STAGES when absent/null
-  ordering = CANONICAL_PIPELINE_ORDERING
-  agentMap = PIPELINE_AGENT_MAP
-  index = ordering.indexOf(pipelineType)
-  
-  if index == -1:
-    return null  // Unknown pipeline type
-  
-  // Find the next active stage after the current one
-  for i = index + 1 to ordering.length - 1:
-    if ordering[i] in activeStages:
-      return agentMap[ordering[i]]
-  
-  // No more active pipeline stages — route to Synthesis
-  return "Synthesis"
+MAX_HANDOFF_DEPTH = 50    // Static floor; configurable at runtime via gui-config
 ```
 
-**Effective routing examples:**
+### 18.2.1 Dynamic Effective Maximum
 
-| Pipeline Type | Default (4 stages) | All 6 stages | Doc-only | Verification-only (impl/qa/review) |
-|--------------|-------------------|--------------|----------|------------------------------------|
-| `implementation` | QA | QA | *(not active)* | QA |
-| `qa` | Reviewer | Security Auditor | *(not active)* | Reviewer |
-| `security-audit` | *(not active)* | Reviewer | *(not active)* | *(not active)* |
-| `code-review` | Documentation | Release Engineer | *(not active)* | Synthesis |
-| `release-engineering` | *(not active)* | Documentation | *(not active)* | *(not active)* |
-| `documentation` | Synthesis | Synthesis | Synthesis | *(not active)* |
-
-> **Terminal routing:** When `resolveNextAgent` returns `"Synthesis"`, it means there are no more active pipeline stages. This is the signal that the current stage is the **last active stage** — its owning agent is the terminal agent for this WP (see [§6.2.1](state-machines.md#621-dynamic-complete-guard-helpers)).
-
-> **Backward compatibility:** When `activeStages` contains only the 4 default types (`DEFAULT_PIPELINE_STAGES`), `resolveNextAgent` produces the same results as the original static `NEXT_AGENT_MAP`.
-
-### 9.3 FAIL_ROUTING_MAP
-
-Maps pipeline type to the agent responsible for fixing failures. Used for handoff notes on FAIL. The base map is static:
-
-| Pipeline Type | Rework Agent (on FAIL) |
-|--------------|------------------------|
-| `implementation` | Developer (self-rework) |
-| `qa` | Developer |
-| `security-audit` | Developer |
-| `code-review` | Developer |
-| `release-engineering` | Release Engineer (self-rework) |
-| `documentation` | Documentation (self-rework) |
-
-#### 9.3.1 FAIL Routing Fallback
-
-When the standard FAIL target's owned pipeline stage is **not active** in the WP's `active_pipeline_stages`, the routing falls back to the agent owning the WP's **first active stage**:
+The static constant serves as a floor. Once work packages exist, the effective maximum scales with project size:
 
 ```
-function resolveFailAgent(pipelineType, activeStages):
-  activeStages = activeStages ?? DEFAULT_PIPELINE_STAGES
-  standardTarget = FAIL_ROUTING_MAP[pipelineType]
-  targetStage = AGENT_PIPELINE_MAP[standardTarget]  // standardTarget always owns a pipeline type — see AGENT_PIPELINE_MAP consistency invariant (§9.4)
-  
-  if targetStage in activeStages:
-    return standardTarget
-  
-  // Fallback: route to first active stage's agent
-  firstStage = activeStages[0]
-  return PIPELINE_AGENT_MAP[firstStage]
+effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)
 ```
 
-In practice, this fallback only triggers for unusual compositions where the standard fail target's stage was omitted (e.g., a WP with `["qa", "code-review"]` where a `qa` FAIL would normally route to Developer, but `implementation` is not active — the fallback routes to QA itself for self-rework). For all standard compositions (including the default 4 stages and full 6 stages), the base FAIL_ROUTING_MAP applies directly.
+| Project Size | Effective Max | Rationale |
+|-------------|--------------|----------|
+| 0 WPs (pre-planning) | 50 | Static floor applies |
+| 1 WP | 50 | 1 × 30 = 30 < 50, floor applies |
+| 3 WPs | 90 | 3 × 30 = 90 |
+| 5 WPs | 150 | 5 × 30 = 150 |
+| 8 WPs | 240 | 8 × 30 = 240 |
 
-> **Self-referential fallback:** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56).
+The `× 30` multiplier accounts for:
+- **4–6 happy-path handoffs** per WP (Dev → QA → Security Auditor → Reviewer → Release Engineer → Doc; varies by active stages — 4 for the default pipeline, up to 6 when all stages are active)
+- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
+- **~10–15 headroom** per WP for atypical rework, blocker resolution, self-rework cycles (Release Engineering, Documentation), and wasted handoff cycles from handoff/recommendation priority mismatches
 
-> **Failure routing rationale:**
-> - **Security Auditor (`security-audit`)** failures route to Developer because security issues are typically code-level fixes, consistent with the QA and code-review failure routing pattern.
-> - **Release Engineer (`release-engineering`)** failures are self-rework because release issues (versioning, packaging, changelog) are within the Release Engineer's own domain, consistent with the Documentation self-rework pattern.
+> **Multiplier increased from 20 to 30 (v2.4.1):** Operational experience showed that the original `× 20` multiplier was insufficient for projects with complex rework patterns, multi-stage WPs, and the overhead of wasted handoff cycles (§18.4). The increased multiplier provides adequate headroom without compromising the loop-guard safety net.
+
+> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 30` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 4` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
+
+> **Design intent:** The auto-handoff depth counter is a **safeguard against infinite loops**, not a throttle. The effective maximum should be high enough that a legitimate project completes without ever hitting it. If the counter is reached, it indicates a pathological loop — not normal workflow activity.
+
+> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 120 handoffs across 5 WPs has `effectiveMax = 150`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 30) = 60`, and the counter (120) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
+
+### 18.3 Increment Path
+
+```
+function buildHandoffResponse(currentAgent, status, ..., store):
+  if status in ["COMPLETE", "BLOCKED", "IN_PROGRESS"]:
+    skip auto-handoff
+  
+  nextAgent = resolveNextAgent(status, currentAgent)
+  if nextAgent is null:
+    skip auto-handoff
+  
+  root = store.readRootIndex()
+  currentDepth = root.auto_handoff_depth ?? 0
+  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 30)
+  
+  if currentDepth < effectiveMax:
+    root.auto_handoff_depth = currentDepth + 1
+    store.writeRootIndex(root)
+    agentId = getAgentId(nextAgent)  // null when persona has no id: field
+    names = AGENT_NAMES[nextAgent]   // loaded from personas/name-mapping.json at startup
+    include auto_handoff in response payload:
+      {
+        agent_name: nextAgentHandle,
+        ...(agentId !== null ? { agent_id: agentId } : {}),
+        cc_agent_name: names.claude_code.agent_name,   // e.g. "3-developer"
+        vs_agent_name: names.vscode.agent_name,        // e.g. "3 - Developer v3.6.1"
+        da_agent_name: names.deep_agents.agent_name,   // e.g. "3-developer"
+        prompt: buildHandoffPrompt(projectPath, agentId ?? undefined)
+        // prompt starts with "@{agentId}\n" when agentId is present — VS Code routes to the matching persona
+      }
+  else:
+    omit auto_handoff from response
+    // Emit warning for observability
+    root.project_comments.append({
+      type: "warning",
+      priority: "high",
+      timestamp: now(),
+      agent: "system",
+      note: "Auto-handoff depth limit reached ({currentDepth}/{effectiveMax}). "
+            + "Agent chain terminated. Manual routing required."
+    })
+    store.writeRootIndex(root)
+```
+
+> **Name fields source:** `cc_agent_name`, `vs_agent_name`, and `da_agent_name` are loaded from `personas/name-mapping.json` (generated by `scripts/build-personas.js`) via the `AGENT_NAMES` constant in `mcp-server/src/utils/constants.ts`. The existing `agent_name` field (VS Code display name from the Agent Registry) is preserved for backward compatibility.
+
+> **Concurrency note:** The depth-increment read-modify-write cycle (`readRootIndex` → increment → `writeRootIndex`) must be protected by the storage directory lock ([§20](#20-concurrency-model)) to prevent parallel handoff chains from racing past the depth limit. Implementations should acquire the lock before reading the depth counter.
+
+### 18.4 Reset Path
+
+The depth counter is reset to `0` **atomically inside `completeSynthesis`** (§19.1) when the project status transitions to `COMPLETE`. This ensures no window exists where the project is COMPLETE but the counter is stale.
+
+```
+// Inside completeSynthesis, after setting root.status = "COMPLETE":
+if (root.auto_handoff_depth ?? 0) != 0:
+  root.auto_handoff_depth = 0
+// Written as part of the same writeRootIndex(root) call
+```
+
+Individual WP completions do **not** reset the counter. This prevents the counter from being reset N times in a project with N work packages, which would allow `MAX_HANDOFF_DEPTH × N` total handoffs and undermine the loop guard.
+
+> **Wasted handoff cycles:** When the handoff function (§13.1) and the recommendation engine (§14) have different priority orderings (e.g., Documentation handoff checks new-work WPs before FAIL self-rework, while `getNextAction` checks FAIL self-rework first — see §14.5), a handoff may invoke an agent that immediately prioritizes different work than the handoff intended. Each such “wasted” handoff still increments the depth counter. Over many such cycles, this can consume depth budget without productive handoff progress. The dynamic scaling (§18.2.1) provides generous headroom to absorb this, but implementations that observe frequent wasted handoffs MAY consider aligning handoff and recommendation priorities for specific roles, or skipping the depth increment when the receiving agent's `getNextAction` targets a different WP than the handoff intended. Such optimizations are beyond the core specification.
+
+### 18.5 Depth-Exceeded Behavior
+
+- No error thrown
+- `auto_handoff` key simply omitted from response
+- A project comment of type `"warning"` with priority `"high"` is emitted: `"Auto-handoff depth limit reached ({currentDepth}/{effectiveMax}). Agent chain terminated. Manual routing required."`
+- Agent chain terminates; manual routing required
+
+> **Rationale:** Silent termination (without any diagnostic output) would cause headless orchestrators to stop processing with no indication of why. The warning comment ensures the Project Manager has visibility into the termination cause, mirroring the pattern used for null timestamp anomalies (§21.18).
+
+### 18.6 Auto-Handoff Eligibility
+
+`auto_handoff` is included in the response **only when ALL conditions are true**:
+
+1. `auto_handoff_enabled` is `true` in runtime config
+2. Agent registry is loaded (agent files discovered)
+3. Next agent has a known handle in the registry
+4. Status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
+5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)` — see [§18.2.1](#1821-dynamic-effective-maximum))
+
+---
+
+## 19. Synthesis Completion
+
+### 19.1 Algorithm
+
+```
+function completeSynthesis(projectPath, agentRole):
+  // Guard: Only Synthesis agent (or PM override) can complete synthesis
+  if agentRole != "Synthesis" AND agentRole != "Project Manager":
+    ERROR("Only Synthesis agent can complete synthesis (PM override allowed)")
+  
+  acquire lock
+  root = readRootIndex()
+  
+  // Heal counters before checking (guard against stale pending count from
+  // a prior crash or interrupted write — see §17)
+  root.total_work_packages = root.work_packages.length
+  root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
+  
+  // Guard: All WPs must be terminal before synthesis can complete
+  if root.pending_work_packages > 0:
+    release lock
+    ERROR("Cannot complete synthesis: {root.pending_work_packages} work packages still pending")
+  
+  // Guard: At least one WP must exist
+  if root.work_packages.length == 0:
+    release lock
+    ERROR("Cannot complete synthesis: no work packages exist")
+  
+  root.synthesis_generated = true
+  root.synthesis_generated_at = now()   // §21.57: enables staleness detection
+  root.status = "COMPLETE"
+  root.last_updated = now()
+  
+  // Reset auto-handoff depth counter atomically with project completion (§18.4)
+  if (root.auto_handoff_depth ?? 0) != 0:
+    root.auto_handoff_depth = 0
+  
+  writeRootIndex(root)
+  release lock
+```
+
+### 19.2 Idempotency
+
+Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again (and `synthesis_generated_at` is updated to the current time). However, calling it while WPs are still pending is rejected (not silently ignored).
+
+> **Crash recovery and statelessness:** Unlike pipeline-owning agents, the Synthesis agent has no pipeline-based state tracking — its only persistent artifact is the binary `synthesis_generated` flag. If the Synthesis agent crashes or is interrupted during report generation, there is no "synthesis in progress" state to resume from. The `synthesis_generated` flag remains `false`, and `getNextAction` for the Synthesis role will return `GENERATE_SYNTHESIS` again. Implementations MUST treat Synthesis as a **stateless, idempotent operation**: each invocation regenerates the complete synthesis report from scratch using the current state of all work packages. The Synthesis agent should not attempt to resume or append to a partial report from a prior session.
+
+### 19.3 Project Completion Condition
+
+A project is `COMPLETE` when:
+- All WPs have terminal status (COMPLETE or CANCELLED) ⟹ `pending_work_packages == 0`
+- At least one WP exists ⟹ `total_work_packages > 0`
+- `synthesis_generated == true` (and `synthesis_generated_at` records when)
+
+---
+
+## 20. Concurrency Model
+
+### 20.1 Atomic Writes
+
+All file writes use a write-to-temp-then-rename pattern:
+1. Write data to `{file}.tmp.{pid}`
+2. Atomically rename to target file
+
+This ensures readers never see partial writes.
+
+### 20.2 File Locking
+
+Dual-file updates (WP detail + root index) are protected by file locks:
+- Lock file: `{storageDir}/.lock`
+- Stale timeout: 10 seconds (locks older than this are forcibly acquired)
+- Retry: 50 attempts with 200ms–1000ms exponential backoff
+- Lock is always released in a `finally` block
+
+### 20.3 Lock Scoping
+
+| Operation | Lock Required? | Lock Scope |
+|-----------|---------------|------------|
+| Read-only (get status, list WPs) | No | — |
+| Single-file write (synthesis completion) | Yes | Root index |
+| Auto-handoff depth increment | Yes | Root index |
+| Dual-file write (WP + root) | Yes | Storage directory |
+| Dependency cascade (unblock/reblock) | Yes (separate) | Storage directory |
+
+### 20.4 Cascade Lock Separation
+
+`propagateDependencyUnblock` and `propagateDependencyReblock` acquire their own locks **after** the main update lock is released. This is intentional:
+- Avoids holding a lock during potentially slow cascade reads
+- Safe because cascade operations are idempotent
+- Brief window between locks where state may appear inconsistent
+
+> **Crash recovery:** If the process crashes during the gap between the main update lock release and cascade lock acquisition, WP-level blocking state may be left stale (e.g., a WP remains BLOCKED despite all its dependencies being terminal). Since `propagateDependencyUnblock` and `propagateDependencyReblock` are **idempotent and re-entrant**, the recovery path is to re-invoke the cascade function with the same arguments. This produces the correct end state regardless of how many times it runs.
 >
-> **Escalation path:** If a release-engineering pipeline FAIL is caused by underlying code issues (not release/packaging quality), the Release Engineer should set the WP to BLOCKED with a `technical` blocker. This follows the same escalation pattern as Documentation failures ([§21.24](edge-cases.md#2124-documentation-fail-escalation)).
+> Self-healing (§17) repairs **project-level** status drift. For **WP-level** blocking inconsistency after a suspected cascade failure, re-invoking the cascade is the prescribed repair. Implementations SHOULD detect this condition (WP is BLOCKED but all dependencies are terminal and blocker type is `dependency`) during `getNextAction` and either auto-repair or surface it as a PM action.
 
-### 9.4 AGENT_PIPELINE_MAP (Inverse)
+> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations SHOULD add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result) to guard against this race. This adds minor overhead to every pipeline completion but prevents stale PASS results from propagating through the dependency graph undetected. See [§21.59](edge-cases.md#2159-cross-wp-staleness-after-dependency-reopens) for the full dependency freshness check recommendation.
 
-Maps agent role to the pipeline type it owns. Derived from PIPELINE_AGENT_MAP by inversion. This is a convenience lookup for implementations — no algorithm in this specification references it by name, but it is useful for dynamically resolving an agent's pipeline type (e.g., when determining which pipeline to check in `getNextAction`).
+> **Side-effect idempotency on concurrent unblock:** When two dependencies of the same WP complete near-simultaneously, `propagateDependencyUnblock` may be invoked twice. The state mutation is idempotent (both calls write `READY`), but **side effects** such as notifications, project comments, or webhook emissions may double-fire. Implementations SHOULD ensure that unblock side effects are either idempotent or deduplicated (e.g., via an idempotency key derived from the WP ID and target status).
 
-| Agent | Pipeline Type |
-|-------|--------------|
-| Developer | `implementation` |
-| QA | `qa` |
-| Security Auditor | `security-audit` |
-| Reviewer | `code-review` |
-| Release Engineer | `release-engineering` |
-| Documentation | `documentation` |
-
-> **Map consistency invariant:** `PIPELINE_AGENT_MAP` (§9.1), `FAIL_ROUTING_MAP` (§9.3), and `AGENT_PIPELINE_MAP` (§9.4) must be consistent — every pipeline type that appears as a key in one map must appear in all maps, and `AGENT_PIPELINE_MAP` must be the exact inverse of `PIPELINE_AGENT_MAP`. The `resolveNextAgent` function (§9.2) dynamically derives next-agent routing from `PIPELINE_AGENT_MAP` and `CANONICAL_PIPELINE_ORDERING`, so no separate static `NEXT_AGENT_MAP` needs to be kept in sync. A typo or omission in any map could silently misroute handoffs or skip pipeline stages. Implementations SHOULD validate cross-map consistency at startup (e.g., asserting key-set equality and inverse-mapping correctness) and fail fast on any divergence.
+```
+```
+// Structure of documents
+└── mcp-server/
+    └── docs/
+        └── agents/
+            └── workflow-specification/
+                └── recommendations.md
 
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/recommendations.md`
@@ -3951,483 +3491,5 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
 > **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). The negated guard in priority 5 evaluates `NOT true` → does not fire, so the code falls through to REWORK — correctly routing the Developer to fix the code again. After a new implementation PASS (impl-3), `hasDownstreamReengagedSince` returns `false` (no downstream pipeline started since impl-3 PASS), and the negated guard fires, routing the Developer to WAIT_FOR_DOWNSTREAM until QA re-engages. The net effect: REWORK fires immediately when the downstream agent validates and FAILs, WAIT_FOR_DOWNSTREAM fires when the Developer has delivered a fix that hasn't been validated yet. This prevents the pathological loop identified in §21.52 while preserving immediate rework signaling after repeated failures.
 
 > **Auto-cancelled pipeline exclusion:** Consistent with §21.27, auto-cancelled pipelines are excluded from both the upstream PASS lookup and the downstream re-engagement check.
-
-```
-###  Path: `/mcp-server/docs/agents/workflow-specification/state-machines.md`
-
-```md
-# State Machines
-
-> Part of the [Agent Workflow Specification](README.md).
-
----
-
-## 5. Project Lifecycle
-
-### 5.1 Initialization
-
-```
-Input: project_path, plan_file
-Precondition: No ledger exists for this project
-
-Steps:
-  1. Derive slug from project_path (folder basename)
-  2. Create root index with:
-     - status = READY
-     - total_work_packages = 0
-     - pending_work_packages = 0
-     - work_packages = []
-     - project_comments = []
-  3. Create project metadata file (.meta.json) alongside root index
-  4. Return root index
-
-Error: Reject if ledger already exists
-```
-
-### 5.2 Project Status Values
-
-| Status | Meaning |
-|--------|---------|
-| `READY` | No WP is `IN_PROGRESS`; at least one WP is `READY` or no WPs exist yet. Also the initial status after project initialization. May be reached after work has started (e.g., via auto-unblock §15.4 or self-healing §17.2 rule 4b/6b). |
-| `IN_PROGRESS` | At least one WP is being worked on, OR all WPs are terminal but synthesis has not yet been generated (see §17.2 rules 1b/1c/5b) |
-| `COMPLETE` | All WPs terminal AND synthesis generated |
-| `BLOCKED` | All non-terminal WPs are `BLOCKED` (equivalently: no WP is `IN_PROGRESS` or `READY`) |
-
-### 5.3 Automatic Project Status Transitions
-
-Project status updates are **implicit** — they happen as side effects of WP operations:
-
-- Project transitions to `IN_PROGRESS` when first WP is claimed (`READY → IN_PROGRESS`) by an agent
-- Project transitions to `BLOCKED` when a WP transitions to `BLOCKED` AND no other WP is `IN_PROGRESS` or `READY`
-- Project transitions **out of** `BLOCKED` when:
-  - A previously-blocked WP is unblocked (auto or manual) AND at least one WP is now `IN_PROGRESS` → project becomes `IN_PROGRESS`
-  - A previously-blocked WP is unblocked AND at least one WP is `READY` (none `IN_PROGRESS`) → project becomes `READY`
-  - All WPs reach terminal status → project follows the completion path below
-- Project remains (or transitions to) `IN_PROGRESS` when all WPs reach terminal status but `synthesis_generated` is still `false` — this "awaiting synthesis" sub-state means no WP is actively being worked on, but the project cannot be `COMPLETE` until the Synthesis agent runs. See self-healing rules 1b/1c/5b in [§17.2](auxiliary-systems.md#172-healing-rules-applied-in-order--first-match-wins) for the formal conditions
-- Project transitions to `COMPLETE` when synthesis is marked complete AND all WPs are terminal
-- Project status is also governed by self-healing rules (see [§17](auxiliary-systems.md#17-self-healing))
-
----
-
-## 6. Work Package State Machine
-
-### 6.1 States
-
-| State | Terminal? | Description |
-|-------|-----------|-------------|
-| `READY` | No | Available to be claimed |
-| `IN_PROGRESS` | No | Being actively worked on |
-| `BLOCKED` | No | Waiting on a dependency or external factor |
-| `COMPLETE` | Normally | All criteria met, documentation done. May be reopened by PM or Documentation (see §6.2). |
-| `CANCELLED` | Yes | Abandoned; satisfies dependencies like COMPLETE |
-
-### 6.2 Transition Table
-
-```
-┌───────────────┬────────────────┬──────────────────────────────────────────────────┐
-│ From          │ To             │ Conditions & Guards                              │
-├───────────────┼────────────────┼──────────────────────────────────────────────────┤
-│ READY         → IN_PROGRESS    │ All dependencies must be COMPLETE or CANCELLED   │
-│ READY         → BLOCKED        │ Must provide blocked_by object                   │
-│               │                │ Preserves assigned_to                            │
-│               │                │ Any agent may invoke (see §6.5 design note)      │
-│ READY         → CANCELLED      │ Agent must be "Project Manager"                  │
-├───────────────┼────────────────┼──────────────────────────────────────────────────┤
-│ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
-│               │                │ Most recent pipeline of the WP's **last active    │
-│               │                │ stage** is PASS                                   │
-│               │                │ That PASS must post-date the most recent          │
-│               │                │ pipeline start of the WP's **first active stage** │
-│               │                │ (freshness check; passes vacuously if no pipeline │
-│               │                │ of the first active stage exists — see §21.10)    │
-│               │                │ Agent must own the WP's **last active stage**     │
-│               │                │ (i.e. PIPELINE_AGENT_MAP[lastActiveStage])        │
-│ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
-│               │                │ Agent must be "Project Manager" or current       │
-│               │                │ assignee (wp.assigned_to)                        │
-│               │                │ Clears assigned_to                               │
-│ IN_PROGRESS   → BLOCKED        │ Must provide blocked_by object                   │
-│               │                │ All IN_PROGRESS pipelines set to FAIL            │
-│               │                │ (with auto_cancelled = true; see §21.27)         │
-│               │                │ Preserves assigned_to                            │
-│               │                │ Any agent may invoke (see §6.5 design note)      │
-│ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
-│               │                │ All IN_PROGRESS pipelines set to FAIL            │
-│               │                │ (with auto_cancelled = true; see §21.27)         │
-├───────────────┼────────────────┼──────────────────────────────────────────────────┤
-│ BLOCKED       → IN_PROGRESS    │ Agent must be "Project Manager", current         │
-│               │                │ assignee (wp.assigned_to), or system              │
-│               │                │ Clears blocked_by field                          │
-│ BLOCKED       → READY          │ System-only (auto-unblock path from §15.4)       │
-│               │                │ Clears blocked_by field                          │
-│ BLOCKED       → CANCELLED      │ Agent must be "Project Manager"                  │
-├───────────────┼────────────────┼──────────────────────────────────────────────────┤
-│ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
-│               │                │ agent owning the WP's last active stage           │
-│               │                │ Increments revision counter                      │
-│               │                │ Resets rework_counts to absent (see §21.44)      │
-│               │                │ Resets project synthesis_generated to false       │
-│               │                │ Clears synthesis_generated_at (§21.57)            │
-│               │                │ Triggers cascade reblock of dependents           │
-│ COMPLETE      → CANCELLED      │ Agent must be "Project Manager"                  │
-│               │                │ No counter change (terminal → terminal)          │
-│               │                │ No cascade reblock (CANCELLED satisfies deps)    │
-├───────────────┼────────────────┼──────────────────────────────────────────────────┤
-│ CANCELLED     → (none)         │ Terminal — no outward transitions                │
-└───────────────┴────────────────┴──────────────────────────────────────────────────┘
-```
-
-Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded or terminal states**. Specifically:
-- `CANCELLED → CANCELLED` is **not valid** — CANCELLED is strictly terminal with no outward transitions, including self-transitions (see [§21.32](edge-cases.md#2132-cancelled-self-transition-prohibition))
-- `COMPLETE → COMPLETE` still requires the last-active-stage agent guard (agent identity check only — the full completion guards of acceptance criteria, last-active-stage pipeline PASS, and freshness check are **not** re-evaluated for same-state no-ops)
-- `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
-- All other same-state transitions are pure no-ops that skip validation
-
-> **Same-state behavioral asymmetry:** `BLOCKED → BLOCKED` and `COMPLETE → COMPLETE` are both listed as same-state transitions, but they differ fundamentally in semantics. `BLOCKED → BLOCKED` is a **substantive operation** — it replaces the `blocked_by` payload, requires agent guards (PM or assignee), and enforces blocker-type transition rules (see §6.2 replacement rule). `COMPLETE → COMPLETE` is a **pure no-op** — only the agent identity is checked (must be the last-active-stage agent or PM); no data is modified. The asymmetry arises because BLOCKED carries mutable metadata (`blocked_by`) that same-state transitions can validly update, whereas COMPLETE has no analogous mutable field that a same-state call would change.
-
-> **BLOCKED → BLOCKED agent guard:** The `BLOCKED → BLOCKED` same-state transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`). This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to other transitions.
->
-> **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`) **unless the agent is the Project Manager**. This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. The PM exception allows recording non-dependency blockers discovered after the initial dependency block; the PM accepts responsibility for managing the auto-unblock implications (the `dependency` auto-unblock will no longer fire for this WP). All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
->
-> **⚠ Permission asymmetry — non-dependency → dependency re-classification:** The replacement rule is asymmetric: overwriting `dependency` with a non-dependency type requires PM, but overwriting a non-dependency type with `dependency` is allowed by any authorized agent (PM or assignee). This means an assignee can make a WP eligible for auto-unblock (§15.4) by re-classifying a PM-managed `technical` or `decision` blocker as `dependency`. If the referenced dependency has already reached terminal status, the re-classification does not trigger auto-unblock (see [§21.17](edge-cases.md#2117-blocked--blocked-blocker-replacement) for the latency issue), but a future dependency completion would auto-unblock the WP — potentially bypassing the PM's intended manual-resolution workflow. Implementations that require stricter control MAY extend the replacement rule to also require PM for non-dependency → `dependency` re-classification.
-
-#### 6.2.1 Dynamic COMPLETE Guard Helpers
-
-The COMPLETE guard references the WP's **first active stage** and **last active stage**. These are computed from `active_pipeline_stages`:
-
-```
-function firstActiveStage(wp):
-  stages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
-  return stages[0]
-
-function lastActiveStage(wp):
-  stages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
-  return stages[stages.length - 1]
-```
-
-The **terminal agent** — the agent allowed to mark the WP as COMPLETE — is `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`. For a default WP this is Documentation; for a documentation-only WP (`["documentation"]`), Documentation is both first and terminal; for a verification-only WP (`["qa", "code-review"]`) it is Reviewer.
-
-The **freshness check** compares the most recent PASS of `lastActiveStage` against the most recent `started_at` of `firstActiveStage`. This generalizes the former documentation-vs-implementation comparison. When the first and last active stages are the same (single-stage WP), the freshness check passes vacuously — there is no earlier stage to compare against.
-
-### 6.3 State Diagram
-
-```
-                     ┌─────────┐
-             ┌──────►│  READY  │◄────────────────────────┐
-             │       └─┬──┬──┬─┘                          │
-             │         │  │  │                            │ (auto-unblock §15.4)
- (unclaim)   │         │  │  └──► BLOCKED ────────────────┤
-             │         │  │         ├──► IN_PROGRESS      │
-             │         │  │         │    (PM/assignee/    │
-             │         │  │         │     system)         │
-             │         │  │         └──► CANCELLED (PM)   │
-             │         │  └────────► CANCELLED (PM only)  │
-             │         ▼                                   │
-        ┌────┴─────────────┐                               │
-        │   IN_PROGRESS    ├──► BLOCKED ───────────────────┘
-        │                  ├──► CANCELLED (PM only)
-        └────────┬─────────┘
-                 ▼
-        ┌────────────────┐
-        │    COMPLETE     ├──► IN_PROGRESS (reopen: PM or last-active-stage agent)
-        │  (normally      ├──► CANCELLED (PM only; no cascade)
-        │   terminal)     │
-        └─────────────────┘
-
-        CANCELLED: strictly terminal — no outward transitions
-                   (including self-transitions).
-```
-
-> **Complete transition list** (all transitions from §6.2, for verification):
-> - **READY →** IN_PROGRESS (claim), BLOCKED (any agent; requires blocker), CANCELLED (PM only)
-> - **IN_PROGRESS →** COMPLETE (last-active-stage agent only), READY (unclaim), BLOCKED (any agent; requires blocker; auto-cancels pipelines), CANCELLED (PM only)
-> - **BLOCKED →** IN_PROGRESS (PM/assignee/system), READY (auto-unblock only), CANCELLED (PM only)
-> - **COMPLETE →** IN_PROGRESS (reopen: PM or last-active-stage agent), CANCELLED (PM only; no cascade)
-> - **CANCELLED →** *(none; strictly terminal)*
-
-### 6.4 Counter Updates on Transitions
-
-| Transition | `pending_work_packages` Change |
-|------------|-------------------------------|
-| Non-terminal → COMPLETE | Decrement by 1 |
-| Non-terminal → CANCELLED | Decrement by 1 |
-| COMPLETE → IN_PROGRESS | Increment by 1 |
-| COMPLETE → COMPLETE | No change (same-state no-op; §6.2 preempts counter logic) |
-| COMPLETE → CANCELLED | No change (terminal → terminal) |
-| CANCELLED → CANCELLED | N/A — transition rejected (§21.32) |
-| All other transitions | No change |
-
-### 6.5 Agent Guards
-
-| Transition | Allowed Agents |
-|------------|---------------|
-| READY → IN_PROGRESS (claim) | Pipeline-owning agents (Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation), "Project Manager" (see [§10.1](operations.md#101-algorithm), [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
-| → COMPLETE | Agent owning the WP's last active stage (computed as `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`), or "Project Manager" for same-state `COMPLETE → COMPLETE` only — for same-state `COMPLETE → COMPLETE`, only the agent identity check is enforced; the full completion guards (acceptance criteria, last-active-stage pipeline PASS, freshness check) are **not** re-evaluated (see §6.2 same-state transition rules). The PM is permitted for same-state COMPLETE because it is a pure no-op (no data modification); the PM is **not** permitted for `IN_PROGRESS → COMPLETE` (that remains last-active-stage-agent-only). |
-| → CANCELLED | "Project Manager" (or "Project Manager Agent") |
-| BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
-| BLOCKED → READY | System only (auto-unblock via §15.4 — no manual agent guard) |
-| BLOCKED → BLOCKED | "Project Manager" (or "Project Manager Agent"), current assignee |
-| IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
-| COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), agent owning the WP's last active stage |
-
-> **Design note — no agent guard on → BLOCKED transitions:** The `READY → BLOCKED` and `IN_PROGRESS → BLOCKED` transitions intentionally have **no agent role restriction**. Any of the nine agent roles may block a WP by providing a `blocked_by` object. This is a deliberate design choice: any agent may discover a blocker during its work (e.g., a Developer encountering an external dependency, a QA agent discovering a technical issue). Restricting blocking to specific roles would force agents to complete their current pipeline with FAIL and add handoff notes requesting the PM to block — adding latency and complexity without a safety benefit. The `blocked_by` object (§21.11) is required for all → BLOCKED transitions, providing an audit trail of who blocked and why. The `BLOCKED → BLOCKED` replacement rule (§6.2) and `BLOCKED → IN_PROGRESS` agent guard (§6.5) ensure that *resolving* or *modifying* blockers remains restricted to authorized agents (PM/assignee/system).
-
-> Implementations should accept both short-form ("Documentation") and long-form ("Documentation Agent") variants.
->
-> **"System" agent identity:** Several agent guard entries reference "system" as an allowed agent (e.g., `BLOCKED → IN_PROGRESS`). "System" is not one of the nine canonical agent roles (§4) — it represents automated operations performed by the implementation itself, not by an external AI agent. System-initiated transitions occur in two contexts: (1) `propagateDependencyUnblock` (§15.4), which transitions WPs from `BLOCKED → READY`; and (2) implementation-specific auto-repair logic (e.g., `REPAIR_ORPHAN_BLOCKED` in §21.20), which may transition WPs from `BLOCKED → IN_PROGRESS`. Implementations should use a reserved agent identifier (e.g., `"system"`) for audit trail purposes when performing these automated transitions, and MUST NOT allow external callers to claim the "system" identity to bypass agent guards.
-
----
-
-## 7. Pipeline State Machine
-
-### 7.1 States
-
-| State | Terminal? | Description |
-|-------|-----------|-------------|
-| `IN_PROGRESS` | No | Pipeline is active |
-| `PASS` | Yes | Pipeline completed successfully |
-| `FAIL` | Yes | Pipeline failed; rework needed |
-
-### 7.2 Transitions
-
-```
-IN_PROGRESS → PASS    (pipeline completed successfully)
-IN_PROGRESS → FAIL    (pipeline failed or was cancelled)
-```
-
-There is no READY state for pipelines. They are created directly as IN_PROGRESS.
-
-PASS and FAIL are terminal — no further transitions.
-
-### 7.3 Cancellation
-
-A pipeline can be cancelled by setting its status to FAIL with a reason string as the summary. This is the mechanism for closing stale pipelines.
-
-When a pipeline is cancelled by system automation (cascade reblock via [§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock) or manual IN_PROGRESS → BLOCKED transition), the `auto_cancelled` flag is set to `true`. This flag excludes the pipeline from rework detection and circuit breaker calculations (see [§21.27](edge-cases.md#2127-auto-cancelled-pipelines)).
-
-```
-###  Path: `/mcp-server/docs/agents/workflow-specification/walkthrough.md`
-
-```md
-# Walkthrough & Appendices
-
-> Part of the [Agent Workflow Specification](README.md).
-
----
-
-## 22. Complete Workflow Walkthrough
-
-A typical project follows this sequence:
-
-### Phase 1: Planning & Setup
-
-```
-1. Planner creates implementation plan document
-2. Project Manager initializes ledger (ledger_initialize_project)
-3. Project Manager creates work packages (ledger_create_work_package × N)
-   - WPs with dependencies start as BLOCKED
-   - WPs with no dependencies start as READY
-```
-
-### Phase 2: Implementation Cycle (Per Work Package)
-
-Shows the default 4-stage pipeline (`DEFAULT_PIPELINE_STAGES`). Additional stages are inserted at their canonical positions when included in the WP's `active_pipeline_stages` — see Phase 2d below.
-
-```
-4. Developer claims WP (ledger_claim_work_package)
-   - READY → IN_PROGRESS
-   
-5. Developer starts implementation pipeline (ledger_start_pipeline type=implementation)
-   - WP.assigned_to = "Developer"
-   
-6. Developer completes implementation (ledger_complete_pipeline type=implementation status=PASS)
-   - Handoff note created: Developer → QA
-   
-7. QA starts QA pipeline (ledger_start_pipeline type=qa)
-   - WP.assigned_to = "QA"
-   
-8. QA completes QA (ledger_complete_pipeline type=qa status=PASS)
-   - Handoff note created: QA → next active stage (Reviewer or Security Auditor)
-   
-9. Reviewer starts code-review pipeline (ledger_start_pipeline type=code-review)
-   - WP.assigned_to = "Reviewer"
-   
-10. Reviewer completes review (ledger_complete_pipeline type=code-review status=PASS)
-    - Handoff note created: Reviewer → next active stage (Documentation or Release Engineer)
-    
-11. Documentation starts documentation pipeline (ledger_start_pipeline type=documentation)
-    - WP.assigned_to = "Documentation"
-    
-12. Documentation completes docs (ledger_complete_pipeline type=documentation status=PASS)
-    - Handoff note created: Documentation → Synthesis
-    
-13. Documentation marks WP as COMPLETE (ledger_update_work_package_status status=COMPLETE)
-    - Documentation pipeline PASS verified
-    - Acceptance criteria verified
-    - pending_work_packages decremented
-    - Dependency unblocking triggered
-```
-
-### Phase 2b: Rework Cycle (On Failure)
-
-```
-Example: QA fails
-  
-8b. QA completes QA (ledger_complete_pipeline type=qa status=FAIL)
-    - Handoff note created: QA → Developer
-    
-8c. Developer starts new implementation pipeline (ledger_start_pipeline type=implementation)
-    - rework_counts.implementation incremented (downstream QA FAIL detected via hasDownstreamFail)
-    
-8d. Developer completes fix (ledger_complete_pipeline type=implementation status=PASS)
-    - Handoff note created: Developer → QA
-    
-8e. QA starts new QA pipeline (ledger_start_pipeline type=qa)
-    - rework_counts.qa incremented (direct rework of qa FAIL)
-    - hasNewUpstreamPassSince("implementation", "qa") = true
-     
-8f. Flow continues from step 8...
-```
-
-### Phase 3: Synthesis
-
-```
-14. (After all WPs reach COMPLETE or CANCELLED)
-    Synthesis agent generates project report
-    
-15. Synthesis completes (ledger_complete_synthesis agentRole="Synthesis")
-    - Agent guard: only Synthesis agent (or PM override)
-    - synthesis_generated = true
-    - If pending_work_packages == 0: project status → COMPLETE
-```
-
-### Phase 2c: Reopening a Completed WP
-
-```
-PM or Documentation decides WP needs more work:
-
-1. ledger_update_work_package_status(WP-001, status=IN_PROGRESS, agent="Project Manager")
-   - revision incremented
-   - rework_counts reset to absent (fresh rework budget for new revision)
-   - pending_work_packages incremented
-   - synthesis_generated reset to false (stale synthesis invalidated)
-   - Dependent WPs cascade-reblocked (READY/IN_PROGRESS → BLOCKED)
-   - IN_PROGRESS pipelines on dependents auto-cancelled (auto_cancelled = true)
-   
-2. Pipeline cycle restarts from implementation (or any applicable pipeline)
-```
-
-### Parallel Work Packages
-
-Multiple independent WPs (no mutual dependencies) can progress through the pipeline simultaneously. The batch action tool (`ledger_get_next_actions`) returns all actionable WPs for an agent, enabling parallel processing.
-
-### Phase 2d: Full 6-Stage Pipeline (All Stages Active)
-
-When a WP includes all six stages in its `active_pipeline_stages`:
-
-```
-Developer (implementation) → QA (qa) → Security Auditor (security-audit)
-  → Reviewer (code-review) → Release Engineer (release-engineering)
-  → Documentation (documentation) → COMPLETE
-```
-
-The additional steps between QA and Reviewer (Security Auditor) and between Reviewer and Documentation (Release Engineer) follow the same pattern:
-- Security Auditor claims, starts `security-audit` pipeline, completes PASS/FAIL
-  - FAIL → Developer (same rework loop as QA/Reviewer FAILs)
-  - PASS → handoff to Reviewer
-- Release Engineer claims, starts `release-engineering` pipeline, completes PASS/FAIL
-  - FAIL → Release Engineer (self-rework, same pattern as Documentation)
-  - PASS → handoff to Documentation
-
-Inactive stages are skipped entirely when not in `active_pipeline_stages` — `resolveNextAgent` (§9.2) walks the canonical ordering to find the next active stage.
-
----
-
-## Appendix A: Constant Reference
-
-| Constant | Default Value | Description |
-|----------|--------------|-------------|
-| `DEFAULT_PIPELINE_STAGES` | `["implementation", "qa", "code-review", "documentation"]` | Default active stages when `active_pipeline_stages` is absent/null. Backward-compatible with pre-composable-stages ledgers. See [§4.2](data-model.md#42-pipeline-stage-constants) |
-| `CANONICAL_PIPELINE_ORDERING` | `["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]` | Fixed ordering of all six pipeline types. All `active_pipeline_stages` must be subsequences of this. See [§4.2](data-model.md#42-pipeline-stage-constants) |
-| `STALE_PIPELINE_HOURS` | 24 | Hours before a pipeline is considered stale |
-| `MAX_REWORK_COUNT` | 5 | Maximum rework cycles before circuit breaker |
-| `MAX_HANDOFF_DEPTH` | 50 | Static floor for auto-handoff chain depth (runtime-configurable). Effective max = `max(50, total_work_packages × 30)` — see [§18.2.1](auxiliary-systems.md#1821-dynamic-effective-maximum) |
-
-## Appendix B: Action Types Reference
-
-| Action | Emitted By | Meaning |
-|--------|------------|---------|
-| `CREATE_WORK_PACKAGES` | PM | No WPs exist; PM should create them |
-| `UNBLOCK_WP` | PM | WP blocked by non-dependency blocker; PM should investigate |
-| `REVIEW_REWORK_LIMIT` | PM | WP hit per-pipeline rework limit; PM must cancel or restructure |
-| `REVIEW_STALE` | PM | Stale pipeline detected; PM should coordinate with assigned agent |
-| `REVIEW_ABANDONED` | PM | IN_PROGRESS WP with no pipeline activity within staleness threshold and claimed longer than staleness threshold; claimed but abandoned. PM should re-claim or unclaim |
-| `GENERATE_SYNTHESIS` | Synthesis | All WPs terminal; generate report |
-| `IMPLEMENT` | Developer | WP needs implementation |
-| `RUN_QA` | QA | WP needs QA validation |
-| `RUN_REVIEW` | Reviewer | WP needs code review |
-| `RUN_SECURITY_AUDIT` | Security Auditor | WP needs security audit (only for WPs with `security-audit` in `active_pipeline_stages`) |
-| `RUN_RELEASE_ENGINEERING` | Release Engineer | WP needs release engineering (only for WPs with `release-engineering` in `active_pipeline_stages`) |
-| `WRITE_DOCS` | Documentation | WP needs documentation |
-| `REWORK` | Developer/Documentation/Release Engineer | Most recent pipeline FAIL (direct self-rework), or downstream pipeline FAIL routed to this agent (downstream-triggered rework — Developer only, see §14.2) |
-| `WAIT_FOR_REWORK` | QA/Security Auditor/Reviewer | Most recent pipeline FAIL AND no upstream re-pass detected (`hasNewUpstreamPassSince` is false); another agent must fix first |
-| `WAIT_FOR_DOWNSTREAM` | Developer | Most recent implementation is PASS, a downstream pipeline (QA/security-audit/code-review) has FAILed, but the downstream agent has not yet re-engaged since the Developer's fix (`hasDownstreamReengagedSince` §14.13 is false). Developer should wait rather than starting redundant rework. See [§21.52](edge-cases.md#2152-developer-downstream-rework-churn-prevention). |
-| `WAIT` | Any | No actionable work available |
-| `RESUME_OR_CANCEL` | Any | Stale pipeline detected; decide whether to resume or cancel |
-| `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |
-| `CONTINUE_PIPELINE` | Any pipeline owner | Active (non-stale) IN_PROGRESS pipeline exists for this agent's pipeline type; continue current work |
-| `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
-| `FINALIZE_WP` | Terminal agent (last-active-stage owner) | Last-active-stage pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE. For default WPs this is Documentation; for verification-only WPs this is Reviewer; etc. (see §6.2.1) |
-| `UPDATE_CRITERIA` | Terminal agent (last-active-stage owner) | Last-active-stage pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria, rework, or escalate via BLOCKED with `technical` blocker (§21.24) |
-| `REPAIR_TIMESTAMPS` | PM | Null timestamp detected on a pipeline where `started_at` or `completed_at` should be present; data integrity issue blocking downstream agent progress (see [§21.18](edge-cases.md#2118-null-timestamp-data-integrity)). Recommended (SHOULD) — not all implementations may emit this action. |
-| `REPAIR_ORPHAN_BLOCKED` | PM | WP is BLOCKED with a `dependency` blocker but all dependencies are terminal; inconsistent state from cascade lock gap or interrupted operation (see [§21.20](edge-cases.md#2120-cascade-lock-gap-recovery)). Recommended (SHOULD) — implementations may auto-repair instead. |
-
-## Appendix C: Error Conditions Summary
-
-| Operation | Error Condition | Description |
-|-----------|----------------|-------------|
-| Initialize | Ledger exists | Cannot re-initialize an existing project |
-| Create WP | Dependency not found | Referenced WP ID does not exist |
-| Create WP | Dependency cycle | Adding these dependencies would create a circular dependency |
-| Create WP | Empty criteria | At least one acceptance criterion required |
-| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
-| Claim WP | Wrong status | WP must be READY |
-| Claim WP | Dependencies not met | All deps must be terminal |
-| Claim WP | Assigned to other | Override required (PM or assignee only) |
-| Claim WP | Non-pipeline agent | Only pipeline-owning agents and PM may claim (see [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
-| Start Pipeline | WP not IN_PROGRESS | Pipeline requires active WP |
-| Start Pipeline | Pipeline type not active | `pipelineType` not in WP's `active_pipeline_stages` |
-| Start Pipeline | Duplicate IN_PROGRESS | Same type already active |
-| Start Pipeline | Prerequisite not met | Previous stage must be PASS |
-| Start Pipeline | Missing agent role | `agentRole` parameter is required |
-| Start Pipeline | Wrong agent role | Agent doesn't own this pipeline type (PM override allowed) |
-| Start Pipeline | Re-validation needed | Prerequisite must re-PASS after upstream rework |
-| Start Pipeline | Rework limit | Circuit breaker engaged |
-| Complete Pipeline | No IN_PROGRESS pipeline | Nothing to complete |
-| Complete Pipeline | WP not IN_PROGRESS | WP must be IN_PROGRESS (defense-in-depth against lock-gap races — see [§12.1](operations.md#121-algorithm)) |
-| Complete Pipeline | Missing agent role | `agentRole` parameter is required |
-| Complete Pipeline | Wrong agent role | Agent doesn't own this pipeline type (PM override allowed) |
-| Unclaim WP | Active pipelines | Cannot unclaim WP with IN_PROGRESS pipelines |
-| Unclaim WP | Wrong agent | Only PM or current assignee can unclaim |
-| Update Status | Invalid transition | State machine violation |
-| Update Status | Criteria not met | COMPLETE requires all criteria met |
-| Update Status | Pipeline not passed | COMPLETE requires most recent pipeline of WP's last active stage to be PASS (see [§6.2.1](state-machines.md#621-dynamic-complete-guard-helpers)) |
-| Update Status | Wrong agent | Only specific agents for specific transitions (COMPLETE: last-active-stage agent; see [§6.5](state-machines.md#65-agent-guards)) |
-| Update Status | Missing blocker | BLOCKED requires blocked_by object |
-| Update Status | Wrong agent (BLOCKED→BLOCKED) | Only PM or current assignee can modify blockers |
-| Detect Project | Not found | No project matches the given path |
-| Detect Project | Ambiguous | Multiple projects match |
-| Complete Synthesis | WPs pending | Cannot complete synthesis while work packages are still pending |
-| Complete Synthesis | No WPs | Cannot complete synthesis with zero work packages |
-| Complete Synthesis | Wrong agent | Only Synthesis agent (or PM override) can complete synthesis |
-
-### Soft Warnings (project comments, non-blocking)
-
-| Operation | Warning Condition | Description |
-|-----------|------------------|-------------|
-| Create WP | Implementation without QA | `active_pipeline_stages` includes `implementation` but not `qa` (§9b.2 rule 5) |
-| Create WP | Single-stage chain | `active_pipeline_stages` has exactly one entry (§9b.2 rule 6) |
-| Create WP | Non-default composition | `active_pipeline_stages` differs from both `DEFAULT_PIPELINE_STAGES` and `CANONICAL_PIPELINE_ORDERING` (§9b.2 rule 7) |
-| Complete Pipeline | Missing artifacts | PASS with empty/absent `artifacts.files_modified` (§12.1, [§21.64](edge-cases.md#2164-artifact-declaration-soft-warning)) |
 
 ```

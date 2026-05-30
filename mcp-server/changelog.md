@@ -25,6 +25,20 @@
 - Tests: 173 knowledge store tests, 30 handler tests, 40 routing tests, and CSP `script-src` assertion.
 - Docs: Updated `api-surface.md`, `constraints.md`, `file-tree.md`, and `data-flows.md`.
 
+## v1.30.4 - INVOKE_AGENT Action for Auto-Handoff
+- Next-action: `embedHandoffStatusInWait` now promotes `action: WAIT` → `action: INVOKE_AGENT`
+  when the embedded `handoff_status` contains an `auto_handoff` entry, eliminating the
+  contradictory signal of WAIT + auto_handoff (WAIT implies "do nothing"; auto_handoff means
+  "invoke the next agent now").
+- Orchestrator: `INVOKE_AGENT` added to `_SKIP_ACTIONS` — supervisor routes independently
+  of auto_handoff and correctly skips this action when encountered.
+
+## v1.30.3 - Clearer WAIT Reason Messages
+- Next-action: QA, Reviewer, and Documentation WAIT reasons now categorise eligible WPs
+  into "pipeline PASS (work complete)" vs "waiting for upstream prerequisite", producing
+  specific messages instead of the generic "All WPs either lack … or already have …" string
+  that conflated work-complete with genuinely-blocked states.
+
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.
 - Queue: Entry validation now rejects empty-string and whitespace-only id and slug values.

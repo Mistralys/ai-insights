@@ -1,4 +1,10 @@
 # AI Insights - Overview
+<INSTRUCTION>
+# AI Insights - Workspace Overview
+This document is the workspace README: purpose, sub-project summary, quick-start commands, and changelog workflow.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Overview_
 # Overview
 ```

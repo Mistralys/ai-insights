@@ -1,4 +1,10 @@
 # Personas - Shared Partials
+<INSTRUCTION>
+# Personas - Shared Partials
+Cross-suite Markdown partials shared between ledger and standalone suites: operational protocols, output format standards, and incident logging conventions.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, incident logging)_
 # Cross-suite Markdown partials (operational protocols, output formats, incident logging)
 ```

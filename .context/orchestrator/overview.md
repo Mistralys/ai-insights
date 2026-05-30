@@ -1,4 +1,10 @@
 # Orchestrator - Overview
+<INSTRUCTION>
+# Orchestrator - Overview
+README for the LangGraph + Deep Agents headless pipeline executor: architecture overview, quick-start, and usage guide.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Overview_
 # Overview
 ```

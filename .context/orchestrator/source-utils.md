@@ -1,4 +1,10 @@
 # Orchestrator - Utilities
+<INSTRUCTION>
+# Orchestrator - Utility Modules
+Python source for utility modules: MCP tool wrappers, persona loader, plan parser, JSONL structured logger, cross-platform file lock, and subagent loader.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logger_
 # Utility modules: tool wrappers, persona loader, plan parser, JSONL logger
 ```

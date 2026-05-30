@@ -16,6 +16,17 @@
 - Shared: Knowledge Collection partial — content brevity cap (3–5 sentences) and two-pass review.
 - Shared: Knowledge Collection partial — scarcity expectation, universal filters, and technology tags.
 
+## v3.21.2 - CTX Architect Brief Integration
+- Standalone: CTX Architect (v1.2.0) integrates CTX Generator brief findings: add `text`
+  source type with best-practice guidance, add `url`/`git_diff`/`github` quick reference,
+  expand Content Filters into full Modifiers section covering `sanitizer` and document-level
+  usage, add Variables section, fix `excludePatterns`/`notPath` inaccuracy (aliases on file
+  sources, not mutually exclusive), remove undocumented `renderFormat: ascii` tree field,
+  add 3 new self-validation checklist items.
+
+## v3.21.1 - Git Committer Branch Safety
+- Standalone: Git Committer (v1.0.4) exclude CTX files in feature branches.
+
 ## v3.21.0 - Plan Refiner and Persona Improvements
 - Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.
 - Standalone: Plan Auditor gained implementer-friction filter to suppress low-value findings.

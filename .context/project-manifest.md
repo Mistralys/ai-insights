@@ -1,4 +1,10 @@
 # AI Insights - Project Manifest Hub
+<INSTRUCTION>
+# AI Insights - Project Manifest Hub
+Unified entry point linking all three module manifests (MCP server, personas, orchestrator), cross-system dependencies, shared infrastructure reference, and navigation guide.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Unified entry point linking all module manifests, cross-system dependencies, and shared infrastructure_
 # Unified entry point linking all module manifests, cross-system dependencies, and shared infrastructure
 ```

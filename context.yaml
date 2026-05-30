@@ -1,4 +1,4 @@
-$schema: 'https://raw.githubusercontent.com/context-hub/generator/refs/heads/main/json-schema.json'
+﻿$schema: 'https://raw.githubusercontent.com/context-hub/generator/refs/heads/main/json-schema.json'
 
 project:
   path: "."
@@ -12,8 +12,11 @@ import:
 documents:
   - description: 'AI Insights - Overview'
     outputPath: README.md
-    overwrite: true
     sources:
+      - type: text
+        content: |
+          # AI Insights - Workspace Overview
+          This document is the workspace README: purpose, sub-project summary, quick-start commands, and changelog workflow.
       - type: file
         description: "Overview"
         sourcePaths:
@@ -23,6 +26,10 @@ documents:
   - description: 'AI Insights - Agent Operating System'
     outputPath: agents.md
     sources:
+      - type: text
+        content: |
+          # AI Insights - Agent Operating System
+          Authoritative entry point for AI agents. Covers workspace architecture, manifest navigation, efficiency rules, failure protocol, cross-system dependencies, and changelog conventions.
       - type: file
         description: "Authoritative entry point for AI agents entering this workspace"
         sourcePaths:
@@ -32,6 +39,10 @@ documents:
   - description: 'AI Insights - Workspace Structure'
     outputPath: workspace-structure.md
     sources:
+      - type: text
+        content: |
+          # AI Insights - Workspace Structure
+          Top-level directory tree of the ai-insights monorepo (depth 3). Use for initial orientation before navigating into specific modules.
       - type: tree
         description: 'Top-level directory tree'
         sourcePaths:
@@ -54,6 +65,10 @@ documents:
   - description: 'AI Insights - Scripts'
     outputPath: scripts.md
     sources:
+      - type: text
+        content: |
+          # AI Insights - Root Scripts
+          All root-level Node.js scripts: CLI command centre, persona sync and build, version checks, orchestrator management, changelog extraction, and CTX generation.
       - type: file
         description: "Workspace scripts (CLI, persona sync, build, bundling, validation)"
         sourcePaths:
@@ -65,6 +80,10 @@ documents:
   - description: 'AI Insights - Project Manifest Hub'
     outputPath: project-manifest.md
     sources:
+      - type: text
+        content: |
+          # AI Insights - Project Manifest Hub
+          Unified entry point linking all three module manifests (MCP server, personas, orchestrator), cross-system dependencies, shared infrastructure reference, and navigation guide.
       - type: file
         description: "Unified entry point linking all module manifests, cross-system dependencies, and shared infrastructure"
         sourcePaths:
@@ -74,6 +93,10 @@ documents:
   - description: 'AI Insights - Shared Manifest'
     outputPath: shared-manifest.md
     sources:
+      - type: text
+        content: |
+          # AI Insights - Shared Workflow Manifest
+          workflow-manifest.json: the single source of truth for all 9 agent roles, 6 pipeline types, and status/workflow constants. All sub-projects derive their constants from this file.
       - type: file
         description: "Workflow manifest (single source of truth for roles, pipelines, statuses)"
         sourcePaths:

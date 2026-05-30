@@ -1,7 +1,7 @@
-moduleMetaData:
+﻿moduleMetaData:
   id: "orchestrator"
   label: "Orchestrator"
-  description: "LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows."
+  description: "LangGraph + Deep Agents headless pipeline executor - deterministic alternative to IDE-based agent workflows."
   keywords:
     - LangGraph
     - Deep Agents
@@ -15,6 +15,10 @@ documents:
   - description: 'Orchestrator - Overview'
     outputPath: 'orchestrator/overview.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Overview
+          README for the LangGraph + Deep Agents headless pipeline executor: architecture overview, quick-start, and usage guide.
       - type: file
         description: "Overview"
         sourcePaths:
@@ -24,6 +28,10 @@ documents:
   - description: 'Orchestrator - Manifest'
     outputPath: 'orchestrator/manifest.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Project Manifest
+          Complete project manifest: tech stack, architectural constraints, API surface, data flows, and file tree for the orchestrator module.
       - type: file
         description: "Project manifest (overview, tech stack, constraints, API surface, architecture)"
         sourcePaths:
@@ -33,17 +41,25 @@ documents:
   - description: 'Orchestrator - Documentation'
     outputPath: 'orchestrator/documentation.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Technical Documentation
+          Deep-dive docs: routing architecture, JSONL log schema, smoke test guide, and public API reference.
       - type: file
         description: "Technical deep-dives (architecture, routing, log schema, smoke tests, public API)"
         sourcePaths:
           - docs
         filePattern: "*.md"
-        excludePatterns:
+        notPath:
           - 'agents/'
 
   - description: 'Orchestrator - File Structure'
     outputPath: 'orchestrator/file-structure.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - File Structure
+          Directory tree of the orchestrator module. Runtime artifacts (pycache, venv, logs, checkpoints) are excluded.
       - type: tree
         description: 'Directory tree'
         sourcePaths:
@@ -63,12 +79,16 @@ documents:
   - description: 'Orchestrator - Core Source'
     outputPath: 'orchestrator/source-core.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Core Source Modules
+          Python source for core modules: CLI entry point, Config, LangGraph StateGraph definition, AgentState, and supervisor node.
       - type: file
         description: "Core modules: CLI, config, graph, state, supervisor, MCP client"
         sourcePaths:
           - src
         filePattern: "*.py"
-        excludePatterns:
+        notPath:
           - 'nodes/'
           - 'utils/'
           - '__pycache__/'
@@ -76,32 +96,46 @@ documents:
   - description: 'Orchestrator - Stage Nodes'
     outputPath: 'orchestrator/source-nodes.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Pipeline Stage Nodes
+          Python source for all pipeline stage node factories: Planner, Project Manager, Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation, and Synthesis.
       - type: file
         description: "Pipeline stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis)"
         sourcePaths:
           - src/nodes
         filePattern: "*.py"
-        excludePatterns:
+        notPath:
           - '__pycache__/'
 
   - description: 'Orchestrator - Utilities'
     outputPath: 'orchestrator/source-utils.md'
     sources:
+      - type: text
+        content: |
+          # Orchestrator - Utility Modules
+          Python source for utility modules: MCP tool wrappers, persona loader, plan parser, JSONL structured logger, cross-platform file lock, and subagent loader.
       - type: file
         description: "Utility modules: tool wrappers, persona loader, plan parser, JSONL logger"
         sourcePaths:
           - src/utils
         filePattern: "*.py"
-        excludePatterns:
+        notPath:
           - '__pycache__/'
 
   - description: 'Orchestrator - Tests'
     outputPath: 'orchestrator/tests.md'
     sources:
-      - type: file
-        description: "Test suite (unit, integration, live marks)"
+      - type: text
+        content: |
+          # Orchestrator - Tests
+          Directory tree of the pytest test suite. Use to locate test files before running or editing them.
+      - type: tree
+        description: 'Test suite directory structure'
         sourcePaths:
           - tests
-        filePattern: "*.py"
-        excludePatterns:
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 3
+        notPath:
           - '__pycache__/'

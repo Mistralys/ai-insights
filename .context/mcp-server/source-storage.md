@@ -1,4 +1,10 @@
 # MCP Server - Source (Storage & Schema)
+<INSTRUCTION>
+# MCP Server - Source: Storage Layer & Schema
+TypeScript source for LedgerStore (file-based repository), JSON schema validation, and ledger data models.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: LedgerStore, schema validation, and data models_
 # LedgerStore, schema validation, and data models
 ```

@@ -1,8 +1,13 @@
 # Orchestrator - Tests
-_SOURCE: Test suite (unit, integration, live marks)_
-# Test suite (unit, integration, live marks)
+<INSTRUCTION>
+# Orchestrator - Tests
+Directory tree of the pytest test suite. Use to locate test files before running or editing them.
+</INSTRUCTION>
+------------------------------------------------------------
+_SOURCE: Test suite directory structure_
+# Test suite directory structure
+###  
 ```
-// Structure of documents
 └── orchestrator/
     └── tests/
         └── __init__.py
