@@ -13,6 +13,7 @@ Extract and commit reusable insights from archived ledger project folders. Read 
 - **Synthesis Is the Primary Source.** The `synthesis.md` document is the most curated artifact in the archive — it was written by an agent with full project context. Start there and build outward to WP-level data only when synthesis coverage is thin or absent.
 - **Retrospective Insight Has Lower Uncertainty.** Projects are complete — outcomes are known. Assign confidence scores that reflect this: patterns validated by a full execution cycle deserve `0.7–0.9`; patterns inferred from partial data or a missing synthesis warrant `0.3–0.5`.
 - **Gold Nuggets Only.** Most observations are project-specific noise. Commit only insights with clear reuse value across future projects. A sparse knowledge base of high-quality entries outperforms a dense one of marginal ones. For global candidates, raise the bar further: if stripping project-specific identifiers from the content makes the principle meaningless or unrecognisable, the insight is project-scoped, not global. Additionally, discard any candidate that a competent coding agent would already know without seeing this project — generic best practices such as "validate your inputs" or "write tests for edge cases" are not insights.
+- **Scarcity Is the Goal.** A typical completed project yields at most 1–3 committed insights in total across both scopes. When you identify more candidates than this, treat it as a signal that the review filter was applied too generously — re-rank all candidates from scratch and keep only those that stand out as genuinely surprising or hard-won discoveries.
 - **Deduplication Is Mandatory.** The knowledge base may already contain insights from active projects. Never commit without first searching for substantively similar entries.
 - **Context Completes the Insight.** An insight without its context — what triggered it, what was learned, what the outcome was — has low utility. Every committed insight must carry enough narrative to be self-contained. But the type of context differs by scope: for `global` insights, context means the *class of problem* (what kind of system, what kind of mistake, what general fix); for `project` insights, rich concrete detail — specific function names, file paths, error messages — is valuable and appropriate.
 
@@ -106,13 +107,20 @@ Before making any MCP calls, apply a cold second-pass filter to every drafted ca
 2. A developer on a completely different type of project would find it immediately actionable.
 3. It goes beyond what a competent developer would already know.
 
-If any test fails, rewrite until all three pass — or downgrade to `scope: "project"`.
+If any test fails, discard the candidate. Downgrading to `scope: "project"` is permitted only when the insight is genuinely valuable but inherently project-specific — not as a catch-all rescue for failing global candidates.
 
 **For `project` candidates — both must be true:**
-1. It is specific enough to be useful to a future agent working on this exact codebase.
-2. It captures something not already obvious from reading the code.
+1. It is specific enough to be useful to a future agent working on this exact codebase, and would not be discovered in five minutes of reading the code.
+2. It captures something not already obvious from reading the code — preferably a mistake made, a rework triggered, or a decision whose rationale is not self-evident.
 
-If either test fails, discard the candidate. Do not try to rescue a weak candidate by rewording it — if the underlying insight does not survive honest review, drop it. Only candidates that pass all applicable tests proceed to step 4.
+If either test fails, discard the candidate. Do not try to rescue a weak candidate by rewording it — if the underlying insight does not survive honest review, drop it.
+
+**Universal filters — apply to every candidate regardless of scope:**
+
+- **The Surprise Test.** Would an experienced developer who reviewed this project say *"I hadn't thought of that"*? If the likely reaction is *"yes, obviously"* or *"that's standard practice"*, discard the candidate regardless of how clearly it is articulated.
+- **The Origin Test.** Does this insight trace to a specific mistake, rework, unexpected failure, or hard-won design decision in this project? Correct behaviour observed without incident is not an insight. If no concrete incident in the project prompted this observation, discard it.
+
+Only candidates that pass all applicable tests proceed to step 4.
 
 ### 4. Apply the Confidence Heuristic
 
@@ -142,7 +150,7 @@ For each non-duplicate insight, call `ledger_add_insight`:
 - `title`: short, action-oriented title
 - `content`: the principle, its context, and the recommendation — in 3–5 sentences maximum. Omit preamble, examples, and background that do not add to the principle itself. For `"global"` scope: no specific function names, file paths, variable names, or error message strings — use generic descriptors or pseudo-code. For `"project"` scope: concrete detail is valuable; include it.
 - `category`: one of `"architecture"`, `"testing"`, `"workflow"`, `"security"`, `"performance"`, `"tooling"`, or another descriptive string
-- `tags`: array of keyword tags for filtering
+- `tags`: array of keyword tags for filtering; include technology names when relevant (e.g., `"typescript"`, `"python"`, `"windows"`, `"react"`, `"sqlite"`)
 - `source`: artifact where the insight originated (e.g., `"synthesis"`, `"plan"`, `"WP-003"`, `"WP-007-qa"`)
 - `confidence`: numeric score from step 4
 
