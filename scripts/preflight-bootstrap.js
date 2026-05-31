@@ -7,7 +7,6 @@ const SIBLING_DIR = path.resolve(ROOT, '..');
 
 /** Canonical repository clone URLs (no embedded credentials). */
 const SIBLING_CLONE_URLS = {
-  'cli-menu':          'https://github.com/Mistralys/cli-menu.git',
   'ai-persona-builder':'https://github.com/Mistralys/ai-persona-builder.git',
 };
 
@@ -45,14 +44,9 @@ function isStale(srcDir, distFile) {
 function bootstrap() {
   const root = ROOT;
   const workspaceRoot = SIBLING_DIR;
-  const cliMenuDir        = path.join(workspaceRoot, 'cli-menu');
   const personaBuilderDir = path.join(workspaceRoot, 'ai-persona-builder');
 
   // --- Missing sibling repo guidance ---
-  if (!fs.existsSync(cliMenuDir)) {
-    console.log(`[Bootstrap] Sibling repo 'cli-menu' not found.`);
-    console.log(`           Run: git clone ${SIBLING_CLONE_URLS['cli-menu']} ${cliMenuDir}`);
-  }
   if (!fs.existsSync(personaBuilderDir)) {
     console.log(`[Bootstrap] Sibling repo 'ai-persona-builder' not found.`);
     console.log(`           Run: git clone ${SIBLING_CLONE_URLS['ai-persona-builder']} ${personaBuilderDir}`);
@@ -77,11 +71,6 @@ function bootstrap() {
       name:     '@mistralys/persona-builder',
       dir:      personaBuilderDir,
       distFile: path.join(personaBuilderDir, 'dist', 'index.js'),
-    },
-    {
-      name:     '@mistralys/cli-menu',
-      dir:      cliMenuDir,
-      distFile: path.join(cliMenuDir, 'dist', 'index.js'),
     },
   ];
 

@@ -15,7 +15,6 @@
     "ai-insights": "./scripts/cli.js"
   },
   "devDependencies": {
-
     "vitest": "^4.0.18"
   }
 }

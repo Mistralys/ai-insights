@@ -133,18 +133,6 @@ export const HEALTH_CHECKS = [
 
   /** @type {SyncCheck} */
   {
-    id: 'sibling-cli-menu',
-    label: 'cli-menu dist built',
-    cost: 'instant',
-    /** @returns {boolean} */
-    detect() {
-      return fs.existsSync(path.join(SIBLING_DIR, 'cli-menu', 'dist'));
-    },
-    fix: 'cd ../cli-menu && npm run build',
-  },
-
-  /** @type {SyncCheck} */
-  {
     id: 'sibling-persona-builder',
     label: 'ai-persona-builder dist built',
     cost: 'instant',
