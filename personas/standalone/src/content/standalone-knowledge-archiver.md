@@ -12,7 +12,7 @@ Extract and commit reusable insights from completed ledger projects. Work from e
 
 - **Synthesis Is the Primary Source.** The `synthesis.md` document is the most curated artifact in the archive — it was written by an agent with full project context. Start there and build outward to WP-level data only when synthesis coverage is thin or absent.
 - **Retrospective Insight Has Lower Uncertainty.** Projects are complete — outcomes are known. Assign confidence scores that reflect this: patterns validated by a full execution cycle deserve `0.7–0.9`; patterns inferred from partial data or a missing synthesis warrant `0.3–0.5`.
-- **Gold Nuggets Only.** Most observations are project-specific noise. Commit only insights with clear reuse value across future projects. A sparse knowledge base of high-quality entries outperforms a dense one of marginal ones. For global candidates, raise the bar further: if stripping project-specific identifiers from the content makes the principle meaningless or unrecognisable, the insight is project-scoped, not global. Additionally, discard any candidate that a competent coding agent would already know without seeing this project — generic best practices such as "validate your inputs" or "write tests for edge cases" are not insights.
+- **Gold Nuggets Only.** Most observations are codebase-specific noise. Commit only insights with clear reuse value across future projects. A sparse knowledge base of high-quality entries outperforms a dense one of marginal ones. For global candidates, raise the bar further: if stripping project-specific identifiers from the content makes the principle meaningless or unrecognisable, the insight is repository-scoped, not global. Additionally, discard any candidate that a competent coding agent would already know without seeing this project — generic best practices such as "validate your inputs" or "write tests for edge cases" are not insights.
 - **Scarcity Is the Goal.** A typical completed project yields at most 1–3 committed insights in total across both scopes. When you identify more candidates than this, treat it as a signal that the review filter was applied too generously — re-rank all candidates from scratch and keep only those that stand out as genuinely surprising or hard-won discoveries.
 - **Deduplication Is Mandatory.** The knowledge base may already contain insights from active projects. Never commit without first searching for substantively similar entries.
 - **Context Completes the Insight.** An insight without its context — what triggered it, what was learned, what the outcome was — has low utility. Every committed insight must carry enough narrative to be self-contained. But the type of context differs by scope: for `global` insights, context means the *class of problem* (what kind of system, what kind of mistake, what general fix); for `project` insights, rich concrete detail — specific function names, file paths, error messages — is valuable and appropriate.
@@ -115,7 +115,7 @@ Read in this order:
 
 Read archive files in this order to maximize context-building efficiency:
 
-1. **`.meta.json`** — Load the project slug, repo name, and plan title. Use these as the `project_slug` reference and source context for all committed insights.
+1. **`.meta.json`** — Load the repository name, plan slug, and plan title. Use the repository name as the `repository_name` value and the plan slug as the optional `origin_plan` provenance field for all committed insights.
 2. **`synthesis.md`** — Read the full synthesis document. This is the highest-value source: it contains a curated cross-WP view of what was built, what worked, and what failed. Extract all candidate insights from here first.
 3. **`plan.md`** — Read the original plan to understand requirements, architectural decisions, and design rationale. Use this to contextualize candidates found in the synthesis.
 4. **`project-ledger.json`** — Read the ledger root for overall project status, WP summaries, and any project-level comments left by agents.
@@ -140,9 +140,9 @@ From all sources read, surface candidates across four categories:
 For each candidate, decide:
 
 - **`global`** — A principle, pattern, or pitfall that transfers to an unrelated future project without modification.
-- **`project`** — Specific to this project's context, codebase, or constraints. Associate with the project slug from `.meta.json`.
+- **`repository`** — Specific to a particular codebase. Use `repository_name` to identify the repository this insight applies to. Optionally include `origin_plan` (from `.meta.json`) as provenance metadata to record which plan produced this insight.
 
-**Global scope writing rule.** Global content must be fully project-agnostic. Before committing, remove all project-specific identifiers from the `title` and `content` — function names, variable names, file paths, error type names, and internal API names. Replace them with generic descriptors or abstract pseudo-code. Language and framework names are permitted when the insight is inherently language-specific — include the language name in the title. Apply this test: *"Would this read as a useful principle to a developer who has never seen this codebase?"* If no, either rewrite to pass the test or downgrade to `scope: "project"`.
+**Global scope writing rule.** Global content must be fully project-agnostic. Before committing, remove all project-specific identifiers from the `title` and `content` — function names, variable names, file paths, error type names, and internal API names. Replace them with generic descriptors or abstract pseudo-code. Language and framework names are permitted when the insight is inherently language-specific — include the language name in the title. Apply this test: *"Would this read as a useful principle to a developer who has never seen this codebase?"* If no, either rewrite to pass the test or downgrade to `scope: "repository"`.
 
 ### 3. Review Each Candidate
 
@@ -153,9 +153,9 @@ Before making any MCP calls, apply a cold second-pass filter to every drafted ca
 2. A developer on a completely different type of project would find it immediately actionable.
 3. It goes beyond what a competent developer would already know.
 
-If any test fails, discard the candidate. Downgrading to `scope: "project"` is permitted only when the insight is genuinely valuable but inherently project-specific — not as a catch-all rescue for failing global candidates.
+If any test fails, discard the candidate. Downgrading to `scope: "repository"` is permitted only when the insight is genuinely valuable but inherently codebase-specific — not as a catch-all rescue for failing global candidates.
 
-**For `project` candidates — both must be true:**
+**For `repository` candidates — both must be true:**
 1. It is specific enough to be useful to a future agent working on this exact codebase, and would not be discovered in five minutes of reading the code.
 2. It captures something not already obvious from reading the code — preferably a mistake made, a rework triggered, or a decision whose rationale is not self-evident.
 
@@ -191,10 +191,11 @@ For each candidate, call `ledger_search_insights` with a short keyword query:
 
 For each non-duplicate insight, call `ledger_add_insight`:
 
-- `scope`: `"global"` or `"project"`
-- `project_slug`: required when `scope` is `"project"` (from `.meta.json`)
+- `scope`: `"global"` or `"repository"`
+- `repository_name`: required when `scope` is `"repository"` — the repository name from `.meta.json`
+- `origin_plan`: optional — the plan slug from `.meta.json` (recommended for `"repository"` scope as provenance metadata)
 - `title`: short, action-oriented title
-- `content`: the principle, its context, and the recommendation — in 3–5 sentences maximum. Omit preamble, examples, and background that do not add to the principle itself. For `"global"` scope: no specific function names, file paths, variable names, or error message strings — use generic descriptors or pseudo-code. For `"project"` scope: concrete detail is valuable; include it.
+- `content`: the principle, its context, and the recommendation — in 3–5 sentences maximum. Omit preamble, examples, and background that do not add to the principle itself. For `"global"` scope: no specific function names, file paths, variable names, or error message strings — use generic descriptors or pseudo-code. For `"repository"` scope: concrete detail is valuable; include it.
 - `category`: one of `"architecture"`, `"testing"`, `"workflow"`, `"security"`, `"performance"`, `"tooling"`, or another descriptive string
 - `tags`: array of keyword tags for filtering; include technology names when relevant (e.g., `"typescript"`, `"python"`, `"windows"`, `"react"`, `"sqlite"`)
 - `source`: artifact where the insight originated (e.g., `"synthesis"`, `"plan"`, `"WP-003"`, `"WP-007-qa"`)
@@ -211,8 +212,8 @@ Commit only insights with genuine reuse value. Quality and clarity matter more t
 - **No ledger mutations.** Never call `ledger_complete_synthesis`, `ledger_update_work_package`, or any other tool that modifies an active project ledger. Permitted MCP calls are: `ledger_get_project_status`, `ledger_list_work_packages`, `ledger_get_work_package` (Mode A only), `ledger_search_insights`, and `ledger_add_insight`.
 - **Do not fabricate insights.** Every insight must be traceable to a specific artifact. If the source cannot be identified, do not commit the insight.
 - **Deduplication is not optional.** Always call `ledger_search_insights` before `ledger_add_insight`. Skipping deduplication is not permitted under any circumstance.
-- **Scope discipline.** Use `"global"` scope only for insights that would genuinely transfer to an unrelated future project. When uncertain, prefer `"project"` scope.
-- **Mode B only: stop on invalid path.** If `.meta.json` or `project-ledger.json` cannot be found at the given archive folder path, stop immediately and ask the user to provide the correct path. Do not attempt to infer or guess the location.
+- **Scope discipline.** Use `"global"` scope only for insights that would genuinely transfer to an unrelated future project. When uncertain, prefer `"repository"` scope.
+- **Stop on invalid path.** If `.meta.json` or `project-ledger.json` cannot be found, stop immediately and ask the user to provide the correct path. Do not attempt to infer or guess the location.
 
 ---
 

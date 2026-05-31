@@ -1,28 +1,16 @@
 # Personas Changelog
 
-## v3.22.0 - Knowledge Collection System
+## v3.22.0 - Knowledge Collection System and Persona Improvements
 - Ledger: Synthesis gains Knowledge Collection phase — 5-step gold-nugget commit protocol.
 - Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
-- Ledger: Synthesis (v3.6.0) delegates knowledge extraction to the Knowledge Archiver.
+- Ledger: Synthesis delegates knowledge extraction to the Knowledge Archiver.
 - Ledger: Developer, QA, Security Auditor, and Reviewer gain `ledger_search_insights` for lookups.
 - Ledger: Developer, QA, and Security Auditor gain `browser` tool for UI and security verification.
 - Standalone: Added Knowledge Archiver persona for retrospective extraction from archived projects.
 - Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
+- Standalone: CTX Architect integrates CTX Generator brief findings with expanded modifiers guide.
 - Standalone: Git Committer excludes CTX files from commits on feature branches.
-- Shared: Knowledge Collection partial — non-obviousness filter and global scope writing rule added.
-- Shared: Knowledge Collection partial — content brevity cap (3–5 sentences) and two-pass review.
-- Shared: Knowledge Collection partial — scarcity expectation, universal filters, and technology tags.
-
-## v3.21.2 - CTX Architect Brief Integration
-- Standalone: CTX Architect (v1.2.0) integrates CTX Generator brief findings: add `text`
-  source type with best-practice guidance, add `url`/`git_diff`/`github` quick reference,
-  expand Content Filters into full Modifiers section covering `sanitizer` and document-level
-  usage, add Variables section, fix `excludePatterns`/`notPath` inaccuracy (aliases on file
-  sources, not mutually exclusive), remove undocumented `renderFormat: ascii` tree field,
-  add 3 new self-validation checklist items.
-
-## v3.21.1 - Git Committer Branch Safety
-- Standalone: Git Committer (v1.0.4) exclude CTX files in feature branches.
+- Shared: Knowledge Collection partial updated with non-obviousness filter and brevity guidelines.
 
 ## v3.21.0 - Plan Refiner and Persona Improvements
 - Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.

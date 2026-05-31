@@ -144,6 +144,8 @@
 <a name="c48"></a>
 24. **`mcp_server_name` in `_shared.yaml` controls the MCP server reference** everywhere in generated output and must match the server key in the target project's `.mcp.json` file (default: `central_pm`). If the `.mcp.json` key changes, update this single field and rebuild.
 
+   > **Global registration consumer:** `scripts/install-mcp-global.js` also hardcodes `central_pm` as the server key for VS Code user-level `mcp.json` merge and Claude Code `mcp add` / `mcp remove` calls. Changing `mcp_server_name` requires updating that script in addition to `.mcp.json` — see the Cross-System Dependencies table in `AGENTS.md`.
+
    > **Shadowing risk for standalone personas:** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. Standalone personas in `personas/standalone/src/meta/` hardcode `mcp_server_name: central_pm` in their individual YAML files rather than inheriting from a shared source (standalone has no shared `mcp_server_name` — see [constraint 14](#c19)). If `mcp_server_name` changes globally, update both `personas/ledger/src/meta/_shared.yaml` **and** every standalone persona YAML file that hardcodes the old value.
 
 <a name="c49"></a>

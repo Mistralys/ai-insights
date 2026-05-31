@@ -535,33 +535,33 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 ```typescript
 (args: {
-  scope: 'global' | 'project';    // "global" for cross-project, "project" for project-scoped
-  project_slug?: string;           // Required when scope is "project". Alphanumeric, hyphens, underscores only.
+  scope: 'global' | 'repository';  // "global" for cross-repository, "repository" for repository-scoped
+  repository_name?: string;         // Required when scope is "repository". Alphanumeric, hyphens, underscores only. "global" is reserved.
   title: string;
   content: string;
-  category: string;                // e.g. "architecture", "testing", "workflow", "security"
+  category: string;                 // e.g. "architecture", "testing", "workflow", "security"
   tags: string[];
-  source?: string;                 // Defaults to '' if omitted
-  confidence?: number;             // 0–1 float; defaults to 1 if omitted
+  source?: string;                  // Defaults to '' if omitted
+  confidence?: number;              // 0–1 float; defaults to 1 if omitted
 }) => Promise<MCPResult>
 ```
 
 Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.addInsight()`.
 
-- **`scope: 'global'`** — stored in `global-insights.json` (cross-project knowledge).
-- **`scope: 'project'`** — stored in `{project_slug}-insights.json`; `project_slug` is required. Returns `isError: true` if `project_slug` is absent.
-- **Response:** Returns the full `Insight` object with an additional `formatted_id` field (e.g. `"KN-0001"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and project stores. If a global and a project store both contain an insight with `id: 1`, their `formatted_id` values will be identical.
+- **`scope: 'global'`** — stored in `global-insights.json` (cross-repository knowledge).
+- **`scope: 'repository'`** — stored in `{repository_name}-insights.json`; `repository_name` is required. Returns `isError: true` if `repository_name` is absent. The name `"global"` is reserved and cannot be used as a `repository_name`.
+- **Response:** Returns the full `Insight` object with an additional `formatted_id` field (e.g. `"KN-0001"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and repository stores. If a global and a repository store both contain an insight with `id: 1`, their `formatted_id` values will be identical.
 
 #### `ledger_search_insights`
 
 ```typescript
 (args: {
-  query: string;                   // Case-insensitive substring match against title, content, and tags
-  scope?: 'global' | 'project';   // Optional. Filter by scope.
-  category?: string;               // Optional. Filter by category.
-  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
-  project_slug?: string;           // Optional. Restrict search to a specific project store.
-  limit?: number;                  // Optional. Maximum results to return.
+  query: string;                       // Case-insensitive substring match against title, content, and tags
+  scope?: 'global' | 'repository';     // Optional. Filter by scope.
+  category?: string;                   // Optional. Filter by category.
+  tags?: string[];                     // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  repository_name?: string;            // Optional. Restrict search to a specific repository store.
+  limit?: number;                      // Optional. Maximum results to return.
 }) => Promise<MCPResult>
 ```
 
@@ -573,12 +573,12 @@ Searches insights for the query string (case-insensitive substring match against
 
 ```typescript
 (args: {
-  scope?: 'global' | 'project';   // Optional. Filter by scope.
-  category?: string;               // Optional. Filter by category.
-  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
-  project_slug?: string;           // Optional. Restrict to a specific project store.
-  limit?: number;                  // Optional. Maximum results to return.
-  offset?: number;                 // Optional. Skip this many results (pagination). Default: 0.
+  scope?: 'global' | 'repository';     // Optional. Filter by scope.
+  category?: string;                   // Optional. Filter by category.
+  tags?: string[];                     // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  repository_name?: string;            // Optional. Restrict to a specific repository store.
+  limit?: number;                      // Optional. Maximum results to return.
+  offset?: number;                     // Optional. Skip this many results (pagination). Default: 0.
 }) => Promise<MCPResult>
 ```
 
@@ -588,25 +588,25 @@ Lists insights with optional filters and pagination. Filter application order: s
 
 ```typescript
 (args: {
-  id: number;                     // Numeric ID as returned in the id field of a previous response
+  id: number;                         // Numeric ID as returned in the id field of a previous response
   title?: string;
   content?: string;
   category?: string;
-  tags?: string[];                // Replaces the tags array
+  tags?: string[];                    // Replaces the tags array
   source?: string;
-  confidence?: number;            // 0–1 float
-  superseded_by?: number;        // Numeric ID of the insight that supersedes this one
+  confidence?: number;                // 0–1 float
+  superseded_by?: number;             // Numeric ID of the insight that supersedes this one
 },
 filter?: {             // Optional scope filter — restricts which store is searched
-  scope?: 'global' | 'project';
-  project_slug?: string;
+  scope?: 'global' | 'repository';
+  repository_name?: string;
 }) => Promise<MCPResult>
 ```
 
-Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()`. Immutable fields: `id`, `scope`, `project_slug`, `created_at`. Sets `updated_at` on success.
+Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()`. Immutable fields: `id`, `scope`, `repository_name`, `created_at`. Sets `updated_at` on success.
 
-- **Scope filter (new):** Pass `scope` and/or `project_slug` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'project'` + `project_slug` are set only `{slug}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
-- **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{slug}-insights.json`, so a global insight is updated before any project insight with the same `id`. Use the scope filter when disambiguation is needed.
+- **Scope filter:** Pass `scope` and/or `repository_name` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'repository'` + `repository_name` are set only `{repository_name}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
+- **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{repository_name}-insights.json`, so a global insight is updated before any repository insight with the same `id`. Use the scope filter when disambiguation is needed.
 - **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
 - **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
 
@@ -618,7 +618,7 @@ These handler functions are exported from `gui/api-knowledge.ts` (extracted from
 
 > **Route wiring note:** All knowledge handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) are implemented in `gui/api-knowledge.ts`, tested, and registered as HTTP routes in `server.ts`, which imports them from `./api-knowledge.js`.
 
-> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight has a **different numeric ID** (assigned by the target store's `next_id` counter) — the original ID is no longer valid after a promote or move.
+> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight has a **different numeric ID** (assigned by the target store's `next_id` counter) — the original ID is no longer valid after a promote or move. Frontend consumers that need to track a moved insight must capture the pre-operation ID before calling promote/move and match by that ID, not by the new ID returned in the response.
 
 ### HTTP Route Table
 
@@ -628,24 +628,25 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 
 | Method | Path | Query Parameters | Return Shape | Error Codes |
 |--------|------|-----------------|--------------|-------------|
-| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `project_slug`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid scope — silently ignored, no error) |
-| `DELETE` | `/api/knowledge/:id` | `scope` (required), `project_slug` (required when `scope=project`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing project_slug), 404 (insight not found) |
-| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"project"`), `project_slug` (required when `scope=project`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"project"`; missing project_slug), 404 (insight not found) |
+| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `repository_name`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid/unrecognised scope — throws VALIDATION_ERROR; omitting scope returns all insights) |
+| `DELETE` | `/api/knowledge/:id` | `scope` (required), `repository_name` (required when `scope=repository`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing repository_name), 404 (insight not found) |
+| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"repository"`), `repository_name` (required when `scope=repository`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"repository"`; missing repository_name), 404 (insight not found) |
 
 **Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
 
 | Method | Path | Request Body | Return Shape | Error Codes |
 |--------|------|-------------|--------------|-------------|
-| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `project_slug`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (non-integer/zero/float id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
-| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_project_slug`? (required when `source_scope=project`), `project_slug` (required, destination) | HTTP 200 `{ data: Insight }` (new target insight — ⚠ new ID) | 400 (non-integer/zero/float id; invalid body; missing source_project_slug; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
+| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `repository_name`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (non-integer/zero/float id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
+| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_repository_name`? (required when `source_scope=repository`), `repository_name` (required, destination) | HTTP 200 `{ data: Insight }` (new target insight — ⚠ new ID) | 400 (non-integer/zero/float id; invalid body; missing source_repository_name; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
 
 **Notes:**
 - `:id` must be a positive integer. Float strings (`"1.5"`), zero (`"0"`), and non-numeric strings are rejected with HTTP 400.
 - Body-parsing routes enforce a 1 MiB body size limit (`MAX_BODY_BYTES`). Exceeding it returns HTTP 413.
 - All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }` shape.
 - CORS is locked to `http://localhost:{port}` (same port as the server).
-- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised values are silently ignored (no filter applied, no error returned).
+- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised or invalid values throw `VALIDATION_ERROR` (HTTP 400). Omitting `scope` (undefined) means "no filter" and returns all insights (always allowed).
 - **Search with tag-filter and pagination:** When `query` is supplied, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single `GET /api/knowledge` call.
+- **`repository_name` validation across all five knowledge handlers (RESOLVED):** All five knowledge handlers validate `repository_name` against `SLUG_REGEX` at the handler level, throwing `VALIDATION_ERROR` (HTTP 400) for any malformed slug value. `handleDeleteKnowledge`, `handlePromoteKnowledge`, and `handleMoveKnowledge` validate `repository_name` after the presence check (WP-004); `handleUpdateKnowledge` validates via `KnowledgeUpdateBodySchema` Zod parsing; `handleListKnowledge` validates the optional `repository_name` query parameter before forwarding to the storage layer. The previous HTTP 500 fallback through the storage-layer `_validateSlug()` guard no longer applies for any of these handlers.
 
 ### `KnowledgeUpdateBodySchema`
 
@@ -655,8 +656,8 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 // `superseded_by` accepts null to support field-clearing semantics; the handler maps null → undefined
 // before forwarding to KnowledgeStoreManager.updateInsight().
 export const KnowledgeUpdateBodySchema: z.ZodObject<{
-  scope: typeof InsightScope;                              // Required: 'global' | 'project'
-  project_slug?: z.ZodOptional<z.ZodString>;              // Required when scope === 'project'
+  scope: typeof InsightScope;                              // Required: 'global' | 'repository'
+  repository_name?: z.ZodOptional<z.ZodString>;           // Required when scope === 'repository'
   title?: z.ZodOptional<z.ZodString>;
   content?: z.ZodOptional<z.ZodString>;
   category?: z.ZodOptional<z.ZodString>;
@@ -672,30 +673,17 @@ export const KnowledgeUpdateBodySchema: z.ZodObject<{
 ```typescript
 // GET /api/knowledge
 // Lists (or searches) knowledge insights.
-// When `query` is present, delegates to KnowledgeStoreManager.searchInsights().
-// Otherwise calls KnowledgeStoreManager.listInsights() with scope/category/tags filters.
-// `scope` is validated via InsightScope.safeParse() — unrecognised values fall back to undefined (no filter).
-// `tags` is a comma-separated string split on ','.
-// `limit` and `offset` are coerced to non-negative integers; invalid values default to undefined/0.
 //
-// When `query` is present, `tags`, `limit`, and `offset` are forwarded to searchInsights(),
-// enabling full-text search combined with tag filtering (AND semantics) and pagination in a
-// single call. Tag filtering is applied after the substring match; offset/limit pagination is
-// applied after tag filtering.
+// Both `scope` and `repository_name` are validated at the handler level:
+//   - `scope` via InsightScope.safeParse() — unrecognised non-undefined values throw VALIDATION_ERROR
+//   - `repository_name` against SLUG_REGEX — malformed values throw VALIDATION_ERROR (HTTP 400)
+//
+// See the comprehensive comment block in the full type-declaration section for routing logic,
+// query-mode behaviour, and pagination details.
 export async function handleListKnowledge(
   ledgerRoot: string,
   params?: KnowledgeListParams
 ): Promise<Insight[]>
-
-export interface KnowledgeListParams {
-  scope?: string;
-  category?: string;
-  tags?: string;          // Comma-separated tag list
-  project_slug?: string;
-  query?: string;         // Full-text search; delegates to searchInsights() when present
-  limit?: number | string;
-  offset?: number | string;
-}
 ```
 
 ### `handleUpdateKnowledge()`
@@ -713,7 +701,7 @@ export interface KnowledgeListParams {
 // `superseded_by: null` in the body is mapped to `undefined` before the updateInsight() call,
 // causing the storage layer to remove the field from the stored insight.
 //
-// Scope disambiguation: `scope` and `project_slug` from the body are passed as the filter
+// Scope disambiguation: `scope` and `repository_name` from the body are passed as the filter
 // parameter to KnowledgeStoreManager.updateInsight() — restricts the search to the correct
 // store and prevents accidental cross-scope updates when the same numeric id exists in
 // multiple stores.
@@ -744,27 +732,30 @@ export async function handleUpdateKnowledge(
 //     zero, or floating-point strings. ID validation runs BEFORE scope validation;
 //     when both are invalid the caller receives a VALIDATION_ERROR for the id.
 //   - scope (query parameter) required; validated via InsightScope.safeParse() —
-//     throws VALIDATION_ERROR when absent or not 'global' | 'project'
-//   - project_slug (query parameter) required when scope === 'project';
+//     throws VALIDATION_ERROR when absent or not 'global' | 'repository'
+//   - repository_name (query parameter) required when scope === 'repository';
 //     throws VALIDATION_ERROR when absent
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces')
 //
-// Scope disambiguation: `scope` and `project_slug` are passed as the filter to
+// Scope disambiguation: `scope` and `repository_name` are passed as the filter to
 // KnowledgeStoreManager.deleteInsight(), restricting deletion to the correct store.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing project_slug
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing repository_name,
+//                      malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified scope
 //
-// @param ledgerRoot   Absolute path to the central ledger root.
-// @param rawId        Raw id string from the URL parameter (e.g. "42").
-// @param scope        Required scope query parameter ('global' or 'project').
-// @param project_slug Required when scope is 'project'.
+// @param ledgerRoot      Absolute path to the central ledger root.
+// @param rawId           Raw id string from the URL parameter (e.g. "42").
+// @param scope           Required scope query parameter ('global' or 'repository').
+// @param repository_name Required when scope is 'repository'.
 // @returns null — consistent with other DELETE handlers.
 export async function handleDeleteKnowledge(
   ledgerRoot: string,
   rawId: string,
   scope: string | undefined,
-  project_slug?: string
+  repository_name?: string
 ): Promise<null>
 ```
 
@@ -772,17 +763,19 @@ export async function handleDeleteKnowledge(
 
 ```typescript
 // POST /api/knowledge/:id/promote
-// Promotes a project-scoped insight to global scope.
+// Promotes a repository-scoped insight to global scope.
 //
 // Validation:
 //   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
 //     zero, or floating-point strings.
-//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//   - scope (query parameter) required; must be "repository". Passing scope="global" throws
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
-//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
 //     when absent.
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces').
 //
-// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
 // — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
 // The old add→delete two-step compose is fully removed.
 //
@@ -790,19 +783,20 @@ export async function handleDeleteKnowledge(
 // (assigned by the global store's next_id counter).
 //
 // ⚠ ID-change semantics: the returned insight's `id` is NOT the same as the pre-promote
-// project-scoped insight's `id`. The global store assigns a new `next_id`-based ID.
+// repository-scoped insight's `id`. The global store assigns a new `next_id`-based ID.
 // Frontend consumers that need to track which insight was promoted must capture the
 // original ID before calling promote and match by pre-promote ID — not by the new ID
 // returned in the response.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
-//   NOT_FOUND        — no insight with the given id in the specified project scope
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
+//   NOT_FOUND        — no insight with the given id in the specified repository scope
 export async function handlePromoteKnowledge(
   ledgerRoot: string,
   rawId: string,
   scope: string | undefined,
-  project_slug?: string
+  repository_name?: string
 ): Promise<Insight>
 ```
 
@@ -812,13 +806,13 @@ export async function handlePromoteKnowledge(
 // Exported Zod schema for POST /api/knowledge/:id/move request bodies.
 // `.strict()` rejects unknown keys.
 //
-// source_project_slug is .optional() at the Zod layer — the conditional-required
-// constraint (required when source_scope is "project") is enforced in handler logic,
-// not in the schema. This matches the pattern used for project_slug in other handlers.
+// source_repository_name is .optional() at the Zod layer — the conditional-required
+// constraint (required when source_scope is "repository") is enforced in handler logic,
+// not in the schema. This matches the pattern used for repository_name in other handlers.
 export const KnowledgeMoveBodySchema: z.ZodObject<{
-  source_scope: typeof InsightScope;               // Required: 'global' | 'project'
-  source_project_slug?: z.ZodOptional<z.ZodString>; // Optional in schema; required by handler when source_scope === 'project'
-  project_slug: z.ZodString;                       // Required: destination project slug
+  source_scope: typeof InsightScope;                   // Required: 'global' | 'repository'
+  source_repository_name?: z.ZodOptional<z.ZodString>; // Optional in schema; required by handler when source_scope === 'repository'
+  repository_name: z.ZodString;                        // Required: destination repository name
 }>;
 ```
 
@@ -826,31 +820,31 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 
 ```typescript
 // POST /api/knowledge/:id/move
-// Moves an insight from one scope/project to a different project.
+// Moves an insight from one scope/repository to a different repository.
 //
 // Supports two move variants:
-//   - global → project: moves a global insight into a named project store
-//   - project → project: moves a project insight to a different project
+//   - global → repository: moves a global insight into a named repository store
+//   - repository → repository: moves a repository insight to a different repository
 //
 // Validation:
 //   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
 //     zero, or floating-point strings.
 //   - body validated via KnowledgeMoveBodySchema.safeParse().
-//   - source_project_slug is required when source_scope is "project" (handler-enforced;
+//   - source_repository_name is required when source_scope is "repository" (handler-enforced;
 //     the field is optional in the Zod schema — see KnowledgeMoveBodySchema).
-//   - Source and destination must differ: if source_scope is "project" and
-//     source_project_slug === project_slug, throws VALIDATION_ERROR.
+//   - Source and destination must differ: if source_scope is "repository" and
+//     source_repository_name === repository_name, throws VALIDATION_ERROR.
 //
-// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, repository_name: source_repository_name }, 'repository', repository_name)
 // — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
 // The old non-atomic add→delete two-step compose is fully removed; no intermediate state
 // is observable.
 //
-// The returned insight is the newly created copy in the target project — it has a different
+// The returned insight is the newly created copy in the target repository — it has a different
 // numeric ID (assigned by the target store's next_id counter).
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//   VALIDATION_ERROR — non-integer id, invalid body, source_repository_name absent when required,
 //                      source and destination identical
 //   NOT_FOUND        — no insight with the given id in the specified source scope
 export async function handleMoveKnowledge(
@@ -1085,15 +1079,15 @@ Manages the `.knowledge/` directory under `ledgerRoot`. Provides full CRUD for i
 **Storage layout** (relative to `ledgerRoot`):
 ```
 .knowledge/
-  .lock                     — lock file created by withLock
-  global-insights.json      — insights with scope: 'global'
-  {slug}-insights.json      — insights scoped to a specific project
+  .lock                              — lock file created by withLock
+  global-insights.json               — insights with scope: 'global'
+  {repository_name}-insights.json    — insights scoped to a specific repository
 ```
 
 **Locking strategy:**
 - All read-modify-write sequences (`addInsight`, `updateInsight`, `deleteInsight`, `moveInsight`) acquire a single lock on `knowledgeDir()` for the entire operation.
 - All writes use `atomicWriteJson()` — write-to-temp-then-rename.
-- Pure reads (`readGlobalStore`, `readProjectStore`, `searchInsights`, `listInsights`) do not acquire a lock, consistent with the `LedgerStore` pattern.
+- Pure reads (`readGlobalStore`, `readRepositoryStore`, `searchInsights`, `listInsights`) do not acquire a lock, consistent with the `LedgerStore` pattern.
 - `moveInsight` is a cross-store read-modify-write: it reads both the source and target stores, writes the target (with the new insight), then writes the source (with the original removed) — all within the same lock span. Do NOT call it from inside another `withLock(knowledgeDir, …)` callback.
 
 ```typescript
@@ -1110,9 +1104,10 @@ class KnowledgeStoreManager {
   // Returns {ledgerRoot}/.knowledge/global-insights.json
   globalStorePath(): string;
 
-  // Returns {ledgerRoot}/.knowledge/{slug}-insights.json.
-  // @throws Error if slug fails PROJECT_SLUG_REGEX (path traversal protection)
-  projectStorePath(slug: string): string;
+  // Returns {ledgerRoot}/.knowledge/{repository_name}-insights.json.
+  // @throws Error if repository_name === 'global' (reserved name)
+  // @throws Error if repository_name fails SLUG_REGEX (path traversal protection)
+  repositoryStorePath(repoName: string): string;
 
   // ── Read Methods ──────────────────────────────────────────────────────────
 
@@ -1122,10 +1117,10 @@ class KnowledgeStoreManager {
   // @throws Error if the file exists but contains malformed JSON or fails schema validation
   readGlobalStore(): Promise<KnowledgeStore>;
 
-  // Reads and validates a project-scoped insights store.
+  // Reads and validates a repository-scoped insights store.
   // Returns a valid empty KnowledgeStore when the file does not yet exist.
   // @throws Error if the file exists but contains malformed JSON or fails schema validation
-  readProjectStore(slug: string): Promise<KnowledgeStore>;
+  readRepositoryStore(repoName: string): Promise<KnowledgeStore>;
 
   // ── Write Methods (public, top-level only) ────────────────────────────────
 
@@ -1135,9 +1130,9 @@ class KnowledgeStoreManager {
   //   and call atomicWriteJson directly to avoid nested lock acquisition.
   writeGlobalStore(data: KnowledgeStore): Promise<void>;
 
-  // Writes a project-scoped insights store atomically under a lock.
+  // Writes a repository-scoped insights store atomically under a lock.
   // @warning Same nested-lock deadlock risk as writeGlobalStore.
-  writeProjectStore(slug: string, data: KnowledgeStore): Promise<void>;
+  writeRepositoryStore(repoName: string, data: KnowledgeStore): Promise<void>;
 
   // ── ID Generation ─────────────────────────────────────────────────────────
 
@@ -1150,10 +1145,10 @@ class KnowledgeStoreManager {
 
   // ── CRUD Operations ───────────────────────────────────────────────────────
 
-  // Adds a new insight to the appropriate store (global or project-scoped).
+  // Adds a new insight to the appropriate store (global or repository-scoped).
   // Auto-assigns numeric id from store.next_id. The entire read-modify-write
   // sequence runs under a single lock on knowledgeDir().
-  // @throws Error if scope === 'project' and project_slug is absent
+  // @throws Error if scope === 'repository' and repository_name is absent
   addInsight(input: Omit<Insight, 'id'>): Promise<Insight>;
 
   // Searches insights for the query string (case-insensitive substring match
@@ -1165,7 +1160,7 @@ class KnowledgeStoreManager {
     query: string,
     filters?: {
       scope?: InsightScope;
-      project_slug?: string;
+      repository_name?: string;
       category?: string;
       tags?: string[];    // AND semantics — all listed tags must be present on the insight
       limit?: number;
@@ -1174,24 +1169,24 @@ class KnowledgeStoreManager {
   ): Promise<Insight[]>;
 
   // Lists insights with optional filters and pagination.
-  // Filter application order: store selection (scope/project_slug) → category →
+  // Filter application order: store selection (scope/repository_name) → category →
   // tags → offset → limit.
   listInsights(filters: {
     scope?: InsightScope;
     category?: string;
-    tags?: string[];        // every tag must be present (AND semantics)
-    project_slug?: string;
+    tags?: string[];           // every tag must be present (AND semantics)
+    repository_name?: string;
     limit?: number;
-    offset?: number;        // default: 0
+    offset?: number;           // default: 0
   }): Promise<Insight[]>;
 
   // Updates an existing insight by numeric id. Searches ALL stores (global +
-  // all project stores) to locate the insight.
-  // Immutable fields: id, scope, project_slug, created_at.
+  // all repository stores) to locate the insight.
+  // Immutable fields: id, scope, repository_name, created_at.
   // Sets updated_at to the current timestamp on success.
-  // @param filter — Optional scope/project_slug filter. When provided, restricts the
+  // @param filter — Optional scope/repository_name filter. When provided, restricts the
   //   store search to matching stores only, preventing accidental global-insight mutation
-  //   when the same numeric id exists in both global and project stores.
+  //   when the same numeric id exists in both global and repository stores.
   //   Without a filter, all stores are searched in alphabetical order (original behaviour).
   // @throws Error if no insight with the given id exists in the filtered stores
   updateInsight(
@@ -1199,7 +1194,7 @@ class KnowledgeStoreManager {
     updates: Partial<Pick<Insight,
       'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
     >>,
-    filter?: { scope?: InsightScope; project_slug?: string }
+    filter?: { scope?: InsightScope; repository_name?: string }
   ): Promise<Insight>;
 
   // Moves an insight from one store to another in a single atomic lock span,
@@ -1209,40 +1204,41 @@ class KnowledgeStoreManager {
   //   1. Resolve source store path(s) from sourceFilter.
   //   2. Find insight by id in source store — throws if not found.
   //   3. Construct moved insight: new id (from target store's next_id), corrected
-  //      scope/project_slug, and a fresh updated_at timestamp (captured once via now()).
+  //      scope/repository_name, and a fresh updated_at timestamp (captured once via now()).
   //   4. Validate with InsightSchema.parse(…).
   //   5. Write updated target store via atomicWriteJson.
   //   6. Splice source and write updated source store via atomicWriteJson.
   //
-  // Returns the moved Insight with new id, corrected scope/project_slug, and updated_at.
+  // Returns the moved Insight with new id, corrected scope/repository_name, and updated_at.
   //
   // @throws Error if the insight is not found in the source store(s)
-  // @throws Error if targetScope === 'project' and targetProjectSlug is absent
+  // @throws Error if targetScope === 'repository' and targetRepositoryName is absent
+  // @throws Error if moving to the same repository store (identity move guard)
   // @warning Do NOT call from inside a withLock(knowledgeDir, …) callback — will deadlock.
   moveInsight(
     id: number,
-    sourceFilter: { scope: InsightScope; project_slug?: string },
+    sourceFilter: { scope: InsightScope; repository_name?: string },
     targetScope: InsightScope,
-    targetProjectSlug?: string
+    targetRepositoryName?: string
   ): Promise<Insight>;
 
   // Deletes an insight by numeric id.
-  // @param filter — Optional scope/project_slug filter (same semantics as updateInsight).
+  // @param filter — Optional scope/repository_name filter (same semantics as updateInsight).
   //   Without a filter, all stores are searched.
   // @throws Error if no insight with the given id exists in the filtered stores
-  deleteInsight(id: number, filter?: { scope?: InsightScope; project_slug?: string }): Promise<void>;
+  deleteInsight(id: number, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void>;
 }
 ```
 
 **`_loadInsights()` store-selection rules** (used internally by `searchInsights` and `listInsights`):
 
-| `scope` | `project_slug` | Stores loaded |
-|---------|----------------|---------------|
+| `scope` | `repository_name` | Stores loaded |
+|---------|-------------------|---------------|
 | `'global'` | any | `global-insights.json` only |
-| `'project'` | provided | `{slug}-insights.json` only |
-| `'project'` | absent | all `{slug}-insights.json` files |
-| absent | provided | `{slug}-insights.json` only |
-| absent | absent | `global-insights.json` + all `{slug}-insights.json` files |
+| `'repository'` | provided | `{repository_name}-insights.json` only |
+| `'repository'` | absent | all `{repository_name}-insights.json` files |
+| absent | provided | `{repository_name}-insights.json` only |
+| absent | absent | `global-insights.json` + all `{repository_name}-insights.json` files |
 
 ---
 
@@ -1516,30 +1512,35 @@ const workflowManifest: Manifest;
 Zod schemas and inferred TypeScript types for the knowledge accumulation system. All types are inferred via `z.infer<>` — no handwritten duplicate interfaces.
 
 ```typescript
-// Regex for valid project slugs: must start with an alphanumeric character, followed by
-// letters, digits, underscores, or hyphens only. Rejects '/', '\\', '.', spaces, and any
-// character that could escape the .knowledge/ directory.
-// Single source of truth — used by both InsightSchema.project_slug Zod refinement and
-// KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
+// Regex for valid slugs (repository names, plan slugs, etc.): must start with an alphanumeric
+// character, followed by letters, digits, underscores, or hyphens only. Rejects '/', '\\', '.',
+// spaces, and any character that could escape the .knowledge/ directory.
+// Single source of truth — used by InsightSchema.repository_name, InsightSchema.origin_plan,
+// and KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
 // in both places simultaneously.
-export const PROJECT_SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+export const SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 
-// Scope enum: 'global' (applies across all projects) | 'project' (scoped to a specific project).
-// Note: when scope === 'project', project_slug must be present. This constraint is enforced
-// by the storage layer (KnowledgeStoreManager), not by this schema, so the schema remains
-// composable and usable without runtime context.
-const InsightScope: z.ZodEnum<['global', 'project']>;
-type InsightScope = 'global' | 'project';
+// Scope enum: 'global' (applies across all codebases/repositories) | 'repository' (scoped to
+// a specific repository — codebase-level knowledge).
+// Note: when scope === 'repository', repository_name should be present. This constraint is
+// enforced by the storage layer (KnowledgeStoreManager), not by this schema, so the schema
+// remains composable and usable without runtime context.
+const InsightScope: z.ZodEnum<['global', 'repository']>;
+type InsightScope = 'global' | 'repository';
 
 // Single reusable knowledge record stored in the knowledge base.
-// Optional fields: project_slug (required by storage layer when scope === 'project'),
-// updated_at (set when an insight is amended after initial creation),
-// superseded_by (id of the insight that replaces this one — no referential integrity enforced at schema layer).
-// confidence: 0–1 float; no range constraint enforced — forward-looking field.
+// Optional fields:
+//   repository_name — required by storage layer when scope === 'repository'; validates against SLUG_REGEX
+//   origin_plan     — provenance metadata: plan slug where insight was first discovered; distinct from
+//                     `source` (a URL/reference link); validates against SLUG_REGEX
+//   updated_at      — set when an insight is amended after initial creation
+//   superseded_by   — id of the insight that replaces this one; no referential integrity enforced at schema layer
+// confidence: 0–1 float; range enforced as [0, 1] — values outside this range are rejected at parse time.
 const InsightSchema: z.ZodObject<{
-  id: z.ZodNumber;              // integer; storage layer should enforce id >= 1; per-store only — not globally unique across global and project stores
+  id: z.ZodNumber;              // integer; storage layer should enforce id >= 1; per-store only — not globally unique across global and repository stores
   scope: typeof InsightScope;
-  project_slug: z.ZodOptional<z.ZodString>;
+  repository_name: z.ZodOptional<z.ZodString>; // required by storage layer when scope === 'repository'
+  origin_plan: z.ZodOptional<z.ZodString>;     // provenance: plan slug that produced the insight
   title: z.ZodString;
   content: z.ZodString;
   category: z.ZodString;
@@ -1547,7 +1548,7 @@ const InsightSchema: z.ZodObject<{
   source: z.ZodString;
   created_at: z.ZodString;      // ISO 8601 timestamp
   updated_at: z.ZodOptional<z.ZodString>;
-  confidence: z.ZodNumber;      // 0–1 float; no range enforced at schema layer
+  confidence: z.ZodNumber;      // 0–1 float; range [0, 1] enforced at schema layer
   superseded_by: z.ZodOptional<z.ZodNumber>; // integer id of superseding insight
 }>;
 type Insight = z.infer<typeof InsightSchema>;
@@ -1567,7 +1568,8 @@ type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
 ```
 
 **Design notes:**
-- `scope === 'project'` → `project_slug` required constraint is owned by the storage layer (`KnowledgeStoreManager`, WP-002+), not this schema. The schema accepts `project_slug` as optional to remain context-free and composable.
+- `scope === 'repository'` → `repository_name` required constraint is owned by the storage layer (`KnowledgeStoreManager`, WP-002+), not this schema. The schema accepts `repository_name` as optional to remain context-free and composable.
+- `origin_plan` is semantically distinct from `source`: `source` is a reference link/URL, while `origin_plan` is the planning artefact slug (e.g. a plan folder name) where the insight was first discovered. Use `origin_plan` to record provenance; use `source` to record a citable reference.
 - Storage layer should enforce `z.number().int().positive()` for `id` (schema accepts 0) and `z.number().finite()` for `confidence` (schema accepts `Infinity`) when persisting.
 - Empty strings for `title`, `content`, `source`, `category` are accepted by the schema; storage layer should guard against them.
 
@@ -3441,25 +3443,25 @@ export async function handleOrchestratorDismiss(
  * fields (id, created_at, …).
  *
  * Fields:
- *   scope:         'global' | 'project'  — REQUIRED
- *   project_slug?:  string matching PROJECT_SLUG_REGEX
- *   title?:         string
- *   content?:       string
- *   category?:      string
- *   tags?:          string[]
- *   source?:        string
- *   confidence?:    number (0–1)
- *   superseded_by?: number (integer)
+ *   scope:            'global' | 'repository'  — REQUIRED
+ *   repository_name?: string matching SLUG_REGEX  — REQUIRED when scope is 'repository'
+ *   title?:           string
+ *   content?:         string
+ *   category?:        string
+ *   tags?:            string[]
+ *   source?:          string
+ *   confidence?:      number (0–1)
+ *   superseded_by?:   number (integer)
  */
 export const KnowledgeUpdateBodySchema: z.ZodObject<...>;
 
 /** Raw query parameters accepted by GET /api/knowledge. */
 export interface KnowledgeListParams {
-  scope?: string;          // 'global' | 'project'; unrecognised values silently treated as no filter
+  scope?: string;          // 'global' | 'repository'; unrecognised non-undefined values throw VALIDATION_ERROR; omitting means no filter
   category?: string;
   /** Comma-separated list of tags; split on ',' with whitespace trimming. */
   tags?: string;
-  project_slug?: string;
+  repository_name?: string;
   /** Full-text search query — when present, delegates to searchInsights instead of listInsights. */
   query?: string;
   limit?: number | string;   // coerced to positive integer; invalid/missing → undefined (no limit)
@@ -3474,8 +3476,15 @@ export interface KnowledgeListParams {
 //   - Otherwise: delegates to KnowledgeStoreManager.listInsights() with scope/category/tags filters.
 //
 // Parameter handling:
-//   - `scope` is validated via InsightScope.safeParse(); unrecognised values fall back to undefined
-//     (no scope filter) rather than causing an error — tolerant API design.
+//   - `scope` is validated via InsightScope.safeParse(); unrecognised non-undefined values throw
+//     VALIDATION_ERROR (HTTP 400). Omitting `scope` (undefined) means "no scope filter" and is
+//     always allowed. This brings handleListKnowledge into contract parity with the four mutating
+//     handlers (WP-001 hardening).
+//
+//   - `repository_name` is validated against SLUG_REGEX when provided; malformed values
+//     (e.g. '../evil', 'has spaces') throw VALIDATION_ERROR (HTTP 400) before reaching the storage
+//     layer. All five knowledge handlers now validate repository_name consistently at the handler level.
+//
 //   - `tags` is a comma-separated string split before being forwarded (e.g. "node,backend" → ["node","backend"]).
 //     Whitespace around commas is trimmed; empty segments are dropped.
 //   - `limit` and `offset` are coerced to integers; invalid or missing values are silently ignored.
@@ -3495,78 +3504,81 @@ export async function handleListKnowledge(
 ): Promise<Insight[]>;
 
 // POST /api/knowledge/:id/promote
-// Promotes a project-scoped insight to global scope using the atomic moveInsight() method.
+// Promotes a repository-scoped insight to global scope using the atomic moveInsight() method.
 //
 // Validation:
 //   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
 //     zero, or floating-point strings.
-//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//   - scope (query parameter) required; must be "repository". Passing scope="global" throws
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
-//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
 //     when absent.
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces').
 //
-// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
 // — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
 // add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
 //
 // The returned insight is the newly created global copy — it has a different numeric ID
-// (assigned by the global store's next_id counter). The original project-scoped insight
+// (assigned by the global store's next_id counter). The original repository-scoped insight
 // is atomically removed by the same moveInsight() call.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
-//   NOT_FOUND        — no insight with the given id in the specified project scope
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
+//   NOT_FOUND        — no insight with the given id in the specified repository scope
 //
-// @param ledgerRoot   Absolute path to the central ledger root.
-// @param rawId        Raw id string from the URL parameter (e.g. "42").
-// @param scope        Source scope query parameter — must be "project".
-// @param project_slug Required when scope is "project".
+// @param ledgerRoot      Absolute path to the central ledger root.
+// @param rawId           Raw id string from the URL parameter (e.g. "42").
+// @param scope           Source scope query parameter — must be "repository".
+// @param repository_name Required when scope is "repository".
 // @returns The newly created global Insight.
 export async function handlePromoteKnowledge(
   ledgerRoot: string,
   rawId: string,
   scope: string | undefined,
-  project_slug?: string
+  repository_name?: string
 ): Promise<Insight>;
 
 /**
  * Zod schema for the POST /api/knowledge/:id/move request body.
  *
  * Fields validated by the Zod schema (format/type constraints):
- *   source_scope:         'global' | 'project'  — REQUIRED
- *   source_project_slug?: string matching PROJECT_SLUG_REGEX  — OPTIONAL in schema;
- *                         the conditional-required rule (required when source_scope is "project")
- *                         is enforced in handler logic, not here.
- *   project_slug:         string matching PROJECT_SLUG_REGEX  — REQUIRED (destination)
+ *   source_scope:            'global' | 'repository'  — REQUIRED
+ *   source_repository_name?: string matching SLUG_REGEX  — OPTIONAL in schema;
+ *                            the conditional-required rule (required when source_scope is "repository")
+ *                            is enforced in handler logic, not here.
+ *   repository_name:         string matching SLUG_REGEX  — REQUIRED (destination)
  *
- * Note: `source_project_slug` is `.optional()` at the Zod layer so the schema can parse a body
- * that omits it. The handler validates the scope+slug combination and throws VALIDATION_ERROR if
+ * Note: `source_repository_name` is `.optional()` at the Zod layer so the schema can parse a body
+ * that omits it. The handler validates the scope+name combination and throws VALIDATION_ERROR if
  * the conditional constraint is violated. `.strict()` rejects unknown keys.
  */
 export const KnowledgeMoveBodySchema: z.ZodObject<{
   source_scope: typeof InsightScope;
-  source_project_slug: z.ZodOptional<z.ZodString>;  // optional in schema; conditional-required in handler
-  project_slug: z.ZodString;
+  source_repository_name: z.ZodOptional<z.ZodString>;  // optional in schema; conditional-required in handler
+  repository_name: z.ZodString;
 }>;
 
 // POST /api/knowledge/:id/move
-// Moves an insight from one scope/project to a different project using the atomic moveInsight() method.
+// Moves an insight from one scope/repository to a different repository using the atomic moveInsight() method.
 //
 // Supports two move variants:
-//   - global → project: moves a global insight into a named project store
-//   - project → project: moves a project insight to a different project
+//   - global → repository: moves a global insight into a named repository store
+//   - repository → repository: moves a repository insight to a different repository
 //
 // Validation:
 //   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
 //     zero, or floating-point strings.
 //   - body validated via KnowledgeMoveBodySchema.safeParse() — throws VALIDATION_ERROR for
 //     unknown fields or type mismatches.
-//   - source_project_slug is required when source_scope is "project" (handler-enforced conditional
+//   - source_repository_name is required when source_scope is "repository" (handler-enforced conditional
 //     constraint; not enforced by the Zod schema itself where the field is optional).
-//   - Source and destination must differ: if source_scope is "project" and source_project_slug
-//     equals project_slug, throws VALIDATION_ERROR ("Source and destination project are identical").
+//   - Source and destination must differ: if source_scope is "repository" and source_repository_name
+//     equals repository_name, throws VALIDATION_ERROR ("Cannot move insight to the same repository store").
 //
-// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, repository_name: source_repository_name }, 'repository', repository_name)
 // — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
 // add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
 //
@@ -3574,14 +3586,14 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 // target store's next_id counter). The original source insight is atomically removed.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//   VALIDATION_ERROR — non-integer id, invalid body, source_repository_name absent when required,
 //                      source and destination identical
 //   NOT_FOUND        — no insight with the given id in the specified source scope
 //
 // @param ledgerRoot  Absolute path to the central ledger root.
 // @param rawId       Raw id string from the URL parameter (e.g. "42").
 // @param body        Parsed request body (any shape — validated here via KnowledgeMoveBodySchema).
-// @returns The newly created Insight in the target project store.
+// @returns The newly created Insight in the target repository store.
 export async function handleMoveKnowledge(
   ledgerRoot: string,
   rawId: string,
@@ -3882,22 +3894,22 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
 
 **`views/knowledge.js`:**
-- **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a move-to-project inline input. Uses the CSS classes documented below.
+- **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a Move to Repository inline slug input. Uses the CSS classes documented below.
 
   **State variables** (closure-scoped, all reset on tab switch):
 
   | Variable | Type | Description |
   |----------|------|-------------|
   | `allInsights` | `Insight[]` | Full unfiltered dataset returned by `API.getKnowledge` |
-  | `activeTab` | `'global' \| 'project'` | Currently selected tab |
+  | `activeTab` | `'global' \| 'repository'` | Currently selected tab |
   | `filterCategory` | `string` | Active category filter value (empty = all) |
-  | `filterProject` | `string` | Active project-slug filter value (empty = all; Repository tab only) |
+  | `filterRepository` | `string` | Active repository-name filter value (empty = all; Repository tab only) |
   | `filterQuery` | `string` | Active free-text search query (matches title, content, tags) |
   | `editingId` | `number \| null` | ID of the card currently showing the inline edit form |
   | `confirmDeleteId` | `number \| null` | ID of the card showing the delete-confirm step |
-  | `movingId` | `number \| null` | ID of the card showing the Move to Project inline slug input |
+  | `movingId` | `number \| null` | ID of the card showing the Move to Repository inline slug input |
 
-  > **Note:** `movingId` is not listed in the original WP-006 deliverables spec but is required by the Move to Project feature. It is properly reset alongside the other state variables on tab switch.
+  > **Note:** `movingId` is not listed in the original WP-006 deliverables spec but is required by the Move to Repository feature. It is properly reset alongside the other state variables on tab switch.
 
   **`formatConfidence(value)`** — converts a raw `[0, 1]` confidence float to a human-readable string (e.g. `"80% (High)"`). Uses `Math.round(value * 100)` before comparing against bucket constants:
 
@@ -3915,7 +3927,7 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
   - **Which path uses inline error:** edit form save only — the inline `.error-banner` is injected into `#kn-edit-msg-{id}` and the form remains visible so the user can retry or correct input.
   - This design is documented in-code with an explanatory comment in the `.catch()` block.
 
-  **Client-side filtering** (`applyFilters()`) — runs entirely in-browser with no round-trip; filters by scope (tab), category, project slug (Repository tab only), and free-text query (case-insensitive match on title, content, and tags). Filtering is triggered on every tab switch, dropdown change, and search-input keystroke.
+  **Client-side filtering** (`applyFilters()`) — runs entirely in-browser with no round-trip; filters by scope (tab), category, repository name (Repository tab only), and free-text query (case-insensitive match on title, content, and tags). Filtering is triggered on every tab switch, dropdown change, and search-input keystroke.
 
   > **UX note:** `renderList()` rebuilds the filter bar DOM on every keystroke (to keep dropdown selections in sync), which causes the search `<input>` to lose focus after each character. This is a known UX trade-off acknowledged during implementation and code review. A minimal fix (refocus the input after rebuild) is earmarked for a future follow-up pass.
 
@@ -3929,24 +3941,26 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 | `.knowledge-tab` | Tab button; resets `<button>` defaults; uses a transparent `border-bottom: 2px` that is promoted to `var(--color-ready)` on `:hover` / `.active`; `margin-bottom: -2px` overlaps the track so the active border sits on top of it |
 | `.knowledge-tab.active` | Active tab state — `color: var(--color-ready)`, `border-bottom-color: var(--color-ready)`, `font-weight: 600` |
 | `.badge-scope-global` | Blue-toned scope badge extending `.badge`; light: `#dbeafe` bg / `#1d4ed8` text |
-| `.badge-scope-project` | Green-toned scope badge extending `.badge`; light: `#dcfce7` bg / `#15803d` text |
+| `.badge-scope-repository` | Green-toned scope badge extending `.badge`; light: `#dcfce7` bg / `#15803d` text |
 | `.category-pill` | Small inline pill for category display; `border-radius: var(--radius-pill)`; uses `var(--color-bg)`, `var(--color-text-muted)`, `var(--color-border)` tokens |
 | `.tag-chip` | Small inline chip for tag display; purple tones: `#f3e8ff` bg / `#7c3aed` text / `#e9d5ff` border; `border-radius: var(--radius-pill)` |
 | `.confidence-label` | Muted italic label for confidence display; `font-size: 12px`, `color: var(--color-text-muted)`, `font-style: italic` |
 | `.knowledge-actions` | `display:flex` row for per-card action buttons; `gap: 8px`, `flex-wrap: wrap`, `margin-top: 12px` |
-| `.knowledge-move-input` | `display:inline-flex` container grouping a project-slug text input and its confirm button; `gap: 6px`, `flex-wrap: nowrap` |
+| `.knowledge-move-input` | `display:inline-flex` container grouping a repository-name text input (expects a slug, e.g. `my-project`) and its confirm button; `gap: 6px`, `flex-wrap: nowrap` |
 
 Dark mode overrides (grouped at the bottom of the `/* Knowledge Page */` section via `[data-theme="dark"]` selectors):
 
 | Selector | Override |
 |----------|----------|
 | `[data-theme="dark"] .badge-scope-global` | `#1e3a5f` bg / `#93c5fd` text |
-| `[data-theme="dark"] .badge-scope-project` | `#14532d` bg / `#86efac` text |
+| `[data-theme="dark"] .badge-scope-repository` | `#14532d` bg / `#86efac` text |
 | `[data-theme="dark"] .category-pill` | `var(--color-surface)` bg / `var(--color-text-muted)` text / `var(--color-border)` border |
 | `[data-theme="dark"] .tag-chip` | `#3b0764` bg / `#d8b4fe` text / `#7e22ce` border |
 | `[data-theme="dark"] .knowledge-move-input .form-control` | `var(--color-surface)` bg / `var(--color-text)` text / `var(--color-border)` border |
 
 > **Dark-mode placement convention:** The Knowledge Page section places all `[data-theme="dark"]` overrides in a single block at the **bottom** of the section (after all light-mode rules), rather than co-locating each override with its light-mode counterpart. This is the preferred convention for new CSS sections. Earlier sections in `styles.css` use inline co-location — both patterns are valid, but the bottom-grouped approach is preferred going forward for readability.
+
+> **Move input format:** The target repository input (`<input placeholder="target-repository-name">` inside `.knowledge-move-input`) expects a repository slug — a lowercase alphanumeric string with hyphens or underscores (matching `SLUG_REGEX` on the server, e.g. `my-project`, `ai-insights`). Entering a free-form display label will be rejected by the server with a `400 VALIDATION_ERROR`.
 
 > **Fragility note:** `.knowledge-move-input .form-control` targets the child `.form-control` element for its dark override (consistent with the `.filter-bar` pattern). If the markup changes to no longer use `.form-control` as a direct child, the dark override will silently stop applying.
 

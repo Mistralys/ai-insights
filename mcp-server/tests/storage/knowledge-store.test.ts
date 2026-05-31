@@ -59,13 +59,19 @@ describe('KnowledgeStoreManager', () => {
       );
     });
 
-    it('projectStorePath() returns {slug}-insights.json under knowledgeDir', () => {
-      expect(manager.projectStorePath('my-project')).toBe(
-        join(tempLedgerRoot, '.knowledge', 'my-project-insights.json')
+    it('repositoryStorePath() returns {repoName}-insights.json under knowledgeDir', () => {
+      expect(manager.repositoryStorePath('hcp-editor')).toBe(
+        join(tempLedgerRoot, '.knowledge', 'hcp-editor-insights.json')
       );
     });
 
-    describe('projectStorePath() — path traversal rejection', () => {
+    it('repositoryStorePath("global") throws reserved-name error', () => {
+      expect(() => manager.repositoryStorePath('global')).toThrow(
+        "'global' is a reserved name and cannot be used as a repository name."
+      );
+    });
+
+    describe('repositoryStorePath() — path traversal rejection', () => {
       const maliciousSlugs = [
         '../evil',
         '../../etc/passwd',
@@ -79,7 +85,7 @@ describe('KnowledgeStoreManager', () => {
 
       for (const slug of maliciousSlugs) {
         it(`throws for slug: "${slug}"`, () => {
-          expect(() => manager.projectStorePath(slug)).toThrow('Invalid project slug');
+          expect(() => manager.repositoryStorePath(slug)).toThrow('Invalid repository name');
         });
       }
     });
@@ -100,15 +106,15 @@ describe('KnowledgeStoreManager', () => {
     });
   });
 
-  describe('readProjectStore — empty store initialization', () => {
+  describe('readRepositoryStore — empty store initialization', () => {
     it('returns empty store with next_id: 1 when file does not exist', async () => {
-      const store = await manager.readProjectStore('some-project');
+      const store = await manager.readRepositoryStore('some-repo');
       expect(store.next_id).toBe(1);
       expect(store.insights).toEqual([]);
     });
 
     it('does not throw when file does not exist', async () => {
-      await expect(manager.readProjectStore('missing-project')).resolves.not.toThrow();
+      await expect(manager.readRepositoryStore('missing-repo')).resolves.not.toThrow();
     });
   });
 
@@ -166,13 +172,13 @@ describe('KnowledgeStoreManager', () => {
     });
   });
 
-  describe('writeProjectStore', () => {
-    it('writes store data to {slug}-insights.json', async () => {
+  describe('writeRepositoryStore', () => {
+    it('writes store data to {repoName}-insights.json', async () => {
       const store = makeStore({ next_id: 3 });
-      await manager.writeProjectStore('test-project', store);
+      await manager.writeRepositoryStore('test-repo', store);
 
       const raw = JSON.parse(
-        await readFile(manager.projectStorePath('test-project'), 'utf-8')
+        await readFile(manager.repositoryStorePath('test-repo'), 'utf-8')
       );
       expect(raw.next_id).toBe(3);
     });
@@ -191,17 +197,17 @@ describe('KnowledgeStoreManager', () => {
       expect(store.insights[0].scope).toBe('global');
     });
 
-    it('writes a project-scoped insight to {slug}-insights.json', async () => {
+    it('writes a repository-scoped insight to {repoName}-insights.json', async () => {
       const input = makeInsightInput({
-        scope: 'project',
-        project_slug: 'my-project',
+        scope: 'repository',
+        repository_name: 'hcp-editor',
       });
       const insight = await manager.addInsight(input);
 
-      const store = await manager.readProjectStore('my-project');
+      const store = await manager.readRepositoryStore('hcp-editor');
       expect(store.insights).toHaveLength(1);
       expect(store.insights[0].id).toBe(insight.id);
-      expect(store.insights[0].project_slug).toBe('my-project');
+      expect(store.insights[0].repository_name).toBe('hcp-editor');
 
       // Global store must remain empty
       const globalStore = await manager.readGlobalStore();
@@ -235,9 +241,9 @@ describe('KnowledgeStoreManager', () => {
       expect(store.insights).toHaveLength(2);
     });
 
-    it('throws when scope is "project" but project_slug is missing', async () => {
+    it('throws when scope is "repository" but repository_name is missing', async () => {
       const input: Omit<Insight, 'id'> = {
-        scope: 'project',
+        scope: 'repository',
         title: 'Test',
         content: 'Content',
         category: 'test',
@@ -246,13 +252,13 @@ describe('KnowledgeStoreManager', () => {
         created_at: '2026-05-28T12:00:00Z',
         confidence: 0.5,
       };
-      await expect(manager.addInsight(input)).rejects.toThrow('project_slug is required');
+      await expect(manager.addInsight(input)).rejects.toThrow('repository_name is required');
     });
 
-    it('throws when project_slug contains path traversal characters', async () => {
+    it('throws when repository_name contains path traversal characters', async () => {
       const input: Omit<Insight, 'id'> = {
-        scope: 'project',
-        project_slug: '../evil',
+        scope: 'repository',
+        repository_name: '../evil',
         title: 'Test',
         content: 'Content',
         category: 'test',
@@ -261,7 +267,15 @@ describe('KnowledgeStoreManager', () => {
         created_at: '2026-05-28T12:00:00Z',
         confidence: 0.5,
       };
-      await expect(manager.addInsight(input)).rejects.toThrow('Invalid project slug');
+      await expect(manager.addInsight(input)).rejects.toThrow('Invalid repository name');
+    });
+
+    it('preserves origin_plan metadata through add', async () => {
+      const input = makeInsightInput({ origin_plan: 'my-plan-slug' });
+      const insight = await manager.addInsight(input);
+      expect(insight.origin_plan).toBe('my-plan-slug');
+      const store = await manager.readGlobalStore();
+      expect(store.insights[0].origin_plan).toBe('my-plan-slug');
     });
 
     it('returns the created insight with all input fields intact', async () => {
@@ -293,12 +307,12 @@ describe('KnowledgeStoreManager', () => {
         scope: 'global',
       }));
       await manager.addInsight(makeInsightInput({
-        title: 'Project config tip',
+        title: 'Repository config tip',
         content: 'Store config in environment variables.',
         tags: ['config', 'environment'],
         category: 'pattern',
-        scope: 'project',
-        project_slug: 'demo-project',
+        scope: 'repository',
+        repository_name: 'demo-repo',
       }));
     });
 
@@ -325,9 +339,9 @@ describe('KnowledgeStoreManager', () => {
       expect(results).toEqual([]);
     });
 
-    it('searches across global and project stores when no filter applied', async () => {
+    it('searches across global and repository stores when no filter applied', async () => {
       const results = await manager.searchInsights('config');
-      expect(results.some((r) => r.scope === 'project')).toBe(true);
+      expect(results.some((r) => r.scope === 'repository')).toBe(true);
     });
 
     it('respects scope filter — only searches global store', async () => {
@@ -335,23 +349,23 @@ describe('KnowledgeStoreManager', () => {
       expect(results.every((r) => r.scope === 'global')).toBe(true);
     });
 
-    it('respects scope + project_slug filter', async () => {
+    it('respects scope + repository_name filter', async () => {
       const results = await manager.searchInsights('config', {
-        scope: 'project',
-        project_slug: 'demo-project',
+        scope: 'repository',
+        repository_name: 'demo-repo',
       });
       expect(results.length).toBeGreaterThan(0);
-      expect(results[0].project_slug).toBe('demo-project');
+      expect(results[0].repository_name).toBe('demo-repo');
     });
 
-    it('narrows to named project when project_slug is given without scope', async () => {
-      // Only 'demo-project' has a 'config' insight; global store has none
-      const results = await manager.searchInsights('config', { project_slug: 'demo-project' });
+    it('narrows to named repository when repository_name is given without scope', async () => {
+      // Only 'demo-repo' has a 'config' insight; global store has none
+      const results = await manager.searchInsights('config', { repository_name: 'demo-repo' });
       expect(results.length).toBeGreaterThan(0);
-      expect(results.every((r) => r.project_slug === 'demo-project')).toBe(true);
+      expect(results.every((r) => r.repository_name === 'demo-repo')).toBe(true);
       // Must NOT include global insights (global store has no 'config' content, but
       // confirm no global-scoped results leak through)
-      expect(results.every((r) => r.scope === 'project')).toBe(true);
+      expect(results.every((r) => r.scope === 'repository')).toBe(true);
     });
 
     it('returns empty array when knowledge directory does not exist', async () => {
@@ -435,11 +449,11 @@ describe('KnowledgeStoreManager', () => {
         }));
       }
       await manager.addInsight(makeInsightInput({
-        title: 'Project insight',
+        title: 'Repository insight',
         category: 'pattern',
         tags: ['beta'],
-        scope: 'project',
-        project_slug: 'sample-project',
+        scope: 'repository',
+        repository_name: 'sample-repo',
       }));
     });
 
@@ -465,22 +479,22 @@ describe('KnowledgeStoreManager', () => {
       expect(results.every((r) => r.scope === 'global')).toBe(true);
     });
 
-    it('filters by scope: project + project_slug', async () => {
+    it('filters by scope: repository + repository_name', async () => {
       const results = await manager.listInsights({
-        scope: 'project',
-        project_slug: 'sample-project',
+        scope: 'repository',
+        repository_name: 'sample-repo',
       });
       expect(results).toHaveLength(1);
-      expect(results[0].project_slug).toBe('sample-project');
+      expect(results[0].repository_name).toBe('sample-repo');
     });
 
-    it('narrows to named project when project_slug is given without scope', async () => {
-      const results = await manager.listInsights({ project_slug: 'sample-project' });
+    it('narrows to named repository when repository_name is given without scope', async () => {
+      const results = await manager.listInsights({ repository_name: 'sample-repo' });
       expect(results).toHaveLength(1);
-      expect(results[0].project_slug).toBe('sample-project');
-      expect(results[0].scope).toBe('project');
+      expect(results[0].repository_name).toBe('sample-repo');
+      expect(results[0].scope).toBe('repository');
       // Global insights must not appear
-      expect(results.every((r) => r.scope === 'project')).toBe(true);
+      expect(results.every((r) => r.scope === 'repository')).toBe(true);
     });
 
     it('respects limit', async () => {
@@ -551,16 +565,16 @@ describe('KnowledgeStoreManager', () => {
       expect(updated.superseded_by).toBe(second.id);
     });
 
-    it('updates a project-scoped insight', async () => {
+    it('updates a repository-scoped insight', async () => {
       const { id } = await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'proj-a' })
+        makeInsightInput({ scope: 'repository', repository_name: 'repo-a' })
       );
 
-      const updated = await manager.updateInsight(id, { title: 'Project update' });
-      expect(updated.title).toBe('Project update');
+      const updated = await manager.updateInsight(id, { title: 'Repository update' });
+      expect(updated.title).toBe('Repository update');
 
-      const store = await manager.readProjectStore('proj-a');
-      expect(store.insights.find((i) => i.id === id)?.title).toBe('Project update');
+      const store = await manager.readRepositoryStore('repo-a');
+      expect(store.insights.find((i) => i.id === id)?.title).toBe('Repository update');
     });
 
     it('throws when insight id does not exist', async () => {
@@ -569,7 +583,7 @@ describe('KnowledgeStoreManager', () => {
       );
     });
 
-    it('does not mutate immutable fields (scope, project_slug, created_at)', async () => {
+    it('does not mutate immutable fields (scope, repository_name, created_at)', async () => {
       const input = makeInsightInput({ scope: 'global', created_at: '2026-01-01T00:00:00Z' });
       const { id } = await manager.addInsight(input);
 
@@ -583,58 +597,58 @@ describe('KnowledgeStoreManager', () => {
       // The global store is added first so its next_id starts at 1.
       const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'filter-test', title: 'Project one' })
+        makeInsightInput({ scope: 'repository', repository_name: 'filter-test', title: 'Repository one' })
       );
 
       // Verify id collision: both stores start at next_id=1
       expect(globalId).toBe(1);
-      const projStore = await manager.readProjectStore('filter-test');
-      expect(projStore.insights[0].id).toBe(1);
+      const repoStore = await manager.readRepositoryStore('filter-test');
+      expect(repoStore.insights[0].id).toBe(1);
 
       // Update with scope filter — must touch only global store
       const updated = await manager.updateInsight(globalId, { title: 'Global updated' }, { scope: 'global' });
       expect(updated.title).toBe('Global updated');
       expect(updated.scope).toBe('global');
 
-      // Project store must be untouched
-      const projStoreAfter = await manager.readProjectStore('filter-test');
-      expect(projStoreAfter.insights[0].title).toBe('Project one');
+      // Repository store must be untouched
+      const repoStoreAfter = await manager.readRepositoryStore('filter-test');
+      expect(repoStoreAfter.insights[0].title).toBe('Repository one');
     });
 
-    it('scope filter — targets project store when scope+project_slug are provided', async () => {
+    it('scope filter — targets repository store when scope+repository_name are provided', async () => {
       const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'scoped-proj', title: 'Project one' })
+        makeInsightInput({ scope: 'repository', repository_name: 'scoped-repo', title: 'Repository one' })
       );
       expect(globalId).toBe(1);
 
-      // Update with scope + project_slug filter — must touch only project store
+      // Update with scope + repository_name filter — must touch only repository store
       const updated = await manager.updateInsight(
         1,
-        { title: 'Project updated' },
-        { scope: 'project', project_slug: 'scoped-proj' }
+        { title: 'Repository updated' },
+        { scope: 'repository', repository_name: 'scoped-repo' }
       );
-      expect(updated.title).toBe('Project updated');
-      expect(updated.scope).toBe('project');
+      expect(updated.title).toBe('Repository updated');
+      expect(updated.scope).toBe('repository');
 
       // Global store must be untouched
       const globalStore = await manager.readGlobalStore();
       expect(globalStore.insights[0].title).toBe('Global one');
     });
 
-    it('project_slug filter (without scope) targets only the specified project store', async () => {
+    it('repository_name filter (without scope) targets only the specified repository store', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'slug-only', title: 'Project one' })
+        makeInsightInput({ scope: 'repository', repository_name: 'name-only', title: 'Repository one' })
       );
 
       const updated = await manager.updateInsight(
         1,
-        { title: 'Slug-only updated' },
-        { project_slug: 'slug-only' }
+        { title: 'Name-only updated' },
+        { repository_name: 'name-only' }
       );
-      expect(updated.title).toBe('Slug-only updated');
-      expect(updated.project_slug).toBe('slug-only');
+      expect(updated.title).toBe('Name-only updated');
+      expect(updated.repository_name).toBe('name-only');
 
       const globalStore = await manager.readGlobalStore();
       expect(globalStore.insights[0].title).toBe('Global one');
@@ -643,10 +657,17 @@ describe('KnowledgeStoreManager', () => {
     it('throws when the filtered stores do not contain the specified id', async () => {
       const { id } = await manager.addInsight(makeInsightInput({ title: 'Global only' }));
 
-      // Filter to a project store that does not have this id
+      // Filter to a repository store that does not have this id
       await expect(
-        manager.updateInsight(id, { title: 'Nope' }, { scope: 'project', project_slug: 'empty-proj' })
+        manager.updateInsight(id, { title: 'Nope' }, { scope: 'repository', repository_name: 'empty-repo' })
       ).rejects.toThrow(`Insight with id ${id} not found`);
+    });
+
+    it('preserves origin_plan metadata through update', async () => {
+      const input = makeInsightInput({ origin_plan: 'plan-alpha' });
+      const { id } = await manager.addInsight(input);
+      const updated = await manager.updateInsight(id, { title: 'Updated title' });
+      expect(updated.origin_plan).toBe('plan-alpha');
     });
   });
 
@@ -672,13 +693,13 @@ describe('KnowledgeStoreManager', () => {
       expect(store.insights[0].title).toBe('Keep me');
     });
 
-    it('removes a project-scoped insight from the correct store', async () => {
+    it('removes a repository-scoped insight from the correct store', async () => {
       const { id } = await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'del-test' })
+        makeInsightInput({ scope: 'repository', repository_name: 'del-test' })
       );
       await manager.deleteInsight(id);
 
-      const store = await manager.readProjectStore('del-test');
+      const store = await manager.readRepositoryStore('del-test');
       expect(store.insights.find((i) => i.id === id)).toBeUndefined();
     });
 
@@ -702,7 +723,7 @@ describe('KnowledgeStoreManager', () => {
     it('scope filter — deletes from global store only when scope is "global"', async () => {
       const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'del-scope', title: 'Project one' })
+        makeInsightInput({ scope: 'repository', repository_name: 'del-scope', title: 'Repository one' })
       );
       expect(globalId).toBe(1);
 
@@ -711,21 +732,21 @@ describe('KnowledgeStoreManager', () => {
       const globalStore = await manager.readGlobalStore();
       expect(globalStore.insights).toHaveLength(0);
 
-      const projStore = await manager.readProjectStore('del-scope');
-      expect(projStore.insights).toHaveLength(1);
-      expect(projStore.insights[0].title).toBe('Project one');
+      const repoStore = await manager.readRepositoryStore('del-scope');
+      expect(repoStore.insights).toHaveLength(1);
+      expect(repoStore.insights[0].title).toBe('Repository one');
     });
 
-    it('scope filter — deletes from project store only when scope+project_slug are provided', async () => {
+    it('scope filter — deletes from repository store only when scope+repository_name are provided', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'del-proj', title: 'Project one' })
+        makeInsightInput({ scope: 'repository', repository_name: 'del-repo', title: 'Repository one' })
       );
 
-      await manager.deleteInsight(1, { scope: 'project', project_slug: 'del-proj' });
+      await manager.deleteInsight(1, { scope: 'repository', repository_name: 'del-repo' });
 
-      const projStore = await manager.readProjectStore('del-proj');
-      expect(projStore.insights).toHaveLength(0);
+      const repoStore = await manager.readRepositoryStore('del-repo');
+      expect(repoStore.insights).toHaveLength(0);
 
       const globalStore = await manager.readGlobalStore();
       expect(globalStore.insights).toHaveLength(1);
@@ -736,7 +757,7 @@ describe('KnowledgeStoreManager', () => {
       const { id } = await manager.addInsight(makeInsightInput({ title: 'Global only' }));
 
       await expect(
-        manager.deleteInsight(id, { scope: 'project', project_slug: 'non-existent' })
+        manager.deleteInsight(id, { scope: 'repository', repository_name: 'non-existent' })
       ).rejects.toThrow(`Insight with id ${id} not found`);
     });
   });
@@ -744,21 +765,21 @@ describe('KnowledgeStoreManager', () => {
   // ─── moveInsight ───────────────────────────────────────────────────────
 
   describe('moveInsight', () => {
-    it('happy path: moves a global insight into a project store', async () => {
+    it('happy path: moves a global insight into a repository store', async () => {
       const { id } = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global insight' }));
 
       const moved = await manager.moveInsight(
         id,
         { scope: 'global' },
-        'project',
-        'target-project'
+        'repository',
+        'target-repo'
       );
 
-      expect(moved.scope).toBe('project');
-      expect(moved.project_slug).toBe('target-project');
+      expect(moved.scope).toBe('repository');
+      expect(moved.repository_name).toBe('target-repo');
 
-      // Moved insight appears in the target project store
-      const targetStore = await manager.readProjectStore('target-project');
+      // Moved insight appears in the target repository store
+      const targetStore = await manager.readRepositoryStore('target-repo');
       expect(targetStore.insights).toHaveLength(1);
       expect(targetStore.insights[0].id).toBe(moved.id);
 
@@ -767,42 +788,79 @@ describe('KnowledgeStoreManager', () => {
       expect(globalStore.insights.find((i) => i.id === id)).toBeUndefined();
     });
 
-    it('happy path: moves a project insight into the global store', async () => {
+    it('happy path: moves a repository insight into the global store', async () => {
       const { id } = await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'source-project', title: 'Project insight' })
+        makeInsightInput({ scope: 'repository', repository_name: 'source-repo', title: 'Repository insight' })
       );
 
       const moved = await manager.moveInsight(
         id,
-        { scope: 'project', project_slug: 'source-project' },
+        { scope: 'repository', repository_name: 'source-repo' },
         'global'
       );
 
       expect(moved.scope).toBe('global');
-      expect(moved.project_slug).toBeUndefined();
+      expect(moved.repository_name).toBeUndefined();
 
       // Moved insight appears in the global store
       const globalStore = await manager.readGlobalStore();
       expect(globalStore.insights).toHaveLength(1);
       expect(globalStore.insights[0].id).toBe(moved.id);
 
-      // Source project store no longer contains the insight
-      const sourceStore = await manager.readProjectStore('source-project');
+      // Source repository store no longer contains the insight
+      const sourceStore = await manager.readRepositoryStore('source-repo');
       expect(sourceStore.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('happy path: moves an insight from one repository to another (different names)', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repo A insight' })
+      );
+
+      const moved = await manager.moveInsight(
+        id,
+        { scope: 'repository', repository_name: 'repo-a' },
+        'repository',
+        'repo-b'
+      );
+
+      expect(moved.scope).toBe('repository');
+      expect(moved.repository_name).toBe('repo-b');
+
+      const targetStore = await manager.readRepositoryStore('repo-b');
+      expect(targetStore.insights).toHaveLength(1);
+
+      const sourceStore = await manager.readRepositoryStore('repo-a');
+      expect(sourceStore.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('throws when attempting an identity move (same repository → same repository)', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'repository', repository_name: 'same-repo', title: 'Insight' })
+      );
+
+      await expect(
+        manager.moveInsight(
+          id,
+          { scope: 'repository', repository_name: 'same-repo' },
+          'repository',
+          'same-repo'
+        )
+      ).rejects.toThrow('Cannot move insight to the same repository store: "same-repo"');
     });
 
     it('throws when the insight id is not found in the source store', async () => {
       await expect(
-        manager.moveInsight(9999, { scope: 'global' }, 'project', 'some-project')
+        manager.moveInsight(9999, { scope: 'global' }, 'repository', 'some-repo')
       ).rejects.toThrow('Insight with id 9999 not found');
     });
 
     it('returned insight has a new id from the target store, correct scope, and a fresh updated_at', async () => {
-      // Pre-seed the target project store with one insight so its next_id is 2.
+      // Pre-seed the target repository store with one insight so its next_id is 2.
       // This lets us verify the moved insight receives the target store's next_id
       // rather than the source store's id (which is also 1 for an empty global store).
       await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'new-project', title: 'Existing in target' })
+        makeInsightInput({ scope: 'repository', repository_name: 'new-repo', title: 'Existing in target' })
       );
 
       const { id: originalId } = await manager.addInsight(
@@ -810,14 +868,14 @@ describe('KnowledgeStoreManager', () => {
       );
 
       // Source global store next_id is 1 → originalId is 1.
-      // Target project store next_id is 2 → moved.id should be 2.
+      // Target repository store next_id is 2 → moved.id should be 2.
       expect(originalId).toBe(1);
 
       const moved = await manager.moveInsight(
         originalId,
         { scope: 'global' },
-        'project',
-        'new-project'
+        'repository',
+        'new-repo'
       );
 
       // New id is from target store's next_id (2, because the target already had one insight)
@@ -826,8 +884,8 @@ describe('KnowledgeStoreManager', () => {
       expect(moved.id).not.toBe(originalId);
 
       // Scope is correct
-      expect(moved.scope).toBe('project');
-      expect(moved.project_slug).toBe('new-project');
+      expect(moved.scope).toBe('repository');
+      expect(moved.repository_name).toBe('new-repo');
 
       // updated_at is set and is a valid ISO 8601 timestamp string.
       // now() truncates to whole seconds, so we just verify it is a parseable date
@@ -844,8 +902,8 @@ describe('KnowledgeStoreManager', () => {
       await manager.moveInsight(
         second.id,
         { scope: 'global' },
-        'project',
-        'dest-project'
+        'repository',
+        'dest-repo'
       );
 
       const globalStore = await manager.readGlobalStore();
@@ -857,15 +915,32 @@ describe('KnowledgeStoreManager', () => {
     it('target store next_id is incremented after move', async () => {
       const { id } = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'To move' }));
 
-      // Pre-condition: target project store starts with next_id = 1
-      const targetBefore = await manager.readProjectStore('incr-project');
+      // Pre-condition: target repository store starts with next_id = 1
+      const targetBefore = await manager.readRepositoryStore('incr-repo');
       expect(targetBefore.next_id).toBe(1);
 
-      await manager.moveInsight(id, { scope: 'global' }, 'project', 'incr-project');
+      await manager.moveInsight(id, { scope: 'global' }, 'repository', 'incr-repo');
 
       // Post-condition: target store next_id is now 2
-      const targetAfter = await manager.readProjectStore('incr-project');
+      const targetAfter = await manager.readRepositoryStore('incr-repo');
       expect(targetAfter.next_id).toBe(2);
+    });
+
+    it('preserves origin_plan metadata through move', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'global', title: 'Has origin plan', origin_plan: 'plan-beta' })
+      );
+
+      const moved = await manager.moveInsight(
+        id,
+        { scope: 'global' },
+        'repository',
+        'destination-repo'
+      );
+
+      expect(moved.origin_plan).toBe('plan-beta');
+      const store = await manager.readRepositoryStore('destination-repo');
+      expect(store.insights[0].origin_plan).toBe('plan-beta');
     });
   });
 

@@ -1,20 +1,20 @@
 # AI Insights Changelog
 
-## v1.27.0 - Knowledge Store and Browser Tool Support
+## v1.27.0 - Knowledge Store, Repository Scope, and Developer Experience
 > mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
 
-- MCP: Added knowledge accumulation system — 4 tools, per-scope store files, and GUI Knowledge page.
-- Storage: Repo-namespaced ledger layout eliminates cross-repo collisions; auto-migrates on startup.
-- Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain prior-findings lookup.
-- Personas: 7 personas gain `browser` tool for interactive web verification and live UI testing.
+- MCP: Added knowledge accumulation system — 4 tools, per-scope stores, and GUI Knowledge page.
+- Storage: Repo-namespaced ledger layout eliminates cross-repo slug collisions; migrates on startup.
+- MCP: Knowledge scope updated from `project` to `repository`; `'global'` is a reserved name.
+- MCP: All five knowledge REST handlers enforce slug and scope validation (HTTP 400 on violations).
+- Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
+- Personas: Added Knowledge Archiver; Synthesis delegates knowledge extraction to it.
+- Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain insight lookups.
+- Personas: 7 personas gain `browser` tool; CTX Architect integrates CTX Generator brief findings.
+- Scripts: Added health-check registry, global MCP installer, and doctor/bootstrap improvements.
 - Scripts: Root scripts migrated to ESM; added `migrate-synthesis-insights` conversion utility.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
-- GUI: Fixed breadcrumb project name, dismiss button for dead orchestrator runs, and filter focus.
-- MCP: INVOKE_AGENT action promotes auto-handoff signals; eliminates contradictory WAIT + auto_handoff.
-- MCP: Orchestrator supervisor skips INVOKE_AGENT actions and routes independently via auto_handoff.
-- MCP: QA, Reviewer, and Documentation WAIT reasons now distinguish work-complete WPs from blocked ones.
-- Personas: Git Committer excludes CTX files from commits on feature branches.
-- Personas: CTX Architect integrates updated CTX Generator documentation.
+- GUI: Knowledge page with Global/Repository tabs; fixed breadcrumb, Dismiss button, and filter.
 
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0

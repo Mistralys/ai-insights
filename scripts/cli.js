@@ -11,6 +11,7 @@
  *   node scripts/cli.js setup               Interactive setup wizard
  *   node scripts/cli.js setup --all         Non-interactive full setup
  *   node scripts/cli.js setup --components  Run selected components
+ *   node scripts/cli.js --skip-setup-check  Skip first-run detection (for CI/automated use)
  *   node scripts/cli.js <command> [flags]   Run a command directly
  */
 
@@ -38,6 +39,8 @@ import fs from 'fs';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
+import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
+import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 
 // --- Constants ---
 
@@ -282,13 +285,29 @@ const SETUP_COMPONENTS = [
   {
     id:    'mcp-json',
     label: '.mcp.json',
-    desc:  'IDE MCP server config',
+    desc:  'Workspace-level override (for advanced use)',
     detect: () => fs.existsSync(MCP_JSON),
     run:      (args = []) => scaffoldMcpJson(args.includes('--force')),
     validate() {
       if (!fs.existsSync(MCP_JSON)) return false;
       try { JSON.parse(fs.readFileSync(MCP_JSON, 'utf8')); return true; } catch { return false; }
     },
+  },
+  {
+    id:    'global-mcp',
+    label: 'Global MCP',
+    desc:  'User-level IDE registration (recommended)',
+    detect: () => shimConfigExists(),
+    run() {
+      try {
+        mcpGlobalInstall({ log: (msg) => log(msg) });
+        return true;
+      } catch (err) {
+        log(`  \u2717 ${err.message}`, 'red');
+        return false;
+      }
+    },
+    validate: () => shimConfigExists(),
   },
   {
     id:    'git-hooks',
@@ -514,6 +533,38 @@ function cmdGitHooks() {
   sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT });
 }
 
+async function cmdDoctor() {
+  const results = await runChecks('all');
+  let anyFailed = false;
+  for (const { label, passed, fix } of results) {
+    if (passed) {
+      log(`  ${C.green('\u2713')} ${label}`);
+    } else {
+      anyFailed = true;
+      log(`  ${C.red('\u2717')} ${label}`);
+      if (fix) {
+        log(`       ${C.dim(fix)}`);
+      }
+    }
+  }
+  if (anyFailed) {
+    process.exit(1);
+  }
+}
+
+async function cmdInstallMcp(args) {
+  if (args.includes('--dry-run')) {
+    mcpGlobalDryRun();
+  } else {
+    try {
+      mcpGlobalInstall({ log: (msg) => log(msg) });
+    } catch (err) {
+      log(`  \u2717 ${err.message}`, 'red');
+      process.exit(1);
+    }
+  }
+}
+
 function cmdReadLog(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'read-log.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -556,6 +607,17 @@ const COMMANDS = [
       ['mcp-json --force', 'Overwrite existing .mcp.json'],
     ],
     run:          cmdMcpJson,
+  },
+  {
+    id:           'install-mcp',
+    key:          'i',
+    label:        'Install MCP (Global)',
+    category:     'Setup & Configuration',
+    description:  'Register MCP server in VS Code user config via stable shim',
+    helpVariants: [
+      ['install-mcp --dry-run', 'Preview changes without writing'],
+    ],
+    run:          cmdInstallMcp,
   },
   {
     id:          'git-hooks',
@@ -656,6 +718,17 @@ const COMMANDS = [
     run:          cmdKillOrchestrator,
   },
   {
+    id:           'doctor',
+    key:          'v',
+    label:        'Doctor',
+    category:     'Validation & Utilities',
+    description:  'Full environment health check (all tiers)',
+    helpVariants: [
+      ['doctor', 'Full environment health check'],
+    ],
+    run:          cmdDoctor,
+  },
+  {
     id:          'bundle-docs',
     key:         'd',
     label:       'Bundle docs',
@@ -693,6 +766,48 @@ const BANNER_LINES = [
   '╚═╝  ╚═╝╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝',
 ];
 
+// --- Status lines (instant-tier health checks, synchronous) ---
+
+const STATUS_LINES = HEALTH_CHECKS
+  .filter(check => check.cost === 'instant')
+  .map(check => () => {
+    const result = check.detect();
+    // Guard against Promise (contract violation: instant checks must be synchronous)
+    if (result instanceof Promise) {
+      return C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`);
+    }
+    if (result) {
+      return C.green(`\u2713 ${check.label}`);
+    }
+    const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
+    return C.red(`\u2717 ${check.label}`) + fixHint;
+  });
+
+// --- First-run wizard ---
+
+const skipSetupCheck = process.argv.includes('--skip-setup-check');
+
+/**
+ * Scope-selection prompt for the first-run wizard.
+ * Presents two options and returns the chosen SETUP_COMPONENT id(s).
+ * Called by cli-menu in cooked mode (readline-compatible).
+ * @returns {Promise<string[]>}
+ */
+function handleFirstRun() {
+  return new Promise((resolve) => {
+    process.stdout.write('\n  Select MCP server registration scope:\n');
+    process.stdout.write('    [g] Globally (recommended)\n');
+    process.stdout.write('    [w] Workspace-only\n');
+    process.stdout.write('\n');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('  > ', (answer) => {
+      rl.close();
+      const choice = answer.trim().toLowerCase();
+      resolve(choice === 'w' ? ['mcp-json'] : ['global-mcp']);
+    });
+  });
+}
+
 // --- Entry point ---
 
 createMenu({
@@ -711,5 +826,8 @@ createMenu({
     'Personas':     () => readPackageVersion(PERSONAS_DIR).replace(/^v/, ''),
     'Orchestrator': () => readPyprojectVersion(ORCHESTRATOR_DIR).replace(/^v/, ''),
   },
-  usageLine: 'node scripts/cli.js [command] [options]',
+  usageLine:  'node scripts/cli.js [command] [options]',
+  statusLines: STATUS_LINES,
+  firstRunRedirect: !skipSetupCheck,
+  onFirstRun: handleFirstRun,
 }).run(process.argv.slice(2)).then(code => process.exit(code));

@@ -10,8 +10,8 @@
  *
  * AC coverage:
  *   AC-1  GET /api/knowledge — routes through matchRoute(), all query params parsed
- *   AC-2  DELETE /api/knowledge/:id — routes through matchRoute(), scope/project_slug from QS
- *   AC-3  POST /api/knowledge/:id/promote — routes through matchRoute(), scope/project_slug from QS
+ *   AC-2  DELETE /api/knowledge/:id — routes through matchRoute(), scope/repository_name from QS
+ *   AC-3  POST /api/knowledge/:id/promote — routes through matchRoute(), scope/repository_name from QS
  *   AC-4  PATCH /api/knowledge/:id — special case in handleRequest(), body parsing + error handling
  *   AC-5  POST /api/knowledge/:id/move — special case in handleRequest(), body parsing + error handling
  *   AC-6  Two-tier dispatch pattern (body-free in matchRoute, body-parsing in handleRequest)
@@ -160,7 +160,7 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
 
     it('returns 200 with all insights when store has entries', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global A' }));
-      await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'my-proj', title: 'Project B' }));
+      await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Repository B' }));
       const res = await fetch(`${baseUrl}/api/knowledge`);
       expect(res.status).toBe(200);
       const body = await res.json() as Insight[];
@@ -169,7 +169,7 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
 
     it('forwards scope query param to handler', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global' }));
-      await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'x', title: 'Project' }));
+      await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'x', title: 'Repository' }));
       const res = await fetch(`${baseUrl}/api/knowledge?scope=global`);
       expect(res.status).toBe(200);
       const body = await res.json() as Insight[];
@@ -177,10 +177,10 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body[0]!.scope).toBe('global');
     });
 
-    it('forwards scope+project_slug query params to handler', async () => {
-      await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'alpha', title: 'Alpha' }));
-      await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'beta', title: 'Beta' }));
-      const res = await fetch(`${baseUrl}/api/knowledge?scope=project&project_slug=alpha`);
+    it('forwards scope+repository_name query params to handler', async () => {
+      await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'alpha', title: 'Alpha' }));
+      await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'beta', title: 'Beta' }));
+      const res = await fetch(`${baseUrl}/api/knowledge?scope=repository&repository_name=alpha`);
       expect(res.status).toBe(200);
       const body = await res.json() as Insight[];
       expect(body).toHaveLength(1);
@@ -227,13 +227,13 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body).toHaveLength(2);
     });
 
-    it('ignores unknown scope value and returns all insights (graceful fallback)', async () => {
+    it('returns 400 VALIDATION_ERROR for unknown scope value', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global' }));
       const res = await fetch(`${baseUrl}/api/knowledge?scope=bogus`);
-      // Handler falls back to no-filter when scope is unrecognised
-      expect(res.status).toBe(200);
-      const body = await res.json() as Insight[];
-      expect(body).toHaveLength(1);
+      // Handler now rejects unrecognised scope values with VALIDATION_ERROR
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: { code: string } };
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 
@@ -248,10 +248,10 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body).toBeNull();
     });
 
-    it('returns 200 null after successful deletion (project scope)', async () => {
-      const insight = await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'my-proj' }));
+    it('returns 200 null after successful deletion (repository scope)', async () => {
+      const insight = await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'my-repo' }));
       const res = await fetch(
-        `${baseUrl}/api/knowledge/${insight.id}?scope=project&project_slug=my-proj`,
+        `${baseUrl}/api/knowledge/${insight.id}?scope=repository&repository_name=my-repo`,
         { method: 'DELETE' }
       );
       expect(res.status).toBe(200);
@@ -271,9 +271,9 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(res.status).toBe(404);
     });
 
-    it('forwards project_slug from query string to handler', async () => {
-      // Without project_slug when scope=project, should return 400
-      const res = await fetch(`${baseUrl}/api/knowledge/1?scope=project`, { method: 'DELETE' });
+    it('forwards repository_name from query string to handler', async () => {
+      // Without repository_name when scope=repository, should return 400
+      const res = await fetch(`${baseUrl}/api/knowledge/1?scope=repository`, { method: 'DELETE' });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
       expect(body.error.code).toBe('VALIDATION_ERROR');
@@ -283,12 +283,12 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
   // ─── AC-3: POST /api/knowledge/:id/promote ────────────────────────────────
 
   describe('POST /api/knowledge/:id/promote (AC-3)', () => {
-    it('promotes a project-scoped insight to global and returns 200', async () => {
+    it('promotes a repository-scoped insight to global and returns 200', async () => {
       const insight = await manager.addInsight(
-        makeInsightInput({ scope: 'project', project_slug: 'my-proj' })
+        makeInsightInput({ scope: 'repository', repository_name: 'my-repo' })
       );
       const res = await fetch(
-        `${baseUrl}/api/knowledge/${insight.id}/promote?scope=project&project_slug=my-proj`,
+        `${baseUrl}/api/knowledge/${insight.id}/promote?scope=repository&repository_name=my-repo`,
         { method: 'POST' }
       );
       expect(res.status).toBe(200);
@@ -314,10 +314,10 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('forwards scope and project_slug query params to handler', async () => {
-      // scope=project but missing project_slug → 400
+    it('forwards scope and repository_name query params to handler', async () => {
+      // scope=repository but missing repository_name → 400
       const res = await fetch(
-        `${baseUrl}/api/knowledge/1/promote?scope=project`,
+        `${baseUrl}/api/knowledge/1/promote?scope=repository`,
         { method: 'POST' }
       );
       expect(res.status).toBe(400);
@@ -404,20 +404,20 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
   // ─── AC-5: POST /api/knowledge/:id/move ──────────────────────────────────
 
   describe('POST /api/knowledge/:id/move (AC-5)', () => {
-    it('returns 200 with moved insight on valid body (global → project)', async () => {
+    it('returns 200 with moved insight on valid body (global → repository)', async () => {
       const insight = await manager.addInsight(makeInsightInput({ scope: 'global' }));
       const res = await fetch(`${baseUrl}/api/knowledge/${insight.id}/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           source_scope: 'global',
-          project_slug: 'target-project',
+          repository_name: 'target-repo',
         }),
       });
       expect(res.status).toBe(200);
       const body = await res.json() as Insight;
-      expect(body.scope).toBe('project');
-      expect(body.project_slug).toBe('target-project');
+      expect(body.scope).toBe('repository');
+      expect(body.repository_name).toBe('target-repo');
     });
 
     it('returns 400 VALIDATION_ERROR on invalid JSON body', async () => {
@@ -435,21 +435,21 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       const res = await fetch(`${baseUrl}/api/knowledge/1/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_scope: 'global' }), // missing project_slug
+        body: JSON.stringify({ source_scope: 'global' }), // missing repository_name
       });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
       expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns 400 VALIDATION_ERROR when source_project_slug missing for project source', async () => {
-      const insight = await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'source-proj' }));
+    it('returns 400 VALIDATION_ERROR when source_repository_name missing for repository source', async () => {
+      const insight = await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'source-repo' }));
       const res = await fetch(`${baseUrl}/api/knowledge/${insight.id}/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          source_scope: 'project', // source_project_slug missing
-          project_slug: 'target-project',
+          source_scope: 'repository', // source_repository_name missing
+          repository_name: 'target-repo',
         }),
       });
       expect(res.status).toBe(400);
@@ -523,9 +523,9 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
     it('POST /api/knowledge/:id/promote does not consume body (body-free route)', async () => {
       // Even when a body is present, promote route is handled by matchRoute() (body-free).
       // The handler validates scope from QS — no body consumed.
-      const insight = await manager.addInsight(makeInsightInput({ scope: 'project', project_slug: 'p' }));
+      const insight = await manager.addInsight(makeInsightInput({ scope: 'repository', repository_name: 'p' }));
       const res = await fetch(
-        `${baseUrl}/api/knowledge/${insight.id}/promote?scope=project&project_slug=p`,
+        `${baseUrl}/api/knowledge/${insight.id}/promote?scope=repository&repository_name=p`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -564,7 +564,7 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
     });
 
     it('POST /api/knowledge/1.5/promote returns 400 VALIDATION_ERROR (float ID)', async () => {
-      const res = await fetch(`${baseUrl}/api/knowledge/1.5/promote?scope=project&project_slug=p`, { method: 'POST' });
+      const res = await fetch(`${baseUrl}/api/knowledge/1.5/promote?scope=repository&repository_name=p`, { method: 'POST' });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
       expect(body.error.code).toBe('VALIDATION_ERROR');

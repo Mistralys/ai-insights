@@ -57,6 +57,25 @@ See [constraints.md](constraints.md#development--build-constraints) for more det
 
 ---
 
+## Setup (Global MCP Registration)
+
+The recommended setup path is **global registration** via `scripts/install-mcp-global.js`,
+invoked through the workspace CLI:
+
+```bash
+node scripts/cli.js install-mcp
+```
+
+This command installs a stable shim at `~/.ai-insights/bin/launch-server.js` and merges
+the `central_pm` server key into the VS Code user-level `mcp.json`, making the MCP server
+available across all workspaces without per-project configuration. A `--dry-run` flag previews
+the changes without writing.
+
+For workspace-only registration, copy `.mcp.dist.json` to `.mcp.json` and update the
+server path to point to `mcp-server/dist/index.js`.
+
+---
+
 ## Related Documentation
 
 - **Ledger Schema:** `/personas/ledger/project-ledger-schema.md`

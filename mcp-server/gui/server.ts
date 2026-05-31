@@ -1148,7 +1148,7 @@ function matchRoute(
       scope: sp.get('scope') ?? undefined,
       category: sp.get('category') ?? undefined,
       tags: sp.get('tags') ?? undefined,
-      project_slug: sp.get('project_slug') ?? undefined,
+      repository_name: sp.get('repository_name') ?? undefined,
       query: sp.get('query') ?? undefined,
       limit: sp.get('limit') ?? undefined,
       offset: sp.get('offset') ?? undefined,
@@ -1164,8 +1164,8 @@ function matchRoute(
     const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
     const sp = new URLSearchParams(qStr);
     const scope = sp.get('scope') ?? undefined;
-    const project_slug = sp.get('project_slug') ?? undefined;
-    return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug);
+    const repository_name = sp.get('repository_name') ?? undefined;
+    return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name);
   }
 
   // POST /api/knowledge/:id/promote
@@ -1176,8 +1176,8 @@ function matchRoute(
     const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
     const sp = new URLSearchParams(qStr);
     const scope = sp.get('scope') ?? undefined;
-    const project_slug = sp.get('project_slug') ?? undefined;
-    return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug);
+    const repository_name = sp.get('repository_name') ?? undefined;
+    return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name);
   }
 
   // No match found — fall through to 404.
@@ -1205,9 +1205,9 @@ function matchRoute(
   //   POST   /api/projects/:slug/unarchive
   //   POST   /api/projects/:slug/complete
   //   (namespaced /:repo/:slug variants of the above also registered)
-  //   GET    /api/knowledge[?scope&category&tags&project_slug&query&limit&offset]
-  //   DELETE /api/knowledge/:id[?scope&project_slug]
-  //   POST   /api/knowledge/:id/promote[?scope&project_slug]
+  //   GET    /api/knowledge[?scope&category&tags&repository_name&query&limit&offset]
+  //   DELETE /api/knowledge/:id[?scope&repository_name]
+  //   POST   /api/knowledge/:id/promote[?scope&repository_name]
   //   PATCH  /api/knowledge/:id           (body-parsing — handled in handleRequest)
   //   POST   /api/knowledge/:id/move      (body-parsing — handled in handleRequest)
   //   PATCH  /api/projects/:slug          (body-parsing — handled in handleRequest; guard: /^\/api\/projects\/.+$/.test(path))

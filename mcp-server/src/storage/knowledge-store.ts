@@ -4,7 +4,7 @@ import type { Dirent } from 'fs';
 import {
   KnowledgeStoreSchema,
   InsightSchema,
-  PROJECT_SLUG_REGEX,
+  SLUG_REGEX,
   type KnowledgeStore,
   type Insight,
   type InsightScope,
@@ -19,21 +19,21 @@ import { now } from '../utils/timestamp.js';
  *
  * Storage layout (relative to `ledgerRoot`):
  *   .knowledge/
- *     .lock                     — lock file created by withLock
- *     global-insights.json      — insights with scope: 'global'
- *     {slug}-insights.json      — insights scoped to a specific project
+ *     .lock                              — lock file created by withLock
+ *     global-insights.json              — insights with scope: 'global'
+ *     {repository_name}-insights.json   — insights scoped to a specific repository
  *
  * Locking strategy:
  *   - All read-modify-write sequences (addInsight, updateInsight, deleteInsight)
  *     acquire a single lock on knowledgeDir() for the entire operation.
  *   - All writes use atomicWriteJson() — write-to-temp-then-rename.
- *   - Pure reads (readGlobalStore, readProjectStore, searchInsights, listInsights)
+ *   - Pure reads (readGlobalStore, readRepositoryStore, searchInsights, listInsights)
  *     do not acquire a lock, consistent with the LedgerStore pattern.
  *
- * scope === 'project' + project_slug constraint:
- *   The Zod schema accepts project_slug as optional to remain context-free.
- *   This class enforces the constraint: addInsight() throws if scope is 'project'
- *   and project_slug is absent.
+ * scope === 'repository' + repository_name constraint:
+ *   The Zod schema accepts repository_name as optional to remain context-free.
+ *   This class enforces the constraint: addInsight() throws if scope is 'repository'
+ *   and repository_name is absent.
  */
 export class KnowledgeStoreManager {
   public readonly ledgerRoot: string;
@@ -52,9 +52,19 @@ export class KnowledgeStoreManager {
     return join(this.knowledgeDir(), 'global-insights.json');
   }
 
-  projectStorePath(slug: string): string {
-    this._validateSlug(slug);
-    return join(this.knowledgeDir(), `${slug}-insights.json`);
+  /**
+   * Returns the file path for a repository-scoped insights store.
+   *
+   * @param repoName - Repository name (used to derive the filename)
+   * @throws Error if repoName is 'global' (reserved name)
+   * @throws Error if repoName contains unsafe characters (path traversal guard)
+   */
+  repositoryStorePath(repoName: string): string {
+    if (repoName === 'global') {
+      throw new Error("'global' is a reserved name and cannot be used as a repository name.");
+    }
+    this._validateSlug(repoName);
+    return join(this.knowledgeDir(), `${repoName}-insights.json`);
   }
 
   // ==================== Read Methods ====================
@@ -70,14 +80,14 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Reads and validates a project-scoped insights store.
+   * Reads and validates a repository-scoped insights store.
    * Returns a valid empty KnowledgeStore if the file does not yet exist.
    *
-   * @param slug - Project slug (used to derive the filename)
+   * @param repoName - Repository name (used to derive the filename)
    * @throws Error if the file exists but contains malformed JSON or fails schema validation
    */
-  async readProjectStore(slug: string): Promise<KnowledgeStore> {
-    return this._readStore(this.projectStorePath(slug));
+  async readRepositoryStore(repoName: string): Promise<KnowledgeStore> {
+    return this._readStore(this.repositoryStorePath(repoName));
   }
 
   // ==================== Write Methods ====================
@@ -101,10 +111,10 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Writes a project-scoped insights store atomically under a lock.
+   * Writes a repository-scoped insights store atomically under a lock.
    * Validates the data against KnowledgeStoreSchema before writing.
    *
-   * @param slug - Project slug
+   * @param repoName - Repository name
    * @param data - Store data to persist
    * @throws Error if validation fails or write fails
    * @warning Do NOT call this method from inside a withLock(knowledgeDir, ...) callback.
@@ -112,10 +122,10 @@ export class KnowledgeStoreManager {
    *   this method and call atomicWriteJson directly to avoid nested lock acquisition,
    *   which would deadlock. This method is safe only at the top level.
    */
-  async writeProjectStore(slug: string, data: KnowledgeStore): Promise<void> {
+  async writeRepositoryStore(repoName: string, data: KnowledgeStore): Promise<void> {
     await withLock(this.knowledgeDir(), async () => {
       const validated = KnowledgeStoreSchema.parse(data);
-      await atomicWriteJson(this.projectStorePath(slug), validated);
+      await atomicWriteJson(this.repositoryStorePath(repoName), validated);
     });
   }
 
@@ -139,26 +149,27 @@ export class KnowledgeStoreManager {
   // ==================== CRUD Operations ====================
 
   /**
-   * Adds a new insight to the appropriate store (global or project-scoped).
+   * Adds a new insight to the appropriate store (global or repository-scoped).
    *
    * Assigns the numeric id from the store's next_id counter and persists the
-   * incremented counter. Enforces the project_slug requirement for project-scoped
-   * insights. The entire read-modify-write sequence runs under a single lock.
+   * incremented counter. Enforces the repository_name requirement for
+   * repository-scoped insights. The entire read-modify-write sequence runs
+   * under a single lock.
    *
    * @param input - Insight data without the id field (auto-assigned from next_id)
    * @returns The created Insight with the assigned numeric id
-   * @throws Error if scope === 'project' and project_slug is absent
+   * @throws Error if scope === 'repository' and repository_name is absent
    */
   async addInsight(input: Omit<Insight, 'id'>): Promise<Insight> {
-    if (input.scope === 'project' && !input.project_slug) {
-      throw new Error('project_slug is required for project-scoped insights');
+    if (input.scope === 'repository' && !input.repository_name) {
+      throw new Error('repository_name is required for repository-scoped insights');
     }
 
     return await withLock(this.knowledgeDir(), async () => {
       const storePath =
         input.scope === 'global'
           ? this.globalStorePath()
-          : this.projectStorePath(input.project_slug!);
+          : this.repositoryStorePath(input.repository_name!);
 
       const store = await this._readStore(storePath);
 
@@ -187,7 +198,7 @@ export class KnowledgeStoreManager {
    * applies offset/limit pagination — in that order.
    *
    * @param query - Substring to search for (case-insensitive)
-   * @param filters - Optional scope/category/project_slug filters to narrow the stores searched,
+   * @param filters - Optional scope/category/repository_name filters to narrow the stores searched,
    *   plus optional tags (intersection filter), limit, and offset for pagination.
    *   - `filters.tags` — Case-sensitive intersection filter; every tag in this array must be
    *     present in `insight.tags` using exact-case matching. This contrasts with the
@@ -199,7 +210,7 @@ export class KnowledgeStoreManager {
     query: string,
     filters?: {
       scope?: InsightScope;
-      project_slug?: string;
+      repository_name?: string;
       category?: string;
       tags?: string[];
       limit?: number;
@@ -228,19 +239,19 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Lists insights with optional scope/category/tags/project_slug filters and pagination.
+   * Lists insights with optional scope/category/tags/repository_name filters and pagination.
    *
-   * Filters are applied in this order: store selection (scope/project_slug) → category →
+   * Filters are applied in this order: store selection (scope/repository_name) → category →
    * tags → offset → limit.
    *
-   * @param filters - Scope, category, tags, project_slug filters; limit and offset for pagination
+   * @param filters - Scope, category, tags, repository_name filters; limit and offset for pagination
    * @returns Filtered and paginated insight array
    */
   async listInsights(filters: {
     scope?: InsightScope;
     category?: string;
     tags?: string[];
-    project_slug?: string;
+    repository_name?: string;
     limit?: number;
     offset?: number;
   }): Promise<Insight[]> {
@@ -260,7 +271,7 @@ export class KnowledgeStoreManager {
   /**
    * Updates an existing insight by numeric ID.
    *
-   * When `filter.scope` and/or `filter.project_slug` are provided the search is
+   * When `filter.scope` and/or `filter.repository_name` are provided the search is
    * restricted to the matching store(s), preventing accidental global-insight
    * mutation when the same numeric ID exists in multiple stores. Without a
    * filter, all stores are scanned (original behaviour — preserved for
@@ -269,12 +280,12 @@ export class KnowledgeStoreManager {
    * Applies the provided partial updates and sets updated_at to the current
    * timestamp. The entire read-modify-write sequence runs under a single lock.
    *
-   * Immutable fields (id, scope, project_slug, created_at) are not accepted
+   * Immutable fields (id, scope, repository_name, created_at) are not accepted
    * in the updates parameter.
    *
    * @param id - Numeric insight id
    * @param updates - Partial insight fields to update
-   * @param filter - Optional scope/project_slug filter to restrict which store is searched
+   * @param filter - Optional scope/repository_name filter to restrict which store is searched
    * @returns The updated Insight
    * @throws Error if no insight with the given id exists in the filtered stores
    */
@@ -283,7 +294,7 @@ export class KnowledgeStoreManager {
     updates: Partial<
       Pick<Insight, 'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'>
     >,
-    filter?: { scope?: InsightScope; project_slug?: string }
+    filter?: { scope?: InsightScope; repository_name?: string }
   ): Promise<Insight> {
     return await withLock(this.knowledgeDir(), async () => {
       const storePaths = await this._storePathsForFilter(filter);
@@ -321,29 +332,42 @@ export class KnowledgeStoreManager {
    *   1. Resolve the source store path(s) from sourceFilter.
    *   2. Find the insight by id in the source store — throws if not found.
    *   3. Construct the moved insight: new id (from the target store's next_id counter),
-   *      corrected scope/project_slug, and a fresh updated_at timestamp.
+   *      corrected scope/repository_name, and a fresh updated_at timestamp.
    *   4. Validate the new insight with InsightSchema.parse(…).
    *   5. Write the updated target store (with the new insight appended) via atomicWriteJson.
    *   6. Remove the original insight from the source store and write it via atomicWriteJson.
    *
    * @param id - Numeric id of the insight to move
-   * @param sourceFilter - Scope (and optional project_slug) of the store containing the insight
-   * @param targetScope - Destination scope ('global' or 'project')
-   * @param targetProjectSlug - Required when targetScope === 'project'
-   * @returns The moved Insight with new id, corrected scope/project_slug, and updated_at
+   * @param sourceFilter - Scope (and optional repository_name) of the store containing the insight
+   * @param targetScope - Destination scope ('global' or 'repository')
+   * @param targetRepositoryName - Required when targetScope === 'repository'
+   * @returns The moved Insight with new id, corrected scope/repository_name, and updated_at
    * @throws Error if the insight is not found in the source store(s)
-   * @throws Error if targetScope === 'project' and targetProjectSlug is absent
+   * @throws Error if targetScope === 'repository' and targetRepositoryName is absent
+   * @throws Error if source and target resolve to the same store (identity move)
    * @warning Do NOT call from inside a withLock(knowledgeDir, …) callback.
    *   This method acquires the lock itself; a nested call would deadlock.
    */
   async moveInsight(
     id: number,
-    sourceFilter: { scope: InsightScope; project_slug?: string },
+    sourceFilter: { scope: InsightScope; repository_name?: string },
     targetScope: InsightScope,
-    targetProjectSlug?: string
+    targetRepositoryName?: string
   ): Promise<Insight> {
-    if (targetScope === 'project' && !targetProjectSlug) {
-      throw new Error('targetProjectSlug is required when targetScope is "project"');
+    if (targetScope === 'repository' && !targetRepositoryName) {
+      throw new Error('targetRepositoryName is required when targetScope is "repository"');
+    }
+
+    // Guard against identity moves: same repository → same repository
+    if (
+      sourceFilter.scope === 'repository' &&
+      targetScope === 'repository' &&
+      sourceFilter.repository_name !== undefined &&
+      sourceFilter.repository_name === targetRepositoryName
+    ) {
+      throw new Error(
+        `Cannot move insight to the same repository store: "${targetRepositoryName}"`
+      );
     }
 
     return await withLock(this.knowledgeDir(), async () => {
@@ -376,7 +400,7 @@ export class KnowledgeStoreManager {
       const targetStorePath =
         targetScope === 'global'
           ? this.globalStorePath()
-          : this.projectStorePath(targetProjectSlug!);
+          : this.repositoryStorePath(targetRepositoryName!);
 
       const targetStore = await this._readStore(targetStorePath);
 
@@ -389,7 +413,7 @@ export class KnowledgeStoreManager {
         ...originalInsight,
         id: newNumericId,
         scope: targetScope,
-        project_slug: targetScope === 'global' ? undefined : targetProjectSlug,
+        repository_name: targetScope === 'global' ? undefined : targetRepositoryName,
         updated_at: movedAt,
       });
 
@@ -412,7 +436,7 @@ export class KnowledgeStoreManager {
   /**
    * Deletes an insight by numeric ID.
    *
-   * When `filter.scope` and/or `filter.project_slug` are provided the search is
+   * When `filter.scope` and/or `filter.repository_name` are provided the search is
    * restricted to the matching store(s), preventing accidental global-insight
    * deletion when the same numeric ID exists in multiple stores. Without a
    * filter, all stores are scanned (original behaviour — preserved for
@@ -421,10 +445,10 @@ export class KnowledgeStoreManager {
    * The entire read-modify-write sequence runs under a single lock.
    *
    * @param id - Numeric insight id
-   * @param filter - Optional scope/project_slug filter to restrict which store is searched
+   * @param filter - Optional scope/repository_name filter to restrict which store is searched
    * @throws Error if no insight with the given id exists in the filtered stores
    */
-  async deleteInsight(id: number, filter?: { scope?: InsightScope; project_slug?: string }): Promise<void> {
+  async deleteInsight(id: number, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void> {
     await withLock(this.knowledgeDir(), async () => {
       const storePaths = await this._storePathsForFilter(filter);
 
@@ -452,47 +476,47 @@ export class KnowledgeStoreManager {
    * Resolves the set of store paths to search based on an optional scope filter.
    *
    * Selection rules (mirrors `_loadInsights` store selection):
-   *   - scope: 'global'                    → only global-insights.json
-   *   - scope: 'project' + project_slug    → only {slug}-insights.json
-   *   - scope: 'project' (no project_slug) → all project stores
-   *   - project_slug (no scope)            → only {slug}-insights.json
-   *   - no scope, no project_slug          → global store + all project stores
+   *   - scope: 'global'                          → only global-insights.json
+   *   - scope: 'repository' + repository_name    → only {repoName}-insights.json
+   *   - scope: 'repository' (no repository_name) → all repository stores
+   *   - repository_name (no scope)               → only {repoName}-insights.json
+   *   - no scope, no repository_name             → global store + all repository stores
    *
    * This is the canonical store-selection helper for write operations.
    * `_loadInsights` uses an equivalent inline implementation for read operations.
    */
   private async _storePathsForFilter(
-    filter?: { scope?: InsightScope; project_slug?: string }
+    filter?: { scope?: InsightScope; repository_name?: string }
   ): Promise<string[]> {
-    const { scope, project_slug } = filter ?? {};
+    const { scope, repository_name } = filter ?? {};
 
     if (scope === 'global') {
       return [this.globalStorePath()];
-    } else if (scope === 'project' && project_slug) {
-      return [this.projectStorePath(project_slug)];
-    } else if (scope === 'project' && !project_slug) {
-      return await this._enumerateProjectStorePaths();
-    } else if (project_slug) {
-      return [this.projectStorePath(project_slug)];
+    } else if (scope === 'repository' && repository_name) {
+      return [this.repositoryStorePath(repository_name)];
+    } else if (scope === 'repository' && !repository_name) {
+      return await this._enumerateRepositoryStorePaths();
+    } else if (repository_name) {
+      return [this.repositoryStorePath(repository_name)];
     } else {
       return await this._enumerateStorePaths();
     }
   }
 
   /**
-   * Validates a project slug to prevent path traversal attacks.
+   * Validates a repository name to prevent path traversal attacks.
    *
-   * Accepts only slugs that start with an alphanumeric character and contain
-   * only letters, digits, underscores, and hyphens. Rejects slugs with `/`,
+   * Accepts only names that start with an alphanumeric character and contain
+   * only letters, digits, underscores, and hyphens. Rejects names with `/`,
    * `\`, `.`, or any other character that could escape the .knowledge/ directory.
    *
-   * @param slug - The project slug to validate
-   * @throws Error if the slug contains unsafe characters
+   * @param name - The repository name to validate
+   * @throws Error if the name contains unsafe characters
    */
   private _validateSlug(slug: string): void {
-    if (!PROJECT_SLUG_REGEX.test(slug)) {
+    if (!SLUG_REGEX.test(slug)) {
       throw new Error(
-        `Invalid project slug: "${slug}". Slug must start with a letter or digit and contain only letters, digits, underscores, and hyphens.`
+        `Invalid repository name: "${slug}". Name must start with a letter or digit and contain only letters, digits, underscores, and hyphens.`
       );
     }
   }
@@ -533,7 +557,7 @@ export class KnowledgeStoreManager {
 
   /**
    * Enumerates all existing store file paths in the knowledge directory.
-   * Includes global-insights.json and all {slug}-insights.json files.
+   * Includes global-insights.json and all {repoName}-insights.json files.
    * Returns an empty array if the directory does not yet exist.
    */
   private async _enumerateStorePaths(): Promise<string[]> {
@@ -549,7 +573,7 @@ export class KnowledgeStoreManager {
     const paths: string[] = [];
     for (const dirent of dirents) {
       if (!dirent.isFile()) continue;
-      // Matches both global-insights.json and {slug}-insights.json
+      // Matches both global-insights.json and {repoName}-insights.json
       if (dirent.name.endsWith('-insights.json')) {
         paths.push(join(dir, dirent.name));
       }
@@ -558,11 +582,11 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Enumerates only project-scoped store paths ({slug}-insights.json).
+   * Enumerates only repository-scoped store paths ({repoName}-insights.json).
    * Excludes global-insights.json.
    * Returns an empty array if the directory does not yet exist.
    */
-  private async _enumerateProjectStorePaths(): Promise<string[]> {
+  private async _enumerateRepositoryStorePaths(): Promise<string[]> {
     const dir = this.knowledgeDir();
     let dirents: Dirent[];
 
@@ -589,37 +613,37 @@ export class KnowledgeStoreManager {
    * Loads and concatenates insights from stores selected by the provided filters.
    *
    * Store selection rules:
-   *   - scope: 'global'                    → only global-insights.json
-   *   - scope: 'project' + project_slug    → only {slug}-insights.json
-   *   - scope: 'project' (no project_slug) → all project stores
-   *   - project_slug (no scope)            → only {slug}-insights.json
-   *   - no scope, no project_slug          → global store + all project stores
+   *   - scope: 'global'                          → only global-insights.json
+   *   - scope: 'repository' + repository_name    → only {repoName}-insights.json
+   *   - scope: 'repository' (no repository_name) → all repository stores
+   *   - repository_name (no scope)               → only {repoName}-insights.json
+   *   - no scope, no repository_name             → global store + all repository stores
    *
    * Category filter is applied after loading.
    */
   private async _loadInsights(filters?: {
     scope?: InsightScope;
-    project_slug?: string;
+    repository_name?: string;
     category?: string;
   }): Promise<Insight[]> {
-    const { scope, project_slug, category } = filters ?? {};
+    const { scope, repository_name, category } = filters ?? {};
 
     let storePaths: string[];
 
     if (scope === 'global') {
       storePaths = [this.globalStorePath()];
-    } else if (scope === 'project' && project_slug) {
-      storePaths = [this.projectStorePath(project_slug)];
-    } else if (scope === 'project' && !project_slug) {
-      storePaths = await this._enumerateProjectStorePaths();
-    } else if (project_slug) {
-      // project_slug provided without scope → narrow to that project's store only
-      storePaths = [this.projectStorePath(project_slug)];
+    } else if (scope === 'repository' && repository_name) {
+      storePaths = [this.repositoryStorePath(repository_name)];
+    } else if (scope === 'repository' && !repository_name) {
+      storePaths = await this._enumerateRepositoryStorePaths();
+    } else if (repository_name) {
+      // repository_name provided without scope → narrow to that repository's store only
+      storePaths = [this.repositoryStorePath(repository_name)];
     } else {
-      // No scope filter, no project_slug: load global store + all project stores
+      // No scope filter, no repository_name: load global store + all repository stores
       storePaths = [
         this.globalStorePath(),
-        ...(await this._enumerateProjectStorePaths()),
+        ...(await this._enumerateRepositoryStorePaths()),
       ];
     }
 
