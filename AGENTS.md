@@ -371,12 +371,10 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | `scripts/lib/health-checks.js` | **Shared health-check registry** — 9 annotated checks across three cost tiers: 6 instant (< 5 ms, file-existence), 2 fast (< 50 ms, mtime/JSON), 1 slow (100 ms – 2 s, subprocess). Exports `HEALTH_CHECKS: Array<HealthCheck>` and `runChecks(costFilter)`. Not a runnable script; imported by consumers in `scripts/` (CLI status line, doctor command, preflight flows). Must not import from `scripts/cli.js` or `SETUP_COMPONENTS`. |
 | `scripts/install-mcp-global.js` | Stable-shim strategy for user-level MCP server registration across VS Code and Claude Code; installs `~/.ai-insights/bin/launch-server.js`, merges `central_pm` into VS Code user-level `mcp.json`, and optionally registers with Claude Code. Supports `--dry-run`. Called by the `scripts/cli.js` `install-mcp` command and the `global-mcp` `SETUP_COMPONENT`. |
 | `scripts/preflight-bootstrap.js` | Local development bootstrap: resolves sibling repos (`cli-menu`, `ai-persona-builder`) and installs their packages when working in a local dev environment |
-| `scripts/migrate-synthesis-insights.js` | LLM-assisted migration of existing synthesis documents to the knowledge store: extracts, deduplicates, and commits insights as JSON entries |
 | `scripts/tests/` | Root workspace script test suite (Vitest). Run via `npm test` from the workspace root |
 | `shared/workflow-manifest.json` | **Single source of truth** for specification-derived constructs: agent roles, pipeline types, status enums (project/WP/pipeline/blocker), and workflow constants. All sub-projects derive their constants from this file. Validated by `shared/workflow-manifest.schema.json`. |
 | `shared/workflow-manifest.schema.json` | JSON Schema (Draft-07) enforcing structural constraints on `workflow-manifest.json`. Semantic cross-reference checks (unique IDs, fail_routing references, default_stages subset) are enforced by `scripts/validate-workflow-manifest.js`. |
 | `context.yaml` | [CTX Generator](https://github.com/context-hub/generator) root config. Imports `**/module-context.yaml` and defines workspace-wide documents. Run via `node scripts/cli.js ctx-generate` (requires `ctx` on PATH). Output goes to `.context/` (tracked in VCS). |
-| `.mcp.dist.json` | Template MCP server configuration (copy to `.mcp.json` and update paths) |
 
 ---
 

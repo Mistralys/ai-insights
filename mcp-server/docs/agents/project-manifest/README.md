@@ -71,9 +71,6 @@ the `central_pm` server key into the VS Code user-level `mcp.json`, making the M
 available across all workspaces without per-project configuration. A `--dry-run` flag previews
 the changes without writing.
 
-For workspace-only registration, copy `.mcp.dist.json` to `.mcp.json` and update the
-server path to point to `mcp-server/dist/index.js`.
-
 ---
 
 ## Related Documentation

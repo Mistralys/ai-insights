@@ -26,6 +26,7 @@ import {
   runLongScript,
   checkNodeVersion,
   PreflightError,
+  waitForKey,
 } from '@mistralys/cli-menu';
 
 import {
@@ -50,7 +51,6 @@ const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
 const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
-const MCP_DIST_JSON    = path.join(WORKSPACE_ROOT, '.mcp.dist.json');
 const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
 
 // --- Pre-flight checks ---
@@ -125,43 +125,6 @@ function venvBin(name) {
   return IS_WIN
     ? path.join(ORCHESTRATOR_DIR, '.venv', 'Scripts', `${name}.exe`)
     : path.join(ORCHESTRATOR_DIR, '.venv', 'bin', name);
-}
-
-// --- .mcp.json scaffold ---
-
-function scaffoldMcpJson(force = false) {
-  if (fs.existsSync(MCP_JSON) && !force) {
-    log('  .mcp.json already exists. Use --force to overwrite.', 'yellow');
-    return true;
-  }
-  if (!fs.existsSync(MCP_DIST_JSON)) {
-    log('  ✗ .mcp.dist.json not found; cannot scaffold .mcp.json', 'red');
-    return false;
-  }
-  let template;
-  try {
-    template = JSON.parse(fs.readFileSync(MCP_DIST_JSON, 'utf8'));
-  } catch (e) {
-    log(`  ✗ Failed to parse .mcp.dist.json: ${e.message}`, 'red');
-    return false;
-  }
-
-  const PLACEHOLDER_BASE = '/Users/path/to/repo/ai-insights/mcp-server';
-
-  function replaceInObj(obj) {
-    if (typeof obj === 'string')  return obj.replaceAll(PLACEHOLDER_BASE, MCP_SERVER_DIR);
-    if (Array.isArray(obj))       return obj.map(replaceInObj);
-    if (obj && typeof obj === 'object') {
-      const out = {};
-      for (const k of Object.keys(obj)) out[k] = replaceInObj(obj[k]);
-      return out;
-    }
-    return obj;
-  }
-
-  fs.writeFileSync(MCP_JSON, JSON.stringify(replaceInObj(template), null, 2) + '\n', 'utf8');
-  log(`  ✓ .mcp.json written → ${MCP_SERVER_DIR}`, 'green');
-  return true;
 }
 
 // --- Setup components ---
@@ -281,17 +244,6 @@ const SETUP_COMPONENTS = [
       return true;
     },
     validate: () => fs.existsSync(venvBin('python')),
-  },
-  {
-    id:    'mcp-json',
-    label: '.mcp.json',
-    desc:  'Workspace-level override (for advanced use)',
-    detect: () => fs.existsSync(MCP_JSON),
-    run:      (args = []) => scaffoldMcpJson(args.includes('--force')),
-    validate() {
-      if (!fs.existsSync(MCP_JSON)) return false;
-      try { JSON.parse(fs.readFileSync(MCP_JSON, 'utf8')); return true; } catch { return false; }
-    },
   },
   {
     id:    'global-mcp',
@@ -527,8 +479,6 @@ function cmdCtxGenerate(args) {
   }
 }
 
-function cmdMcpJson(args) { scaffoldMcpJson(args.includes('--force')); }
-
 function cmdGitHooks() {
   sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT });
 }
@@ -563,6 +513,7 @@ async function cmdInstallMcp(args) {
       process.exit(1);
     }
   }
+  await waitForKey();
 }
 
 function cmdReadLog(args) {
@@ -596,17 +547,6 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Sync versions, build personas & CTX generate',
     run:         cmdBuildMaintain,
-  },
-  {
-    id:           'mcp-json',
-    key:          'm',
-    label:        'Scaffold .mcp.json',
-    category:     'Setup & Configuration',
-    description:  'Generate IDE MCP server config',
-    helpVariants: [
-      ['mcp-json --force', 'Overwrite existing .mcp.json'],
-    ],
-    run:          cmdMcpJson,
   },
   {
     id:           'install-mcp',
@@ -794,18 +734,7 @@ const skipSetupCheck = process.argv.includes('--skip-setup-check');
  * @returns {Promise<string[]>}
  */
 function handleFirstRun() {
-  return new Promise((resolve) => {
-    process.stdout.write('\n  Select MCP server registration scope:\n');
-    process.stdout.write('    [g] Globally (recommended)\n');
-    process.stdout.write('    [w] Workspace-only\n');
-    process.stdout.write('\n');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question('  > ', (answer) => {
-      rl.close();
-      const choice = answer.trim().toLowerCase();
-      resolve(choice === 'w' ? ['mcp-json'] : ['global-mcp']);
-    });
-  });
+  return Promise.resolve(['global-mcp']);
 }
 
 // --- Entry point ---

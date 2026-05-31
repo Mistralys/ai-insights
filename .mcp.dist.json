@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "central_pm": {
-      "command": "/Users/path/to/repo/ai-insights/mcp-server/node_modules/.bin/tsx",
-      "args": ["/Users/path/to/repo/ai-insights/mcp-server/src/index.ts"],
-      "cwd": "/Users/path/to/repo/ai-insights/mcp-server"
-    }
-  }
-}
