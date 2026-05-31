@@ -51,8 +51,6 @@ const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
 const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
-const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
-
 // --- Pre-flight checks ---
 
 function checkWorkspaceRoot() {
