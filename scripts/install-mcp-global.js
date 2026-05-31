@@ -121,6 +121,26 @@ function _buildShimContent() {
   ].join('\n') + '\n';
 }
 
+// ─── Internal helpers ────────────────────────────────────────────────────────
+
+/**
+ * Check Claude Code CLI availability and central_pm registration status.
+ * Runs `claude mcp list` and looks for `central_pm` in the output.
+ * @returns {{ available: boolean, registered: boolean }}
+ */
+function _checkClaudeCodeStatus() {
+  const whichCmd = IS_WIN ? 'where' : 'which';
+  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
+  if (check.status !== 0) {
+    return { available: false, registered: false };
+  }
+  const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
+  return {
+    available:  true,
+    registered: result.status === 0 && (result.stdout ?? '').includes('central_pm'),
+  };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -198,8 +218,8 @@ export function installVSCode(opts = {}) {
     }
   }
 
-  const servers   = existing.mcpServers || {};
-  const newEntry  = { command: 'node', args: [shimPath] };
+  const servers   = existing.servers || {};
+  const newEntry  = { type: 'stdio', command: 'node', args: [shimPath] };
   const current   = servers.central_pm;
 
   // Idempotency check
@@ -212,7 +232,7 @@ export function installVSCode(opts = {}) {
 
   const updated = {
     ...existing,
-    mcpServers: { ...servers, central_pm: newEntry },
+    servers: { ...servers, central_pm: newEntry },
   };
 
   if (dryRun) {
@@ -234,7 +254,7 @@ export function installVSCode(opts = {}) {
 /**
  * Register central_pm via the claude CLI (optional — skipped if claude not found).
  * @param {{ dryRun?: boolean, shimBaseDir?: string }} [opts]
- * @returns {{ skipped?: boolean, reason?: string, command?: string, status?: number }}
+ * @returns {{ skipped?: boolean, alreadyRegistered?: boolean, reason?: string, command?: string, status?: number }}
  */
 export function installClaudeCode(opts = {}) {
   const { shimPath } = _resolvePaths(opts);
@@ -246,11 +266,12 @@ export function installClaudeCode(opts = {}) {
     };
   }
 
-  // Check if claude CLI is available
-  const whichCmd = IS_WIN ? 'where' : 'which';
-  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
-  if (check.status !== 0) {
+  const ccStatus = _checkClaudeCodeStatus();
+  if (!ccStatus.available) {
     return { skipped: true, reason: 'claude CLI not found' };
+  }
+  if (ccStatus.registered) {
+    return { alreadyRegistered: true };
   }
 
   const result = spawnSync(
@@ -272,10 +293,10 @@ export function uninstall(opts = {}) {
   if (fs.existsSync(mcpPath)) {
     try {
       const existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-      if (existing.mcpServers?.central_pm) {
+      if (existing.servers?.central_pm) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         fs.copyFileSync(mcpPath, mcpPath + '.' + ts + '.bak');
-        delete existing.mcpServers.central_pm;
+        delete existing.servers.central_pm;
         fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
       }
     } catch {
@@ -353,13 +374,15 @@ export function install(opts = {}) {
     );
   }
 
-  // Idempotency check: config, shim, and VS Code entry are all already correct
+  // Idempotency check: config, shim, VS Code entry, and Claude Code are all already correct
   if (fs.existsSync(configPath) && fs.existsSync(shimPath)) {
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       if (existing.repoPath === WORKSPACE_ROOT) {
-        const vsResult = installVSCode({ ...opts, dryRun: true });
-        if (!vsResult.changed) {
+        const vsResult  = installVSCode({ ...opts, dryRun: true });
+        const ccStatus  = _checkClaudeCodeStatus();
+        const ccSettled = !ccStatus.available || ccStatus.registered;
+        if (!vsResult.changed && ccSettled) {
           logFn('  \u2713 Global MCP already registered (no change)');
           return;
         }
@@ -387,6 +410,8 @@ export function install(opts = {}) {
   const ccResult = installClaudeCode(opts);
   if (ccResult.skipped) {
     logFn(`  \u26a0 Claude Code registration skipped: ${ccResult.reason}`);
+  } else if (ccResult.alreadyRegistered) {
+    logFn(`  \u2713 Claude Code already registered`);
   } else if (ccResult.status === 0) {
     logFn(`  \u2713 Claude Code registered`);
   } else if (ccResult.command) {

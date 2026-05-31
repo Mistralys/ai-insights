@@ -206,8 +206,8 @@ describe('installVSCode()', () => {
       const result = installVSCode({ mcpPath, shimBaseDir: shimDir });
       expect(result.changed).toBe(true);
       const parsed = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-      expect(parsed.mcpServers.central_pm).toBeDefined();
-      expect(parsed.mcpServers.central_pm.command).toBe('node');
+      expect(parsed.servers.central_pm).toBeDefined();
+      expect(parsed.servers.central_pm.command).toBe('node');
     } finally {
       rmDir(tmpDir);
       rmDir(shimDir);
@@ -219,7 +219,7 @@ describe('installVSCode()', () => {
     const shimDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
     const existingConfig = {
-      mcpServers: {
+      servers: {
         other_server: { command: 'other', args: ['/other/path'] },
       },
       someTopLevelKey: 'preserved',
@@ -229,10 +229,10 @@ describe('installVSCode()', () => {
       installVSCode({ mcpPath, shimBaseDir: shimDir });
       const parsed = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
       // central_pm added
-      expect(parsed.mcpServers.central_pm).toBeDefined();
+      expect(parsed.servers.central_pm).toBeDefined();
       // other_server preserved
-      expect(parsed.mcpServers.other_server).toBeDefined();
-      expect(parsed.mcpServers.other_server.command).toBe('other');
+      expect(parsed.servers.other_server).toBeDefined();
+      expect(parsed.servers.other_server.command).toBe('other');
       // top-level key preserved
       expect(parsed.someTopLevelKey).toBe('preserved');
     } finally {
@@ -245,7 +245,7 @@ describe('installVSCode()', () => {
     const tmpDir = makeTempDir();
     const shimDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
-    fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }, null, 2), 'utf8');
+    fs.writeFileSync(mcpPath, JSON.stringify({ servers: {} }, null, 2), 'utf8');
     try {
       installVSCode({ mcpPath, shimBaseDir: shimDir });
       const files = fs.readdirSync(tmpDir);
@@ -290,7 +290,7 @@ describe('installVSCode()', () => {
       expect(result.diff).toBeDefined();
       // Parse the diff to verify it contains central_pm
       const parsed = JSON.parse(result.diff);
-      expect(parsed.mcpServers.central_pm).toBeDefined();
+      expect(parsed.servers.central_pm).toBeDefined();
       // File must NOT have been written
       expect(fs.existsSync(mcpPath)).toBe(false);
     } finally {
