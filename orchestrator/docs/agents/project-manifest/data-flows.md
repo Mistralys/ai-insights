@@ -115,3 +115,66 @@ Return ChunkEntry[]   ([] when directory is absent — no error)
 | Consumer | `chunk-renderer.ts` (TypeScript) | Served directly as-is |
 | GUI priority | **Higher** (chunks override dialogues) | Fallback when no chunks (pre-streaming runs) |
 | Rendering | On-the-fly by GUI server | Pre-rendered at capture time |
+
+---
+
+## Flow 5: Run Metadata Sidecar Write (`.orchestrator-run.json`)
+
+**Entry Point:** `_run()` in `src/cli.py`, after lock acquisition and thread ID resolution
+
+**Write — initial (result=null, before graph execution):**
+
+```
+Lock acquired (.orchestrator.lock)
+  ↓
+Thread ID resolved:
+  args.resume provided  → thread_id = args.resume
+  fresh run             → thread_id = str(uuid.uuid4())
+  ↓
+_write_run_metadata(plan_dir, thread_id, plan_path, started_at,
+                    is_resume, dry_run, log_filename, pid)
+  ↓
+  Compose metadata dict:
+    { thread_id, plan_path, slug=plan_dir.name, started_at, is_resume,
+      dry_run, log_filename, pid, result=null, error=null, duration_s=null }
+  ↓
+  Write atomically:
+    tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+    tmp_path.write_text(json.dumps(metadata, indent=2))
+    os.replace(str(tmp_path), str(meta_path))  ← never partially visible
+    tmp_path.unlink(missing_ok=True)           ← belt-and-suspenders cleanup
+  ↓
+plan_dir/.orchestrator-run.json present; result field is null (run in progress)
+  ↓
+Graph execution starts (MCPToolkit.from_config → graph.ainvoke)
+```
+
+**Update — final (result set, after graph execution):**
+
+```
+Graph execution complete (success, interrupt, or error)
+  ↓
+Lock released + queue entry unregistered
+  ↓
+_write_run_metadata(plan_dir, ..., result=_meta_result, error=..., duration_s=...)
+  _meta_result one of:
+    "SUCCESS"     — graph ran to completion without outside_errors
+    "INTERRUPTED" — run was signal-interrupted or step-interrupted (--interrupt-on)
+    "ERROR"       — outside_errors present or fatal_error in final_state
+  ↓
+Atomic overwrite of plan_dir/.orchestrator-run.json
+result, error, and duration_s are now populated
+```
+
+**Not written on early-exit paths:**
+- Lock-contention: returns EXIT_ERROR before thread ID is resolved
+- Plan-not-found: returns EXIT_ERROR before plan_dir is known
+
+**Special case (terminal-resume guard):** when `--resume` is supplied but the thread
+is already terminal, `_write_run_metadata()` is called once with `result="ERROR"` and
+an explicit error message before returning EXIT_ERROR.
+
+**Result:** `plan_dir/.orchestrator-run.json` contains run provenance (thread ID, plan
+path, slug, timestamps, outcome). The file is overwritten on every new run of the same
+plan — it always reflects the most recent run. The GUI reads it via
+`GET /api/projects/:slug/run-metadata` to decide whether to show the Resume Run button.

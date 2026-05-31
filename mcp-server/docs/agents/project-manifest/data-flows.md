@@ -1593,3 +1593,69 @@ gui/server.ts → HTTP 200 { data: Insight }
 - `repository → repository`: moves a repository insight to a different repository (`source_repository_name !== repository_name` enforced).
 
 **Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.
+
+---
+
+## Flow O.6: GUI — Resume Run
+
+**Entry Point:** User clicks "Resume Run" button in the project detail view
+
+```
+project-detail.js (no active queue entry, run-metadata cell rendered)
+  ↓
+API.getRunMetadata(slug)
+  ↓
+GET /api/projects/:slug/run-metadata
+  ↓
+handleGetRunMetadata(ledgerRoot, slug, repoName?)
+  ↓
+  resolveProjectPlanPath(ledgerRoot, slug, repoName?) → planPath
+    → NOT_FOUND if project has no meta.plan_path
+    → path-traversal check via assertSafeSlug()
+  ↓
+  fs.readFile(path.join(planPath, '.orchestrator-run.json'))
+    → NOT_FOUND (HTTP 404) if file absent
+  ↓
+  JSON.parse(content)
+  → RunMetadata { thread_id, plan_path, slug, result, dry_run, … }
+  ↓
+HTTP 200 { data: RunMetadata }
+  ↓
+project-detail.js resume-button condition check:
+  thread_id present AND dry_run === false
+  AND result !== 'SUCCESS' AND result !== null
+  AND project status not COMPLETE or ARCHIVED
+  → render <button class="btn-resume">Resume Run</button>
+
+User clicks Resume Run
+  ↓
+btn.disabled = true
+API.orchestratorStart(planPath, false, threadId)
+  ↓
+POST /api/orchestrator/start
+  Body: { planPath, dryRun: false, resumeThreadId: threadId }
+  ↓
+handleOrchestratorStart(workspaceRoot, body)
+  ↓
+  Zod: body.planPath — required string
+  Zod: body.resumeThreadId — optional; if present must match UUID v4 regex
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    → HTTP 400 VALIDATION_ERROR if invalid
+  ↓
+  startOrchestrator(planPath, workspaceRoot, dryRun=false, resumeThreadId)
+  ↓
+  (pre-flight checks: binary exists, plan file exists, no active process)
+  ↓
+  spawn(['--resume', resumeThreadId, resolvedPlan], { detached: true, … })
+    child.unref()  ← survives GUI server exit
+  ↓
+HTTP 200 { started: true, pid }
+  ↓
+project-detail.js polls run queue every 3 s
+  → re-renders project detail once active entry appears
+  → if no entry within timeout: re-enables button + shows inline error
+```
+
+**Result:** The orchestrator process resumes the existing LangGraph thread identified by
+`resumeThreadId`, continuing from the last checkpoint. The GUI polls the queue until the
+new run entry appears, then re-renders the project detail view to reflect the active run.

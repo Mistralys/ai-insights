@@ -1,5 +1,15 @@
 # Orchestrator Changelog
 
+## v0.22.0 - Run Metadata Sidecar
+- CLI: Added `_write_run_metadata()` — writes `.orchestrator-run.json` atomically
+  (tmp + os.replace) to the plan directory after lock acquisition and thread ID
+  resolution; initial write has `result=null`; updated at run end with
+  SUCCESS/INTERRUPTED/ERROR, error message, and wall-clock duration.
+- CLI: Sidecar fields: `thread_id`, `plan_path`, `slug`, `started_at`, `is_resume`,
+  `dry_run`, `log_filename`, `pid`, `result`, `error`, `duration_s`.
+- Tests: Added `test_run_metadata.py` — contracts for initial write, atomic tmp
+  cleanup, run-end update, ERROR result, and field schema.
+
 ## v0.21.0 - Namespaced Ledger Path Derivation
 - Nodes: _derive_slug_dir() now constructs {ledgerRoot}/{repo_name}/{slug} namespaced paths.
 - Nodes: repo_name derived via Path(project_path).parents[3].name with 'unknown' fallback.

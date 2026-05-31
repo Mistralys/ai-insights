@@ -1,5 +1,24 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.32.0 - Orchestrator Sidecar, Resume Run Button, and GUI Resume Flow
+- GUI: Added `GET /api/projects/:slug/run-metadata` endpoint; reads plan-dir
+  `.orchestrator-run.json` sidecar and returns parsed JSON or HTTP 404.
+- GUI: `handleOrchestratorStart()` accepts optional `resumeThreadId` in request
+  body; validates UUID v4 format (HTTP 400 on invalid); forwards to
+  `startOrchestrator()`.
+- GUI: `startOrchestrator()` gains optional `resumeThreadId` param; when provided,
+  spawns orchestrator with `--resume <threadId>` instead of plan path alone.
+- GUI: Project detail view renders a "Resume Run" button when metadata is present,
+  `dry_run===false`, `result` is not SUCCESS/null, and project is not
+  COMPLETE/ARCHIVED; click handler disables button, calls `orchestratorStart()`,
+  polls queue every 3 s, and re-enables on timeout with inline error banner.
+- GUI: Added `#orch-resume-cell` layout container and `.btn-resume` / hover /
+  disabled styles to `styles.css`.
+- GUI: Added `API.getRunMetadata(slug)` to `api-client.js`.
+- Tests: Added `api-run-metadata.test.ts` — 5 unit tests for `handleGetRunMetadata`
+  covering HTTP 200, file-absent 404, project-not-found 404, unsafe-slug 400, and
+  path-construction contract.
+
 ## v1.31.0 - Knowledge Store, Namespaced Storage, and Repository Scope
 - Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo collisions.
 - Storage: Auto-migrates on startup; `resolveProjectDir()` handles bare slugs and composites.

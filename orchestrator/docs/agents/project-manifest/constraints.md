@@ -467,5 +467,57 @@ is the authoritative version-tracking source for the storage layout. Any change 
 must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
 See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
 
+---
+
+### 24. Run Metadata Sidecar: Atomic Write and Persistence Contract
+
+**Rule:** `_write_run_metadata()` in `src/cli.py` must write `.orchestrator-run.json`
+atomically using a temporary file and `os.replace()`. The on-disk file must never be
+partially visible to readers. The function is best-effort — it swallows `OSError` and
+never raises.
+
+**Write sequence:**
+1. Write JSON to `plan_dir / ".orchestrator-run.json.tmp"` via `write_text()`.
+2. Call `os.replace(str(tmp_path), str(meta_path))` — atomic on all supported platforms.
+3. Call `tmp_path.unlink(missing_ok=True)` (belt-and-suspenders: removes the `.tmp` file
+   if `os.replace()` left it behind due to a same-directory failure).
+
+**Persistence contract:** The file is **never deleted** between runs. Each new run of
+the same plan **overwrites** the previous file — first with `result=null` (run in
+progress), then with the final result (`SUCCESS`, `INTERRUPTED`, or `ERROR`) after
+the graph and lock cleanup complete. Consumers must treat it as "last-run metadata":
+the file existing does not imply a currently-running process.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — direct write; leaves partial file visible during write
+meta_path.write_text(json.dumps(metadata))
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — atomic write via tmp + os.replace()
+tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+try:
+    tmp_path.write_text(json.dumps(metadata, indent=2))
+    os.replace(str(tmp_path), str(meta_path))
+except OSError:
+    pass
+finally:
+    try:
+        tmp_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+```
+
+**Not written on:** lock-contention exit (thread ID not yet resolved) and plan-not-found
+exit (plan_dir may not exist). The terminal-resume guard writes the file once with
+`result="ERROR"` before returning.
+
+**Rationale:** Atomic write prevents the GUI from reading a half-written file when
+polling the resume-run endpoint. Overwrite-on-rerun keeps the plan directory clean —
+one metadata file per plan, always reflecting the most recent run. Best-effort swallow
+mirrors the run-queue and run-status tombstone patterns in `cli.py`.
+
 
 
