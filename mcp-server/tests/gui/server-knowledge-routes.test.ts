@@ -227,13 +227,13 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body).toHaveLength(2);
     });
 
-    it('ignores unknown scope value and returns all insights (graceful fallback)', async () => {
+    it('returns 400 VALIDATION_ERROR for unknown scope value', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global' }));
       const res = await fetch(`${baseUrl}/api/knowledge?scope=bogus`);
-      // Handler falls back to no-filter when scope is unrecognised
-      expect(res.status).toBe(200);
-      const body = await res.json() as Insight[];
-      expect(body).toHaveLength(1);
+      // Handler now rejects unrecognised scope values with VALIDATION_ERROR
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: { code: string } };
+      expect(body.error.code).toBe('VALIDATION_ERROR');
     });
   });
 

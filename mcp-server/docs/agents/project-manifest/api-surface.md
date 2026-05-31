@@ -628,7 +628,7 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 
 | Method | Path | Query Parameters | Return Shape | Error Codes |
 |--------|------|-----------------|--------------|-------------|
-| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `repository_name`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid scope — silently ignored, no error) |
+| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `repository_name`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid/unrecognised scope — throws VALIDATION_ERROR; omitting scope returns all insights) |
 | `DELETE` | `/api/knowledge/:id` | `scope` (required), `repository_name` (required when `scope=repository`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing repository_name), 404 (insight not found) |
 | `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"repository"`), `repository_name` (required when `scope=repository`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"repository"`; missing repository_name), 404 (insight not found) |
 
@@ -644,9 +644,9 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 - Body-parsing routes enforce a 1 MiB body size limit (`MAX_BODY_BYTES`). Exceeding it returns HTTP 413.
 - All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }` shape.
 - CORS is locked to `http://localhost:{port}` (same port as the server).
-- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised values are silently ignored (no filter applied, no error returned).
+- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised or invalid values throw `VALIDATION_ERROR` (HTTP 400). Omitting `scope` (undefined) means "no filter" and returns all insights (always allowed).
 - **Search with tag-filter and pagination:** When `query` is supplied, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single `GET /api/knowledge` call.
-- **Known limitation — `repository_name` validation in DELETE and promote routes:** `handleDeleteKnowledge` and `handlePromoteKnowledge` accept `repository_name` as a raw query-parameter string and do NOT validate it against `PROJECT_SLUG_REGEX` at the handler level. The storage layer's `_validateSlug()` prevents path-traversal in practice, but because it throws a generic `Error` (not an `ApiError`), a malformed slug results in HTTP 500 instead of HTTP 400 `VALIDATION_ERROR`. Contrast with `handleMoveKnowledge` and `handleUpdateKnowledge`, which validate `repository_name` via `z.string().regex(PROJECT_SLUG_REGEX)` inside `KnowledgeMoveBodySchema` / `KnowledgeUpdateBodySchema` before reaching the storage layer. **Remediation:** Add an explicit Zod guard to each of the two affected handlers — e.g. `const slugResult = z.string().regex(PROJECT_SLUG_REGEX).safeParse(repository_name); if (!slugResult.success) validationError('Invalid repository_name.')` — immediately after reading the query parameter, mirroring the pattern already used in `handleMoveKnowledge`. This will make all five knowledge endpoints return a consistent HTTP 400 `VALIDATION_ERROR` for malformed slugs.
+- **`repository_name` validation across all five knowledge handlers (RESOLVED):** All five knowledge handlers validate `repository_name` against `SLUG_REGEX` at the handler level, throwing `VALIDATION_ERROR` (HTTP 400) for any malformed slug value. `handleDeleteKnowledge`, `handlePromoteKnowledge`, and `handleMoveKnowledge` validate `repository_name` after the presence check (WP-004); `handleUpdateKnowledge` validates via `KnowledgeUpdateBodySchema` Zod parsing; `handleListKnowledge` validates the optional `repository_name` query parameter before forwarding to the storage layer. The previous HTTP 500 fallback through the storage-layer `_validateSlug()` guard no longer applies for any of these handlers.
 
 ### `KnowledgeUpdateBodySchema`
 
@@ -673,46 +673,17 @@ export const KnowledgeUpdateBodySchema: z.ZodObject<{
 ```typescript
 // GET /api/knowledge
 // Lists (or searches) knowledge insights.
-// When `query` is present, delegates to KnowledgeStoreManager.searchInsights().
-// Otherwise calls KnowledgeStoreManager.listInsights() with scope/category/tags filters.
 //
-// ⚠ Scope validation is intentionally lenient (graceful-ignore):
-//   `scope` is validated via InsightScope.safeParse() — unrecognised values (including the
-//   removed 'project' scope) are silently treated as "no scope filter" (undefined) rather
-//   than returning a VALIDATION_ERROR.
+// Both `scope` and `repository_name` are validated at the handler level:
+//   - `scope` via InsightScope.safeParse() — unrecognised non-undefined values throw VALIDATION_ERROR
+//   - `repository_name` against SLUG_REGEX — malformed values throw VALIDATION_ERROR (HTTP 400)
 //
-//   This differs from the other four knowledge handlers:
-//     handleDeleteKnowledge  — throws VALIDATION_ERROR when scope is absent or unrecognised
-//     handlePromoteKnowledge — throws VALIDATION_ERROR when scope is absent or unrecognised
-//     handleUpdateKnowledge  — throws VALIDATION_ERROR when scope is unrecognised
-//     handleMoveKnowledge    — throws VALIDATION_ERROR when source_scope is unrecognised
-//
-//   The asymmetry is intentional: a list/search with an unrecognised scope is safely
-//   interpreted as "return everything" rather than an error, because the operation is
-//   read-only and non-destructive. Write/delete/move handlers require a valid, unambiguous
-//   scope to prevent accidental cross-store mutations.
-//
-// `tags` is a comma-separated string split on ','.
-// `limit` and `offset` are coerced to non-negative integers; invalid values default to undefined/0.
-//
-// When `query` is present, `tags`, `limit`, and `offset` are forwarded to searchInsights(),
-// enabling full-text search combined with tag filtering (AND semantics) and pagination in a
-// single call. Tag filtering is applied after the substring match; offset/limit pagination is
-// applied after tag filtering.
+// See the comprehensive comment block in the full type-declaration section for routing logic,
+// query-mode behaviour, and pagination details.
 export async function handleListKnowledge(
   ledgerRoot: string,
   params?: KnowledgeListParams
 ): Promise<Insight[]>
-
-export interface KnowledgeListParams {
-  scope?: string;
-  category?: string;
-  tags?: string;              // Comma-separated tag list
-  repository_name?: string;
-  query?: string;             // Full-text search; delegates to searchInsights() when present
-  limit?: number | string;
-  offset?: number | string;
-}
 ```
 
 ### `handleUpdateKnowledge()`
@@ -764,24 +735,16 @@ export async function handleUpdateKnowledge(
 //     throws VALIDATION_ERROR when absent or not 'global' | 'repository'
 //   - repository_name (query parameter) required when scope === 'repository';
 //     throws VALIDATION_ERROR when absent
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces')
 //
 // Scope disambiguation: `scope` and `repository_name` are passed as the filter to
 // KnowledgeStoreManager.deleteInsight(), restricting deletion to the correct store.
 //
-// Defence-in-depth note: `repository_name` is accepted as a raw query-parameter string
-// and is NOT validated against PROJECT_SLUG_REGEX at this handler level. The storage
-// layer's _validateSlug() enforces the regex before constructing any file path, making
-// path-traversal attacks impossible in practice. However, _validateSlug() throws a
-// generic Error (not an ApiError), so a malformed slug will surface as HTTP 500 rather
-// than HTTP 400 VALIDATION_ERROR. Contrast with handleMoveKnowledge / handleUpdateKnowledge,
-// which validate repository_name via Zod schema at the handler level. A future hardening
-// pass should add an explicit PROJECT_SLUG_REGEX guard here to return a proper 400 and
-// eliminate reliance on the storage layer as the sole validation point for this field.
-//
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing repository_name
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing repository_name,
+//                      malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified scope
-//   (unhandled)      — 500 when repository_name fails _validateSlug() (malformed slug)
 //
 // @param ledgerRoot      Absolute path to the central ledger root.
 // @param rawId           Raw id string from the URL parameter (e.g. "42").
@@ -809,6 +772,8 @@ export async function handleDeleteKnowledge(
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
 //   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
 //     when absent.
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces').
 //
 // Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
 // — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
@@ -823,20 +788,10 @@ export async function handleDeleteKnowledge(
 // original ID before calling promote and match by pre-promote ID — not by the new ID
 // returned in the response.
 //
-// Defence-in-depth note: `repository_name` is accepted as a raw query-parameter string
-// and is NOT validated against PROJECT_SLUG_REGEX at this handler level. The storage
-// layer's _validateSlug() enforces the regex before constructing any file path, making
-// path-traversal attacks impossible in practice. However, _validateSlug() throws a
-// generic Error (not an ApiError), so a malformed slug will surface as HTTP 500 rather
-// than HTTP 400 VALIDATION_ERROR. Contrast with handleMoveKnowledge / handleUpdateKnowledge,
-// which validate repository_name via Zod schema at the handler level. A future hardening
-// pass should add an explicit PROJECT_SLUG_REGEX guard here to return a proper 400 and
-// eliminate reliance on the storage layer as the sole validation point for this field.
-//
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing repository_name
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified repository scope
-//   (unhandled)      — 500 when repository_name fails _validateSlug() (malformed slug)
 export async function handlePromoteKnowledge(
   ledgerRoot: string,
   rawId: string,
@@ -1151,7 +1106,7 @@ class KnowledgeStoreManager {
 
   // Returns {ledgerRoot}/.knowledge/{repository_name}-insights.json.
   // @throws Error if repository_name === 'global' (reserved name)
-  // @throws Error if repository_name fails PROJECT_SLUG_REGEX (path traversal protection)
+  // @throws Error if repository_name fails SLUG_REGEX (path traversal protection)
   repositoryStorePath(repoName: string): string;
 
   // ── Read Methods ──────────────────────────────────────────────────────────
@@ -1563,7 +1518,7 @@ Zod schemas and inferred TypeScript types for the knowledge accumulation system.
 // Single source of truth — used by InsightSchema.repository_name, InsightSchema.origin_plan,
 // and KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
 // in both places simultaneously.
-export const PROJECT_SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+export const SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 
 // Scope enum: 'global' (applies across all codebases/repositories) | 'repository' (scoped to
 // a specific repository — codebase-level knowledge).
@@ -1575,9 +1530,9 @@ type InsightScope = 'global' | 'repository';
 
 // Single reusable knowledge record stored in the knowledge base.
 // Optional fields:
-//   repository_name — required by storage layer when scope === 'repository'; validates against PROJECT_SLUG_REGEX
+//   repository_name — required by storage layer when scope === 'repository'; validates against SLUG_REGEX
 //   origin_plan     — provenance metadata: plan slug where insight was first discovered; distinct from
-//                     `source` (a URL/reference link); validates against PROJECT_SLUG_REGEX
+//                     `source` (a URL/reference link); validates against SLUG_REGEX
 //   updated_at      — set when an insight is amended after initial creation
 //   superseded_by   — id of the insight that replaces this one; no referential integrity enforced at schema layer
 // confidence: 0–1 float; range enforced as [0, 1] — values outside this range are rejected at parse time.
@@ -3489,7 +3444,7 @@ export async function handleOrchestratorDismiss(
  *
  * Fields:
  *   scope:            'global' | 'repository'  — REQUIRED
- *   repository_name?: string matching PROJECT_SLUG_REGEX  — REQUIRED when scope is 'repository'
+ *   repository_name?: string matching SLUG_REGEX  — REQUIRED when scope is 'repository'
  *   title?:           string
  *   content?:         string
  *   category?:        string
@@ -3502,7 +3457,7 @@ export const KnowledgeUpdateBodySchema: z.ZodObject<...>;
 
 /** Raw query parameters accepted by GET /api/knowledge. */
 export interface KnowledgeListParams {
-  scope?: string;          // 'global' | 'repository'; unrecognised values silently treated as no filter
+  scope?: string;          // 'global' | 'repository'; unrecognised non-undefined values throw VALIDATION_ERROR; omitting means no filter
   category?: string;
   /** Comma-separated list of tags; split on ',' with whitespace trimming. */
   tags?: string;
@@ -3521,15 +3476,14 @@ export interface KnowledgeListParams {
 //   - Otherwise: delegates to KnowledgeStoreManager.listInsights() with scope/category/tags filters.
 //
 // Parameter handling:
-//   - `scope` is validated via InsightScope.safeParse(); unrecognised values (including the
-//     removed 'project' scope) fall back to undefined (no scope filter) rather than causing
-//     an error — intentionally tolerant design for a read-only, non-destructive operation.
+//   - `scope` is validated via InsightScope.safeParse(); unrecognised non-undefined values throw
+//     VALIDATION_ERROR (HTTP 400). Omitting `scope` (undefined) means "no scope filter" and is
+//     always allowed. This brings handleListKnowledge into contract parity with the four mutating
+//     handlers (WP-001 hardening).
 //
-//     ⚠ Scope validation asymmetry: this handler's graceful-ignore behaviour differs from the
-//     other four knowledge handlers, which all throw VALIDATION_ERROR for an absent or
-//     unrecognised scope. The rationale is that write/delete/move operations require an explicit,
-//     unambiguous scope to prevent accidental cross-store mutations; a list/search with an
-//     unknown scope is safely broadened to "all scopes" instead.
+//   - `repository_name` is validated against SLUG_REGEX when provided; malformed values
+//     (e.g. '../evil', 'has spaces') throw VALIDATION_ERROR (HTTP 400) before reaching the storage
+//     layer. All five knowledge handlers now validate repository_name consistently at the handler level.
 //
 //   - `tags` is a comma-separated string split before being forwarded (e.g. "node,backend" → ["node","backend"]).
 //     Whitespace around commas is trimmed; empty segments are dropped.
@@ -3559,6 +3513,8 @@ export async function handleListKnowledge(
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
 //   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
 //     when absent.
+//   - repository_name validated against SLUG_REGEX after the presence check (WP-004);
+//     throws VALIDATION_ERROR for malformed slugs (e.g. '../evil', 'has spaces').
 //
 // Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
 // — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
@@ -3568,20 +3524,10 @@ export async function handleListKnowledge(
 // (assigned by the global store's next_id counter). The original repository-scoped insight
 // is atomically removed by the same moveInsight() call.
 //
-// Defence-in-depth note: `repository_name` is accepted as a raw query-parameter string
-// and is NOT validated against PROJECT_SLUG_REGEX at this handler level. The storage
-// layer's _validateSlug() enforces the regex before constructing any file path, making
-// path-traversal attacks impossible in practice. However, _validateSlug() throws a
-// generic Error (not an ApiError), so a malformed slug will surface as HTTP 500 rather
-// than HTTP 400 VALIDATION_ERROR. Contrast with handleMoveKnowledge / handleUpdateKnowledge,
-// which validate repository_name via Zod schema at the handler level. A future hardening
-// pass should add an explicit PROJECT_SLUG_REGEX guard here to return a proper 400 and
-// eliminate reliance on the storage layer as the sole validation point for this field.
-//
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing repository_name
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified repository scope
-//   (unhandled)      — 500 when repository_name fails _validateSlug() (malformed slug)
 //
 // @param ledgerRoot      Absolute path to the central ledger root.
 // @param rawId           Raw id string from the URL parameter (e.g. "42").
@@ -3600,10 +3546,10 @@ export async function handlePromoteKnowledge(
  *
  * Fields validated by the Zod schema (format/type constraints):
  *   source_scope:            'global' | 'repository'  — REQUIRED
- *   source_repository_name?: string matching PROJECT_SLUG_REGEX  — OPTIONAL in schema;
+ *   source_repository_name?: string matching SLUG_REGEX  — OPTIONAL in schema;
  *                            the conditional-required rule (required when source_scope is "repository")
  *                            is enforced in handler logic, not here.
- *   repository_name:         string matching PROJECT_SLUG_REGEX  — REQUIRED (destination)
+ *   repository_name:         string matching SLUG_REGEX  — REQUIRED (destination)
  *
  * Note: `source_repository_name` is `.optional()` at the Zod layer so the schema can parse a body
  * that omits it. The handler validates the scope+name combination and throws VALIDATION_ERROR if
@@ -4014,7 +3960,7 @@ Dark mode overrides (grouped at the bottom of the `/* Knowledge Page */` section
 
 > **Dark-mode placement convention:** The Knowledge Page section places all `[data-theme="dark"]` overrides in a single block at the **bottom** of the section (after all light-mode rules), rather than co-locating each override with its light-mode counterpart. This is the preferred convention for new CSS sections. Earlier sections in `styles.css` use inline co-location — both patterns are valid, but the bottom-grouped approach is preferred going forward for readability.
 
-> **Move input format:** The target repository input (`<input placeholder="target-repository-name">` inside `.knowledge-move-input`) expects a repository slug — a lowercase alphanumeric string with hyphens or underscores (matching `PROJECT_SLUG_REGEX` on the server, e.g. `my-project`, `ai-insights`). Entering a free-form display label will be rejected by the server with a `400 VALIDATION_ERROR`.
+> **Move input format:** The target repository input (`<input placeholder="target-repository-name">` inside `.knowledge-move-input`) expects a repository slug — a lowercase alphanumeric string with hyphens or underscores (matching `SLUG_REGEX` on the server, e.g. `my-project`, `ai-insights`). Entering a free-form display label will be rejected by the server with a `400 VALIDATION_ERROR`.
 
 > **Fragility note:** `.knowledge-move-input .form-control` targets the child `.form-control` element for its dark override (consistent with the `.filter-bar` pattern). If the markup changes to no longer use `.form-control` as a direct child, the dark override will silently stop applying.
 

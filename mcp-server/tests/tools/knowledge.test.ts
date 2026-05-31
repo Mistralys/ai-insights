@@ -389,7 +389,7 @@ describe('ledger_list_insights', () => {
 
 describe('ledger_update_insight', () => {
   let globalInsightId: number;
-  let projectInsightId: number;
+  let repositoryInsightId: number;
 
   beforeEach(async () => {
     const g = await addInsight({
@@ -410,7 +410,7 @@ describe('ledger_update_insight', () => {
       category: 'workflow',
       tags: ['workflow'],
     });
-    projectInsightId = parseResult(p as any).id;
+    repositoryInsightId = parseResult(p as any).id;
   });
 
   it('updates title and content of an existing insight', async () => {
@@ -471,7 +471,7 @@ describe('ledger_update_insight', () => {
     // and finds global-insights.json first. So we verify repository insight updates
     // in their own isolated test that has no global insight with the same id.
     const result = await updateInsight({
-      id: projectInsightId,
+      id: repositoryInsightId,
       title: 'Updated repository insight',
     });
     // updateInsight finds the FIRST insight with this id across all stores.
@@ -479,7 +479,7 @@ describe('ledger_update_insight', () => {
     // before 'repo-b-insights.json'. This reflects expected storage behaviour.
     const data = parseResult(result as any);
     expect(data.title).toBe('Updated repository insight');
-    expect(data.id).toBe(projectInsightId);
+    expect(data.id).toBe(repositoryInsightId);
   });
 
   it('returns an error when the insight id does not exist', async () => {

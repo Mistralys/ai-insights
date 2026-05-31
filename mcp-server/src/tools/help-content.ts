@@ -764,7 +764,7 @@ The created insight object, including the auto-assigned numeric **id** and a **f
 {
   "scope": "global",
   "title": "Always validate slugs at the schema boundary",
-  "content": "Use PROJECT_SLUG_REGEX to reject path-traversal slugs before they reach the storage layer.",
+  "content": "Use SLUG_REGEX to reject path-traversal slugs before they reach the storage layer.",
   "category": "security",
   "tags": ["security", "validation", "schema"],
   "source": "WP-002",

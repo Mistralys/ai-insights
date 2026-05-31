@@ -1,56 +1,26 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.32.0 - Knowledge Repository Scope Model
-- Schema: Replaced `'project'` scope with `'repository'` scope in `InsightScope` — valid scopes are now `['global', 'repository']` only.
-- Schema: `project_slug` store discriminator replaced by `repository_name`; `origin_plan` added as provenance-only metadata field.
-- Storage: `KnowledgeStoreManager.repositoryStorePath()` uses `{repository_name}-insights.json` naming; enforces `'global'` reserved-name guard.
-- Storage: `addInsight`, `updateInsight`, `deleteInsight`, `moveInsight` updated to use `repository_name` throughout.
-- Tools: `ledger_add_insight` — `scope: 'repository'` now requires `repository_name`; `repository_name: 'global'` is rejected.
-- Tools: `ledger_add_insight` — `origin_plan` field accepted as provenance metadata; stored but not used as a storage key.
-- GUI: Knowledge page `#/knowledge` tab labels updated to Global / Repository; `repository_name` filter replaces `project_slug`.
-- GUI: All five knowledge REST handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) updated to use `repository_name` / `source_repository_name` field names.
-- GUI: `api-client.js` updated — `addInsight`, `moveInsight`, `promoteInsight` use `repository_name` / `source_repository_name`.
-- Tests: `knowledge-repository-scope.test.ts` — 31 integration tests covering storage layer and GUI REST handlers for repository scope.
-- Docs: Updated `api-surface.md`, `constraints.md` (§73a reserved-name, §73b provenance-only), `file-tree.md` (`.knowledge/` layout), `AGENTS.md` (Knowledge Collection cross-system row).
-
-## v1.31.0 - Knowledge Store, GUI, and Namespaced Storage
-- Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo slug collisions.
-- Storage: One-time idempotent migration to namespaced layout runs on startup.
-- Storage: `resolveProjectDir()` resolves bare slugs or `{repo}/{slug}` composites; throws `AMBIGUOUS` on collision.
-- Storage: `listAllProjects()` now scans two directory levels (repo namespace → slug directory).
-- Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write via single lock.
-- Storage: `moveInsight()` performs promote/move atomically — eliminates the previous add→delete TOCTOU gap.
-- Storage: `searchInsights()` extended with `tags`, `limit`, and `offset`; combinable with full-text query.
-- Tools: Added `ledger_add_insight`, `ledger_search_insights`, `ledger_list_insights`, `ledger_update_insight`.
-- Tools: Insight IDs formatted as `KN-NNNN` in all tool responses.
-- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side category/text filtering.
+## v1.31.0 - Knowledge Store, Namespaced Storage, and Repository Scope
+- Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo collisions.
+- Storage: Auto-migrates on startup; `resolveProjectDir()` handles bare slugs and composites.
+- Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write.
+- Storage: `moveInsight()` is now atomic; `searchInsights()` gains `tags`, `limit`, and `offset`.
+- Schema: `InsightScope` is now `['global', 'repository']`; `'project'` scope removed.
+- Schema: `project_slug` replaced by `repository_name`; `origin_plan` added as provenance.
+- Schema: `PROJECT_SLUG_REGEX` renamed to `SLUG_REGEX`; validates both discriminator fields.
+- Tools: Added 4 knowledge store tools: `ledger_add_insight`, `ledger_search_insights`,
+  `ledger_list_insights`, and `ledger_update_insight`.
+- Tools: `scope: 'repository'` requires `repository_name`; `'global'` is a reserved name.
+- Tools: QA, Reviewer, and Documentation WAIT reasons distinguish work-complete from blocked WPs.
+- Tools: Added INVOKE_AGENT action for auto-handoff, eliminating WAIT + auto_handoff conflicts.
+- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side filtering.
 - GUI: Five knowledge REST endpoints wired: list, update, delete, promote, and move.
-- GUI: Extracted all knowledge handlers from `api.ts` into dedicated `gui/api-knowledge.ts`.
-- GUI: Fixed project name not resolving in breadcrumb navigation.
-- GUI: Fixed Dismiss button for dead orchestrator runs; unified button layout in runs list.
-- GUI: Fixed filter input losing focus on list refresh in Knowledge and project list pages.
-- GUI: Fixed backward-compat run-log route creating ghost directories under legacy flat path.
-- Scripts: Added `move-unknown-project` — migrates a project from the `unknown` namespace to its correct repo.
-- Scripts: Added `rename-repository` — renames a repository namespace across all ledger storage.
-- Security: Extracted inline theme-init script to `theme-init.js`; CSP `script-src` is now `'self'` only.
-- Security: `parseKnowledgeId()` validates IDs as positive integers; rejects floats, zero, non-numeric (HTTP 400).
-- Security: PATCH `/api/projects/` guard updated from `startsWith()` to regex for consistency.
-- Tests: 173 knowledge store tests, 30 handler tests, 40 routing tests, and CSP `script-src` assertion.
-- Docs: Updated `api-surface.md`, `constraints.md`, `file-tree.md`, and `data-flows.md`.
-
-## v1.30.4 - INVOKE_AGENT Action for Auto-Handoff
-- Next-action: `embedHandoffStatusInWait` now promotes `action: WAIT` → `action: INVOKE_AGENT`
-  when the embedded `handoff_status` contains an `auto_handoff` entry, eliminating the
-  contradictory signal of WAIT + auto_handoff (WAIT implies "do nothing"; auto_handoff means
-  "invoke the next agent now").
-- Orchestrator: `INVOKE_AGENT` added to `_SKIP_ACTIONS` — supervisor routes independently
-  of auto_handoff and correctly skips this action when encountered.
-
-## v1.30.3 - Clearer WAIT Reason Messages
-- Next-action: QA, Reviewer, and Documentation WAIT reasons now categorise eligible WPs
-  into "pipeline PASS (work complete)" vs "waiting for upstream prerequisite", producing
-  specific messages instead of the generic "All WPs either lack … or already have …" string
-  that conflated work-complete with genuinely-blocked states.
+- GUI: All five handlers validate `repository_name` against slug regex; unknown scope → HTTP 400.
+- GUI: Fixed null-guard patterns in `api-client.js` for knowledge mutation functions.
+- GUI: Fixed breadcrumb project name, Dismiss button for dead runs, and filter focus on refresh.
+- Security: Inline theme-init script extracted; CSP `script-src` tightened to `'self'` only.
+- Security: `parseKnowledgeId()` rejects floats, zero, and non-numeric IDs with HTTP 400.
+- Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
 
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.

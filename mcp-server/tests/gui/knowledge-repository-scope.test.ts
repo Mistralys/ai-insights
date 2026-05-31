@@ -764,11 +764,11 @@ describe("scope: 'project' rejection — VALIDATION_ERROR from all handlers", ()
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  it("handleListKnowledge silently ignores unrecognised scope: 'project' (returns all insights, no error)", async () => {
-    // handleListKnowledge uses InsightScope.safeParse() — invalid scope values are treated
-    // as "no scope filter" rather than rejected, consistent with its documented behaviour.
-    // This test verifies that behaviour is preserved for the removed 'project' scope value.
-    const result = await handleListKnowledge(ledgerRoot, { scope: 'project' });
-    expect(result).toEqual([]);
+  it("handleListKnowledge rejects scope: 'project' with VALIDATION_ERROR", async () => {
+    // handleListKnowledge now validates scope — any non-undefined scope that fails
+    // InsightScope.safeParse() throws VALIDATION_ERROR (same contract as mutating handlers).
+    await expect(
+      handleListKnowledge(ledgerRoot, { scope: 'project' })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });

@@ -6,6 +6,13 @@
  * and to wire handlePromoteKnowledge / handleMoveKnowledge to the atomic
  * KnowledgeStoreManager.moveInsight() method introduced in WP-002.
  *
+ * Scope validation hardening (WP-001): handleListKnowledge now validates the
+ * `scope` query parameter via InsightScope.safeParse() and throws VALIDATION_ERROR
+ * for any non-undefined value that is not 'global' or 'repository'. This brings
+ * the list handler into contract parity with the four mutating handlers, which
+ * have always enforced scope validation via Zod. Omitting `scope` (undefined)
+ * remains the "no filter" default and is always allowed.
+ *
  * Error shape:  { code: string, message: string, details?: unknown }
  *   NOT_FOUND        → 404
  *   FORBIDDEN        → 403
@@ -14,20 +21,12 @@
  *
  * STDIO discipline: this file never writes to process.stdout.
  *
- * @known-limitation Partial repository_name validation in DELETE and promote handlers:
- *   `handleDeleteKnowledge` and `handlePromoteKnowledge` accept `repository_name` as a
- *   raw query-parameter string and do NOT validate it against `PROJECT_SLUG_REGEX` at
- *   the handler level. The storage layer's `_validateSlug()` enforces the regex before
- *   constructing any file path, making path-traversal attacks impossible. However, because
- *   `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
- *   propagates to the server's unhandled-error branch and returns HTTP 500 rather than
- *   a semantically correct HTTP 400 `VALIDATION_ERROR`.
- *   Contrast with `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name`
- *   is validated via Zod (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching the
- *   storage layer. A future hardening pass should add an explicit `PROJECT_SLUG_REGEX`
- *   guard to `handleDeleteKnowledge` and `handlePromoteKnowledge` (mirroring the Zod
- *   pattern used in the move/update handlers) so all five knowledge endpoints return
- *   consistent, well-typed HTTP 400 responses for malformed slug values.
+ * repository_name validation in DELETE and promote handlers (RESOLVED):
+ *   `handleDeleteKnowledge` and `handlePromoteKnowledge` now validate `repository_name`
+ *   against `SLUG_REGEX` at the handler level (after the presence check), throwing
+ *   `VALIDATION_ERROR` (HTTP 400) for any malformed slug value. All five knowledge endpoints
+ *   now return consistent, well-typed HTTP 400 responses for malformed slug values —
+ *   the previous HTTP 500 / unhandled-error-branch fallback no longer applies.
  *
  * ID-change semantics (promote / move):
  *   handlePromoteKnowledge and handleMoveKnowledge both delegate to
@@ -43,7 +42,7 @@
 import { z } from 'zod';
 import { ApiError } from '../src/gui/errors.js';
 import { KnowledgeStoreManager } from '../src/storage/knowledge-store.js';
-import { InsightScope, PROJECT_SLUG_REGEX } from '../src/schema/knowledge.js';
+import { InsightScope, SLUG_REGEX } from '../src/schema/knowledge.js';
 import type { Insight } from '../src/schema/knowledge.js';
 
 // Re-export ApiError so consumers of this module can catch typed errors without
@@ -74,7 +73,7 @@ function validationError(message: string, details?: unknown): never {
 export const KnowledgeUpdateBodySchema = z
   .object({
     scope: InsightScope,
-    repository_name: z.string().regex(PROJECT_SLUG_REGEX).optional(),
+    repository_name: z.string().regex(SLUG_REGEX).optional(),
     title: z.string().optional(),
     content: z.string().optional(),
     category: z.string().optional(),
@@ -90,10 +89,10 @@ export const KnowledgeUpdateBodySchema = z
  *
  * Fields validated by the Zod schema (format/type constraints):
  * - `source_scope`        — "global" or "repository" (InsightScope enum)
- * - `source_repository_name` — optional in the schema (`z.string().regex(PROJECT_SLUG_REGEX).optional()`);
+ * - `source_repository_name` — optional in the schema (`z.string().regex(SLUG_REGEX).optional()`);
  *                              the conditional-required constraint (required when source_scope is "repository")
  *                              is enforced in handler logic, not here.
- * - `repository_name`        — destination repository name (required; must match PROJECT_SLUG_REGEX)
+ * - `repository_name`        — destination repository name (required; must match SLUG_REGEX)
  *
  * Note: `source_repository_name` is `.optional()` at the Zod layer so that the schema can parse
  * a body that omits it — the handler then checks the combination of `source_scope` and
@@ -103,8 +102,8 @@ export const KnowledgeUpdateBodySchema = z
 export const KnowledgeMoveBodySchema = z
   .object({
     source_scope: InsightScope,
-    source_repository_name: z.string().regex(PROJECT_SLUG_REGEX).optional(),
-    repository_name: z.string().regex(PROJECT_SLUG_REGEX),
+    source_repository_name: z.string().regex(SLUG_REGEX).optional(),
+    repository_name: z.string().regex(SLUG_REGEX),
   })
   .strict();
 
@@ -165,8 +164,10 @@ export interface KnowledgeListParams {
  *
  * - When `query` is present, delegates to `KnowledgeStoreManager.searchInsights()`.
  * - Otherwise calls `KnowledgeStoreManager.listInsights()` with scope/category/tags filters.
- * - `scope` is validated via `InsightScope.safeParse()`; unrecognised values are silently
- *   treated as "no scope filter" rather than causing an error.
+ * - `scope` is validated via `InsightScope.safeParse()`; unrecognised values throw
+ *   `VALIDATION_ERROR`. Omitting `scope` (or passing `undefined`) returns all insights.
+ * - `repository_name` is validated against `SLUG_REGEX` when provided; malformed values
+ *   throw `VALIDATION_ERROR` (HTTP 400) rather than reaching the storage layer.
  * - `tags` is a comma-separated string that is split before being forwarded.
  * - `limit` and `offset` are coerced to non-negative integers; invalid/missing values
  *   are silently ignored (limit → undefined, offset → 0).
@@ -179,12 +180,24 @@ export async function handleListKnowledge(
 ): Promise<Insight[]> {
   const manager = new KnowledgeStoreManager(ledgerRoot);
 
-  // Validate scope — unrecognised values fall back to undefined (no filter).
-  const scopeResult = InsightScope.safeParse(params.scope);
-  const scope = scopeResult.success ? scopeResult.data : undefined;
+  // Validate scope — reject any non-nullish string that is not a valid InsightScope value.
+  // Absent scope (undefined) means "no filter" and is always allowed.
+  let scope: 'global' | 'repository' | undefined;
+  if (params.scope !== undefined) {
+    const scopeResult = InsightScope.safeParse(params.scope);
+    if (!scopeResult.success) {
+      validationError(`Invalid scope value: '${params.scope}'. Must be 'global' or 'repository'.`);
+    }
+    scope = scopeResult.data;
+  }
 
   const category = params.category ?? undefined;
   const repository_name = params.repository_name ?? undefined;
+
+  // Validate repository_name format — must match SLUG_REGEX if provided.
+  if (repository_name !== undefined && !SLUG_REGEX.test(repository_name)) {
+    validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
+  }
 
   // Split comma-separated tags; ignore empty segments.
   const tags =
@@ -281,18 +294,10 @@ export async function handleUpdateKnowledge(
  *
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
- * **Defence-in-depth note:** `repository_name` is accepted as a raw query-parameter
- * string and is NOT validated against `PROJECT_SLUG_REGEX` at this handler level.
- * The storage layer's `_validateSlug()` enforces the regex before constructing any
- * file path, making path-traversal attacks impossible in practice. However, because
- * `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
- * will propagate to the server's unhandled-error branch and return HTTP 500 rather
- * than a semantically correct HTTP 400 `VALIDATION_ERROR`. Contrast with
- * `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name` is
- * validated via Zod schema (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching
- * the storage layer. A future hardening pass should add an explicit regex guard here
- * (mirroring the Zod pattern) to return a proper 400 and remove reliance on the
- * storage layer as the sole validation point for this field.
+ * `repository_name` is validated against `SLUG_REGEX` at this handler level
+ * (after the presence check) before being forwarded to the storage layer. A malformed
+ * slug throws `VALIDATION_ERROR` (HTTP 400) immediately, consistent with
+ * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
  * @param rawId           Raw ID string from the URL parameter (e.g. "42").
@@ -318,6 +323,11 @@ export async function handleDeleteKnowledge(
   // repository_name is required when scope === 'repository'.
   if (validatedScope === 'repository' && !repository_name) {
     validationError('repository_name query parameter is required when scope is "repository".');
+  }
+
+  // Validate repository_name format — must match SLUG_REGEX.
+  if (repository_name && !SLUG_REGEX.test(repository_name)) {
+    validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
   const manager = new KnowledgeStoreManager(ledgerRoot);
@@ -347,25 +357,18 @@ export async function handleDeleteKnowledge(
  * **different numeric ID** than the original (assigned by the global store's
  * `next_id` counter). The frontend must match by pre-promote ID, not the new ID.
  *
- * **Defence-in-depth note:** `repository_name` is accepted as a raw query-parameter
- * string and is NOT validated against `PROJECT_SLUG_REGEX` at this handler level.
- * The storage layer's `_validateSlug()` enforces the regex before constructing any
- * file path, making path-traversal attacks impossible in practice. However, because
- * `_validateSlug()` throws a generic `Error` (not an `ApiError`), a malformed slug
- * will propagate to the server's unhandled-error branch and return HTTP 500 rather
- * than a semantically correct HTTP 400 `VALIDATION_ERROR`. Contrast with
- * `handleMoveKnowledge` and `handleUpdateKnowledge`, where `repository_name` is
- * validated via Zod schema (`z.string().regex(PROJECT_SLUG_REGEX)`) before reaching
- * the storage layer. A future hardening pass should add an explicit regex guard here
- * (mirroring the Zod pattern) to return a proper 400 and remove reliance on the
- * storage layer as the sole validation point for this field.
+ * `repository_name` is validated against `SLUG_REGEX` at this handler level
+ * (after the presence check) before being forwarded to the storage layer. A malformed
+ * slug throws `VALIDATION_ERROR` (HTTP 400) immediately, consistent with
+ * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
  * @param rawId           Raw ID string from the URL parameter (e.g. "42").
  * @param scope           Source scope — must be "repository" (global insights cannot be promoted).
  * @param repository_name Required when scope is "repository"; the source repository name.
  * @returns The newly created global Insight.
- * @throws ApiError VALIDATION_ERROR if scope is not "repository", or insight is already global.
+ * @throws ApiError VALIDATION_ERROR if scope is not "repository", insight is already global,
+ *   or repository_name fails SLUG_REGEX validation.
  * @throws ApiError NOT_FOUND if no matching insight exists in the specified scope.
  */
 export async function handlePromoteKnowledge(
@@ -390,6 +393,11 @@ export async function handlePromoteKnowledge(
   // repository_name is required when scope === 'repository'.
   if (!repository_name) {
     validationError('repository_name query parameter is required when scope is "repository".');
+  }
+
+  // Validate repository_name format — must match SLUG_REGEX.
+  if (!SLUG_REGEX.test(repository_name)) {
+    validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
   const manager = new KnowledgeStoreManager(ledgerRoot);
@@ -429,7 +437,7 @@ export async function handlePromoteKnowledge(
  * @param body        Parsed request body (validated against KnowledgeMoveBodySchema).
  * @returns The newly created Insight in the target repository store.
  * @throws ApiError VALIDATION_ERROR when source and destination are identical, body is invalid,
- *   or the destination name fails PROJECT_SLUG_REGEX.
+ *   or the destination name fails SLUG_REGEX.
  * @throws ApiError NOT_FOUND when no matching insight exists in the source scope.
  */
 export async function handleMoveKnowledge(

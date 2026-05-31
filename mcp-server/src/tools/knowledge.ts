@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { KnowledgeStoreManager } from '../storage/knowledge-store.js';
 import { resolveLedgerRoot } from '../utils/ledger-root.js';
-import { InsightScope, PROJECT_SLUG_REGEX } from '../schema/knowledge.js';
+import { InsightScope, SLUG_REGEX } from '../schema/knowledge.js';
 import { now } from '../utils/timestamp.js';
 import type { Insight } from '../schema/knowledge.js';
 
@@ -21,7 +21,7 @@ const AddInsightSchema = z.object({
   ),
   repository_name: z
     .string()
-    .regex(PROJECT_SLUG_REGEX)
+    .regex(SLUG_REGEX)
     .optional()
     .describe(
       'Required when scope is "repository". Slug of the repository (alphanumeric, hyphens, underscores only).'
@@ -44,7 +44,7 @@ const AddInsightSchema = z.object({
     .describe('Confidence score 0–1 indicating reliability. Defaults to 1 if omitted.'),
   origin_plan: z
     .string()
-    .regex(PROJECT_SLUG_REGEX)
+    .regex(SLUG_REGEX)
     .optional()
     .describe(
       'Optional provenance metadata — the plan slug where this insight was first discovered. ' +
@@ -107,7 +107,7 @@ const SearchInsightsSchema = z.object({
     .describe('Optional. Filter results to those containing ALL specified tags.'),
   repository_name: z
     .string()
-    .regex(PROJECT_SLUG_REGEX)
+    .regex(SLUG_REGEX)
     .optional()
     .describe('Optional. Restrict search to a specific repository store.'),
   limit: z
@@ -177,7 +177,7 @@ const ListInsightsSchema = z.object({
     .describe('Optional. Filter to insights matching ALL specified tags.'),
   repository_name: z
     .string()
-    .regex(PROJECT_SLUG_REGEX)
+    .regex(SLUG_REGEX)
     .optional()
     .describe('Optional. Restrict to a specific repository store.'),
   limit: z
@@ -249,7 +249,7 @@ const UpdateInsightSchema = z.object({
   ),
   repository_name: z
     .string()
-    .regex(PROJECT_SLUG_REGEX)
+    .regex(SLUG_REGEX)
     .optional()
     .describe(
       'Optional. Restrict the update to the specified repository store. ' +

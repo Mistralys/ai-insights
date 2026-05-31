@@ -1384,7 +1384,7 @@ Scope guard: scope === 'repository' && !repository_name → throw Error (reposit
 withLock(knowledgeDir(), async () => {        ← single lock scope for entire read-modify-write
   storePath = scope === 'global'
     ? globalStorePath()
-    : repositoryStorePath(repoName)   ← _validateSlug(repoName) enforced (PROJECT_SLUG_REGEX); 'global' is reserved
+    : repositoryStorePath(repoName)   ← _validateSlug(repoName) enforced (SLUG_REGEX); 'global' is reserved
     ↓
   store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
     ↓
@@ -1446,7 +1446,7 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ```
 
 **Key notes:**
-- `scope` validated via `InsightScope.safeParse()` — unknown values (including the removed `'project'` scope) fall back to `undefined` (no scope filter), no error. **This is intentionally lenient:** the list/search operation is read-only and non-destructive, so an unrecognised scope is safely treated as "return all scopes" rather than an error. Contrast with `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleUpdateKnowledge`, and `handleMoveKnowledge`, which all throw `VALIDATION_ERROR` for absent or unrecognised scope values — those handlers require an explicit, unambiguous scope to prevent accidental cross-store mutations.
+- `scope` validated via `InsightScope.safeParse()` — unrecognised non-undefined values throw `VALIDATION_ERROR` (HTTP 400). Omitting `scope` (undefined) means "no scope filter" and returns all insights. This brings `handleListKnowledge` into contract parity with all four mutating handlers: `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleUpdateKnowledge`, and `handleMoveKnowledge`, which all throw `VALIDATION_ERROR` for absent or unrecognised scope values (WP-001 hardening).
 - `tags` is comma-separated: `"ts,vitest"` → `["ts", "vitest"]`.
 - `limit` and `offset` coerced to non-negative integers; invalid values default to `undefined`/`0`.
 - When `query` is present, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call.
@@ -1468,6 +1468,7 @@ handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
   InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'repository'
   repository_name required when scope === 'repository'  ← throws VALIDATION_ERROR if absent
+  SLUG_REGEX.test(repository_name)  ← throws VALIDATION_ERROR for malformed slugs (WP-004)
   ↓
   KnowledgeStoreManager.deleteInsight(id, { scope, repository_name })
     withLock(knowledgeDir())
@@ -1497,6 +1498,7 @@ handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
   scope must be 'repository'  ← scope='global' throws VALIDATION_ERROR ("already global")
   repository_name required    ← throws VALIDATION_ERROR if absent
+  SLUG_REGEX.test(repository_name)  ← throws VALIDATION_ERROR for malformed slugs (WP-004)
   ↓
   KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
     ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span

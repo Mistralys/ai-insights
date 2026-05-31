@@ -4,7 +4,7 @@ import type { Dirent } from 'fs';
 import {
   KnowledgeStoreSchema,
   InsightSchema,
-  PROJECT_SLUG_REGEX,
+  SLUG_REGEX,
   type KnowledgeStore,
   type Insight,
   type InsightScope,
@@ -514,7 +514,7 @@ export class KnowledgeStoreManager {
    * @throws Error if the name contains unsafe characters
    */
   private _validateSlug(slug: string): void {
-    if (!PROJECT_SLUG_REGEX.test(slug)) {
+    if (!SLUG_REGEX.test(slug)) {
       throw new Error(
         `Invalid repository name: "${slug}". Name must start with a letter or digit and contain only letters, digits, underscores, and hyphens.`
       );

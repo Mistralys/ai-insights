@@ -24,7 +24,7 @@ export type InsightScope = z.infer<typeof InsightScope>;
  * storage-layer guard (_validateSlug).
  * Update this constant to change the slug policy in both places at once.
  */
-export const PROJECT_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+export const SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
 /**
  * Insight schema — a single reusable knowledge record stored in the knowledge base.
@@ -33,11 +33,11 @@ export const PROJECT_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
  * - `repository_name`: required when scope === 'repository', but that constraint
  *   is owned by the storage layer (KnowledgeStoreManager), not this schema. The
  *   schema accepts repository_name as optional to remain context-free. The regex
- *   constraint (PROJECT_SLUG_REGEX: `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`) prevents
+ *   constraint (SLUG_REGEX: `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`) prevents
  *   path traversal at the schema boundary — slugs with `/`, `\`, or `..` are
  *   rejected.
  * - `origin_plan`: optional provenance metadata — the plan slug where this
- *   insight was first discovered or generated. Validated against PROJECT_SLUG_REGEX.
+ *   insight was first discovered or generated. Validated against SLUG_REGEX.
  *   Distinct from `source` (a reference link/URL); origin_plan records the
  *   planning artefact that produced the insight.
  * - `confidence`: a 0–1 float indicating reliability of the insight. Range is
@@ -50,8 +50,8 @@ export const PROJECT_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 export const InsightSchema = z.object({
   id: z.number().int(),
   scope: InsightScope,
-  repository_name: z.string().regex(PROJECT_SLUG_REGEX).optional(),
-  origin_plan: z.string().regex(PROJECT_SLUG_REGEX).optional(),
+  repository_name: z.string().regex(SLUG_REGEX).optional(),
+  origin_plan: z.string().regex(SLUG_REGEX).optional(),
   title: z.string(),
   content: z.string(),
   category: z.string(),

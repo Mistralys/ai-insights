@@ -239,15 +239,51 @@ describe('WP-001 Knowledge Handler Foundations', () => {
       expect(page2[0]).toEqual(all[2]);
     });
 
-    // Unrecognised scope falls back gracefully (no error, all results returned)
-    it('silently ignores unrecognised scope values and returns all insights', async () => {
+    // AC-5 (scope validation): scope: 'project' throws VALIDATION_ERROR
+    it('AC-5: scope: project throws ApiError with code VALIDATION_ERROR', async () => {
+      await expect(handleListKnowledge(ledgerRoot, { scope: 'project' })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+    });
+
+    // AC-6 (scope validation): scope: 'bogus' throws VALIDATION_ERROR
+    it('AC-6: scope: bogus throws ApiError with code VALIDATION_ERROR', async () => {
+      await expect(handleListKnowledge(ledgerRoot, { scope: 'bogus' })).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+    });
+
+    // AC-7 (no regression): omitting scope returns all insights without error
+    it('AC-7: scope: undefined returns all insights without error', async () => {
       await manager.addInsight(makeInsightInput({ scope: 'global', title: 'G' }));
       await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'r', title: 'R' })
       );
 
-      const result = await handleListKnowledge(ledgerRoot, { scope: 'bogus-scope' });
+      const result = await handleListKnowledge(ledgerRoot);
       expect(result).toHaveLength(2);
+    });
+
+    // repository_name slug validation
+    it('throws VALIDATION_ERROR for a malformed repository_name (path traversal chars)', async () => {
+      await expect(
+        handleListKnowledge(ledgerRoot, { repository_name: '../evil' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('throws VALIDATION_ERROR for a repository_name with spaces', async () => {
+      await expect(
+        handleListKnowledge(ledgerRoot, { repository_name: 'has spaces' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('does not throw for a valid repository_name', async () => {
+      await manager.addInsight(
+        makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'R' })
+      );
+      await expect(
+        handleListKnowledge(ledgerRoot, { repository_name: 'my-repo' })
+      ).resolves.not.toThrow();
     });
   });
 
@@ -365,7 +401,6 @@ describe('WP-001 Knowledge Handler Foundations', () => {
 
     // AC-9: throws NOT_FOUND when no insight matches the given id and filter
     it('AC-9: throws NOT_FOUND when no insight matches the given id (empty store)', async () => {
-      await expect(findInsightByIdMirror(manager, 999)).rejects.toThrow(ApiError);
       await expect(findInsightByIdMirror(manager, 999)).rejects.toMatchObject({
         code: 'NOT_FOUND',
         message: 'Insight not found.',
@@ -378,9 +413,6 @@ describe('WP-001 Knowledge Handler Foundations', () => {
       );
 
       // Filter to repository scope — the global insight is excluded
-      await expect(
-        findInsightByIdMirror(manager, insight.id, { scope: 'repository' })
-      ).rejects.toThrow(ApiError);
       await expect(
         findInsightByIdMirror(manager, insight.id, { scope: 'repository' })
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
@@ -660,6 +692,25 @@ describe('WP-004 handleDeleteKnowledge', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  // WP-004 rework AC-1 & AC-2: malformed repository_name throws VALIDATION_ERROR (not HTTP 500)
+  it('AC-1 (rework): throws VALIDATION_ERROR for path-traversal repository_name (../evil)', async () => {
+    await expect(
+      handleDeleteKnowledge(ledgerRoot, '1', 'repository', '../evil')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      handleDeleteKnowledge(ledgerRoot, '1', 'repository', '../evil')
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('AC-2 (rework): throws VALIDATION_ERROR for repository_name with spaces', async () => {
+    await expect(
+      handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'has spaces')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'has spaces')
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
   // AC-10: deletes from the repository store without affecting a same-id insight in the global store
   it('AC-10: deletes from repository store without affecting same-id insight in global store', async () => {
     // Both stores start at next_id=1, so their first insight will have id=1
@@ -815,6 +866,25 @@ describe('WP-005 handlePromoteKnowledge', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  // WP-004 rework AC-3 & AC-4: malformed repository_name throws VALIDATION_ERROR (not HTTP 500)
+  it('AC-3 (rework): throws VALIDATION_ERROR for path-traversal repository_name (../evil)', async () => {
+    await expect(
+      handlePromoteKnowledge(ledgerRoot, '1', 'repository', '../evil')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      handlePromoteKnowledge(ledgerRoot, '1', 'repository', '../evil')
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('AC-4 (rework): throws VALIDATION_ERROR for repository_name with spaces', async () => {
+    await expect(
+      handlePromoteKnowledge(ledgerRoot, '1', 'repository', 'has spaces')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      handlePromoteKnowledge(ledgerRoot, '1', 'repository', 'has spaces')
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
   // Returned insight has a new ID (different from the source insight)
   it('returned insight has a different id than the original', async () => {
     // Add a global insight first so the global store's next_id starts at 2
@@ -918,7 +988,7 @@ describe('WP-005 handleMoveKnowledge', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  // AC-9: throws VALIDATION_ERROR for invalid slug (path-traversal attempt rejected by PROJECT_SLUG_REGEX)
+  // AC-9: throws VALIDATION_ERROR for invalid slug (path-traversal attempt rejected by SLUG_REGEX)
   it('AC-9: throws VALIDATION_ERROR for invalid destination repository name (path traversal)', async () => {
     await expect(
       handleMoveKnowledge(ledgerRoot, '1', {

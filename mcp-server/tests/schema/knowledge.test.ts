@@ -3,7 +3,7 @@ import {
   InsightScope,
   InsightSchema,
   KnowledgeStoreSchema,
-  PROJECT_SLUG_REGEX,
+  SLUG_REGEX,
   type Insight,
   type KnowledgeStore,
 } from '../../src/schema/knowledge.js';
@@ -57,28 +57,28 @@ describe('InsightScope', () => {
   });
 });
 
-// ─── PROJECT_SLUG_REGEX ────────────────────────────────────────────────────
+// ─── SLUG_REGEX ───────────────────────────────────────────────────────────
 
-describe('PROJECT_SLUG_REGEX', () => {
+describe('SLUG_REGEX', () => {
   it('accepts valid slugs', () => {
-    expect(PROJECT_SLUG_REGEX.test('hcp-editor')).toBe(true);
-    expect(PROJECT_SLUG_REGEX.test('some-plan-slug')).toBe(true);
-    expect(PROJECT_SLUG_REGEX.test('my_project')).toBe(true);
-    expect(PROJECT_SLUG_REGEX.test('abc123')).toBe(true);
-    expect(PROJECT_SLUG_REGEX.test('A')).toBe(true);
+    expect(SLUG_REGEX.test('hcp-editor')).toBe(true);
+    expect(SLUG_REGEX.test('some-plan-slug')).toBe(true);
+    expect(SLUG_REGEX.test('my_project')).toBe(true);
+    expect(SLUG_REGEX.test('abc123')).toBe(true);
+    expect(SLUG_REGEX.test('A')).toBe(true);
   });
 
   it('rejects slugs with disallowed characters', () => {
-    expect(PROJECT_SLUG_REGEX.test('my/project')).toBe(false);
-    expect(PROJECT_SLUG_REGEX.test('my\\project')).toBe(false);
-    expect(PROJECT_SLUG_REGEX.test('../escape')).toBe(false);
-    expect(PROJECT_SLUG_REGEX.test('has space')).toBe(false);
-    expect(PROJECT_SLUG_REGEX.test('dot.name')).toBe(false);
+    expect(SLUG_REGEX.test('my/project')).toBe(false);
+    expect(SLUG_REGEX.test('my\\project')).toBe(false);
+    expect(SLUG_REGEX.test('../escape')).toBe(false);
+    expect(SLUG_REGEX.test('has space')).toBe(false);
+    expect(SLUG_REGEX.test('dot.name')).toBe(false);
   });
 
   it('rejects slugs that do not start with alphanumeric', () => {
-    expect(PROJECT_SLUG_REGEX.test('-starts-with-dash')).toBe(false);
-    expect(PROJECT_SLUG_REGEX.test('_starts-with-underscore')).toBe(false);
+    expect(SLUG_REGEX.test('-starts-with-dash')).toBe(false);
+    expect(SLUG_REGEX.test('_starts-with-underscore')).toBe(false);
   });
 });
 

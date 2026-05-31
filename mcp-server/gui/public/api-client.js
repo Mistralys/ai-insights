@@ -102,9 +102,11 @@ var API = (function () {
      * List or search knowledge insights stored in the ledger's `.knowledge/`
      * directory.
      *
-     * Falsy or empty param values are silently omitted from the query string by
-     * `buildQueryString` — pass `undefined` to leave a filter unset rather than
-     * sending `?scope=undefined` to the server.
+     * `undefined` or empty-string values are silently omitted from the query
+     * string by `buildQueryString` — pass `undefined` to leave a filter unset
+     * rather than sending `?scope=undefined` to the server. Note: `null`, `0`,
+     * and `false` are truthy-false values and are NOT omitted; they are
+     * serialised into the query string.
      *
      * @param {Record<string, any>|null|undefined} params - Query parameters
      *   (e.g. `{ scope, repository_name, category, tags, q }`).
@@ -121,22 +123,19 @@ var API = (function () {
      * the caller-supplied `data` object, so they always take precedence — a
      * caller cannot override `scope` or `repository_name` via the `data` argument.
      *
-     * A falsy `repositoryName` (empty string, `null`, `undefined`) is coerced to
-     * `undefined` before serialisation, which causes the key to be omitted from
-     * the JSON body.  Repository names are always non-empty strings in practice, so
-     * a name of `'0'` would be incorrectly dropped — this edge-case is a known
-     * limitation of the `|| undefined` pattern used throughout this module.
+     * A `null` or `undefined` `repositoryName` is coerced to `undefined` before
+     * serialisation, which causes the key to be omitted from the JSON body.
      *
      * @param {string|number} id             - Insight ID (URI-encoded automatically).
      * @param {string}        scope          - Insight scope (`'global'` or `'repository'`).
-     * @param {string|null}   repositoryName - Repository name; falsy values are omitted.
+     * @param {string|null}   repositoryName - Repository name; null/undefined values are omitted.
      * @param {object}        data           - Fields to update (merged before scope/name).
      * @returns {Promise<object>} Updated insight from `PATCH /api/knowledge/:id`.
      */
     updateKnowledge: function (id, scope, repositoryName, data) {
       return request('PATCH', '/knowledge/' + encodeURIComponent(id), Object.assign({}, data, {
         scope: scope,
-        repository_name: repositoryName || undefined,
+        repository_name: repositoryName != null ? repositoryName : undefined,
       }));
     },
 
@@ -144,19 +143,19 @@ var API = (function () {
      * Delete a knowledge insight by ID.
      *
      * `scope` and `repository_name` are passed as URL query parameters so the
-     * server can locate the correct store file.  A falsy `repositoryName` is
-     * coerced to `undefined` and omitted from the query string by
-     * `buildQueryString`.
+     * server can locate the correct store file.  A `null` or `undefined`
+     * `repositoryName` is coerced to `undefined` and omitted from the query
+     * string by `buildQueryString`.
      *
      * @param {string|number} id             - Insight ID (URI-encoded automatically).
      * @param {string}        scope          - Insight scope (`'global'` or `'repository'`).
-     * @param {string|null}   repositoryName - Repository name; falsy values are omitted.
+     * @param {string|null}   repositoryName - Repository name; null/undefined values are omitted.
      * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
      */
     deleteKnowledge: function (id, scope, repositoryName) {
       return request('DELETE', '/knowledge/' + encodeURIComponent(id) + buildQueryString({
         scope: scope,
-        repository_name: repositoryName || undefined,
+        repository_name: repositoryName != null ? repositoryName : undefined,
       }));
     },
 
@@ -167,19 +166,19 @@ var API = (function () {
      * as URL query parameters.  **No request body is sent** — the server
      * identifies the source insight via the query parameters alone.
      *
-     * A falsy `repositoryName` is coerced to `undefined` and omitted from the
-     * query string by `buildQueryString`.
+     * A `null` or `undefined` `repositoryName` is coerced to `undefined` and
+     * omitted from the query string by `buildQueryString`.
      *
      * @param {string|number} id             - Insight ID (URI-encoded automatically).
      * @param {string}        scope          - Source scope (`'repository'`).
-     * @param {string|null}   repositoryName - Source repository name; falsy values are omitted.
+     * @param {string|null}   repositoryName - Source repository name; null/undefined values are omitted.
      * @returns {Promise<object>} The newly created global insight (with a new ID
      *   assigned by the global store — different from the original repository insight ID).
      */
     promoteKnowledge: function (id, scope, repositoryName) {
       return request('POST', '/knowledge/' + encodeURIComponent(id) + '/promote' + buildQueryString({
         scope: scope,
-        repository_name: repositoryName || undefined,
+        repository_name: repositoryName != null ? repositoryName : undefined,
       }));
     },
 
@@ -187,9 +186,9 @@ var API = (function () {
      * Move a knowledge insight from one scope/repository to another.
      *
      * Sends `POST /api/knowledge/:id/move` with source and target identifiers
-     * in the JSON body.  A falsy `sourceRepositoryName` is coerced to `undefined`
-     * and omitted from JSON serialisation (moves from global scope have no
-     * source repository name).  `targetRepositoryName` is **always required** and is
+     * in the JSON body.  A `null` or `undefined` `sourceRepositoryName` is coerced
+     * to `undefined` and omitted from JSON serialisation (moves from global scope
+     * have no source repository name).  `targetRepositoryName` is **always required** and is
      * not coerced — a move always needs an explicit destination repository name.
      *
      * Valid move directions: `global → repository` and `repository → repository`.
@@ -197,7 +196,7 @@ var API = (function () {
      *
      * @param {string|number} id                   - Insight ID (URI-encoded automatically).
      * @param {string}        sourceScope           - Source scope (`'global'` or `'repository'`).
-     * @param {string|null}   sourceRepositoryName  - Source repository name; falsy values are omitted.
+     * @param {string|null}   sourceRepositoryName  - Source repository name; null/undefined values are omitted.
      * @param {string}        targetRepositoryName  - Destination repository name (always required).
      * @returns {Promise<object>} The newly created insight in the target repository (with a new
      *   ID assigned by the target store — different from the original insight ID).
@@ -205,7 +204,7 @@ var API = (function () {
     moveKnowledge: function (id, sourceScope, sourceRepositoryName, targetRepositoryName) {
       return request('POST', '/knowledge/' + encodeURIComponent(id) + '/move', {
         source_scope: sourceScope,
-        source_repository_name: sourceRepositoryName || undefined,
+        source_repository_name: sourceRepositoryName != null ? sourceRepositoryName : undefined,
         target_repository_name: targetRepositoryName,
       });
     },

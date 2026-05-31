@@ -273,7 +273,7 @@ describe('API.getKnowledge', () => {
 });
 
 describe('API.updateKnowledge', () => {
-  it('sends PATCH /api/knowledge/:id with scope and project_slug merged into the body', async () => {
+  it('sends PATCH /api/knowledge/:id with scope and repository_name merged into the body', async () => {
     const calls = mockFetch({ id: 1 });
 
     await globalThis.API.updateKnowledge('42', 'project', 'my-proj', { title: 'New title' });
@@ -282,7 +282,7 @@ describe('API.updateKnowledge', () => {
     expect(calls[0]!.url).toBe('/api/knowledge/42');
     expect(calls[0]!.opts.method).toBe('PATCH');
     const body = JSON.parse(calls[0]!.opts.body as string);
-    expect(body).toMatchObject({ title: 'New title', scope: 'project', project_slug: 'my-proj' });
+    expect(body).toMatchObject({ title: 'New title', scope: 'project', repository_name: 'my-proj' });
   });
 
   it('omits project_slug from body when projectSlug is empty/falsy', async () => {
@@ -305,13 +305,13 @@ describe('API.updateKnowledge', () => {
 });
 
 describe('API.deleteKnowledge', () => {
-  it('sends DELETE /api/knowledge/:id with scope and project_slug as query params', async () => {
+  it('sends DELETE /api/knowledge/:id with scope and repository_name as query params', async () => {
     const calls = mockFetch(null, 204);
 
     await globalThis.API.deleteKnowledge('5', 'project', 'proj-x');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('/api/knowledge/5?scope=project&project_slug=proj-x');
+    expect(calls[0]!.url).toBe('/api/knowledge/5?scope=project&repository_name=proj-x');
     expect(calls[0]!.opts.method).toBe('DELETE');
   });
 
@@ -334,13 +334,13 @@ describe('API.deleteKnowledge', () => {
 });
 
 describe('API.promoteKnowledge', () => {
-  it('sends POST /api/knowledge/:id/promote with scope and project_slug as query params', async () => {
+  it('sends POST /api/knowledge/:id/promote with scope and repository_name as query params', async () => {
     const calls = mockFetch({ id: 99 });
 
     await globalThis.API.promoteKnowledge('12', 'project', 'my-proj');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('/api/knowledge/12/promote?scope=project&project_slug=my-proj');
+    expect(calls[0]!.url).toBe('/api/knowledge/12/promote?scope=project&repository_name=my-proj');
     expect(calls[0]!.opts.method).toBe('POST');
   });
 
@@ -371,7 +371,7 @@ describe('API.promoteKnowledge', () => {
 });
 
 describe('API.moveKnowledge', () => {
-  it('sends POST /api/knowledge/:id/move with source_scope, source_project_slug, and project_slug in the body', async () => {
+  it('sends POST /api/knowledge/:id/move with source_scope, source_repository_name, and target_repository_name in the body', async () => {
     const calls = mockFetch({ id: 55 });
 
     await globalThis.API.moveKnowledge('10', 'project', 'src-proj', 'dst-proj');
@@ -382,20 +382,20 @@ describe('API.moveKnowledge', () => {
     const body = JSON.parse(calls[0]!.opts.body as string);
     expect(body).toEqual({
       source_scope: 'project',
-      source_project_slug: 'src-proj',
-      project_slug: 'dst-proj',
+      source_repository_name: 'src-proj',
+      target_repository_name: 'dst-proj',
     });
   });
 
-  it('omits source_project_slug from body when sourceProjectSlug is empty/falsy', async () => {
+  it('omits source_repository_name from body when sourceRepositoryName is null or undefined', async () => {
     const calls = mockFetch({ id: 55 });
 
-    await globalThis.API.moveKnowledge('2', 'global', '', 'target-proj');
+    await globalThis.API.moveKnowledge('2', 'global', null, 'target-proj');
 
     const body = JSON.parse(calls[0]!.opts.body as string);
     expect(body.source_scope).toBe('global');
-    expect(body.source_project_slug).toBeUndefined();
-    expect(body.project_slug).toBe('target-proj');
+    expect(body.source_repository_name).toBeUndefined();
+    expect(body.target_repository_name).toBe('target-proj');
   });
 
   it('encodes the id path segment via encodeURIComponent', async () => {
