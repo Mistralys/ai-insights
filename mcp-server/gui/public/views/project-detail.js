@@ -248,6 +248,7 @@ function renderProjectDetail(app, slug) {
       // Orchestrator Runs section — rendered for any project; shown only when logs exist
       '<div id="orchestrator-runs-wrapper" style="display:none">' +
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
+        '<div id="orch-resume-cell"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
 
@@ -617,6 +618,76 @@ function renderProjectDetail(app, slug) {
       } else {
         // No active run — render without queue interaction.
         renderRunsList(null);
+
+        // Resume button: show when run metadata indicates a resumable interrupted run.
+        var resumeCell = document.getElementById('orch-resume-cell');
+        if (resumeCell && meta.plan_path &&
+            meta.status !== 'COMPLETE' && meta.status !== 'ARCHIVED') {
+          API.getRunMetadata(slug).then(function (runMeta) {
+            if (!runMeta || !runMeta.thread_id ||
+                runMeta.dry_run === true || runMeta.result === 'SUCCESS') {
+              return;
+            }
+            var threadId = runMeta.thread_id;
+            var planPath = meta.plan_path;
+
+            var resumeBtn = document.createElement('button');
+            resumeBtn.id = 'orch-resume-btn';
+            resumeBtn.className = 'btn btn-resume';
+            resumeBtn.textContent = 'Resume Run';
+
+            resumeBtn.addEventListener('click', function () {
+              resumeBtn.disabled = true;
+              resumeBtn.textContent = 'Resuming\u2026';
+
+              API.orchestratorStart(planPath, false, threadId).then(function (result) {
+                if (result && result.started) {
+                  resumeBtn.textContent = 'Launching\u2026';
+                  // Poll the queue; re-render the full view once an active entry appears.
+                  var pollResume = function () {
+                    API.orchestratorGetQueue().then(function (queue) {
+                      var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
+                        return entry && (entry.effectiveStatus === 'pending' ||
+                                        entry.effectiveStatus === 'started');
+                      });
+                      if (hasActiveEntry) {
+                        Router._clearPolling();
+                        renderProjectDetail(app, slug);
+                      }
+                    }).catch(function () { /* keep polling */ });
+                  };
+                  Router._setPolling(pollResume, 3000);
+                } else {
+                  resumeBtn.disabled = false;
+                  resumeBtn.textContent = 'Resume Run';
+                  var errEl = document.getElementById('orch-resume-error');
+                  if (!errEl) {
+                    errEl = document.createElement('p');
+                    errEl.id = 'orch-resume-error';
+                    errEl.className = 'error-banner';
+                    resumeCell.appendChild(errEl);
+                  }
+                  errEl.textContent = 'Resume could not be started.';
+                }
+              }).catch(function (err) {
+                resumeBtn.disabled = false;
+                resumeBtn.textContent = 'Resume Run';
+                var errEl = document.getElementById('orch-resume-error');
+                if (!errEl) {
+                  errEl = document.createElement('p');
+                  errEl.id = 'orch-resume-error';
+                  errEl.className = 'error-banner';
+                  resumeCell.appendChild(errEl);
+                }
+                errEl.textContent = 'Resume failed: ' + (err.message || String(err));
+              });
+            });
+
+            resumeCell.appendChild(resumeBtn);
+          }).catch(function () {
+            // Metadata unavailable — silently skip resume button.
+          });
+        }
       }
     }).catch(function () {
       // Silent failure — don't show error for projects without logs

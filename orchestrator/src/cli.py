@@ -474,6 +474,81 @@ def _is_run_terminal(checkpoint_dir: Path, thread_id: str) -> bool:
     return (checkpoint_dir / f"{thread_id}.terminal").exists()
 
 
+def _write_run_metadata(
+    plan_dir: Path,
+    *,
+    thread_id: str,
+    plan_path: Path,
+    started_at: str,
+    is_resume: bool,
+    dry_run: bool,
+    log_filename: str,
+    pid: int,
+    result: str | None = None,
+    error: str | None = None,
+    duration_s: float | None = None,
+) -> None:
+    """Atomically write the run metadata file to ``plan_dir/.orchestrator-run.json``.
+
+    Uses a temporary file and ``os.replace()`` so the on-disk file is never
+    partially written.  Best-effort — never raises.
+
+    Parameters
+    ----------
+    plan_dir:
+        The plan directory (parent of ``plan.md``).
+    thread_id:
+        LangGraph thread ID for this run.
+    plan_path:
+        Absolute resolved path to the plan file.
+    started_at:
+        ISO-8601 timestamp of run start.
+    is_resume:
+        ``True`` when the run was launched with ``--resume``.
+    dry_run:
+        ``True`` when the run was launched with ``--dry-run``.
+    log_filename:
+        Basename of the JSONL log file for this run.
+    pid:
+        OS process ID of the orchestrator process.
+    result:
+        Run outcome (``"SUCCESS"``, ``"INTERRUPTED"``, or ``"ERROR"``), or
+        ``None`` while the run is in progress.
+    error:
+        Error message when *result* is ``"ERROR"``, otherwise ``None``.
+    duration_s:
+        Wall-clock duration in seconds, or ``None`` while in progress.
+    """
+    metadata: dict = {
+        "thread_id": thread_id,
+        "plan_path": str(plan_path),
+        "slug": plan_dir.name,
+        "started_at": started_at,
+        "is_resume": is_resume,
+        "dry_run": dry_run,
+        "log_filename": log_filename,
+        "pid": pid,
+        "result": result,
+        "error": error,
+        "duration_s": duration_s,
+    }
+    meta_path = plan_dir / ".orchestrator-run.json"
+    tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+    try:
+        tmp_path.write_text(json.dumps(metadata, indent=2))
+        os.replace(str(tmp_path), str(meta_path))
+    except OSError:
+        pass
+    finally:
+        # Belt-and-suspenders: remove the .tmp file if os.replace() left it
+        # behind (e.g. same-directory replace failure). No-op on success
+        # because os.replace() already consumed the file.
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Main async entry point
 # ---------------------------------------------------------------------------
@@ -614,6 +689,19 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 _write_error_status(
                     f"Thread {thread_id!r} is a completed run (nothing left to execute)"
                 )
+                _write_run_metadata(
+                    plan_dir,
+                    thread_id=thread_id,
+                    plan_path=plan_path,
+                    started_at=datetime.now(UTC).isoformat(),
+                    is_resume=True,
+                    dry_run=args.dry_run,
+                    log_filename=run_logger._path.name,
+                    pid=os.getpid(),
+                    result="ERROR",
+                    error=f"Thread {thread_id} is a completed run",
+                    duration_s=0.0,
+                )
                 return EXIT_ERROR
         else:
             thread_id = str(uuid.uuid4())
@@ -645,6 +733,17 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             plan=str(plan_path),
             run_start_ts=run_start_ts,
             stage_models=dict(config.stage_models),
+        )
+        # ── Write initial run metadata (result=null while in progress) ────
+        _write_run_metadata(
+            plan_dir,
+            thread_id=thread_id,
+            plan_path=plan_path,
+            started_at=run_start_ts,
+            is_resume=bool(args.resume),
+            dry_run=args.dry_run,
+            log_filename=run_logger._path.name,
+            pid=os.getpid(),
         )
         # ── Register in shared run queue ─────────────────────────────────
         try:
@@ -862,6 +961,38 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 lock_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    # ── Write final run metadata file ───────────────────────────────────────
+    try:
+        _meta_fatal = (
+            outside_errors[0]
+            if outside_errors
+            else (final_state.get("fatal_error") if final_state else None)
+        )
+        _is_interrupted = any("Interrupted" in e for e in outside_errors) or (
+            bool(interrupt_before) and not outside_errors and not _meta_fatal
+        )
+        if _is_interrupted:
+            _meta_result = "INTERRUPTED"
+        elif _meta_fatal or outside_errors:
+            _meta_result = "ERROR"
+        else:
+            _meta_result = "SUCCESS"
+        _write_run_metadata(
+            plan_dir,
+            thread_id=thread_id,
+            plan_path=plan_path,
+            started_at=run_start_ts,
+            is_resume=bool(args.resume),
+            dry_run=args.dry_run,
+            log_filename=run_logger._path.name,
+            pid=os.getpid(),
+            result=_meta_result,
+            error=_meta_fatal,
+            duration_s=total_duration_s,
+        )
+    except Exception:
+        pass
 
     # ── Write run-status tombstone for GUI polling ─────────────────────────────
     # A small JSON file named {slug}.run-status.json is written to the logs

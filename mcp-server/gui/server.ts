@@ -53,6 +53,7 @@ import {
   handleOrchestratorKill,
   handleOrchestratorDismiss,
   handleGetRunStatus,
+  handleGetRunMetadata,
   ApiError,
 } from './api.js';
 import {
@@ -414,6 +415,17 @@ function matchRoute(
   ) {
     const slug = rest[1]!;
     return () => handleGetProjectHealth(ledgerRoot, slug);
+  }
+
+  // GET /api/projects/:slug/run-metadata
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'run-metadata'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetRunMetadata(ledgerRoot, slug);
   }
 
   // GET /api/projects/:slug
@@ -946,7 +958,8 @@ function matchRoute(
     rest[2] !== 'work-packages' &&
     rest[2] !== 'dialogues' &&
     rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
+    rest[2] !== 'runs' &&
+    rest[2] !== 'run-metadata'
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);

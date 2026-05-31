@@ -23,6 +23,7 @@
 /orchestrator/.venv/
 /orchestrator/checkpoints/
 /orchestrator/logs/
+.orchestrator-run.json
 /.idea
 /dist/*.zip
 /node_modules/

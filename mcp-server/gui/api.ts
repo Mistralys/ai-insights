@@ -1595,7 +1595,18 @@ export async function handleOrchestratorStart(
   }
   const planPath = b['planPath'];
   const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
-  return startOrchestrator(planPath, workspaceRoot, dryRun);
+
+  // Optional resume thread ID — must be UUID v4 when supplied.
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let resumeThreadId: string | undefined;
+  if ('resumeThreadId' in b) {
+    if (typeof b['resumeThreadId'] !== 'string' || !UUID_V4.test(b['resumeThreadId'])) {
+      validationError('body.resumeThreadId must be a valid UUID v4 string.');
+    }
+    resumeThreadId = b['resumeThreadId'];
+  }
+
+  return startOrchestrator(planPath, workspaceRoot, dryRun, resumeThreadId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1691,4 +1702,44 @@ export async function handleGetRunStatus(
     notFound(`Invalid run-status filename: '${statusFilename}'.`);
   }
   return getRunStatus(logsDir, statusFilename);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/run-metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the `.orchestrator-run.json` sidecar file written by the Python
+ * orchestrator into the plan directory, parsed as JSON.
+ *
+ * The file contains the run identity fields (`thread_id`, `plan_path`,
+ * `started_at`, `is_resume`, `dry_run`, `log_filename`, `pid`) and the run
+ * outcome fields (`result`, `error`, `duration_s`).  While a run is in
+ * progress, `result`, `error`, and `duration_s` are `null`.
+ *
+ * Throws NOT_FOUND when:
+ * - The project slug is unsafe (path-traversal guard).
+ * - The project does not exist in the ledger.
+ * - The project has no `meta.plan_path` (metadata missing).
+ * - The sidecar file does not exist on disk.
+ *
+ * @param ledgerRoot - Absolute path to the ledger root directory.
+ * @param slug       - URL-decoded project slug from the request path.
+ * @param repoName   - Optional repository name for namespaced lookups.
+ */
+export async function handleGetRunMetadata(
+  ledgerRoot: string,
+  slug: string,
+  repoName?: string
+): Promise<unknown> {
+  assertSafeSlug(slug);
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const planPath = store.planPath;
+  const metaFilePath = join(planPath, '.orchestrator-run.json');
+  try {
+    const raw = await readFile(metaFilePath, 'utf-8');
+    return JSON.parse(raw) as unknown;
+  } catch {
+    notFound(`Run metadata not found for project '${slug}'.`);
+  }
 }

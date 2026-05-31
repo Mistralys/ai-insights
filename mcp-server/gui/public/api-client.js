@@ -74,6 +74,7 @@ var API = (function () {
       var qs = (afterLine !== undefined && afterLine !== null) ? ('?after=' + encodeURIComponent(afterLine)) : '';
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
     },
+    getRunMetadata:           function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/run-metadata'); },
     getDialogues: function (slug, wpId) {
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
     },
@@ -90,7 +91,11 @@ var API = (function () {
     },
 
     // -- Orchestrator --------------------------------------------------
-    orchestratorStart:       function (planPath, dryRun) { return request('POST',   '/orchestrator/start',                                         { planPath: planPath, dryRun: dryRun }); },
+    orchestratorStart: function (planPath, dryRun, resumeThreadId) {
+      var body = { planPath: planPath, dryRun: dryRun };
+      if (resumeThreadId !== undefined) body.resumeThreadId = resumeThreadId;
+      return request('POST', '/orchestrator/start', body);
+    },
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },

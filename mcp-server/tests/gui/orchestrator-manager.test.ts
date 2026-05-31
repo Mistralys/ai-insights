@@ -1317,3 +1317,77 @@ describe('startOrchestrator — live API key liveness checks (AC-9)', () => {
     expect(result.checks.find((c) => c.name === 'env')?.pass).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// startOrchestrator — WP-003: resume spawn args (AC-1, AC-2)
+// ---------------------------------------------------------------------------
+
+describe('startOrchestrator — resumeThreadId spawn args (WP-003 AC-1, AC-2)', () => {
+  const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-resume-test-'));
+    ({ workspaceRoot, planPath } = await scaffoldWorkspace(tempDir));
+    vi.mocked(spawn).mockReturnValue({
+      pid:   42,
+      unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('AC-1: spawns with ["--resume", resumeThreadId, resolvedPlan] when resumeThreadId is provided', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false, VALID_UUID);
+
+    expect(vi.mocked(spawn)).toHaveBeenCalledOnce();
+    const [, spawnArgs] = vi.mocked(spawn).mock.calls[0]!;
+    const resolvedPlan  = spawnArgs[2];
+    expect(spawnArgs[0]).toBe('--resume');
+    expect(spawnArgs[1]).toBe(VALID_UUID);
+    expect(resolvedPlan).toBeTruthy();
+    expect(spawnArgs).toHaveLength(3);
+  });
+
+  it('AC-2: spawns with [resolvedPlan] only when resumeThreadId is omitted', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false);
+
+    expect(vi.mocked(spawn)).toHaveBeenCalledOnce();
+    const [, spawnArgs] = vi.mocked(spawn).mock.calls[0]!;
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).not.toBe('--resume');
+  });
+
+  it('AC-2: spawns with [resolvedPlan] only when resumeThreadId is explicitly undefined', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false, undefined);
+
+    const [, spawnArgs] = vi.mocked(spawn).mock.calls[0]!;
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).not.toBe('--resume');
+  });
+
+  it('AC-1: resume args are placed before resolvedPlan in the correct order', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false, VALID_UUID);
+
+    const [, spawnArgs] = vi.mocked(spawn).mock.calls[0]!;
+    // Must be exactly ['--resume', uuid, resolvedPlan]
+    expect(spawnArgs[0]).toBe('--resume');
+    expect(spawnArgs[1]).toBe(VALID_UUID);
+    // 3rd arg is the resolved plan path (an absolute path)
+    expect(typeof spawnArgs[2]).toBe('string');
+    expect(spawnArgs[2]).toContain('plan.md');
+  });
+
+  it('AC-1: dryRun=true skips spawn even when resumeThreadId is provided', async () => {
+    const result = await startOrchestrator(planPath, workspaceRoot, true, VALID_UUID);
+
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    expect(result.started).toBe(false);
+  });
+});

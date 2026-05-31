@@ -566,11 +566,15 @@ export async function getRunStatus(
  * @param planPath       - Absolute path to the plan `.md` file.
  * @param workspaceRoot  - Absolute path to the workspace root directory.
  * @param dryRun         - When `true`, skip spawning even if all checks pass.
+ * @param resumeThreadId - When provided, passes `--resume <threadId>` to the
+ *                         spawned process so the orchestrator resumes an
+ *                         existing LangGraph thread instead of starting fresh.
  */
 export async function startOrchestrator(
-  planPath:      string,
-  workspaceRoot: string,
-  dryRun         = false,
+  planPath:        string,
+  workspaceRoot:   string,
+  dryRun           = false,
+  resumeThreadId?: string,
 ): Promise<StartResult> {
   const resolvedPlan = resolve(planPath);
   const resolvedRoot = resolve(workspaceRoot);
@@ -609,7 +613,10 @@ export async function startOrchestrator(
   // All checks passed — spawn a detached orchestrator process.
   const bin            = resolveOrchestrateBin(resolvedRoot);
   const statusFilename = runStatusFilename(resolvedPlan);
-  const child = spawn(bin, [resolvedPlan], {
+  const spawnArgs      = resumeThreadId
+    ? ['--resume', resumeThreadId, resolvedPlan]
+    : [resolvedPlan];
+  const child = spawn(bin, spawnArgs, {
     detached: true,
     stdio:    ['ignore', 'ignore', 'ignore'],
     env:      { ...process.env, PYTHONUTF8: '1' },
