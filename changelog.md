@@ -7,6 +7,7 @@
 - MCP: Added dedicated knowledge search and registration tools.
 - MCP: Storage upgraded to folders namespaced by repository to eliminate collisions.
 - MCP: Existing storage folders are auto-migrated on server start.
+- MCP: Removed the local `.mcp.json` in favor of the global installation.
 - Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
 - Personas: CTX Architect variable examples escaped to avoid build warnings.
 - Personas: Added the Knowledge Archiver persona.
