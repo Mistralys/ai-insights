@@ -3,18 +3,27 @@
 ## v1.27.0 - Knowledge Store, Repository Scope, and Developer Experience
 > mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
 
-- MCP: Added knowledge accumulation system — 4 tools, per-scope stores, and GUI Knowledge page.
-- Storage: Repo-namespaced ledger layout eliminates cross-repo slug collisions; migrates on startup.
-- MCP: Knowledge scope updated from `project` to `repository`; `'global'` is a reserved name.
-- MCP: All five knowledge REST handlers enforce slug and scope validation (HTTP 400 on violations).
+- MCP: Added the knowledge accumulation system.
+- MCP: Added dedicated knowledge search and registration tools.
+- MCP: Storage upgraded to folders namespaced by repository to eliminate collisions.
+- MCP: Existing storage folders are auto-migrated on server start.
 - Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
-- Personas: Added Knowledge Archiver; Synthesis delegates knowledge extraction to it.
+- Personas: CTX Architect variable examples escaped to avoid build warnings.
+- Personas: Added the Knowledge Archiver persona.
+- Personas: The Synthesis agent now delegates knowledge extraction to the archiver.
 - Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain insight lookups.
-- Personas: 7 personas gain `browser` tool; CTX Architect integrates CTX Generator brief findings.
-- Scripts: Added health-check registry, global MCP installer, and doctor/bootstrap improvements.
-- Scripts: Root scripts migrated to ESM; added `migrate-synthesis-insights` conversion utility.
+- Personas: 7 personas gain the `browser` tool.
+- Personas: CTX Architect integrates updated CTX Generator guide information.
+- Scripts: Added a health-check registry.
+- Scripts: Added the global MCP installer for VS Code and Claude.
+- Scripts: Added doctor/bootstrap improvements.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
-- GUI: Knowledge page with Global/Repository tabs; fixed breadcrumb, Dismiss button, and filter.
+- GUI: Added the knowledge page to see and administrate collected insights.
+- GUI: Fixed breadcrumbs in some pages.
+- GUI: Fixed the orchestrator run "Dismiss" button.
+- GUI: Fixed the main overview's filter input.
+- Dependencies: Updated Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
+- Dependencies: Updated CLI Menu to [v1.1.0](https://github.com/Mistralys/cli-menu/releases/tag/v1.1.0).
 
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0
