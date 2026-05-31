@@ -17,8 +17,10 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── cli.js
     └── extract-changelog-entry.js
     └── install-hooks.js
+    └── install-mcp-global.js
     └── kill-orchestrator.js
-    └── migrate-synthesis-insights.js
+    └── lib/
+        ├── health-checks.js
     └── normalize-ctx-paths.js
     └── package-personas.js
     └── preflight-bootstrap.js
@@ -710,6 +712,7 @@ process.exit(0);
  *   node scripts/cli.js setup               Interactive setup wizard
  *   node scripts/cli.js setup --all         Non-interactive full setup
  *   node scripts/cli.js setup --components  Run selected components
+ *   node scripts/cli.js --skip-setup-check  Skip first-run detection (for CI/automated use)
  *   node scripts/cli.js <command> [flags]   Run a command directly
  */
 
@@ -724,6 +727,7 @@ import {
   runLongScript,
   checkNodeVersion,
   PreflightError,
+  waitForKey,
 } from '@mistralys/cli-menu';
 
 import {
@@ -737,6 +741,8 @@ import fs from 'fs';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
+import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
+import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 
 // --- Constants ---
 
@@ -746,7 +752,6 @@ const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
 const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
-const MCP_DIST_JSON    = path.join(WORKSPACE_ROOT, '.mcp.dist.json');
 const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
 
 // --- Pre-flight checks ---
@@ -821,43 +826,6 @@ function venvBin(name) {
   return IS_WIN
     ? path.join(ORCHESTRATOR_DIR, '.venv', 'Scripts', `${name}.exe`)
     : path.join(ORCHESTRATOR_DIR, '.venv', 'bin', name);
-}
-
-// --- .mcp.json scaffold ---
-
-function scaffoldMcpJson(force = false) {
-  if (fs.existsSync(MCP_JSON) && !force) {
-    log('  .mcp.json already exists. Use --force to overwrite.', 'yellow');
-    return true;
-  }
-  if (!fs.existsSync(MCP_DIST_JSON)) {
-    log('  ✗ .mcp.dist.json not found; cannot scaffold .mcp.json', 'red');
-    return false;
-  }
-  let template;
-  try {
-    template = JSON.parse(fs.readFileSync(MCP_DIST_JSON, 'utf8'));
-  } catch (e) {
-    log(`  ✗ Failed to parse .mcp.dist.json: ${e.message}`, 'red');
-    return false;
-  }
-
-  const PLACEHOLDER_BASE = '/Users/path/to/repo/ai-insights/mcp-server';
-
-  function replaceInObj(obj) {
-    if (typeof obj === 'string')  return obj.replaceAll(PLACEHOLDER_BASE, MCP_SERVER_DIR);
-    if (Array.isArray(obj))       return obj.map(replaceInObj);
-    if (obj && typeof obj === 'object') {
-      const out = {};
-      for (const k of Object.keys(obj)) out[k] = replaceInObj(obj[k]);
-      return out;
-    }
-    return obj;
-  }
-
-  fs.writeFileSync(MCP_JSON, JSON.stringify(replaceInObj(template), null, 2) + '\n', 'utf8');
-  log(`  ✓ .mcp.json written → ${MCP_SERVER_DIR}`, 'green');
-  return true;
 }
 
 // --- Setup components ---
@@ -979,15 +947,20 @@ const SETUP_COMPONENTS = [
     validate: () => fs.existsSync(venvBin('python')),
   },
   {
-    id:    'mcp-json',
-    label: '.mcp.json',
-    desc:  'IDE MCP server config',
-    detect: () => fs.existsSync(MCP_JSON),
-    run:      (args = []) => scaffoldMcpJson(args.includes('--force')),
-    validate() {
-      if (!fs.existsSync(MCP_JSON)) return false;
-      try { JSON.parse(fs.readFileSync(MCP_JSON, 'utf8')); return true; } catch { return false; }
+    id:    'global-mcp',
+    label: 'Global MCP',
+    desc:  'User-level IDE registration (recommended)',
+    detect: () => shimConfigExists(),
+    run() {
+      try {
+        mcpGlobalInstall({ log: (msg) => log(msg) });
+        return true;
+      } catch (err) {
+        log(`  \u2717 ${err.message}`, 'red');
+        return false;
+      }
     },
+    validate: () => shimConfigExists(),
   },
   {
     id:    'git-hooks',
@@ -1207,10 +1180,41 @@ function cmdCtxGenerate(args) {
   }
 }
 
-function cmdMcpJson(args) { scaffoldMcpJson(args.includes('--force')); }
-
 function cmdGitHooks() {
   sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT });
+}
+
+async function cmdDoctor() {
+  const results = await runChecks('all');
+  let anyFailed = false;
+  for (const { label, passed, fix } of results) {
+    if (passed) {
+      log(`  ${C.green('\u2713')} ${label}`);
+    } else {
+      anyFailed = true;
+      log(`  ${C.red('\u2717')} ${label}`);
+      if (fix) {
+        log(`       ${C.dim(fix)}`);
+      }
+    }
+  }
+  if (anyFailed) {
+    process.exit(1);
+  }
+}
+
+async function cmdInstallMcp(args) {
+  if (args.includes('--dry-run')) {
+    mcpGlobalDryRun();
+  } else {
+    try {
+      mcpGlobalInstall({ log: (msg) => log(msg) });
+    } catch (err) {
+      log(`  \u2717 ${err.message}`, 'red');
+      process.exit(1);
+    }
+  }
+  await waitForKey();
 }
 
 function cmdReadLog(args) {
@@ -1246,15 +1250,15 @@ const COMMANDS = [
     run:         cmdBuildMaintain,
   },
   {
-    id:           'mcp-json',
-    key:          'm',
-    label:        'Scaffold .mcp.json',
+    id:           'install-mcp',
+    key:          'i',
+    label:        'Install MCP (Global)',
     category:     'Setup & Configuration',
-    description:  'Generate IDE MCP server config',
+    description:  'Register MCP server in VS Code user config via stable shim',
     helpVariants: [
-      ['mcp-json --force', 'Overwrite existing .mcp.json'],
+      ['install-mcp --dry-run', 'Preview changes without writing'],
     ],
-    run:          cmdMcpJson,
+    run:          cmdInstallMcp,
   },
   {
     id:          'git-hooks',
@@ -1355,6 +1359,17 @@ const COMMANDS = [
     run:          cmdKillOrchestrator,
   },
   {
+    id:           'doctor',
+    key:          'v',
+    label:        'Doctor',
+    category:     'Validation & Utilities',
+    description:  'Full environment health check (all tiers)',
+    helpVariants: [
+      ['doctor', 'Full environment health check'],
+    ],
+    run:          cmdDoctor,
+  },
+  {
     id:          'bundle-docs',
     key:         'd',
     label:       'Bundle docs',
@@ -1392,6 +1407,37 @@ const BANNER_LINES = [
   '╚═╝  ╚═╝╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝',
 ];
 
+// --- Status lines (instant-tier health checks, synchronous) ---
+
+const STATUS_LINES = HEALTH_CHECKS
+  .filter(check => check.cost === 'instant')
+  .map(check => () => {
+    const result = check.detect();
+    // Guard against Promise (contract violation: instant checks must be synchronous)
+    if (result instanceof Promise) {
+      return C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`);
+    }
+    if (result) {
+      return C.green(`\u2713 ${check.label}`);
+    }
+    const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
+    return C.red(`\u2717 ${check.label}`) + fixHint;
+  });
+
+// --- First-run wizard ---
+
+const skipSetupCheck = process.argv.includes('--skip-setup-check');
+
+/**
+ * Scope-selection prompt for the first-run wizard.
+ * Presents two options and returns the chosen SETUP_COMPONENT id(s).
+ * Called by cli-menu in cooked mode (readline-compatible).
+ * @returns {Promise<string[]>}
+ */
+function handleFirstRun() {
+  return Promise.resolve(['global-mcp']);
+}
+
 // --- Entry point ---
 
 createMenu({
@@ -1410,7 +1456,10 @@ createMenu({
     'Personas':     () => readPackageVersion(PERSONAS_DIR).replace(/^v/, ''),
     'Orchestrator': () => readPyprojectVersion(ORCHESTRATOR_DIR).replace(/^v/, ''),
   },
-  usageLine: 'node scripts/cli.js [command] [options]',
+  usageLine:  'node scripts/cli.js [command] [options]',
+  statusLines: STATUS_LINES,
+  firstRunRedirect: !skipSetupCheck,
+  onFirstRun: handleFirstRun,
 }).run(process.argv.slice(2)).then(code => process.exit(code));
 
 ```
@@ -1553,6 +1602,433 @@ import { execSync } from 'child_process';
 
 execSync('git config core.hooksPath .githooks', { stdio: 'inherit' });
 console.log('Git hooks installed. Pre-commit persona guard active.');
+
+```
+###  Path: `/scripts/install-mcp-global.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/install-mcp-global.js
+ *
+ * Stable-shim strategy for user-level MCP server registration.
+ * Writes a launcher shim at ~/.ai-insights/bin/launch-server.js that
+ * reads a config.json to find the repo, then spawns the MCP server with
+ * { stdio: 'inherit' } so STDIO JSON-RPC messages are never buffered.
+ *
+ * Exported API (see each function for details):
+ *   getShimDir(shimBaseDir?)    — path to ~/.ai-insights/bin/
+ *   shimConfigExists(opts?)     — true if config.json is present
+ *   writeShim(opts?)            — write shim file; throws if dist missing
+ *   writeConfig(repoPath, opts?)— write config.json
+ *   installVSCode(opts?)        — merge central_pm into VS Code user mcp.json
+ *   installClaudeCode(opts?)    — register via claude CLI (optional)
+ *   uninstall(opts?)            — remove all registrations
+ *   dryRun(opts?)               — print diff without writing
+ *   install(opts?)              — run full install flow
+ */
+
+import fs   from 'fs';
+import os   from 'os';
+import path from 'path';
+import { spawnSync } from 'child_process';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '..');
+const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const IS_WIN            = process.platform === 'win32';
+
+// ─── Path helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Platform-specific path to the VS Code user-level mcp.json.
+ * @returns {string}
+ */
+function _getVSCodeMcpPath() {
+  if (process.platform === 'win32') {
+    return path.join(
+      process.env.APPDATA || os.homedir(),
+      'Code', 'User', 'mcp.json'
+    );
+  }
+  if (process.platform === 'darwin') {
+    return path.join(
+      os.homedir(),
+      'Library', 'Application Support', 'Code', 'User', 'mcp.json'
+    );
+  }
+  return path.join(os.homedir(), '.config', 'Code', 'User', 'mcp.json');
+}
+
+/**
+ * Resolve all internal paths, allowing tests to inject temp-dir overrides.
+ * @param {{ shimBaseDir?: string, mcpPath?: string }} [overrides]
+ */
+function _resolvePaths(overrides = {}) {
+  const base = overrides.shimBaseDir ?? path.join(os.homedir(), '.ai-insights');
+  return {
+    shimBaseDir: base,
+    shimPath:    path.join(base, 'bin', 'launch-server.js'),
+    configPath:  path.join(base, 'config.json'),
+    mcpPath:     overrides.mcpPath ?? _getVSCodeMcpPath(),
+  };
+}
+
+// ─── Shim content ─────────────────────────────────────────────────────────────
+
+/**
+ * Build the content of the launch-server.js shim.
+ * Uses CommonJS so it runs without a package.json "type" field.
+ * The shim:
+ *   1. Reads config.json from the sibling directory.
+ *   2. Validates that the configured repoPath exists.
+ *   3. Spawns mcp-server/dist/index.js via spawn({ stdio: 'inherit' }).
+ * @returns {string}
+ */
+function _buildShimContent() {
+  return [
+    '#!/usr/bin/env node',
+    "// launch-server.js — stable launcher shim for ai-insights MCP server",
+    "// Generated by: node scripts/cli.js install-mcp",
+    "'use strict';",
+    "const { readFileSync, existsSync } = require('fs');",
+    "const { join, resolve, sep } = require('path');",
+    "const { spawn } = require('child_process');",
+    '',
+    "const configPath = join(__dirname, '..', 'config.json');",
+    'let config;',
+    'try {',
+    "  config = JSON.parse(readFileSync(configPath, 'utf8'));",
+    '} catch (err) {',
+    "  process.stderr.write('[ai-insights] Could not read shim config: ' + configPath + '\\n');",
+    '  process.exit(1);',
+    '}',
+    '',
+    'var repoPath = config.repoPath;',
+    'if (!repoPath || !existsSync(repoPath)) {',
+    '  process.stderr.write(',
+    "    '[ai-insights] Configured repo path no longer exists: ' + (repoPath || '(unset)') +",
+    "    '\\nRe-run \\'node scripts/cli.js install-mcp\\' to update.\\n'",
+    '  );',
+    '  process.exit(1);',
+    '}',
+    '',
+    "var distPath = join(repoPath, 'mcp-server', 'dist', 'index.js');",
+    'if (!resolve(distPath).startsWith(resolve(repoPath) + sep)) {',
+    "  process.stderr.write('[ai-insights] Security: distPath escapes repoPath — aborting.\\n');",
+    '  process.exit(1);',
+    '}',
+    '',
+    'var proc = spawn(process.execPath, [distPath].concat(process.argv.slice(2)), { stdio: \u0027inherit\u0027 });',
+    'proc.on(\u0027close\u0027, function(code) { process.exit(code !== null ? code : 0); });',
+    'proc.on(\u0027error\u0027, function(err) {',
+    "  process.stderr.write('[ai-insights] Failed to start MCP server: ' + err.message + '\\n');",
+    '  process.exit(1);',
+    '});',
+  ].join('\n') + '\n';
+}
+
+// ─── Internal helpers ────────────────────────────────────────────────────────
+
+/**
+ * Check Claude Code CLI availability and central_pm registration status.
+ * Runs `claude mcp list` and looks for `central_pm` in the output.
+ * @returns {{ available: boolean, registered: boolean }}
+ */
+function _checkClaudeCodeStatus() {
+  const whichCmd = IS_WIN ? 'where' : 'which';
+  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
+  if (check.status !== 0) {
+    return { available: false, registered: false };
+  }
+  const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
+  return {
+    available:  true,
+    registered: result.status === 0 && (result.stdout ?? '').includes('central_pm'),
+  };
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Path to the shim directory (parent of launch-server.js).
+ * @param {string} [shimBaseDir] — override base (for tests)
+ * @returns {string}
+ */
+export function getShimDir(shimBaseDir) {
+  return path.join(_resolvePaths({ shimBaseDir }).shimBaseDir, 'bin');
+}
+
+/**
+ * True when ~/.ai-insights/config.json exists (shim is registered).
+ * @param {{ shimBaseDir?: string }} [opts]
+ * @returns {boolean}
+ */
+export function shimConfigExists(opts = {}) {
+  return fs.existsSync(_resolvePaths(opts).configPath);
+}
+
+/**
+ * Write the shim file to ~/.ai-insights/bin/launch-server.js.
+ * Throws with .code = 'DIST_MISSING' if mcp-server/dist/index.js is absent.
+ * @param {{ shimBaseDir?: string }} [opts]
+ * @returns {string} absolute path to the written shim
+ */
+export function writeShim(opts = {}) {
+  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+    const err = new Error(
+      'MCP server is not built. Run the menu and rebuild the MCP server first.\n' +
+      '  → cd mcp-server && npm run build'
+    );
+    err.code = 'DIST_MISSING';
+    throw err;
+  }
+  const { shimPath } = _resolvePaths(opts);
+  fs.mkdirSync(path.dirname(shimPath), { recursive: true });
+  fs.writeFileSync(shimPath, _buildShimContent(), 'utf8');
+  try { fs.chmodSync(shimPath, 0o755); } catch { /* ignored on Windows */ }
+  return shimPath;
+}
+
+/**
+ * Write ~/.ai-insights/config.json with { repoPath }.
+ * @param {string} repoPath
+ * @param {{ shimBaseDir?: string }} [opts]
+ * @returns {string} absolute path to the written config file
+ */
+export function writeConfig(repoPath, opts = {}) {
+  const { configPath, shimBaseDir } = _resolvePaths(opts);
+  fs.mkdirSync(shimBaseDir, { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify({ repoPath }, null, 2) + '\n', 'utf8');
+  return configPath;
+}
+
+/**
+ * Merge the central_pm entry into the VS Code user-level mcp.json.
+ * Only the central_pm key is touched; all other keys are preserved in order.
+ * A timestamped backup is created before any write.
+ *
+ * @param {{ dryRun?: boolean, mcpPath?: string, shimBaseDir?: string }} [opts]
+ * @returns {{ changed: boolean, path: string, diff?: string }}
+ */
+export function installVSCode(opts = {}) {
+  const { mcpPath, shimPath } = _resolvePaths(opts);
+  const dryRun = Boolean(opts.dryRun);
+
+  // Read existing config or default to empty
+  let existing = {};
+  if (fs.existsSync(mcpPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+    } catch {
+      existing = {};
+    }
+  }
+
+  const servers   = existing.servers || {};
+  const newEntry  = { type: 'stdio', command: 'node', args: [shimPath] };
+  const current   = servers.central_pm;
+
+  // Idempotency check
+  if (
+    current?.command === newEntry.command &&
+    JSON.stringify(current?.args) === JSON.stringify(newEntry.args)
+  ) {
+    return { changed: false, path: mcpPath };
+  }
+
+  const updated = {
+    ...existing,
+    servers: { ...servers, central_pm: newEntry },
+  };
+
+  if (dryRun) {
+    return { changed: true, path: mcpPath, diff: JSON.stringify(updated, null, 2) + '\n' };
+  }
+
+  // Backup before write
+  if (fs.existsSync(mcpPath)) {
+    const ts     = new Date().toISOString().replace(/[:.]/g, '-');
+    const backup = mcpPath + '.' + ts + '.bak';
+    fs.copyFileSync(mcpPath, backup);
+  }
+
+  fs.mkdirSync(path.dirname(mcpPath), { recursive: true });
+  fs.writeFileSync(mcpPath, JSON.stringify(updated, null, 2) + '\n', 'utf8');
+  return { changed: true, path: mcpPath };
+}
+
+/**
+ * Register central_pm via the claude CLI (optional — skipped if claude not found).
+ * @param {{ dryRun?: boolean, shimBaseDir?: string }} [opts]
+ * @returns {{ skipped?: boolean, alreadyRegistered?: boolean, reason?: string, command?: string, status?: number }}
+ */
+export function installClaudeCode(opts = {}) {
+  const { shimPath } = _resolvePaths(opts);
+  const dryRun = Boolean(opts.dryRun);
+
+  if (dryRun) {
+    return {
+      command: `claude mcp add --scope user --transport stdio central_pm -- node ${shimPath}`,
+    };
+  }
+
+  const ccStatus = _checkClaudeCodeStatus();
+  if (!ccStatus.available) {
+    return { skipped: true, reason: 'claude CLI not found' };
+  }
+  if (ccStatus.registered) {
+    return { alreadyRegistered: true };
+  }
+
+  const result = spawnSync(
+    'claude',
+    ['mcp', 'add', '--scope', 'user', '--transport', 'stdio', 'central_pm', '--', 'node', shimPath],
+    { encoding: 'utf8', shell: false }
+  );
+  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+}
+
+/**
+ * Remove all global MCP registrations (VS Code, Claude Code, shim files).
+ * @param {{ shimBaseDir?: string, mcpPath?: string }} [opts]
+ */
+export function uninstall(opts = {}) {
+  const { mcpPath, shimPath, configPath } = _resolvePaths(opts);
+
+  // Remove from VS Code mcp.json
+  if (fs.existsSync(mcpPath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+      if (existing.servers?.central_pm) {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        fs.copyFileSync(mcpPath, mcpPath + '.' + ts + '.bak');
+        delete existing.servers.central_pm;
+        fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
+      }
+    } catch {
+      // Best-effort; ignore errors during uninstall
+    }
+  }
+
+  // Remove from Claude Code (if CLI available)
+  const whichCmd = IS_WIN ? 'where' : 'which';
+  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
+  if (check.status === 0) {
+    spawnSync('claude', ['mcp', 'remove', 'central_pm', '--scope', 'user'], {
+      encoding: 'utf8', shell: false,
+    });
+  }
+
+  // Remove shim and config files
+  if (fs.existsSync(shimPath))   fs.rmSync(shimPath,   { force: true });
+  if (fs.existsSync(configPath)) fs.rmSync(configPath, { force: true });
+}
+
+/**
+ * Print what would be written to stdout without touching any files.
+ * @param {{ shimBaseDir?: string, mcpPath?: string, log?: (msg: string) => void, error?: (msg: string) => void }} [opts]
+ */
+export function dryRun(opts = {}) {
+  const logFn = opts.log   ?? console.log;
+  const errFn = opts.error ?? console.error;
+  const { shimPath, configPath, mcpPath } = _resolvePaths(opts);
+
+  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+    errFn('  \u2717 MCP server is not built. Run: cd mcp-server && npm run build');
+    return;
+  }
+
+  logFn('\n  Dry run \u2014 no files will be written.\n');
+
+  // config.json
+  logFn(`  [\u2139\ufe0f  ${configPath}]`);
+  logFn(JSON.stringify({ repoPath: WORKSPACE_ROOT }, null, 2));
+  logFn('');
+
+  // VS Code mcp.json
+  const vsResult = installVSCode({ ...opts, dryRun: true });
+  if (vsResult.changed) {
+    logFn(`  [\u2139\ufe0f  ${mcpPath}]`);
+    logFn(vsResult.diff);
+  } else {
+    logFn(`  [\u2713 ${mcpPath}] already configured \u2014 no change`);
+    logFn('');
+  }
+
+  // Claude Code
+  const ccResult = installClaudeCode({ ...opts, dryRun: true });
+  logFn(`  [\u2139\ufe0f  Claude Code]`);
+  logFn(`  ${ccResult.command}`);
+  logFn('');
+}
+
+/**
+ * Run the full install flow.
+ * Idempotent: re-running when already installed is a no-op.
+ *
+ * @param {{ shimBaseDir?: string, mcpPath?: string, log?: (msg: string) => void }} [opts]
+ */
+export function install(opts = {}) {
+  const logFn = opts.log ?? console.log;
+  const { shimPath, configPath } = _resolvePaths(opts);
+
+  // Pre-flight: dist must exist
+  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+    throw new Error(
+      'MCP server is not built. Run the menu and rebuild the MCP server first.\n' +
+      '  \u2192 cd mcp-server && npm run build'
+    );
+  }
+
+  // Idempotency check: config, shim, VS Code entry, and Claude Code are all already correct
+  if (fs.existsSync(configPath) && fs.existsSync(shimPath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (existing.repoPath === WORKSPACE_ROOT) {
+        const vsResult  = installVSCode({ ...opts, dryRun: true });
+        const ccStatus  = _checkClaudeCodeStatus();
+        const ccSettled = !ccStatus.available || ccStatus.registered;
+        if (!vsResult.changed && ccSettled) {
+          logFn('  \u2713 Global MCP already registered (no change)');
+          return;
+        }
+      }
+    } catch {
+      // Config unreadable — proceed with write
+    }
+  }
+
+  // Write shim and config
+  writeShim(opts);
+  writeConfig(WORKSPACE_ROOT, opts);
+  logFn(`  \u2713 Shim written \u2192 ${shimPath}`);
+  logFn(`  \u2713 Config written \u2192 ${configPath}`);
+
+  // VS Code
+  const vsResult = installVSCode(opts);
+  if (vsResult.changed) {
+    logFn(`  \u2713 VS Code user mcp.json updated \u2192 ${vsResult.path}`);
+  } else {
+    logFn(`  \u2713 VS Code user mcp.json already configured`);
+  }
+
+  // Claude Code (optional)
+  const ccResult = installClaudeCode(opts);
+  if (ccResult.skipped) {
+    logFn(`  \u26a0 Claude Code registration skipped: ${ccResult.reason}`);
+  } else if (ccResult.alreadyRegistered) {
+    logFn(`  \u2713 Claude Code already registered`);
+  } else if (ccResult.status === 0) {
+    logFn(`  \u2713 Claude Code registered`);
+  } else if (ccResult.command) {
+    // dry run branch — should not happen here
+  } else {
+    logFn(`  \u26a0 Claude Code registration may have failed (exit ${ccResult.status})`);
+  }
+}
 
 ```
 ###  Path: `/scripts/kill-orchestrator.js`
@@ -1963,510 +2439,260 @@ main().catch((err) => {
 });
 
 ```
-###  Path: `/scripts/migrate-synthesis-insights.js`
+###  Path: `/scripts/lib/health-checks.js`
 
 ```js
 #!/usr/bin/env node
 
 /**
- * scripts/migrate-synthesis-insights.js
+ * scripts/lib/health-checks.js
  *
- * Scans existing synthesis documents across all project ledger directories,
- * feeds each through an LLM extraction prompt, validates the resulting
- * candidates, deduplicates against already-committed insights, and commits
- * them to the knowledge store via direct JSON writes.
+ * Unified health-check registry for the ai-insights workspace.
+ * Single source of detection logic shared by status lines, the doctor command,
+ * and preflight flows.
  *
- * ─── USAGE ─────────────────────────────────────────────────────────────────
+ * Cost tier boundaries:
+ *   instant  — file-existence stats, process.versions checks (< 5 ms)
+ *   fast     — mtime comparisons, JSON config parsing (< 50 ms)
+ *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
- *   node scripts/migrate-synthesis-insights.js [options]
+ * Exports:
+ *   HEALTH_CHECKS  — Array<HealthCheck> with 9 annotated entries.
+ *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
- * ─── OPTIONS ───────────────────────────────────────────────────────────────
- *
- *   --dry-run              Print extracted candidates as JSON without writing
- *   --project <slug>       Process only the named project's synthesis document
- *   --limit <N>            Process at most N projects per run
- *   --resume               Skip projects with ≥1 committed insight already
- *   --verbose              Enable verbose logging
- *   --help                 Print this help message and exit
- *
- * ─── PREREQUISITES ─────────────────────────────────────────────────────────
- *
- *   ANTHROPIC_API_KEY must be set in the environment.
- *
- *   LEDGER ROOT: This script uses a hardcoded ledger root path:
- *     mcp-server/storage/ledger
- *   If you have configured a custom --ledger-path when starting the MCP
- *   server, update the LEDGER_ROOT constant near the top of this script to
- *   match your configuration. Running against the wrong ledger root will
- *   silently scan an empty directory and commit no insights.
- *
- * ─── COST WARNING ──────────────────────────────────────────────────────────
- *
- *   This script submits one LLM request per synthesis document. With 250+
- *   projects the token cost is non-trivial. Use --project + --dry-run first
- *   to verify prompt quality before running the full batch. Use --resume to
- *   safely resume an interrupted run without re-processing completed projects.
+ * Dependency direction: this file MUST NOT import from scripts/cli.js,
+ * SETUP_COMPONENTS, or any other file in scripts/ outside of scripts/lib/.
  */
 
-import fs from 'fs';
+import fs   from 'fs';
+import os   from 'os';
 import path from 'path';
-import https from 'https';
-import { KnowledgeStoreManager } from '../mcp-server/dist/storage/knowledge-store.js';
+import { spawn } from 'child_process';
 
-// ─── Path resolution ───────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const WORKSPACE_ROOT  = path.resolve(import.meta.dirname, '..');
-const MCP_SERVER_DIR  = path.join(WORKSPACE_ROOT, 'mcp-server');
-const LEDGER_ROOT     = path.join(MCP_SERVER_DIR, 'storage', 'ledger');
+const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '../..');
+const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
+const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
+const SIBLING_DIR       = path.resolve(WORKSPACE_ROOT, '..');
 
-// ─── Utilities ─────────────────────────────────────────────────────────────
-
-/**
- * Parse CLI flags from process.argv.
- * @returns {{ dryRun: boolean, project: string|null, limit: number|null, resume: boolean, verbose: boolean, help: boolean }}
- */
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const opts = { dryRun: false, project: null, limit: null, resume: false, verbose: false, help: false };
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === '--dry-run') opts.dryRun = true;
-    else if (a === '--resume') opts.resume = true;
-    else if (a === '--verbose') opts.verbose = true;
-    else if (a === '--help') opts.help = true;
-    else if (a === '--project') { opts.project = args[++i] ?? null; }
-    else if (a === '--limit') {
-      const n = parseInt(args[++i] ?? '', 10);
-      opts.limit = isNaN(n) ? null : n;
-    }
-  }
-  return opts;
-}
-
-function printHelp() {
-  console.log(`
-migrate-synthesis-insights.js
-
-Extracts reusable insights from synthesis documents using an LLM and
-commits them to the centralized knowledge store.
-
-USAGE:
-  node scripts/migrate-synthesis-insights.js [options]
-
-OPTIONS:
-  --dry-run              Print extracted candidates as JSON without writing
-  --project <slug>       Process only the named project's synthesis document
-  --limit <N>            Process at most N projects per run
-  --resume               Skip projects with >=1 committed insight already
-  --verbose              Enable verbose logging
-  --help                 Print this help message and exit
-
-PREREQUISITES:
-  ANTHROPIC_API_KEY must be set in the environment.
-
-COST WARNING:
-  One LLM call per synthesis document. Use --project --dry-run to validate
-  prompt output before running the full batch. Use --resume to safely restart
-  an interrupted batch run.
-
-EXAMPLE:
-  # Test against a single project in dry-run mode
-  ANTHROPIC_API_KEY=sk-... node scripts/migrate-synthesis-insights.js \\
-    --project 2026-01-01-my-feature --dry-run
-
-  # Run incremental batch (first 10 projects, skip already-processed)
-  ANTHROPIC_API_KEY=sk-... node scripts/migrate-synthesis-insights.js \\
-    --limit 10 --resume
-`);
-}
-
-function logVerbose(verbose, ...args) {
-  if (verbose) console.error('[verbose]', ...args);
-}
-
-// ─── Knowledge store (via KnowledgeStoreManager) ──────────────────────────
-
-const manager = new KnowledgeStoreManager(LEDGER_ROOT);
-
-// ─── Deduplication ─────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Normalizes a title for deduplication comparison.
- * @param {string} title
- * @returns {string}
+ * Recursively find the latest mtime (ms) among all files in a directory.
+ * Returns -Infinity if the directory is unreadable or empty.
+ * @param {string} dir
+ * @returns {number}
  */
-function normalizeTitle(title) {
-  return title.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Loads all existing insight titles from the knowledge store.
- * Returns a Set of normalized titles.
- * @returns {Promise<Set<string>>}
- */
-async function loadExistingTitles() {
-  const insights = await manager.listInsights({});
-  const titles = new Set();
-  for (const insight of insights) {
-    titles.add(normalizeTitle(insight.title));
-  }
-  return titles;
-}
-
-/**
- * Returns true when the project has at least one committed insight.
- * Used by --resume to skip already-processed projects.
- * @param {string} slug
- * @returns {Promise<boolean>}
- */
-async function projectHasInsights(slug) {
-  const insights = await manager.listInsights({ project_slug: slug });
-  return insights.length > 0;
-}
-
-/**
- * Commits a single validated insight to the appropriate store via KnowledgeStoreManager.
- * @param {{ scope: string, title: string, content: string, category: string, tags: string[], source: string, confidence: number }} insight
- * @param {string} projectSlug  — the slug of the originating project (used for project scope)
- * @param {boolean} [dryRun]
- * @returns {Promise<{ committed: boolean, id?: number }>}
- */
-async function commitInsight(insight, projectSlug, dryRun) {
-  if (dryRun) return { committed: false };
-
-  const scope = insight.scope === 'project' ? 'project' : 'global';
-  const created = await manager.addInsight({
-    scope,
-    ...(scope === 'project' ? { project_slug: projectSlug } : {}),
-    title:      insight.title,
-    content:    insight.content,
-    category:   insight.category || 'general',
-    tags:       Array.isArray(insight.tags) ? insight.tags : [],
-    source:     insight.source,
-    created_at: new Date().toISOString(),
-    confidence: typeof insight.confidence === 'number' ? insight.confidence : 0.5,
-  });
-  return { committed: true, id: created.id };
-}
-
-// ─── Project discovery ─────────────────────────────────────────────────────
-
-/**
- * Enumerates all project slugs that have a synthesis.md in the ledger root.
- * @returns {string[]}
- */
-function findProjectsWithSynthesis() {
-  if (!fs.existsSync(LEDGER_ROOT)) return [];
-  const slugs = [];
-  const entries = fs.readdirSync(LEDGER_ROOT, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    // Exclude the hidden .knowledge directory itself
-    if (entry.name.startsWith('.')) continue;
-    const synthPath = path.join(LEDGER_ROOT, entry.name, 'synthesis.md');
-    if (fs.existsSync(synthPath)) {
-      slugs.push(entry.name);
-    }
-  }
-  return slugs.sort();
-}
-
-// ─── LLM extraction ────────────────────────────────────────────────────────
-
-const EXTRACTION_PROMPT = `You are a knowledge curator. Your task is to extract reusable insights from a project synthesis document.
-
-An "insight" is a principle, pattern, pitfall, architectural decision, or lesson learned that is broadly applicable beyond the specific project context. Good insights are actionable, concise, and permanently relevant.
-
-DO extract:
-- Architectural patterns and anti-patterns
-- Reusable engineering principles (e.g., "always validate slugs at the schema boundary")
-- Common pitfalls to avoid
-- Cross-cutting design decisions and their rationale
-- Testing strategies and conventions
-- Workflow improvements that generalize across projects
-
-DO NOT extract:
-- Project-specific status updates or milestones
-- Metrics or timeline summaries
-- One-off implementation details that don't generalize
-- Observations that are only relevant to this specific codebase
-
-For each insight, determine:
-- scope: "global" if it applies broadly to any software project, "project" if it is specific to this codebase
-- category: one of "architecture", "testing", "workflow", "security", "patterns", "pitfalls", "decisions", "conventions"
-- confidence: a float 0.0–1.0 (use 0.5 for insights that need human review; lower for uncertain ones)
-
-Output a JSON array only — no prose, no markdown fences, no explanation. Each element must have:
-  title (string, ≤ 80 chars), content (string), scope (string), category (string), tags (string[]), confidence (number)
-
-Example output:
-[
-  {
-    "title": "Atomic writes prevent partial-file corruption",
-    "content": "Write to a temporary file in the same directory, then rename atomically. This guarantees readers never see a partially-written file.",
-    "scope": "global",
-    "category": "architecture",
-    "tags": ["storage", "reliability", "atomic"],
-    "confidence": 0.95
-  }
-]
-
-If the document contains no generalizable insights, output an empty array: []`;
-
-/**
- * Calls the Anthropic Messages API with the synthesis document content.
- * Returns the raw text response from the assistant.
- * @param {string} apiKey
- * @param {string} synthesisContent
- * @returns {Promise<string>}
- */
-/**
- * NOTE — Prompt injection awareness: synthesisContent is inserted verbatim into
- * the LLM prompt. A malicious synthesis document could attempt to override the
- * extraction instructions. This risk is mitigated downstream by parseInsightCandidates(),
- * which validates structure (JSON array, required fields, scope enum) and rejects
- * non-conforming output. The attack surface is minimal for a developer tool that
- * only processes the project's own synthesis files.
- */
-function callAnthropicAPI(apiKey, synthesisContent) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: `${EXTRACTION_PROMPT}\n\n---\n\nSYNTHESIS DOCUMENT:\n\n${synthesisContent}`,
-        },
-      ],
-    });
-
-    const options = {
-      hostname: 'api.anthropic.com',
-      path: '/v1/messages',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf-8');
-        if (res.statusCode >= 400) {
-          return reject(new Error(`Anthropic API error ${res.statusCode}: ${raw}`));
-        }
-        try {
-          const parsed = JSON.parse(raw);
-          const text = parsed?.content?.[0]?.text ?? '';
-          resolve(text);
-        } catch {
-          reject(new Error(`Failed to parse Anthropic API response: ${raw.slice(0, 200)}`));
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
-/**
- * Parses and validates an array of insight candidates from the LLM response text.
- * Returns only candidates with required fields present.
- * @param {string} text - Raw LLM response text expected to be a JSON array
- * @returns {Array<{ title: string, content: string, scope: string, category: string, tags: string[], confidence: number }>}
- */
-function parseInsightCandidates(text) {
-  // Strip markdown code fences if the LLM wrapped the output
-  const stripped = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
-
-  let candidates;
+function latestMtime(dir) {
+  let latest = -Infinity;
   try {
-    candidates = JSON.parse(stripped);
-  } catch (err) {
-    throw new Error(`LLM output is not valid JSON: ${err.message}\nOutput snippet: ${stripped.slice(0, 300)}`);
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        latest = Math.max(latest, latestMtime(full));
+      } else if (entry.isFile()) {
+        latest = Math.max(latest, fs.statSync(full).mtimeMs);
+      }
+    }
+  } catch {
+    // Directory unreadable — treat as empty.
   }
-
-  if (!Array.isArray(candidates)) {
-    throw new Error(`LLM output is not a JSON array. Got: ${typeof candidates}`);
-  }
-
-  return candidates.filter((c) => {
-    if (typeof c !== 'object' || c === null) return false;
-    if (!c.title || typeof c.title !== 'string') return false;
-    if (!c.content || typeof c.content !== 'string') return false;
-    if (!c.scope || !['global', 'project'].includes(c.scope)) return false;
-    return true;
-  });
+  return latest;
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─── Type definitions ─────────────────────────────────────────────────────────
 
-async function main() {
-  const opts = parseArgs();
+/**
+ * @typedef {{ id: string, label: string, cost: 'instant'|'fast', detect(): boolean, fix?: string }} SyncCheck
+ * @typedef {{ id: string, label: string, cost: 'slow', detect(): Promise<boolean>, fix?: string }} SlowCheck
+ * @typedef {SyncCheck | SlowCheck} HealthCheck
+ * @typedef {{ id: string, label: string, passed: boolean, fix?: string }} CheckResult
+ */
 
-  if (opts.help) {
-    printHelp();
-    process.exit(0);
-  }
+// ─── Health-Check Registry ───────────────────────────────────────────────────
 
-  const apiKey = process.env['ANTHROPIC_API_KEY'];
-  if (!apiKey) {
-    console.error('Error: ANTHROPIC_API_KEY environment variable is not set.');
-    console.error('Set it before running: ANTHROPIC_API_KEY=sk-... node scripts/migrate-synthesis-insights.js');
-    process.exit(1);
-  }
+/** @type {Array<HealthCheck>} */
+export const HEALTH_CHECKS = [
 
-  if (!fs.existsSync(LEDGER_ROOT)) {
-    console.error(`Error: Ledger root not found at ${LEDGER_ROOT}`);
-    console.error('Build the MCP server and initialize at least one project first.');
-    process.exit(1);
-  }
+  // ── instant tier (< 5 ms — safe on every menu render) ────────────────────
 
-  // Discover projects
-  let slugs = findProjectsWithSynthesis();
+  /** @type {SyncCheck} */
+  {
+    id: 'mcp-dist',
+    label: 'MCP Server dist built',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return fs.existsSync(MCP_DIST_SENTINEL);
+    },
+    fix: 'cd mcp-server && npm run build',
+  },
 
-  if (opts.project) {
-    if (!slugs.includes(opts.project)) {
-      console.error(`Error: project "${opts.project}" not found or has no synthesis.md`);
-      console.error(`Available projects: ${slugs.join(', ') || '(none)'}`);
-      process.exit(1);
-    }
-    slugs = [opts.project];
-  }
+  /** @type {SyncCheck} */
+  {
+    id: 'orchestrator-venv',
+    label: 'Orchestrator venv present',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return fs.existsSync(VENV_DIR);
+    },
+    fix: 'node scripts/cli.js setup --components orchestrator',
+  },
 
-  if (opts.limit !== null) {
-    // NOTE: --limit is applied to the *candidate* list, not to the number of
-    // projects actually committed. When combined with --resume, projects that are
-    // already processed count against the limit. Use a higher --limit value if
-    // you need to guarantee N new projects are processed in a single run.
-    slugs = slugs.slice(0, opts.limit);
-  }
+  /** @type {SyncCheck} */
+  {
+    id: 'hooks-installed',
+    label: 'Git hooks installed',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      try {
+        const gitConfig = fs.readFileSync(
+          path.join(WORKSPACE_ROOT, '.git', 'config'),
+          'utf8'
+        );
+        return /hooksPath\s*=\s*\.githooks/.test(gitConfig);
+      } catch {
+        return false;
+      }
+    },
+    fix: 'node scripts/cli.js install-hooks',
+  },
 
-  // Summary counters
-  const summary = {
-    projectsProcessed: 0,
-    projectsSkipped:   0,
-    errors:            0,
-    insightsExtracted: 0,
-    duplicatesSkipped: 0,
+  /** @type {SyncCheck} */
+  {
+    id: 'node-version',
+    label: 'Node.js \u2265 18',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      const major = parseInt(process.versions.node.split('.')[0], 10);
+      return major >= 18;
+    },
+    fix: 'Install Node.js 18 or later from https://nodejs.org',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'sibling-persona-builder',
+    label: 'ai-persona-builder dist built',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return fs.existsSync(path.join(SIBLING_DIR, 'ai-persona-builder', 'dist'));
+    },
+    fix: 'cd ../ai-persona-builder && npm run build',
+  },
+
+  // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────
+
+  /** @type {SyncCheck} */
+  {
+    id: 'global-mcp-registered',
+    label: 'Global MCP registered',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      return fs.existsSync(path.join(os.homedir(), '.ai-insights', 'config.json'));
+    },
+    fix: 'node scripts/cli.js install-mcp',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'mcp-dist-fresh',
+    label: 'MCP Server dist up to date',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      if (!fs.existsSync(MCP_DIST_SENTINEL)) return false;
+      const distMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
+      return latestMtime(MCP_SRC_DIR) <= distMtime;
+    },
+    fix: 'cd mcp-server && npm run build',
+  },
+
+  // ── slow tier (100 ms – 2 s — subprocess spawns) ─────────────────────────
+
+  /** @type {SlowCheck} */
+  {
+    id: 'personas-fresh',
+    label: 'Personas up to date',
+    cost: 'slow',
+    /** @returns {Promise<boolean>} */
+    detect() {
+      return new Promise((resolve) => {
+        const proc = spawn(
+          'node',
+          [path.join(WORKSPACE_ROOT, 'scripts', 'build-personas.js'), '--check'],
+          { stdio: 'ignore', shell: false }
+        );
+        proc.on('close', (code) => resolve(code === 0));
+        proc.on('error', () => resolve(false));
+      });
+    },
+    fix: 'node scripts/cli.js sync-personas',
+  },
+
+];
+
+// ─── runChecks helper ─────────────────────────────────────────────────────────
+
+/**
+ * Run the subset of health checks matching the given cost filter and resolve
+ * all detectors, awaiting async slow checks.
+ *
+ * Filter behaviour:
+ *   'instant' — only instant-tier checks; all detectors are synchronous.
+ *   'fast'    — instant + fast checks; all detectors are synchronous.
+ *   'slow'    — only slow-tier checks; all detectors are async (Promise).
+ *   'all'     — all checks; async slow detectors are awaited.
+ *
+ * @param {'instant'|'fast'|'slow'|'all'} costFilter
+ * @returns {Promise<CheckResult[]>}
+ */
+export async function runChecks(costFilter) {
+  /** @type {Record<string, string[]>} */
+  const tierSets = {
+    instant: ['instant'],
+    fast:    ['instant', 'fast'],
+    slow:    ['slow'],
+    all:     ['instant', 'fast', 'slow'],
   };
 
-  // Snapshot of existing titles for deduplication (refreshed after each commit batch)
-  let existingTitles = await loadExistingTitles();
-
-  console.error(`[migrate] Ledger root: ${LEDGER_ROOT}`);
-  console.error(`[migrate] Projects to process: ${slugs.length}`);
-  if (opts.dryRun)  console.error('[migrate] DRY RUN — no writes will occur');
-  if (opts.resume)  console.error('[migrate] RESUME mode — skipping projects with existing insights');
-  if (opts.verbose) console.error('[migrate] Verbose logging enabled');
-  console.error('');
-
-  for (const slug of slugs) {
-    // --resume: skip projects already processed
-    if (opts.resume && await projectHasInsights(slug)) {
-      logVerbose(opts.verbose, `Skipping ${slug} (already has insights)`);
-      summary.projectsSkipped++;
-      continue;
-    }
-
-    const synthPath = path.join(LEDGER_ROOT, slug, 'synthesis.md');
-    const sourceRef = path.join(slug, 'synthesis.md');
-
-    console.error(`[migrate] Processing: ${slug}`);
-
-    try {
-      const synthesisContent = fs.readFileSync(synthPath, 'utf-8');
-      logVerbose(opts.verbose, `  Read synthesis.md (${synthesisContent.length} chars)`);
-
-      // Call LLM
-      const rawResponse = await callAnthropicAPI(apiKey, synthesisContent);
-      logVerbose(opts.verbose, `  LLM response: ${rawResponse.length} chars`);
-
-      // Parse candidates
-      const candidates = parseInsightCandidates(rawResponse);
-      logVerbose(opts.verbose, `  Extracted ${candidates.length} candidate(s)`);
-
-      // In dry-run mode, print candidates as JSON and continue
-      if (opts.dryRun) {
-        const dryRunOutput = candidates.map((c) => ({
-          ...c,
-          source: sourceRef,
-          confidence: typeof c.confidence === 'number' ? c.confidence : 0.5,
-          tags: Array.isArray(c.tags) ? c.tags : [],
-        }));
-        console.log(JSON.stringify(dryRunOutput, null, 2));
-        summary.insightsExtracted += candidates.length;
-        summary.projectsProcessed++;
-        continue;
-      }
-
-      // Commit (non-dry-run)
-      let committedCount = 0;
-      for (const candidate of candidates) {
-        const normalTitle = normalizeTitle(candidate.title);
-
-        // Deduplication
-        if (existingTitles.has(normalTitle)) {
-          logVerbose(opts.verbose, `  Skipping duplicate: "${candidate.title}"`);
-          summary.duplicatesSkipped++;
-          continue;
-        }
-
-        const insightWithSource = {
-          ...candidate,
-          source: sourceRef,
-          confidence: typeof candidate.confidence === 'number' ? candidate.confidence : 0.5,
-          tags: Array.isArray(candidate.tags) ? candidate.tags : [],
-        };
-
-        const result = await commitInsight(insightWithSource, slug, false);
-        if (result.committed) {
-          existingTitles.add(normalTitle);
-          committedCount++;
-          summary.insightsExtracted++;
-          logVerbose(opts.verbose, `  Committed KN-${String(result.id).padStart(4, '0')}: "${candidate.title}"`);
-        }
-      }
-
-      console.error(`  → ${committedCount} committed, ${candidates.length - committedCount} skipped`);
-      summary.projectsProcessed++;
-
-    } catch (err) {
-      console.error(`  [ERROR] ${slug}: ${err.message}`);
-      summary.errors++;
-      // Per-project error does not abort the batch — continue to next project
-    }
+  const allowed = tierSets[costFilter];
+  if (!allowed) {
+    throw new Error(
+      `Unknown costFilter "${costFilter}". Expected: instant | fast | slow | all`
+    );
   }
 
-  // ── Summary report ──────────────────────────────────────────────────────
-  console.error('');
-  console.error('─────────────────────────────────────────');
-  console.error('[migrate] Summary');
-  console.error('─────────────────────────────────────────');
-  console.error(`  Projects processed : ${summary.projectsProcessed}`);
-  console.error(`  Projects skipped   : ${summary.projectsSkipped}`);
-  console.error(`  Insights extracted : ${summary.insightsExtracted}`);
-  console.error(`  Duplicates skipped : ${summary.duplicatesSkipped}`);
-  console.error(`  Errors             : ${summary.errors}`);
-  console.error('─────────────────────────────────────────');
+  const checks = HEALTH_CHECKS.filter(c => allowed.includes(c.cost));
 
-  if (summary.errors > 0) {
-    process.exit(1);
-  }
+  const results = await Promise.all(
+    checks.map(async (check) => {
+      let passed;
+      try {
+        const raw = check.detect();
+        // instant/fast detectors return a plain boolean — no await needed.
+        // slow detectors return a Promise — await it.
+        passed = raw instanceof Promise ? await raw : raw;
+      } catch {
+        passed = false;
+      }
+
+      /** @type {CheckResult} */
+      const result = { id: check.id, label: check.label, passed: Boolean(passed) };
+      if (check.fix) result.fix = check.fix;
+      return result;
+    })
+  );
+
+  return results;
 }
-
-main().catch((err) => {
-  console.error('[migrate] Fatal error:', err.message);
-  process.exit(1);
-});
 
 ```
 ###  Path: `/scripts/normalize-ctx-paths.js`
@@ -2831,17 +3057,76 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 
+const ROOT = path.resolve(import.meta.dirname, '..');
+const SIBLING_DIR = path.resolve(ROOT, '..');
+
+/** Canonical repository clone URLs (no embedded credentials). */
+const SIBLING_CLONE_URLS = {
+  'ai-persona-builder':'https://github.com/Mistralys/ai-persona-builder.git',
+};
+
+/**
+ * Return the latest mtime (ms) of any file found recursively inside `dir`.
+ * Returns 0 if the directory does not exist or is empty.
+ * Uses fs.statSync only — no subprocess is spawned.
+ */
+function latestMtime(dir) {
+  if (!fs.existsSync(dir)) return 0;
+  let latest = 0;
+  for (const entry of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const full = path.join(entry.parentPath ?? entry.path, entry.name);
+    try {
+      const { mtimeMs } = fs.statSync(full);
+      if (mtimeMs > latest) latest = mtimeMs;
+    } catch { /* ignore permission errors on individual files */ }
+  }
+  return latest;
+}
+
+/**
+ * Return true when `srcDir` contains a file newer than `distFile`.
+ * Considers the dist stale (returns true) when `distFile` does not exist.
+ * Uses mtime comparison only — no subprocess is spawned for the check.
+ */
+function isStale(srcDir, distFile) {
+  if (!fs.existsSync(distFile)) return true;
+  const srcMtime  = latestMtime(srcDir);
+  const distMtime = fs.statSync(distFile).mtimeMs;
+  return srcMtime > distMtime;
+}
+
 function bootstrap() {
-  const root = path.resolve(import.meta.dirname, '..');
-  
-  // In case of local dev, try to find original repos if they are siblings
-  const workspaceRoot = path.resolve(root, '..');
-  const cliMenuDir = path.join(workspaceRoot, 'cli-menu');
+  const root = ROOT;
+  const workspaceRoot = SIBLING_DIR;
   const personaBuilderDir = path.join(workspaceRoot, 'ai-persona-builder');
-  
+
+  // --- Missing sibling repo guidance ---
+  if (!fs.existsSync(personaBuilderDir)) {
+    console.log(`[Bootstrap] Sibling repo 'ai-persona-builder' not found.`);
+    console.log(`           Run: git clone ${SIBLING_CLONE_URLS['ai-persona-builder']} ${personaBuilderDir}`);
+  }
+
+  // --- mcp-server staleness detection (mtime comparison only) ---
+  const mcpSrcDir  = path.join(root, 'mcp-server', 'src');
+  const mcpDistFile = path.join(root, 'mcp-server', 'dist', 'index.js');
+  if (isStale(mcpSrcDir, mcpDistFile)) {
+    console.log(`[Bootstrap] mcp-server source is newer than dist, rebuilding...`);
+    try {
+      execSync('npm run build', { cwd: path.join(root, 'mcp-server'), stdio: 'inherit' });
+    } catch {
+      console.error(`[Bootstrap] Failed to rebuild mcp-server.`);
+      process.exit(1);
+    }
+  }
+
+  // --- Sibling repo: install + build (initial setup and staleness) ---
   const packages = [
-    { name: '@mistralys/persona-builder', dir: personaBuilderDir },
-    { name: '@mistralys/cli-menu', dir: cliMenuDir }
+    {
+      name:     '@mistralys/persona-builder',
+      dir:      personaBuilderDir,
+      distFile: path.join(personaBuilderDir, 'dist', 'index.js'),
+    },
   ];
 
   let builtAny = false;
@@ -2849,10 +3134,15 @@ function bootstrap() {
   for (const pkg of packages) {
     if (!fs.existsSync(pkg.dir)) continue;
 
-    const distDir = path.join(pkg.dir, 'dist');
+    const distDir    = path.join(pkg.dir, 'dist');
     const nodeModules = path.join(pkg.dir, 'node_modules');
-    
-    if (!fs.existsSync(distDir) || !fs.existsSync(nodeModules)) {
+    const srcDir     = path.join(pkg.dir, 'src');
+
+    const stale = !fs.existsSync(distDir)
+               || !fs.existsSync(nodeModules)
+               || isStale(srcDir, pkg.distFile);
+
+    if (stale) {
       console.log(`[Bootstrap] Preparing ${pkg.name}...`);
       try {
         if (!fs.existsSync(nodeModules)) {
@@ -2860,20 +3150,20 @@ function bootstrap() {
         }
         execSync('npm run build', { cwd: pkg.dir, stdio: 'inherit' });
         builtAny = true;
-      } catch (err) {
+      } catch {
         console.error(`[Bootstrap] Failed to prepare ${pkg.name}.`);
         process.exit(1);
       }
     }
   }
 
-  // Also ensure ai-insights root has node_modules and cli-menu inside it has dist (if linked)
+  // Also ensure ai-insights root has node_modules
   const insightsModules = path.join(root, 'node_modules');
   if (builtAny || !fs.existsSync(insightsModules)) {
     console.log(`[Bootstrap] Preparing ai-insights...`);
     try {
       execSync('npm install', { cwd: root, stdio: 'inherit' });
-    } catch (err) {
+    } catch {
       console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
       process.exit(1);
     }
@@ -2881,6 +3171,7 @@ function bootstrap() {
 }
 
 bootstrap();
+
 
 ```
 ###  Path: `/scripts/preflight-orchestrator.js`
@@ -2915,16 +3206,22 @@ bootstrap();
 import path from 'path';
 import fs from 'fs';
 import { spawnSync } from 'child_process';
+import { HEALTH_CHECKS } from './lib/health-checks.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
 const WORKSPACE_ROOT   = path.resolve(import.meta.dirname, '..');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
-const MCP_SRC          = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
 const IS_WIN           = process.platform === 'win32';
 const VENV_DIR         = path.join(ORCHESTRATOR_DIR, '.venv');
 const ENV_FILE         = path.join(ORCHESTRATOR_DIR, '.env');
+
+const hcMcpDist      = HEALTH_CHECKS.find(c => c.id === 'mcp-dist');
+const hcMcpDistFresh = HEALTH_CHECKS.find(c => c.id === 'mcp-dist-fresh');
+const hcOrcVenv      = HEALTH_CHECKS.find(c => c.id === 'orchestrator-venv');
+if (!hcMcpDist)      throw new Error("Health check 'mcp-dist' not found in HEALTH_CHECKS — was its id renamed?");
+if (!hcMcpDistFresh) throw new Error("Health check 'mcp-dist-fresh' not found in HEALTH_CHECKS — was its id renamed?");
+if (!hcOrcVenv)      throw new Error("Health check 'orchestrator-venv' not found in HEALTH_CHECKS — was its id renamed?");
 
 function venvBin(name) {
   return IS_WIN
@@ -2992,15 +3289,17 @@ function parseEnvVars() {
 
 /** Check that the Python venv exists and contains the orchestrate binary. */
 function checkVenv() {
-  if (!fs.existsSync(VENV_DIR)) {
+  // Delegate basic venv-dir detection to shared registry
+  if (!hcOrcVenv.detect()) {
     return {
       name: 'venv',
       pass: false,
       detail: '.venv directory not found',
-      fix: 'node scripts/cli.js setup --components orchestrator',
+      fix: hcOrcVenv.fix,
     };
   }
 
+  // orchestrate binary check is preflight-specific
   const orchestrateBin = venvBin('orchestrate');
   if (!fs.existsSync(orchestrateBin)) {
     return {
@@ -3039,38 +3338,24 @@ function checkEnv() {
   return { name: 'env', pass: true, detail: 'API key configured' };
 }
 
-/** Check that MCP server dist is up to date. */
+/** Check that MCP server dist is built and up to date. */
 function checkMcpDist() {
-  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+  // Delegate detection to shared registry — no local mtime logic needed.
+  if (!hcMcpDist.detect()) {
     return {
       name: 'mcp-dist',
       pass: false,
       detail: 'mcp-server/dist/index.js not found',
-      fix: 'cd mcp-server && npm run build',
+      fix: hcMcpDist.fix,
     };
   }
 
-  const sentinelMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
-
-  function latestMtime(dir) {
-    let latest = -Infinity;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        latest = Math.max(latest, latestMtime(full));
-      } else if (entry.isFile()) {
-        latest = Math.max(latest, fs.statSync(full).mtimeMs);
-      }
-    }
-    return latest;
-  }
-
-  if (latestMtime(MCP_SRC) > sentinelMtime) {
+  if (!hcMcpDistFresh.detect()) {
     return {
       name: 'mcp-dist',
       pass: false,
       detail: 'mcp-server/dist is stale (source is newer)',
-      fix: 'cd mcp-server && npm run build',
+      fix: hcMcpDistFresh.fix,
     };
   }
 

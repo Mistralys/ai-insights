@@ -35,8 +35,9 @@ _SOURCE: Top-level directory tree_
     │       ├── ctx-generator-guide.md
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
-    │       └── chat.json
-    │       └── handoff-diagram.svg
+    │       └── 2026-05-28-ce-framework-audit.md
+    │       └── 2026-05-29-developer-experience.md
+    │       └── 2026-05-29-ledger-gui-quality-improvements.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
@@ -155,6 +156,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── handoff-config-integration.test.ts
     │   │   ├── knowledge-api.test.ts
+    │   │   ├── knowledge-repository-scope.test.ts
     │   │   ├── log-resolver.test.ts
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
@@ -390,6 +392,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── reviewer-output-format.md
     │   │   └── security-auditor-operational-protocol.md
     │   │   └── security-auditor-output-format.md
+    │   │   └── synthesis-knowledge-collection.md
     │   │   └── synthesis-operational-protocol.md
     │   │   └── synthesis-output-format.md
     ├── standalone/
@@ -428,7 +431,6 @@ _SOURCE: Top-level directory tree_
     │       ├── developer.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
-    │       ├── knowledge-archiver.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -444,6 +446,7 @@ _SOURCE: Top-level directory tree_
     │       ├── plan-refiner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
+    │       ├── standalone-knowledge-archiver.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
     │   └── vs-code/
@@ -480,8 +483,10 @@ _SOURCE: Top-level directory tree_
     ├── cli.js
     ├── extract-changelog-entry.js
     ├── install-hooks.js
+    ├── install-mcp-global.js
     ├── kill-orchestrator.js
-    ├── migrate-synthesis-insights.js
+    ├── lib/
+    │   ├── health-checks.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js
@@ -494,6 +499,8 @@ _SOURCE: Top-level directory tree_
     ├── sync-personas.js
     ├── tests/
     │   ├── README.md
+    │   ├── health-checks.test.js
+    │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
     ├── validate-workflow-manifest.js
 └── shared/

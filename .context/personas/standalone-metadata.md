@@ -20,7 +20,6 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── developer.yaml
                 └── documentation-curator.yaml
                 └── git-committer.yaml
-                └── knowledge-archiver.yaml
                 └── ledger-bootstrapper.yaml
                 └── ledger-claude-coordinator.yaml
                 └── ledger-dependency-sequencer.yaml
@@ -36,6 +35,7 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── plan-refiner.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
+                └── standalone-knowledge-archiver.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
 
@@ -240,26 +240,6 @@ cc_tools:
   - Read
   - Grep
   - Glob
-
-```
-###  Path: `/personas/standalone/src/meta/knowledge-archiver.yaml`
-
-```yaml
-slug: standalone-knowledge-archiver
-name: "Knowledge Archiver"
-description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
-vs_file_name: knowledge-archiver.agent.md
-id: standalone-knowledge-archiver
-cc_file_name: knowledge-archiver.md
-version: "1.4.0"
-last_updated: "2026-05-30"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - read
-  - search
-  - central_pm/*
 
 ```
 ###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
@@ -633,6 +613,26 @@ tools:
   - browser
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/standalone-knowledge-archiver.yaml`
+
+```yaml
+slug: standalone-knowledge-archiver
+name: "Knowledge Archiver"
+description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
+vs_file_name: knowledge-archiver.agent.md
+id: standalone-knowledge-archiver
+cc_file_name: knowledge-archiver.md
+version: "1.4.0"
+last_updated: "2026-05-30"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - read
+  - search
+  - central_pm/*
 
 ```
 ###  Path: `/personas/standalone/src/meta/unit-test-auditor.yaml`

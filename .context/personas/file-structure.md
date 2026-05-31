@@ -127,6 +127,7 @@ _SOURCE: Directory tree_
         │   └── reviewer-output-format.md
         │   └── security-auditor-operational-protocol.md
         │   └── security-auditor-output-format.md
+        │   └── synthesis-knowledge-collection.md
         │   └── synthesis-operational-protocol.md
         │   └── synthesis-output-format.md
     └── standalone/
@@ -165,7 +166,6 @@ _SOURCE: Directory tree_
             ├── developer.md
             ├── documentation-curator.md
             ├── git-committer.md
-            ├── knowledge-archiver.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
@@ -181,6 +181,7 @@ _SOURCE: Directory tree_
             ├── plan-refiner.md
             ├── readme-curator.md
             ├── researcher.md
+            ├── standalone-knowledge-archiver.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
         └── src/
@@ -192,7 +193,6 @@ _SOURCE: Directory tree_
             │   ├── developer.md
             │   ├── documentation-curator.md
             │   ├── git-committer.md
-            │   ├── knowledge-archiver.md
             │   ├── ledger-bootstrapper.md
             │   ├── ledger-claude-coordinator.md
             │   ├── ledger-dependency-sequencer.md
@@ -208,6 +208,7 @@ _SOURCE: Directory tree_
             │   ├── plan-refiner.md
             │   ├── readme-curator.md
             │   ├── researcher.md
+            │   ├── standalone-knowledge-archiver.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
             ├── meta/
@@ -219,7 +220,6 @@ _SOURCE: Directory tree_
             │   └── developer.yaml
             │   └── documentation-curator.yaml
             │   └── git-committer.yaml
-            │   └── knowledge-archiver.yaml
             │   └── ledger-bootstrapper.yaml
             │   └── ledger-claude-coordinator.yaml
             │   └── ledger-dependency-sequencer.yaml
@@ -235,6 +235,7 @@ _SOURCE: Directory tree_
             │   └── plan-refiner.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
+            │   └── standalone-knowledge-archiver.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
         └── vs-code/

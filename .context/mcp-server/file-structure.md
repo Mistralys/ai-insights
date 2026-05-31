@@ -138,6 +138,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
         │   ├── knowledge-api.test.ts
+        │   ├── knowledge-repository-scope.test.ts
         │   ├── log-resolver.test.ts
         │   ├── orchestrator-manager.test.ts
         │   ├── orchestrator-view.test.ts

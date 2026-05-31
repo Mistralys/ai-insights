@@ -26,6 +26,7 @@ _SOURCE: Test suite directory structure_
             ├── dialogue-qa.test.ts
             ├── handoff-config-integration.test.ts
             ├── knowledge-api.test.ts
+            ├── knowledge-repository-scope.test.ts
             ├── log-resolver.test.ts
             ├── orchestrator-manager.test.ts
             ├── orchestrator-view.test.ts
