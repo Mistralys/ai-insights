@@ -297,7 +297,7 @@ When a module has important non-code artifacts (API response examples, OpenAPI s
 
 ### Variables
 
-CTX supports reusable variables in `{{variable_name}}` (Mustache) or `${VARIABLE_NAME}` (shell) syntax. Define them at the top of `context.yaml` to avoid repeating paths, versions, or environment names across documents:
+CTX supports reusable variables in `\{{variable_name}}` (Mustache) or `${VARIABLE_NAME}` (shell) syntax. Define them at the top of `context.yaml` to avoid repeating paths, versions, or environment names across documents:
 
 ```yaml
 variables:
@@ -306,10 +306,10 @@ variables:
 
 documents:
   - description: "Source Code — Generated on ${DATE}"
-    outputPath: "{{output_dir}}/source.md"
+    outputPath: "\{{output_dir}}/source.md"
     sources:
       - type: file
-        sourcePaths: [ "{{src}}" ]
+        sourcePaths: [ "\{{src}}" ]
 ```
 
 Predefined system variables are also available: `${DATE}`, `${ROOT_PATH}`, `${OS}`, and others. Variables work in `outputPath`, `sourcePaths`, `content`, and `description` fields.

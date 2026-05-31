@@ -1,6 +1,9 @@
 # Personas Changelog
 
 ## v3.22.0 - Knowledge Collection System and Persona Improvements
+- Standalone: CTX Architect variable examples escaped so persona-builder no longer treats them as
+  unresolved template variables; requires `@mistralys/persona-builder` ≥ 2.5.1.
+- Build: Upgraded `@mistralys/persona-builder` dependency to v2.5.1 (variable escape syntax).
 - Ledger: Synthesis gains Knowledge Collection phase — 5-step gold-nugget commit protocol.
 - Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
 - Ledger: Synthesis delegates knowledge extraction to the Knowledge Archiver.
