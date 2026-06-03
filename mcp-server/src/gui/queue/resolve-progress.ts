@@ -85,6 +85,13 @@ export async function resolveProgress(
     return EMPTY_RESOLUTION;
   }
 
+  // Invariant: log filenames are written by the Python orchestrator as
+  // `<ISO-timestamp>-<slug>.jsonl` where `<slug>` is always the bare project
+  // slug — never prefixed with a repository name.  This suffix-match on
+  // `-${slug}.jsonl` is therefore correct and intentional even in multi-root
+  // workspace configurations where `expectedRepo` is non-null; the file system
+  // layout for logs is flat (all runs share one `logsDir`), so there is no
+  // namespaced subdirectory to descend into here.
   const suffix   = `-${slug}.jsonl`;
   const matching = dirEntries
     .filter((name) => name.endsWith(suffix) && name.length > suffix.length)

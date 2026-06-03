@@ -55,10 +55,10 @@ function buildWpDetailBar(wp) {
   '</div>';
 }
 
-function renderWorkPackageDetail(app, slug, wpId) {
+function renderWorkPackageDetail(app, repo, slug, wpId) {
   showLoading(app);
 
-  API.getWorkPackage(slug, wpId).then(function (wp) {
+  API.getWorkPackage(repo, slug, wpId).then(function (wp) {
     // Acceptance criteria
     var acHtml = (wp.acceptance_criteria || []).map(function (ac) {
       var met = ac.met === true;
@@ -132,7 +132,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
       : '';
 
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf(wpId).html() +
+      breadcrumb().projects().project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
@@ -163,8 +163,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
     Promise.all([
       // getChunks errors are silently swallowed — absent chunks directory is
       // expected for older runs that predate streaming capture.
-      API.getChunks(slug, wpId).catch(function () { return []; }),
-      API.getDialogues(slug, wpId),
+      API.getChunks(repo, slug, wpId).catch(function () { return []; }),
+      API.getDialogues(repo, slug, wpId),
     ]).then(function (results) {
       var chunks = results[0] || [];
       var dialogues = results[1] || [];
@@ -203,6 +203,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
           var label = escapeHtml(stage + '-r' + idx);
           return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
             'aria-expanded="false" ' +
+            'data-repo="' + escapeHtml(repo) + '" ' +
             'data-slug="' + escapeHtml(slug) + '" ' +
             'data-filename="' + escapeHtml(d.filename) + '" ' +
             'data-use-chunks="' + (useChunks ? '1' : '0') + '">' +
@@ -257,6 +258,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
         btn.classList.add('dialogue-btn-active');
         btn.setAttribute('aria-expanded', 'true');
 
+        var dlgRepo = btn.getAttribute('data-repo');
         var dlgSlug = btn.getAttribute('data-slug');
         var dlgFilename = btn.getAttribute('data-filename');
         var dlgUseChunks = btn.getAttribute('data-use-chunks') === '1';
@@ -270,8 +272,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
         // Fetch rendered Markdown: use the /rendered chunk endpoint for chunk
         // files, or the plain dialogue content endpoint for Markdown files.
         var fetchPromise = dlgUseChunks
-          ? API.getChunkRendered(dlgSlug, dlgFilename)
-          : API.getDialogueContent(dlgSlug, dlgFilename);
+          ? API.getChunkRendered(dlgRepo, dlgSlug, dlgFilename)
+          : API.getDialogueContent(dlgRepo, dlgSlug, dlgFilename);
 
         fetchPromise.then(function (md) {
           var rendered = (typeof marked !== 'undefined' && marked.parse)

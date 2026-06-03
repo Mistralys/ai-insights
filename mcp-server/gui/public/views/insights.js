@@ -37,9 +37,16 @@ function renderInsights(app) {
             ctxItems +
           '</div>';
       }
+      /* Namespaced link: #/projects/{repo}/{slug} — requires repository_name so
+         the router can scope the project view to the correct repository. Entries
+         where repository_name is null (e.g. from a shallow plan path) fall back
+         to plain escaped text — no anchor, no broken link. */
+      var projectLink = e.repository_name
+        ? '<a href="#/projects/' + encodeURIComponent(e.repository_name) + '/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>'
+        : escapeHtml(e.project_slug);
       return '<div class="comment-card' + priorityClass + '">' +
         '<div class="comment-meta">' +
-          '<a href="#/projects/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>' +
+          projectLink +
           ' &mdash; ' +
           escapeHtml(e.agent || '\u2014') +
           ' <span class="comment-type">' + escapeHtml(e.type || '') + '</span>' +

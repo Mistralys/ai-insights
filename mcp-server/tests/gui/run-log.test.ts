@@ -30,7 +30,7 @@ beforeAll(() => {
 
 declare global {
   // eslint-disable-next-line no-var
-  var renderRunLog: (app: HTMLElement, slug: string, filename: string) => void;
+  var renderRunLog: (app: HTMLElement, repo: string, slug: string, filename: string) => void;
   // eslint-disable-next-line no-var
   var API: {
     getRunLogEntries: (...args: unknown[]) => Promise<unknown>;
@@ -63,6 +63,7 @@ function entry(action: string, extra: Record<string, unknown> = {}) {
  */
 async function render(
   app: HTMLElement,
+  repo: string,
   slug: string,
   filename: string,
   apiResult: unknown,
@@ -83,9 +84,10 @@ async function render(
 
   // Mock API
   (globalThis as Record<string, unknown>)['API'] = {
-    getRunLogEntries: vi.fn((_slug: unknown, _file: unknown, afterLine?: unknown) => {
+    getRunLogEntries: vi.fn((_repo: unknown, _slug: unknown, _file: unknown, afterLine?: unknown) => {
+      // Initial fetch has no afterLine argument (called as getRunLogEntries(repo, slug, filename))
+      // Poll fetches pass afterLine as the 4th argument
       if (afterLine === undefined || afterLine === null) {
-        // Initial fetch
         return Promise.resolve(apiResult);
       }
       // Poll fetch
@@ -94,7 +96,7 @@ async function render(
     }),
   };
 
-  globalThis.renderRunLog(app, slug, filename);
+  globalThis.renderRunLog(app, repo, slug, filename);
 
   // Flush microtasks: initial fetch resolves
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -127,12 +129,14 @@ describe('renderRunLog', () => {
   // ── AC1: Breadcrumb ────────────────────────────────────────────────────────
 
   it('shows breadcrumb: Projects / {slug} / Run Log with correct hrefs', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([]));
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([]));
 
     expect(app.innerHTML).toContain('Projects');
     expect(app.innerHTML).toContain('Run Log');
     expect(app.innerHTML).toContain('href="#/"');
-    expect(app.innerHTML).toContain('href="#/projects/' + encodeURIComponent('my-project') + '"');
+    expect(app.innerHTML).toContain(
+      'href="#/projects/' + encodeURIComponent('my-repo') + '/' + encodeURIComponent('my-project') + '"'
+    );
     expect(app.innerHTML).toContain('my-project');
   });
 
@@ -144,7 +148,7 @@ describe('renderRunLog', () => {
       entry('step_end',   { step_name: 'Beta' }),
       entry('run_end'),
     ];
-    await render(app, 'my-project', 'run.jsonl', makeResult(entries, 3));
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult(entries, 3));
 
     const timeline = app.querySelector('#run-event-timeline')!;
     const cards = timeline.querySelectorAll('.run-event');
@@ -159,7 +163,7 @@ describe('renderRunLog', () => {
   // ── AC3: Event card content ────────────────────────────────────────────────
 
   it('renders step_start with step_name', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('step_start', { step_name: 'my-step' }),
     ]));
     expect(app.innerHTML).toContain('step_start');
@@ -167,7 +171,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders llm_call_start with model name', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('llm_call_start', { model: 'claude-3-opus' }),
     ]));
     expect(app.innerHTML).toContain('llm_call_start');
@@ -175,7 +179,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders tool_call_start with tool_name', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('tool_call_start', { tool_name: 'bash' }),
     ]));
     expect(app.innerHTML).toContain('tool_call_start');
@@ -183,7 +187,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders run_start', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('run_start', { thread_id: 'abc-123' }),
     ]));
     expect(app.innerHTML).toContain('Run started');
@@ -191,7 +195,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders run_start with Dry Run badge when dry_run is true', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('run_start', { dry_run: true, thread_id: 'dry-abc' }),
     ]));
     expect(app.innerHTML).toContain('Run started');
@@ -200,7 +204,7 @@ describe('renderRunLog', () => {
   });
 
   it('does not render Dry Run badge on run_start when dry_run is false', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('run_start', { dry_run: false }),
     ]));
     expect(app.innerHTML).toContain('Run started');
@@ -208,7 +212,7 @@ describe('renderRunLog', () => {
   });
 
   it('does not render Dry Run badge on run_start when dry_run is absent', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('run_start', {}),
     ]));
     expect(app.innerHTML).toContain('Run started');
@@ -216,12 +220,12 @@ describe('renderRunLog', () => {
   });
 
   it('renders run_end', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([entry('run_end')]));
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([entry('run_end')]));
     expect(app.innerHTML).toContain('Run completed');
   });
 
   it('renders run_error with error message', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('run_error', { error: 'something exploded' }),
     ]));
     // The rendered content shows "Run error:" (human-readable label)
@@ -232,7 +236,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders dry_run with "Stage skipped", wp_id, and stage', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run', { wp_id: 'WP-003', stage: 'implementation' }),
     ]));
     expect(app.innerHTML).toContain('Stage skipped');
@@ -242,14 +246,14 @@ describe('renderRunLog', () => {
   });
 
   it('renders dry_run with severity run-event--info', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run', { wp_id: 'WP-001', stage: 'qa' }),
     ]));
     expect(app.innerHTML).toContain('run-event--info');
   });
 
   it('renders dry_run_no_ledger with "No ledger" and detail', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run_no_ledger', { detail: 'Project not initialised' }),
     ]));
     expect(app.innerHTML).toContain('No ledger');
@@ -258,14 +262,14 @@ describe('renderRunLog', () => {
   });
 
   it('renders dry_run_no_ledger with severity run-event--warning', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run_no_ledger', {}),
     ]));
     expect(app.innerHTML).toContain('run-event--warning');
   });
 
   it('renders dry_run_complete with "Dry run complete" and reason', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run_complete', { reason: 'dry-run: PM stub executed; no ledger expected' }),
     ]));
     expect(app.innerHTML).toContain('Dry run complete');
@@ -274,7 +278,7 @@ describe('renderRunLog', () => {
   });
 
   it('renders dry_run_complete with severity run-event--success', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('dry_run_complete', {}),
     ]));
     expect(app.innerHTML).toContain('run-event--success');
@@ -282,7 +286,7 @@ describe('renderRunLog', () => {
 
   it('renders unknown action types with a generic fallback without throwing', async () => {
     const unknownEntry = { action: 'some_future_action', message: 'hello future', timestamp: '2026-01-01T00:00:00Z' };
-    await expect(render(app, 'my-project', 'run.jsonl', makeResult([unknownEntry]))).resolves.toBeDefined();
+    await expect(render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([unknownEntry]))).resolves.toBeDefined();
     expect(app.innerHTML).toContain('some_future_action');
     expect(app.innerHTML).toContain('hello future');
   });
@@ -290,14 +294,14 @@ describe('renderRunLog', () => {
   // ── AC4: Polling ───────────────────────────────────────────────────────────
 
   it('starts polling after initial load when run is not yet complete', async () => {
-    const { isPollActive } = await render(app, 'my-project', 'run.jsonl',
+    const { isPollActive } = await render(app, 'my-repo', 'my-project', 'run.jsonl',
       makeResult([entry('step_start', { step_name: 'first' })])
     );
     expect(isPollActive()).toBe(true);
   });
 
   it('does not start polling when initial load contains a terminal run_end entry', async () => {
-    const { isPollActive } = await render(app, 'my-project', 'run.jsonl',
+    const { isPollActive } = await render(app, 'my-repo', 'my-project', 'run.jsonl',
       makeResult([entry('run_start'), entry('run_end')])
     );
     expect(isPollActive()).toBe(false);
@@ -305,7 +309,7 @@ describe('renderRunLog', () => {
 
   it('stops polling when a poll tick returns a run_end entry', async () => {
     const { triggerPoll, isPollActive } = await render(
-      app, 'my-project', 'run.jsonl',
+      app, 'my-repo', 'my-project', 'run.jsonl',
       makeResult([entry('run_start')], 1),
       [makeResult([entry('run_end')], 2)]
     );
@@ -318,7 +322,7 @@ describe('renderRunLog', () => {
 
   it('stops polling on run_error', async () => {
     const { triggerPoll, isPollActive } = await render(
-      app, 'my-project', 'run.jsonl',
+      app, 'my-repo', 'my-project', 'run.jsonl',
       makeResult([entry('run_start')], 1),
       [makeResult([entry('run_error', { error: 'boom' })], 2)]
     );
@@ -332,7 +336,7 @@ describe('renderRunLog', () => {
 
   it('uses afterLine = totalLines for subsequent poll fetches', async () => {
     const { triggerPoll } = await render(
-      app, 'my-project', 'run.jsonl',
+      app, 'my-repo', 'my-project', 'run.jsonl',
       makeResult([entry('step_start')], 5),  // initial: 5 total lines
       [makeResult([], 5)]
     );
@@ -346,13 +350,13 @@ describe('renderRunLog', () => {
     // Second call: poll tick (afterLine = 5)
     expect(calls.length).toBeGreaterThanOrEqual(2);
     const pollCall = calls[calls.length - 1]!;
-    expect(pollCall[2]).toBe(5); // afterLine parameter
+    expect(pollCall[3]).toBe(5); // afterLine parameter
   });
 
   // ── AC6: Progress bar in-place update ─────────────────────────────────────
 
   it('progress_snapshot updates progress bar without appending a card', async () => {
-    await render(app, 'my-project', 'run.jsonl', makeResult([
+    await render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       entry('progress_snapshot', { progress_pct: 42, message: 'halfway' }),
     ]));
 
@@ -368,7 +372,7 @@ describe('renderRunLog', () => {
   });
 
   it('does not crash on malformed entries in the log', async () => {
-    await expect(render(app, 'my-project', 'run.jsonl', makeResult([
+    await expect(render(app, 'my-repo', 'my-project', 'run.jsonl', makeResult([
       null,
       undefined,
       42,

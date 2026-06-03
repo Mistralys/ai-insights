@@ -14,11 +14,25 @@
  *   - `isProcessAlive` — used by queue-mutation functions in `orchestrator-manager.ts`.
  *   - `getProjectLedgerStatus` — used by `killQueueEntry`/`dismissQueueEntry`
  *     in `orchestrator-manager.ts`.
+ *
+ * Ledger path layout — dual-mode (introduced in WP-007):
+ *   `getProjectLedgerStatus()` supports two path layouts depending on whether
+ *   the queue entry carries an `expectedRepo` (multi-root workspace) value:
+ *
+ *   • Namespaced (expectedRepo non-null):
+ *       `<ledgerRoot>/<expectedRepo>/<slug>/project-ledger.json`
+ *   • Flat / legacy (expectedRepo null):
+ *       `<ledgerRoot>/<slug>/project-ledger.json`
+ *
+ *   All three call sites — `getQueue()`, `killQueueEntry()`, and
+ *   `dismissQueueEntry()` — pass `entry.expectedRepo` as the third argument,
+ *   so the correct layout is selected automatically per entry.
  */
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { assertSafeSegment } from '../../utils/path-validator.js';
 import { QUEUE_FILENAME, type RawQueueEntry, type QueueEntry } from './types.js';
 import { isRawQueueEntry } from './validate-entry.js';
 import { resolveProgress } from './resolve-progress.js';
@@ -78,17 +92,30 @@ export async function readQueueFile(logsDir: string): Promise<RawQueueEntry[]> {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns whether the project identified by `slug` has a ledger entry and
- * whether synthesis has been generated for it.
+ * Returns whether the project identified by `slug` (and optionally `expectedRepo`)
+ * has a ledger entry and whether synthesis has been generated for it.
+ *
+ * When `expectedRepo` is non-null the function constructs a namespaced path:
+ *   `<ledgerRoot>/<expectedRepo>/<slug>/project-ledger.json`
+ *
+ * When `expectedRepo` is null it falls back to the legacy flat path for
+ * backward compatibility with queue entries that pre-date multi-root workspace
+ * support:
+ *   `<ledgerRoot>/<slug>/project-ledger.json`
  *
  * Fail-safe: any I/O or parse error returns `{ exists: false, synthesisGenerated: false }`.
+ * Defense-in-depth: `slug` and `expectedRepo` (when non-null) are validated with
+ * `assertSafeSegment()` before any path is constructed. An invalid segment also returns
+ * `{ exists: false, synthesisGenerated: false }`.
  *
  * Exported for use by `killQueueEntry`/`dismissQueueEntry` in `orchestrator-manager.ts`.
  *
- * @param ledgerRoot - Absolute path to the ledger root directory.
- * @param slug       - Project slug (e.g. `2026-05-05-my-feature`).
+ * @param ledgerRoot   - Absolute path to the ledger root directory.
+ * @param slug         - Project slug (e.g. `2026-05-05-my-feature`).
+ * @param expectedRepo - Repository name (workspace root slug), or `null` for
+ *                       legacy flat-path lookup.
  * @returns An object with two fields:
- *   - `exists` — `true` when `<ledgerRoot>/<slug>/project-ledger.json` is present and
+ *   - `exists` — `true` when the `project-ledger.json` file is present and
  *     readable; `false` on any I/O error or when the file does not exist.
  *   - `synthesisGenerated` — `true` when the ledger's `synthesis_generated` field equals
  *     `true`; `false` when the file is absent, unreadable, or the field is falsy.
@@ -96,8 +123,20 @@ export async function readQueueFile(logsDir: string): Promise<RawQueueEntry[]> {
 export async function getProjectLedgerStatus(
   ledgerRoot: string,
   slug: string,
+  expectedRepo: string | null = null,
 ): Promise<{ exists: boolean; synthesisGenerated: boolean }> {
-  const projectLedgerPath = join(ledgerRoot, slug, 'project-ledger.json');
+  // Defense-in-depth: reject path segments that would cause traversal or
+  // produce invalid filesystem paths. assertSafeSegment() allows only
+  // lowercase alphanumeric-and-hyphen strings starting with [a-z0-9].
+  if (!assertSafeSegment(slug)) {
+    return { exists: false, synthesisGenerated: false };
+  }
+  if (expectedRepo !== null && !assertSafeSegment(expectedRepo)) {
+    return { exists: false, synthesisGenerated: false };
+  }
+  const projectLedgerPath = expectedRepo
+    ? join(ledgerRoot, expectedRepo, slug, 'project-ledger.json')
+    : join(ledgerRoot, slug, 'project-ledger.json');
   let raw: string;
   try {
     raw = await readFile(projectLedgerPath, 'utf-8');
@@ -145,7 +184,7 @@ export async function getQueue(params: {
   const enriched = await Promise.all(
     rawEntries.map(async (entry) => {
       const [projectStatus, progressResult] = await Promise.all([
-        getProjectLedgerStatus(ledgerRoot, entry.expectedSlug),
+        getProjectLedgerStatus(ledgerRoot, entry.expectedSlug, entry.expectedRepo),
         resolveProgress(logsDir, entry.expectedSlug),
       ]);
 

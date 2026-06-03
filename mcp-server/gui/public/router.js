@@ -40,33 +40,33 @@ var Router = (function () {
       return;
     }
 
-    var planMatch = path.match(/^\/projects\/([^/]+)\/plan$/);
+    var planMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/plan$/);
     if (planMatch) {
-      renderPlan(app, decodeURIComponent(planMatch[1]));
+      renderPlan(app, decodeURIComponent(planMatch[1]), decodeURIComponent(planMatch[2]));
       return;
     }
 
-    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/);
+    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/synthesis$/);
     if (synthesisMatch) {
-      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]));
+      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]), decodeURIComponent(synthesisMatch[2]));
       return;
     }
 
-    var projectMatch = path.match(/^\/projects\/([^/]+)$/);
+    var projectMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)$/);
     if (projectMatch) {
-      renderProjectDetail(app, decodeURIComponent(projectMatch[1]));
+      renderProjectDetail(app, decodeURIComponent(projectMatch[1]), decodeURIComponent(projectMatch[2]));
       return;
     }
 
-    var wpMatch = path.match(/^\/projects\/([^/]+)\/wp\/([^/]+)$/);
+    var wpMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/wp\/([^/]+)$/);
     if (wpMatch) {
-      renderWorkPackageDetail(app, decodeURIComponent(wpMatch[1]), decodeURIComponent(wpMatch[2]));
+      renderWorkPackageDetail(app, decodeURIComponent(wpMatch[1]), decodeURIComponent(wpMatch[2]), decodeURIComponent(wpMatch[3]));
       return;
     }
 
-    var runLogMatch = path.match(/^\/projects\/([^/]+)\/runs\/([^/]+)$/);
+    var runLogMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/runs\/([^/]+)$/);
     if (runLogMatch) {
-      renderRunLog(app, decodeURIComponent(runLogMatch[1]), decodeURIComponent(runLogMatch[2]));
+      renderRunLog(app, decodeURIComponent(runLogMatch[1]), decodeURIComponent(runLogMatch[2]), decodeURIComponent(runLogMatch[3]));
       return;
     }
 

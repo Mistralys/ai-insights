@@ -28,6 +28,13 @@
  *   pending + dead   + project exists               → effectiveStatus: 'started'
  *   started + synthesis_generated true              → excluded from result (AC-6)
  *
+ * Note (WP-007): The `synthesis_generated` ledger lookup performed for the AC-6
+ * exclusion row is namespace-aware. When a queue entry carries a non-null
+ * `expectedRepo`, `getProjectLedgerStatus()` resolves the ledger file from a
+ * namespaced path (`<ledgerRoot>/<expectedRepo>/<slug>/project-ledger.json`);
+ * entries without `expectedRepo` use the legacy flat path. This applies at all
+ * three call sites: `getQueue()`, `killQueueEntry()`, and `dismissQueueEntry()`.
+ *
  * @see {@link computeEffectiveStatus} — canonical implementation of the transition rules above.
  */
 
@@ -166,7 +173,7 @@ export async function killQueueEntry(params: {
   // only alive+no-project entries are 'pending'. getQueue() passes hasStageActivity
   // for display purposes but kill must not promote stale entries.
   const alive = isProcessAlive(entry.pid);
-  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug);
+  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug, entry.expectedRepo);
   const effectiveStatus = computeEffectiveStatus(alive, projectExists);
 
   if (effectiveStatus !== 'pending') {
@@ -217,7 +224,7 @@ export async function dismissQueueEntry(params: {
   // Recompute effective status. Intentionally omits the hasLogActivity argument
   // (defaults to false) — dismiss eligibility uses the same conservative rule as kill.
   const alive = isProcessAlive(entry.pid);
-  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug);
+  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug, entry.expectedRepo);
   const effectiveStatus = computeEffectiveStatus(alive, projectExists);
 
   if (effectiveStatus !== 'dead') {

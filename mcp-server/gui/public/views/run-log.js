@@ -351,11 +351,20 @@ function buildRunEventCard(entry) {
  * the incremental `?after=N` parameter. Polling stops automatically when a
  * `run_end` or `run_error` entry is encountered.
  *
- * @param {HTMLElement} app    - The main content container.
- * @param {string}      slug   - Project slug.
+ * Both `repo` and `slug` are required for multi-root workspace support: they
+ * are passed through to every `API.getRunLogEntries(repo, slug, filename,
+ * afterLine)` call so the server can resolve the correct namespaced project
+ * store. In a single-root workspace `repo` is typically an empty string, but
+ * must still be supplied — this is why the signature changed from the legacy
+ * two-argument `(app, filename)` form.
+ *
+ * @param {HTMLElement} app      - The main content container.
+ * @param {string}      repo     - Repository namespace (may be empty string for
+ *                                 single-root workspaces; must not be omitted).
+ * @param {string}      slug     - Project slug.
  * @param {string}      filename - Log filename (e.g. "20260225T113355-my-project.jsonl").
  */
-function renderRunLog(app, slug, filename) {
+function renderRunLog(app, repo, slug, filename) {
   showLoading(app);
 
   // Track how many lines we have seen (used as `afterLine` for incremental fetches)
@@ -370,7 +379,7 @@ function renderRunLog(app, slug, filename) {
    */
   function buildPageShell() {
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Run Log').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +
@@ -435,7 +444,7 @@ function renderRunLog(app, slug, filename) {
    * @param {number} afterLine - Number of lines already seen.
    */
   function fetchAndAppend(afterLine) {
-    API.getRunLogEntries(slug, filename, afterLine).then(function (result) {
+    API.getRunLogEntries(repo, slug, filename, afterLine).then(function (result) {
       if (!result) return;
       var entries = Array.isArray(result.entries) ? result.entries : [];
       var newTotal = typeof result.totalLines === 'number' ? result.totalLines : totalLinesSeen;
@@ -466,7 +475,7 @@ function renderRunLog(app, slug, filename) {
   }
 
   // Initial load — fetch all entries
-  API.getRunLogEntries(slug, filename).then(function (result) {
+  API.getRunLogEntries(repo, slug, filename).then(function (result) {
     if (!result) {
       showError(app, 'Failed to load run log: empty response');
       return;

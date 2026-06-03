@@ -195,8 +195,16 @@ function renderKnowledge(app) {
         moveHtml = '<button class="btn btn-sm" data-action="move" data-id="' + id + '">Move to Repository</button>';
       }
 
+      /* origin_plan link: three cases —
+           1. No origin_plan → empty string (omit the element entirely).
+           2. origin_plan present AND repository_name present → namespaced anchor
+              (#/projects/{repo}/{slug}) so the router scopes the view correctly.
+           3. origin_plan present but repository_name null (global insights or
+              shallow storage path) → plain <span> fallback, no broken link. */
       var originPlanHtml = ins.origin_plan
-        ? '<a href="#/projects/' + encodeURIComponent(ins.origin_plan) + '" style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</a>'
+        ? (ins.repository_name
+            ? '<a href="#/projects/' + encodeURIComponent(ins.repository_name) + '/' + encodeURIComponent(ins.origin_plan) + '" style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</a>'
+            : '<span style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</span>')
         : '';
 
       return '<div class="card" data-id="' + id + '">' +
