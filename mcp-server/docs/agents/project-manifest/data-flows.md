@@ -1090,16 +1090,16 @@ Return success message listing applied operations
 
 ## Flow 16: Synthesis Document View (GUI)
 
-**Entry Point:** User navigates to `#/projects/:slug/synthesis` in the dashboard
+**Entry Point:** User navigates to `#/projects/:repo/:slug/synthesis` in the dashboard
 
 ```
-Browser hash → #/projects/:slug/synthesis
+Browser hash → #/projects/:repo/:slug/synthesis
   ↓
 Router.dispatch()
   ↓
-synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/)
+synthesisMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/synthesis$/)
   ↓
-renderSynthesis(app, slug)
+renderSynthesis(app, decodeURIComponent(synthesisMatch[1]), decodeURIComponent(synthesisMatch[2]))
   ↓
   app.innerHTML = '<p class="loading">Loading synthesis…</p>'   ← immediate feedback
   ↓
@@ -1132,12 +1132,12 @@ On other errors:
 **Synthesis link on Project Detail page:**
 
 ```
-User navigates to #/projects/:slug
+User navigates to #/projects/:repo/:slug
   ↓
-renderProjectDetail(app, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
+renderProjectDetail(app, repo, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
   ↓
 project.synthesis_generated === true?
-  YES → inject <div class="synthesis-link-row"><a href="#/projects/:slug/synthesis">View synthesis →</a></div>
+  YES → inject <div class="synthesis-link-row"><a href="#/projects/:repo/:slug/synthesis">View synthesis →</a></div>
   NO  → nothing rendered (no HTTP call)
 ```
 
@@ -1335,6 +1335,67 @@ gui/api.ts — handleListProjects processing pipeline:
 - Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
 - Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
 - The entire enrichment step runs in memory; pagination is applied last (no streaming).
+
+---
+
+## Flow 14: Frontend Namespace Resolution
+
+**Entry Point:** Browser navigates to a project page, triggering `handleListProjects` or direct project API calls.
+
+This flow describes how the frontend resolves the `repository_name` (repo namespace) from the project listing and uses it to construct namespaced `/:repo/:slug` API URLs for all subsequent per-project requests.
+
+```
+Browser → GET /api/projects[?page&limit&status&search&sort&dir]
+  ↓
+gui/server.ts → handleListProjects(ledgerRoot, rawParams)
+  ↓
+gui/api.ts — handleListProjects():
+  LedgerStore.listAllProjects(ledgerRoot)
+  → ProjectSummary[] (each includes repository_name from .meta.json)
+  ↓
+ProjectListEnvelope returned to browser:
+  {
+    projects: [{
+      slug: string,
+      repository_name: string,   ← repo-namespace key
+      ...
+    }, ...],
+    ...
+  }
+  ↓
+Browser (gui/public/views/project-list.js):
+  For each project in the list, stores both project.slug and project.repository_name
+  Navigation link: #/projects/{repository_name}/{slug}
+  ↓
+Router dispatches to renderProjectDetail(app, repo, slug)
+  where repo = project.repository_name, slug = project.slug
+  ↓
+gui/public/views/project-detail.js — renderProjectDetail(app, repo, slug):
+  All API calls use namespaced pattern:
+    GET /api/projects/{repo}/{slug}
+    GET /api/projects/{repo}/{slug}/plan
+    GET /api/projects/{repo}/{slug}/synthesis
+    GET /api/projects/{repo}/{slug}/work-packages
+    GET /api/projects/{repo}/{slug}/work-packages/overview
+    POST /api/projects/{repo}/{slug}/reset
+    ...
+  ↓
+gui/server.ts → resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam)
+  Validates repoUrlParam and slugUrlParam via assertSafeSlug()
+  Reads {ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json
+  Returns stored repository_name (falls back to repoUrlParam if absent/malformed)
+  ↓
+Handler called with (ledgerRoot, resolvedRepo, slug):
+  Constructs storage path: {ledgerRoot}/{resolvedRepo}/{slug}/project-ledger.json
+  ↓
+Returns project data to browser
+```
+
+**Key invariant:** `repository_name` is the canonical namespace — it is stored in `.meta.json` at project initialization time and flows from the server to the browser in every `ProjectSummary`. The browser never constructs repo segments from user input; it always reads `repository_name` from the API response.
+
+**Legacy fallback:** Non-namespaced `/:slug` routes (deprecated) call `resolveRepoName()` to derive the correct repo segment from disk before delegating to the same handlers. This ensures backward compatibility for any client still using the old URL form.
+
+**`resolveRepoName()` guard:** Both `repoUrlParam` and `slugUrlParam` are validated via the file-local `assertSafeSlug()` guard before any filesystem access. Invalid segments and missing meta files both throw `ApiError NOT_FOUND` (information-hiding — distinguishable from the client side only by intent, not by error shape).
 
 ---
 

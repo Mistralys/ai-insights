@@ -469,12 +469,21 @@ See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout versi
 
 ---
 
-### 24. Run Metadata Sidecar: Atomic Write and Persistence Contract
+### 24. Run Metadata Sidecar: Atomic Write, Persistence Contract, and INTERRUPTED Detection
 
 **Rule:** `_write_run_metadata()` in `src/cli.py` must write `.orchestrator-run.json`
 atomically using a temporary file and `os.replace()`. The on-disk file must never be
 partially visible to readers. The function is best-effort — it swallows `OSError` and
 never raises.
+
+**INTERRUPTED detection:** The `result="INTERRUPTED"` outcome is determined via the
+module-level `_was_interrupted` boolean flag in `src/cli.py`, **not** by substring
+matching on error messages. All three interrupt paths set this flag:
+- Signal-triggered shutdown (SIGTERM / SIGINT via `shutdown_event`)
+- `KeyboardInterrupt` during graph execution
+- `KeyboardInterrupt` during MCP server startup
+
+This flag-based approach is robust to future changes in error message wording.
 
 **Write sequence:**
 1. Write JSON to `plan_dir / ".orchestrator-run.json.tmp"` via `write_text()`.
@@ -518,6 +527,70 @@ exit (plan_dir may not exist). The terminal-resume guard writes the file once wi
 polling the resume-run endpoint. Overwrite-on-rerun keeps the plan directory clean —
 one metadata file per plan, always reflecting the most recent run. Best-effort swallow
 mirrors the run-queue and run-status tombstone patterns in `cli.py`.
+
+---
+
+## Queue Entry Schema
+
+### 25. Queue Entry `expectedRepo` Field — Repo-Namespace for Multi-Root Workspaces
+
+**Rule:** The orchestrator's `RunQueue.register()` method must always write an `expectedRepo` field in every queue entry JSON object. The field value is the repository name (workspace root basename) derived from `plan_dir.parents[3].name`. When the repository name cannot be determined (e.g. the directory depth is insufficient), `expectedRepo` must be written as `null` — not absent — so that the TypeScript GUI server can distinguish new-format entries (where `expectedRepo` is `string | null`) from corrupted entries.
+
+**Queue entry JSON shape:**
+
+```json
+{
+  "id": "uuid-v4",
+  "pid": 12345,
+  "planPath": "/path/to/docs/agents/plans/2026-05-05-feature",
+  "expectedSlug": "2026-05-05-feature",
+  "expectedRepo": "my-repo",
+  "startedAt": "2026-05-05T10:00:00.000Z"
+}
+```
+
+`expectedRepo` is the repository name derived from `plan_dir.parents[3].name` (the workspace root folder at 4 directory levels above the plan folder). The GUI uses this value together with `expectedSlug` to generate correct namespaced project links of the form `#/projects/my-repo/2026-05-05-feature`. Without `expectedRepo`, the GUI cannot construct namespaced URLs and must fall back to omitting project links.
+
+**Python implementation (`orchestrator/src/utils/run_queue.py`):**
+
+```python
+# ✅ CORRECT — always write expectedRepo; pass None when unavailable
+def register(self, pid: int, plan_path: str, slug: str, started_at: str,
+             repo_name: str | None = None) -> str:
+    # Any falsy string is normalised to None at the API boundary.
+    entry = {
+        "id": str(uuid.uuid4()),
+        "pid": pid,
+        "planPath": plan_path,
+        "expectedSlug": slug,
+        "expectedRepo": repo_name,   # written as null in JSON when None
+        "startedAt": started_at,
+    }
+    ...
+```
+
+**Anti-pattern:**
+
+```python
+# ❌ WRONG — omitting expectedRepo entirely; forces the GUI to treat all entries as legacy
+entry = {
+    "id": str(uuid.uuid4()),
+    "pid": pid,
+    "planPath": plan_path,
+    "expectedSlug": slug,
+    "startedAt": started_at,
+    # expectedRepo missing — legacy detection fails; GUI cannot generate links
+}
+```
+
+**TypeScript normalization (`mcp-server/src/gui/queue/validate-entry.ts`):** The `isRawQueueEntry()` type-guard normalizes missing `expectedRepo` values to `null` in-place when it processes queue entries (the field is not required by the guard, but the output is always typed as `string | null`). The `normalizeQueueEntry()` helper performs the same normalization for pre-validated entries. This normalization ensures all downstream TypeScript consumers — `getProjectLedgerStatus()`, `killQueueEntry()`, `dismissQueueEntry()`, `orchestrator.js` — can rely on `expectedRepo` being `string | null`, never `undefined`.
+
+**`getProjectLedgerStatus()` path resolution (`mcp-server/src/gui/queue/get-queue.ts`):**
+
+- `expectedRepo` non-null → namespaced path: `{ledgerRoot}/{expectedRepo}/{slug}/project-ledger.json`
+- `expectedRepo` null → flat/legacy path: `{ledgerRoot}/{slug}/project-ledger.json`
+
+**Rationale:** A dedicated `expectedRepo` field eliminates the need for runtime parsing at every queue consumer site. The alternative (embedding a composite `repo/slug` string in `expectedSlug`) would require every reader to detect, split, and fall back, multiplying fragile parsing logic across 4+ locations. A single nullable field on the 6-field interface is trivially additive and backward compatible — old queue entries written before this schema change have `expectedRepo` absent in JSON, which normalizes to `null` at the read boundary.
 
 
 

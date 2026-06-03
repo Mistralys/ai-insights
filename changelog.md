@@ -1,7 +1,7 @@
 # AI Insights Changelog
 
 ## v1.27.0 - Knowledge Store, Repository Scope, and Developer Experience
-> mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
+> mcp v1.32.0 · orchestrator v0.22.0 · personas v3.22.0
 
 - MCP: Added the knowledge accumulation system.
 - MCP: Added dedicated knowledge search and registration tools.
@@ -25,6 +25,10 @@
 - GUI: Fixed the main overview's filter input.
 - Dependencies: Updated Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
 - Dependencies: Updated CLI Menu to [v1.1.0](https://github.com/Mistralys/cli-menu/releases/tag/v1.1.0).
+- MCP: Added run-metadata API endpoint; reads `.orchestrator-run.json` sidecar from the plan directory.
+- GUI: Added "Resume Run" button on project detail; re-launches the orchestrator with the saved thread ID.
+- Orchestrator: Added `.orchestrator-run.json` sidecar; written atomically at run start and updated at run end with result and duration.
+- Tests: Added run-metadata endpoint and orchestrator sidecar write/update test coverage.
 
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0

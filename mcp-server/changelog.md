@@ -1,5 +1,26 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.32.2 - Namespaced Project Links in Insights and Knowledge Views
+- GUI: `insights.js` project links now use the namespaced `#/projects/{repo}/{slug}` form when `repository_name` is non-null; entries with a null `repository_name` (e.g. from a shallow plan path) fall back to plain escaped text — no anchor, no broken link.
+- GUI: `knowledge.js` origin-plan links now use the namespaced `#/projects/{repo}/{slug}` form when both `origin_plan` and `repository_name` are present; fall back to a `<span>` (no anchor) when `repository_name` is null; omit the element entirely when `origin_plan` is absent.
+- GUI: Added inline comments at the `projectLink` assignment site in `insights.js` and the `originPlanHtml` assignment site in `knowledge.js` explaining the namespaced link format and fallback rationale.
+- Tests: Added `tests/gui/insights-knowledge-links.test.ts` — 9 tests covering all four acceptance criteria for both views, including URL-encoding of special characters, null/undefined `repository_name` fallbacks, and bare-slug absence assertions.
+
+## v1.32.1 - InsightEntry repository_name Field
+- GUI: Added `repository_name: string | null` field to the `InsightEntry` interface.
+- GUI: `handleGetInsights()` now derives `repository_name` from the project storage path using the same
+  inline derivation pattern as `handleListProjects` — original casing is preserved (display field, not
+  a storage key).
+- GUI: Entries where the repository cannot be inferred from a shallow plan path receive
+  `repository_name: null` (never `undefined`), matching AC-3.
+- Tests: Corrected the AC-3 null-path test in `api.test.ts` to use a genuinely shallow planPath
+  (`/docs/agents/plans/...`) and assert `toBe(null)` directly; the previous assertion was tautologically
+  true and did not enforce the null requirement.
+- Docs: Updated `api-surface.md` `InsightEntry` interface with `repository_name` field and display-vs-storage
+  semantics note.
+- Docs: Added inline comments at both `repository_name` derivation call sites in `api.ts` explaining why
+  `deriveRepoName()` is intentionally not used there.
+
 ## v1.32.0 - Orchestrator Sidecar, Resume Run Button, and GUI Resume Flow
 - GUI: Added `GET /api/projects/:slug/run-metadata` endpoint; reads plan-dir
   `.orchestrator-run.json` sidecar and returns parsed JSON or HTTP 404.
