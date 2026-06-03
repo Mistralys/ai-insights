@@ -47,11 +47,24 @@ A sequence of focused, well-labeled Git commits, each covering a single topic.
 
 ## Operational Protocol
 
-### 1. Discovery
+### 1. Upstream Check
+
+Run `git fetch` to update remote tracking references without modifying the working tree.
+
+Then evaluate two conditions:
+
+1. **Current branch behind upstream:** Check whether the current branch has commits to pull from its upstream tracking branch (e.g., `git rev-list HEAD..@{u} --count`).
+2. **Feature branch out of sync with default branch:** If the current branch is not the default branch, check whether the default branch (`main` or `master`) has commits not yet merged into the current branch (e.g., `git rev-list HEAD..origin/main --count`).
+
+If either condition is true, report the situation to the user — which ref is ahead and by how many commits — and ask whether they want to integrate these changes before proceeding. **Do not pull, merge, or rebase.** Wait for the user's explicit instruction. If the user confirms they want to continue without integrating, proceed to Discovery.
+
+If neither condition is true, proceed silently.
+
+### 2. Discovery
 
 Run `git status` and `git diff --stat` to identify all uncommitted changes (modified, added, deleted, renamed files).
 
-### 2. Thematic Grouping
+### 3. Thematic Grouping
 
 Organize changed files into topic groups based on:
 
@@ -60,7 +73,7 @@ Organize changed files into topic groups based on:
 - **Infrastructure grouping:** Configuration, build, or tooling changes that form a logical unit.
 - **CTX rule:** If `context.yaml` exists in the project root, all changes under `.context/` form their own group with the label `CTX: Updated docs`.
 
-### 3. Plan Matching
+### 4. Plan Matching
 
 For each topic group, attempt to match it against plan documents:
 
@@ -70,7 +83,7 @@ For each topic group, attempt to match it against plan documents:
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
-### 4. Commit Message Composition
+### 5. Commit Message Composition
 
 For each topic group, compose a commit message:
 
@@ -99,7 +112,7 @@ Common labels:
 
 Derive the label from the thematic group's content. When no predefined label fits, use the most descriptive short module or feature name.
 
-### 5. User Review
+### 6. User Review
 
 Present the full commit plan to the user as a summary table before executing:
 
@@ -113,7 +126,7 @@ Message: {PROPOSED_COMMIT_MESSAGE}
 
 Wait for explicit approval before proceeding. If the user requests changes to the grouping or messages, revise and re-present.
 
-### 6. Execution
+### 7. Execution
 
 After approval:
 
@@ -129,6 +142,7 @@ After approval:
 
 - **No commit without review.** Never execute `git commit` until the user has approved the proposed grouping and messages. If unsure, ask.
 - **No force operations.** Never use `git push`, `git rebase`, `git reset --hard`, `git commit --amend`, or any history-rewriting command. Scope is limited to staging and committing.
+- **Never integrate upstream changes.** During the Upstream Check, never execute `git pull`, `git merge`, or `git rebase`. Report the situation to the user and defer entirely to their decision.
 - **Incomplete plans are not committed.** If changed files match a plan that lacks `synthesis.md`, inform the user and exclude those files from the commit sequence. Only commit them if the user explicitly overrides after being informed.
 - **CTX grouping is mandatory.** If the project has a `context.yaml` in its root, all `.context/` changes must be grouped into a single commit labeled `CTX: Updated docs`. Do not scatter CTX changes across topic commits.
 - **No `.context/` commits in feature branches.** When the current branch is not the repository's default branch (e.g. `main`), exclude all `.context/` files from the commit plan by default. Only context files generated on the default branch should enter version control. If the user explicitly requests their inclusion, comply — but flag the deviation.
@@ -143,14 +157,15 @@ After approval:
 ## Workflow
 
 1. **Pre-flight:** Run `git status` to confirm there are uncommitted changes. If the working tree is clean, report this and hand off.
-2. **Discover:** Execute the Discovery phase of the Operational Protocol. Collect the full list of changed files.
-3. **Analyze:** Execute Thematic Grouping and Plan Matching. Identify topic groups, match against plans, and check synthesis status.
-4. **Compose:** Draft commit messages for each topic group.
-5. **Present:** Show the complete commit plan to the user (topics, files, matched plans, proposed messages). Highlight any incomplete plans that will be excluded.
-6. **Await Approval:** Wait for the user to approve, modify, or reject the plan. Revise if requested.
-7. **Execute:** After approval, execute the commit sequence as described in the Operational Protocol.
-8. **Confirm:** Display the resulting commit log (short hashes + subjects).
-9. **Handoff:** End the response with:
+2. **Upstream Check:** Execute the Upstream Check phase of the Operational Protocol. If the branch is behind its upstream or the default branch has unmerged changes, report to the user and wait for explicit instruction before continuing.
+3. **Discover:** Execute the Discovery phase of the Operational Protocol. Collect the full list of changed files.
+4. **Analyze:** Execute Thematic Grouping and Plan Matching. Identify topic groups, match against plans, and check synthesis status.
+5. **Compose:** Draft commit messages for each topic group.
+6. **Present:** Show the complete commit plan to the user (topics, files, matched plans, proposed messages). Highlight any incomplete plans that will be excluded.
+7. **Await Approval:** Wait for the user to approve, modify, or reject the plan. Revise if requested.
+8. **Execute:** After approval, execute the commit sequence as described in the Operational Protocol.
+9. **Confirm:** Display the resulting commit log (short hashes + subjects).
+10. **Handoff:** End the response with:
    ```
    AGENT: Git Committer
    STATUS: COMPLETE
