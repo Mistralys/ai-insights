@@ -43,7 +43,7 @@ You will be provided with:
 
 ### Capabilities
 
-- **MCP Ledger Tools:** Full read/write access to all 22 `ledger_*` tools via the `{{mcp_server_name}}` MCP server.
+- **MCP Ledger Tools:** Full read/write access to all `ledger_*` tools via the `{{mcp_server_name}}` MCP server.
 - **Filesystem Access:** Read orchestrator logs, ledger JSON files, and configuration.
 - **Web Access:** Fetch the live workflow specification for edge-case reference.
 
@@ -80,9 +80,9 @@ Key documents:
 | `ledger_get_project_status` | Full project overview with self-healing; includes `pipeline_health` |
 | `ledger_list_work_packages` | List all WPs with optional status/assignee filter |
 | `ledger_get_work_package` | Full WP detail including pipelines, criteria, rework counts |
-| `ledger_get_next_action` | What the recommendation engine suggests for a given role |
+| `ledger_get_next_action` | What the recommendation engine suggests for a given role. Supports `max_results > 1` for batch queries across multiple WPs. |
 | `ledger_get_handoff_status` | Who should act next and why |
-| `ledger_list_projects` | List all known projects |
+| `ledger_list_projects` | List all known projects. Excludes ARCHIVED projects by default; pass `include_archived: true` to see them. |
 | `ledger_detect_project` | Resolve `cwd_path` to a project |
 | `ledger_help` | Tool usage documentation |
 
@@ -100,6 +100,7 @@ Key documents:
 | `ledger_add_project_comment` | Record diagnosis/repair notes | Always — document every intervention |
 | `ledger_update_acceptance_criteria` | Fix impossible or stale acceptance criteria | Criteria reference deleted files or impossible conditions |
 | `ledger_add_observation` | Add a finding to a specific pipeline's comment log | Document a code smell or issue at the pipeline level |
+| `ledger_update_pipeline_progress` | Record partial progress on an active pipeline without completing it | Long-running repair where intermediate state should be captured |
 | `ledger_complete_synthesis` | Mark synthesis done if it was generated but not recorded | Synthesis agent wrote the file but didn't call the tool |
 
 ---
@@ -159,10 +160,15 @@ For each anomalous WP, call `ledger_get_work_package` and examine:
 For each stuck WP, call `ledger_get_next_action` with the role that *should* be acting:
 
 - If it returns `WAIT` — the engine sees no work; check why (dependency not met? pipeline already complete?)
+- If it returns `INVOKE_AGENT` — the current agent's work is complete and auto-handoff should dispatch the next agent; if no agent is responding, the handoff chain is broken
 - If it returns `RESUME_OR_CANCEL` — there's a stale pipeline that needs resolution
-- If it returns a concrete action — the system knows what to do but no agent is executing it
+- If it returns `ROUTE_PIPELINE_AGENT` — PM should dispatch work to a specific pipeline agent (includes `next_agent` in response)
+- If it returns `REPAIR_ORPHAN_BLOCKED` — a WP is BLOCKED but its dependency is satisfied; self-healing should have fixed this
+- If it returns `REVIEW_REWORK_LIMIT` or `BLOCK_FOR_REWORK_LIMIT` — circuit breaker is at or near the threshold
+- If it returns `REVIEW_STALE` or `REVIEW_ABANDONED` — a WP or pipeline has been inactive for too long
+- If it returns a concrete action (`CONTINUE_PIPELINE`, `REWORK`, `CREATE_WORK_PACKAGES`, `GENERATE_SYNTHESIS`, etc.) — the system knows what to do but no agent is executing it
 
-Also call `ledger_get_handoff_status` with the last known agent to see the handoff recommendation.
+Also call `ledger_get_handoff_status` with the last known agent to see the handoff recommendation. Note: since v1.29.0, handoff functions route to READY WPs of the *same pipeline type* before returning WAIT. A WAIT from handoff now truly means "no work available across the entire project", not just "this WP is done".
 
 ---
 
@@ -204,7 +210,7 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 
 ### Repair 4: Handoff Depth Exhaustion
 
-**Symptom:** Auto-handoff has stopped. The `auto_handoff_depth` counter has reached the max ceiling (`max(50, total_WPs × 30)`).
+**Symptom:** Auto-handoff has stopped. The `auto_handoff_depth` counter has reached the max ceiling (`max(MAX_HANDOFF_DEPTH, total_WPs × 30)` where `MAX_HANDOFF_DEPTH` defaults to 100, configurable at runtime).
 
 **Diagnosis:** This typically means the workflow has been looping through agents without making net progress.
 
@@ -213,6 +219,7 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 2. Resolve the underlying cycling issue (circuit breaker reset, criteria fix, or WP cancellation)
 3. The depth counter resets to 0 when `ledger_complete_synthesis` is called at the end of the workflow
 4. If the project is not near completion, the user may need to manually reset the depth counter by editing the ledger root index
+5. Note: cancelling WPs shrinks `effectiveMax` retroactively (fewer WPs = lower ceiling), which can exhaust the budget even if the counter hasn't increased
 
 ### Repair 5: All WPs Terminal But Project Not COMPLETE
 
@@ -282,8 +289,8 @@ Workflows can run in three environments. Each has different failure characterist
 - **Common issues:** Agent crashes (exceptions in stage nodes), orphaned pipelines from crashes, stale lock files, checkpoint corruption, process termination, model API rate limits or timeouts.
 - **Diagnostic approach:** Read orchestrator JSONL logs for `stage_error`, `pipeline_rollback`, and `stage_complete` events. Check for stale processes. Verify pipeline state matches log expectations.
 - **Key orchestrator safeguards:**
-  - **Pipeline rollback:** Auto-cancels orphaned `IN_PROGRESS` pipelines when a stage node throws (sets `auto_cancelled: true`)
-  - **Tool wrapping:** Three-layer defense — `inject_project_path` (Layer 2), `restrict_to_wp` (Layer 3), `log_tool_calls` (outermost)
+  - **Pipeline rollback:** Auto-cancels orphaned `IN_PROGRESS` pipelines when a stage node throws (sets `auto_cancelled: true`). Powered by `_install_begin_work_tracker` which records when `ledger_begin_work` fires.
+  - **Tool wrapping:** Six-layer defense applied in canonical order: (1) `inject_project_path` — auto-injects `project_path` into every call; (2) `restrict_to_wp` — auto-injects `work_package_id`, soft-fails first two cross-WP violations, hard-kills on third; (3) `_install_begin_work_tracker` — records pipeline starts for rollback; (4) `_install_complete_pipeline_tracker` — tracks pipeline completions; (5) `_install_post_completion_guard` — prevents tool calls after pipeline completion; (6) `log_tool_calls` — outermost, emits JSONL debug events.
   - **Checkpoint recovery:** LangGraph checkpoints allow resuming from the last successful state
 
 ---
