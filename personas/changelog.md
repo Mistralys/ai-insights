@@ -3,6 +3,7 @@
 ## v3.22.0 - Knowledge Collection System and Persona Improvements
 - Standalone: Plan Refiner wording improvements to remove overly imperative instructions.
 - Standalone: Plan Refiner handoff improvements to give subagents more agency.
+- Standalone: Plan Auditor no longer nags about navigational aids like line positions.
 - Standalone: CTX Architect variable examples escaped to fix warnings.
 - Standalone: WP Decomposer (v1.0.6) integrates some live usage insights.
 - Ledger: Synthesis delegates knowledge extraction to the Knowledge Archiver.
@@ -12,6 +13,7 @@
 - Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
 - Standalone: Updated integrated knowledge for the CTX Architect.
 - Standalone: Git Committer excludes CTX files from commits on feature branches.
+- Standalone: Git Committer checks for upstream and default-branch divergence before committing.
 - Build: Upgraded Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
 
 ## v3.21.0 - Plan Refiner and Persona Improvements
