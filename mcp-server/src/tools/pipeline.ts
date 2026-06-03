@@ -189,7 +189,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       // 4. Enforce pipeline ordering: compute prerequisite dynamically from active stages (§8.2)
       const prerequisite = resolvePrerequisite(args.type, activeStages);
       if (prerequisite !== null) {
-        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
+        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled);
         const mostRecentPrereq = prereqPipelines.at(-1);
         if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
           const orderedActive = (activeStages as readonly string[]).join(' \u2192 ');

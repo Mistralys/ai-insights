@@ -192,6 +192,43 @@ describe('startPipeline integration tests (WP-002 guards)', () => {
     expect(resultText(result)).toMatch(/stale|revalidat|Re-run/i);
   });
 
+  // ─── Auto-cancelled pipeline exclusion in prerequisite check (§21.27) ───
+
+  it('allows QA to start when most recent non-cancelled implementation is PASS despite a trailing auto-cancelled FAIL', async () => {
+    /**
+     * Scenario (Bug 2 from the plan):
+     *  t0 — impl PASS  (crash recovery: the pipeline was interrupted after PASS)
+     *  t1 — impl FAIL  (auto_cancelled: true — written by crash-recovery logic)
+     *
+     * Before the fix, the filter `p.type === prerequisite` picked up the
+     * auto-cancelled FAIL as the most-recent implementation pipeline, causing
+     * QA to be blocked. After the fix (`&& !p.auto_cancelled`), the FAIL is
+     * excluded and the PASS at t0 is used — QA may proceed.
+     */
+    const t0 = '2026-01-01T00:00:00.000Z';
+    const t1 = '2026-01-01T00:01:00.000Z';
+
+    const pipelines: Pipeline[] = [
+      { type: 'implementation', status: 'PASS', started_at: t0, completed_at: t0, summary: [] },
+      { type: 'implementation', status: 'FAIL', started_at: t1, completed_at: t1, summary: [], auto_cancelled: true },
+    ];
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      wp.pipelines = pipelines;
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const result = await _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      agent_role: 'QA',
+    });
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines.at(-1)?.type).toBe('qa');
+  });
+
   // ─── Per-type rework counting ────────────────────────────────────────────
 
   it('rework_counts.implementation increments when an implementation pipeline is retried', async () => {

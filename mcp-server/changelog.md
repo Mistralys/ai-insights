@@ -1,6 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
 ## v1.32.2 - Namespaced Project Links in Insights and Knowledge Views
+- Workflow: Fixed some cancellation edge cases.
+- Workflow: Fixed some rework cases despite completed stages.
 - GUI: `insights.js` project links now use the namespaced `#/projects/{repo}/{slug}` form when `repository_name` is non-null; entries with a null `repository_name` (e.g. from a shallow plan path) fall back to plain escaped text — no anchor, no broken link.
 - GUI: `knowledge.js` origin-plan links now use the namespaced `#/projects/{repo}/{slug}` form when both `origin_plan` and `repository_name` are present; fall back to a `<span>` (no anchor) when `repository_name` is null; omit the element entirely when `origin_plan` is absent.
 - GUI: Added inline comments at the `projectLink` assignment site in `insights.js` and the `originPlanHtml` assignment site in `knowledge.js` explaining the namespaced link format and fallback rationale.

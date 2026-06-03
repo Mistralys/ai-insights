@@ -207,13 +207,13 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.27 Auto-Cancelled Pipelines
 
 - When a pipeline is cancelled by system automation (cascade reblock via §15.5, or manual IN_PROGRESS → BLOCKED transition via §6.2), the `auto_cancelled` flag is set to `true`
-- Auto-cancelled pipelines are **excluded** from rework detection and circuit breaker calculations:
+- Auto-cancelled pipelines are **excluded** from rework detection, circuit breaker calculations, and prerequisite checks:
   - `hasDownstreamFail` (§11.3): filters out auto-cancelled pipelines
   - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
   - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
   - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
   - Re-validation guard in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` for the temporal baseline, ensuring auto-cancelled pipelines do not shift the comparison timestamp
-- Auto-cancelled pipelines are **not** excluded from prerequisite checks — an auto-cancelled prerequisite still blocks the next stage (but the WP will typically be BLOCKED anyway after cascade reblock)
+  - Prerequisite check in `startPipeline` (§11.1, §8.2): filters out auto-cancelled pipelines; a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start — the auto-cancelled FAIL does not mask the genuine PASS
 - This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
 - The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
 

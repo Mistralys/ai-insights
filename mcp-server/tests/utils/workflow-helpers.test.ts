@@ -271,13 +271,13 @@ describe('hasDownstreamReengagedSince', () => {
     expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(false);
   });
 
-  // §14.13 row 3: impl-2 PASS → qa-2 IN_PROGRESS (still in progress)
-  it('§14.13 row 3: returns true when QA started (IN_PROGRESS) after impl PASS', () => {
+  // §14.13 row 3: impl-2 PASS → qa-2 IN_PROGRESS (still in progress — not a FAIL re-engagement)
+  it('§14.13 row 3: returns false when QA is IN_PROGRESS after impl PASS (not a FAIL re-engagement)', () => {
     const pipelines: Pipeline[] = [
       makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
       makePipeline('qa', 'IN_PROGRESS', '2026-01-01T10:00:00'),
     ];
-    expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(true);
+    expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(false);
   });
 
   // §14.13 row 4: impl-2 PASS → qa-2 FAIL (QA restarted and failed again)
@@ -320,6 +320,38 @@ describe('hasDownstreamReengagedSince', () => {
       makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
       // code-review started at 10:00 (after impl PASS at 09:00)
       makePipeline('code-review', 'FAIL', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
+    ];
+    expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(true);
+  });
+
+  // PASS re-engagement: QA re-engaged but passed — should not trigger rework
+  it('returns false when downstream re-engaged with PASS after impl PASS', () => {
+    const pipelines: Pipeline[] = [
+      makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+      // QA started at 10:00 after impl PASS and itself passed
+      makePipeline('qa', 'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
+    ];
+    expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(false);
+  });
+
+  // Cross-downstream: QA PASSed but code-review FAIL predates the impl PASS — no re-engagement
+  it('returns false when QA PASSed but code-review FAIL has not re-engaged since impl PASS', () => {
+    const pipelines: Pipeline[] = [
+      // code-review FAIL at 08:00 — before impl PASS at 09:00
+      makePipeline('code-review', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T08:30:00'),
+      makePipeline('implementation', 'PASS', '2026-01-01T09:00:00', '2026-01-01T09:30:00'),
+      // QA re-engaged after impl PASS but passed
+      makePipeline('qa', 'PASS', '2026-01-01T10:00:00', '2026-01-01T10:30:00'),
+    ];
+    expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(false);
+  });
+
+  // Regression guard: core FAIL re-engagement must still return true
+  it('returns true when downstream re-engaged with FAIL after impl PASS (regression guard)', () => {
+    const pipelines: Pipeline[] = [
+      makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+      // QA started at 10:00 after impl PASS and failed
+      makePipeline('qa', 'FAIL', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
     ];
     expect(hasDownstreamReengagedSince(pipelines, 'implementation')).toBe(true);
   });
