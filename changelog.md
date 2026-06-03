@@ -1,21 +1,15 @@
 # AI Insights Changelog
 
-## v1.27.0 - Knowledge Store, Repository Scope, and Developer Experience
-> mcp v1.32.0 · orchestrator v0.22.0 · personas v3.22.0
-
+## UNRELEASED - WIP TITLE
 - MCP: Added the knowledge accumulation system.
 - MCP: Added dedicated knowledge search and registration tools.
 - MCP: Storage upgraded to folders namespaced by repository to eliminate collisions.
 - MCP: Existing storage folders are auto-migrated on server start.
-- MCP: Removed the local `.mcp.json` in favor of the global installation.
-- Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
-- Personas: CTX Architect variable examples escaped to avoid build warnings.
-- Personas: Added the Knowledge Archiver persona.
-- Personas: The Synthesis agent now delegates knowledge extraction to the archiver.
-- Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain insight lookups.
-- Personas: 7 personas gain the `browser` tool.
-- Personas: CTX Architect integrates updated CTX Generator guide information.
-- Scripts: Added a health-check registry.
+- MCP: Added run-metadata API endpoint.
+- Core: Removed the local `.mcp.json` in favor of the global installation.
+- Personas: Collected fixes and improvements across the board.
+- Scripts: Added a health-check registry shown in the CLI menu.
+- Scripts: The CLI menu now automatically refreshes stale dists.
 - Scripts: Added the global MCP installer for VS Code and Claude.
 - Scripts: Added doctor/bootstrap improvements.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
@@ -23,12 +17,12 @@
 - GUI: Fixed breadcrumbs in some pages.
 - GUI: Fixed the orchestrator run "Dismiss" button.
 - GUI: Fixed the main overview's filter input.
+- GUI: Added "Resume Run" button on project detail; re-launches the orchestrator with the saved thread ID.
+- Orchestrator: Added the `.orchestrator-run.json` sidecar metadata file.
+- Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
+- Tests: Added run-metadata endpoint and orchestrator sidecar write/update test coverage.
 - Dependencies: Updated Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
 - Dependencies: Updated CLI Menu to [v1.1.0](https://github.com/Mistralys/cli-menu/releases/tag/v1.1.0).
-- MCP: Added run-metadata API endpoint; reads `.orchestrator-run.json` sidecar from the plan directory.
-- GUI: Added "Resume Run" button on project detail; re-launches the orchestrator with the saved thread ID.
-- Orchestrator: Added `.orchestrator-run.json` sidecar; written atomically at run start and updated at run end with result and duration.
-- Tests: Added run-metadata endpoint and orchestrator sidecar write/update test coverage.
 
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0

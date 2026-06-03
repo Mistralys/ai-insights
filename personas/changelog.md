@@ -1,6 +1,6 @@
 # Personas Changelog
 
-## v3.22.0 - Knowledge Collection System and Persona Improvements
+## UNRELEASED - WIP TITLE
 - Standalone: Ledger Doctor: Refreshed workflow knowledge.
 - Standalone: Plan Refiner: Wording improvements to remove overly imperative instructions.
 - Standalone: Plan Refiner: Handoff improvements to give subagents more agency.
