@@ -5,7 +5,7 @@ import { now } from '../utils/timestamp.js';
 import { withLock } from '../storage/file-lock.js';
 import type { PipelineComment, IncidentContext } from '../schema/work-package.js';
 import type { ProjectComment } from '../schema/root-index.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import { PipelineTypeEnum, describePipelineTypes } from '../utils/pipeline-maps.js';
 
 /**

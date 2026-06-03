@@ -73,7 +73,7 @@ beforeEach(() => {
 
 declare global {
   // eslint-disable-next-line no-var
-  var renderProjectDetail: (app: HTMLElement, slug: string) => void;
+  var renderProjectDetail: (app: HTMLElement, repo: string, slug: string) => void;
   // eslint-disable-next-line no-var
   var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
   // eslint-disable-next-line no-var
@@ -127,6 +127,7 @@ function makeProject(overrides: Record<string, unknown> = {}) {
  */
 async function renderWithAPI(
   app: HTMLElement,
+  repo: string,
   slug: string,
   apiStubs: {
     getProject?: () => Promise<unknown>;
@@ -135,6 +136,8 @@ async function renderWithAPI(
     getProjectHealth?: () => Promise<unknown>;
     getRunLogs?: () => Promise<unknown>;
     orchestratorGetQueue?: () => Promise<unknown>;
+    getRunMetadata?: () => Promise<unknown>;
+    orchestratorStart?: () => Promise<unknown>;
   }
 ) {
   (globalThis as Record<string, unknown>)['API'] = {
@@ -144,9 +147,11 @@ async function renderWithAPI(
     getProjectHealth:     apiStubs.getProjectHealth      ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
     getRunLogs:           apiStubs.getRunLogs            ?? (() => Promise.resolve([])),
     orchestratorGetQueue: apiStubs.orchestratorGetQueue  ?? (() => Promise.resolve([])),
+    getRunMetadata:       apiStubs.getRunMetadata        ?? (() => Promise.reject(new Error('not stubbed'))),
+    orchestratorStart:    apiStubs.orchestratorStart     ?? (() => Promise.reject(new Error('not stubbed'))),
   };
 
-  globalThis.renderProjectDetail(app, slug);
+  globalThis.renderProjectDetail(app, repo, slug);
 
   // Poll until #orchestrator-runs-section stops showing the loading placeholder,
   // or until we give up (200ms). This handles the multi-level promise chain:
@@ -178,7 +183,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   // ── Hidden by default ─────────────────────────────────────────────────────
 
   it('keeps "Orchestrator Runs" wrapper hidden when getRunLogs returns [] (vscode runner)', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
       getRunLogs: () => Promise.resolve([]),
     });
@@ -189,7 +194,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   });
 
   it('keeps "Orchestrator Runs" wrapper hidden when runner is undefined and no logs', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({})), // no runner field
       getRunLogs: () => Promise.resolve([]),
     });
@@ -202,7 +207,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   // ── Empty state ───────────────────────────────────────────────────────────
 
   it('keeps wrapper hidden when getRunLogs returns empty array', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([]),
     });
@@ -220,7 +225,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260226T080000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -241,26 +246,27 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     // Run event styling applied
     expect(app.innerHTML).toContain('run-event');
 
-    // Links to the correct route (href still uses the full filename)
+    // Links to the correct namespaced route (href uses repo/slug/runs/filename)
     expect(app.innerHTML).toContain(
-      '#/projects/my-project/runs/' + encodeURIComponent(logs[0]!.filename)
+      '#/projects/my-repo/my-project/runs/' + encodeURIComponent(logs[0]!.filename)
     );
     expect(app.innerHTML).toContain(
-      '#/projects/my-project/runs/' + encodeURIComponent(logs[1]!.filename)
+      '#/projects/my-repo/my-project/runs/' + encodeURIComponent(logs[1]!.filename)
     );
   });
 
   it('encodes the slug in the run href', async () => {
-    await renderWithAPI(app, 'slug/with/slashes', {
+    await renderWithAPI(app, 'repo/with/slashes', 'slug/with/slashes', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-some-project.jsonl', is_active: false }]),
     });
 
+    expect(app.innerHTML).toContain(encodeURIComponent('repo/with/slashes'));
     expect(app.innerHTML).toContain(encodeURIComponent('slug/with/slashes'));
   });
 
   it('shows logs for non-orchestrator runner when log files exist', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
       getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-my-project.jsonl', is_active: false }]),
     });
@@ -278,7 +284,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260324T120000-my-project.jsonl', is_active: false }, // middle → #2
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -298,7 +304,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260325T120000-my-project.jsonl', is_active: true },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -312,7 +318,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260325T120000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -328,7 +334,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: true },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -344,7 +350,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -359,7 +365,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260325T120000-my-project.jsonl', is_active: true, is_dry_run: true },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -381,7 +387,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       { filename: '20260324T120000-my-project.jsonl', is_active: true }, // middle, interrupted
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve(logs),
     });
@@ -397,7 +403,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   // ── Error handling ────────────────────────────────────────────────────────
 
   it('keeps wrapper hidden on getRunLogs failure without crashing', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.reject({ message: 'Network error', code: 'ERROR' }),
     });
@@ -412,7 +418,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   });
 
   it('handles null error objects gracefully', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.reject(null),
     });
@@ -426,7 +432,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   // ── Existing content unaffected ───────────────────────────────────────────
 
   it('existing page content (WPs, comments, breadcrumb) is unaffected', async () => {
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([]),
     });
@@ -487,7 +493,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
     const queueEntry = makeQueueEntry(activeLog.filename);
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([queueEntry]),
     });
@@ -501,7 +507,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
     const queueEntry = makeQueueEntry(activeLog.filename);
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([queueEntry]),
     });
@@ -517,13 +523,14 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
     const queueEntry = makeQueueEntry(activeLog.filename);
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([queueEntry]),
     });
 
     expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
       expect.any(HTMLElement),
+      'my-repo',
       'my-project',
       activeLog.filename
     );
@@ -534,7 +541,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   it('AC-2: does NOT call renderStatusCard when no queue entry matches', async () => {
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]), // empty queue
     });
@@ -545,7 +552,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   it('AC-2: does NOT inject a kill button when no queue entry matches', async () => {
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
@@ -557,7 +564,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   it('AC-2: shows CLI kill hint when no queue entry matches', async () => {
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
@@ -568,13 +575,14 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   it('AC-2: starts log preview via renderLogPreview even without a matching queue entry', async () => {
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
 
     expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
       expect.any(HTMLElement),
+      'my-repo',
       'my-project',
       activeLog.filename
     );
@@ -588,7 +596,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
       { filename: '20260504T100000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -601,7 +609,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
       { filename: '20260505T120000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -613,7 +621,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
       { filename: '20260505T120000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -629,7 +637,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
 
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
@@ -642,7 +650,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
     const cleanup2 = vi.fn();
     globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup2);
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
@@ -655,7 +663,7 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   it('AC-5: calls Router._setPolling with 5000 ms when an active run is present', async () => {
     const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs:           () => Promise.resolve([activeLog]),
       orchestratorGetQueue: () => Promise.resolve([]),
     });
@@ -670,10 +678,364 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
       { filename: '20260505T120000-my-project.jsonl', is_active: false },
     ];
 
-    await renderWithAPI(app, 'my-project', {
+    await renderWithAPI(app, 'my-repo', 'my-project', {
       getRunLogs: () => Promise.resolve(logs),
     });
 
     expect(globalThis.Router._setPolling).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-004: showResumeError helper — error-banner deduplication
+// ---------------------------------------------------------------------------
+
+describe('renderProjectDetail — WP-004: showResumeError helper', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  /** Minimal resumable run metadata */
+  function makeResumableMeta(overrides: Record<string, unknown> = {}) {
+    return { thread_id: 'thread-abc', dry_run: false, result: 'INTERRUPTED', ...overrides };
+  }
+
+  /**
+   * Flush promises until the resume button (or error banner) appears,
+   * or 300 ms elapses.
+   */
+  async function flushResume(): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      if (app.querySelector('#orch-resume-btn') || app.querySelector('#orch-resume-error')) break;
+    }
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  async function flushError(): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      if (app.querySelector('#orch-resume-error')) break;
+    }
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  // ── showResumeError DOM structure ─────────────────────────────────────────
+
+  it('creates a <p id="orch-resume-error" class="error-banner"> on a non-started result', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+      orchestratorStart: () => Promise.resolve({ started: false }),
+    });
+
+    await flushResume();
+
+    // Click the resume button to trigger the error path
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    btn!.click();
+
+    await flushError();
+
+    const errEl = app.querySelector('#orch-resume-error');
+    expect(errEl).not.toBeNull();
+    expect(errEl!.tagName).toBe('P');
+    expect(errEl!.className).toBe('error-banner');
+    expect(errEl!.textContent).toBe('Resume could not be started.');
+  });
+
+  it('creates a <p id="orch-resume-error" class="error-banner"> on a rejected orchestratorStart', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+      orchestratorStart: () => Promise.reject({ message: 'Connection refused' }),
+    });
+
+    await flushResume();
+
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    btn!.click();
+
+    await flushError();
+
+    const errEl = app.querySelector('#orch-resume-error');
+    expect(errEl).not.toBeNull();
+    expect(errEl!.tagName).toBe('P');
+    expect(errEl!.className).toBe('error-banner');
+    expect(errEl!.textContent).toBe('Resume failed: Connection refused');
+  });
+
+  // ── Error banner reuse (no duplicate elements) ────────────────────────────
+
+  it('reuses the existing #orch-resume-error element on a second call (no duplicates)', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+    let callCount = 0;
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+      orchestratorStart: () => {
+        callCount++;
+        return Promise.resolve({ started: false });
+      },
+    });
+
+    await flushResume();
+
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+
+    // Click once — creates the error element.
+    btn!.disabled = false;
+    btn!.click();
+    await flushError();
+
+    // Click again — should reuse, not duplicate.
+    btn!.disabled = false;
+    btn!.click();
+    await flushError();
+
+    const errEls = app.querySelectorAll('#orch-resume-error');
+    expect(errEls).toHaveLength(1);
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  // ── Error banner text content ─────────────────────────────────────────────
+
+  it('includes the error message from a rejected orchestratorStart in the banner text', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+      orchestratorStart: () => Promise.reject({ message: 'Server timeout' }),
+    });
+
+    await flushResume();
+
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    btn!.click();
+
+    await flushError();
+
+    const errEl = app.querySelector('#orch-resume-error');
+    expect(errEl).not.toBeNull();
+    expect(errEl!.textContent).toContain('Resume failed:');
+    expect(errEl!.textContent).toContain('Server timeout');
+  });
+
+  // ── Resume button not shown for ineligible projects ───────────────────────
+
+  it('does not show the resume button for a COMPLETE project', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'COMPLETE', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    expect(app.querySelector('#orch-resume-error')).toBeNull();
+  });
+
+  it('does not show the resume button when result is SUCCESS', async () => {
+    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta({ result: 'SUCCESS' })),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: Resume Run button — show/hide conditions
+// ---------------------------------------------------------------------------
+
+describe('Resume Run button', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  /** Minimal resumable run metadata */
+  function makeResumableMeta(overrides: Record<string, unknown> = {}) {
+    return { thread_id: 'thread-xyz', dry_run: false, result: 'INTERRUPTED', ...overrides };
+  }
+
+  /**
+   * Flush promises until the resume button appears or 300 ms elapses.
+   */
+  async function flushResume(): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      if (app.querySelector('#orch-resume-btn') || app.querySelector('#orch-resume-error')) break;
+    }
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  // ── 1. SHOW: no active run, status IN_PROGRESS, metadata has thread_id, not dry_run, result !== SUCCESS ──
+
+  it('shows the resume button when conditions are met (IN_PROGRESS, thread_id, not dry_run, result !== SUCCESS)', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+    });
+
+    await flushResume();
+
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toBe('Resume Run');
+  });
+
+  // ── 2. HIDE: status is COMPLETE ──────────────────────────────────────────
+
+  it('hides the resume button when project status is COMPLETE', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'COMPLETE', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  // ── 3. HIDE: status is ARCHIVED ──────────────────────────────────────────
+
+  it('hides the resume button when project status is ARCHIVED', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'ARCHIVED', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  // ── 4. HIDE: getRunMetadata returns null / no thread_id ──────────────────
+
+  it('hides the resume button when getRunMetadata returns null', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(null),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  it('hides the resume button when getRunMetadata returns metadata without thread_id', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve({ thread_id: null, dry_run: false, result: 'INTERRUPTED' }),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  // ── 5. HIDE: metadata.dry_run is true ────────────────────────────────────
+
+  it('hides the resume button when metadata.dry_run is true', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta({ dry_run: true })),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  // ── 6. HIDE: metadata.result is SUCCESS ──────────────────────────────────
+
+  it('hides the resume button when metadata.result is SUCCESS', async () => {
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta({ result: 'SUCCESS' })),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+  });
+
+  // ── 7. HIDE: an active run exists (queue has entry) ───────────────────────
+
+  it('hides the resume button when an active run exists', async () => {
+    // With an active run, the code takes the polling path (not the resume-button path).
+    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: true }];
+
+    await renderWithAPI(app, 'my-repo', 'my-project', {
+      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
+      getRunLogs:     () => Promise.resolve(logs),
+      orchestratorGetQueue: () => Promise.resolve([]),
+      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
+    });
+
+    await flushResume();
+
+    expect(app.querySelector('#orch-resume-btn')).toBeNull();
   });
 });

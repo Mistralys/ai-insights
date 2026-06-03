@@ -187,6 +187,7 @@ function makeEntry(overrides: Partial<QueueEntry> = {}): QueueEntry {
     id:              'entry-abc',
     pid:             12345,
     planPath:        '/home/user/project/plan.md',
+    expectedRepo:    'my-repo',
     expectedSlug:    'my-project',
     startedAt:       new Date(Date.now() - 70_000).toISOString(),
     status:          'pending' as const,
@@ -344,18 +345,17 @@ describe('renderOrchestrator — AC-4: row actions', () => {
     } finally { cleanupApp(app); }
   });
 
-  it('shows project link for started entries', async () => {
+  it('shows namespaced project link for started entries with expectedRepo', async () => {
     const app = makeApp();
     try {
       globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
-        makeEntry({ effectiveStatus: 'started', expectedSlug: 'my-project' }),
+        makeEntry({ effectiveStatus: 'started', expectedRepo: 'my-repo', expectedSlug: 'my-project' }),
       ]);
       renderOrchestrator(app);
       await flushPromises();
       const link = app.querySelector('.orch-queue-action-btn') as HTMLAnchorElement | null;
       expect(link).not.toBeNull();
-      expect(link?.href).toContain('/projects/');
-      expect(link?.href).toContain('my-project');
+      expect(link?.href).toContain('/projects/my-repo/my-project');
     } finally { cleanupApp(app); }
   });
 
@@ -700,7 +700,7 @@ describe('renderOrchestrator — AC-5 + AC-7: log preview', () => {
     const app = makeApp();
     try {
       globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
-        makeEntry({ logFilename: 'run.jsonl', expectedSlug: 'proj' }),
+        makeEntry({ logFilename: 'run.jsonl', expectedRepo: 'my-repo', expectedSlug: 'proj' }),
       ]);
       renderOrchestrator(app);
       await flushPromises();
@@ -714,7 +714,7 @@ describe('renderOrchestrator — AC-5 + AC-7: log preview', () => {
       const cleanup = vi.fn();
       globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup);
       globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
-        makeEntry({ id: 'e1', logFilename: 'run.jsonl', expectedSlug: 'proj' }),
+        makeEntry({ id: 'e1', logFilename: 'run.jsonl', expectedRepo: 'my-repo', expectedSlug: 'proj' }),
       ]);
 
       // First render — then manually expand a row and trigger a re-render via the toggle.
@@ -733,6 +733,129 @@ describe('renderOrchestrator — AC-5 + AC-7: log preview', () => {
 
       // The cleanup from the first render should have been called.
       expect(cleanup).toHaveBeenCalled();
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-011 AC: Namespace migration — namespaced links & legacy fallbacks
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — WP-011: namespaced project links', () => {
+  // AC-1: Queue entry log links use the namespaced form when expectedRepo is non-null.
+  it('renders log link with namespaced #/projects/{repo}/{slug}/runs/{filename} form', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({
+          effectiveStatus: 'started',
+          expectedRepo:    'acme-corp',
+          expectedSlug:    'my-plan',
+          logFilename:     'run-2024.jsonl',
+          progress:        null,
+        }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const logLink = app.querySelector('.orch-log-link') as HTMLAnchorElement | null;
+      expect(logLink).not.toBeNull();
+      expect(logLink?.getAttribute('href')).toBe(
+        '#/projects/acme-corp/my-plan/runs/run-2024.jsonl'
+      );
+    } finally { cleanupApp(app); }
+  });
+
+  // AC-2: "View Project" link uses the namespaced form when expectedRepo is non-null.
+  it('renders View Project link with namespaced #/projects/{repo}/{slug} form', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({
+          effectiveStatus: 'started',
+          expectedRepo:    'acme-corp',
+          expectedSlug:    'my-plan',
+          projectExists:   true,
+        }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const link = app.querySelector('.orch-queue-action-btn') as HTMLAnchorElement | null;
+      expect(link).not.toBeNull();
+      expect(link?.getAttribute('href')).toBe('#/projects/acme-corp/my-plan');
+    } finally { cleanupApp(app); }
+  });
+
+  // AC-3a: Legacy entry with null expectedRepo — no View Project link rendered.
+  it('does not render View Project link for legacy entry with null expectedRepo', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({
+          effectiveStatus: 'started',
+          expectedRepo:    null,
+          expectedSlug:    'legacy-plan',
+          projectExists:   true,
+        }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      // No project link should appear — graceful fallback: link is omitted.
+      const link = app.querySelector('.orch-queue-action-btn') as HTMLAnchorElement | null;
+      expect(link).toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  // AC-3b: Legacy entry with null expectedRepo — no log link rendered.
+  it('does not render log link for legacy entry with null expectedRepo', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({
+          effectiveStatus: 'started',
+          expectedRepo:    null,
+          expectedSlug:    'legacy-plan',
+          logFilename:     'run.jsonl',
+          progress:        null,
+        }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      // No log link should appear — graceful fallback: link is omitted.
+      const logLink = app.querySelector('.orch-log-link') as HTMLAnchorElement | null;
+      expect(logLink).toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  // AC-4: No link constructs a URL using only expectedSlug without checking expectedRepo.
+  it('does not construct any bare-slug /projects/{slug} URL in the queue table', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({
+          effectiveStatus: 'started',
+          expectedRepo:    'acme-corp',
+          expectedSlug:    'my-plan',
+          projectExists:   true,
+          logFilename:     'run.jsonl',
+          progress:        null,
+        }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      // Collect all href values from the rendered table.
+      const links = Array.from(app.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      for (const link of links) {
+        const href = link.getAttribute('href') || '';
+        // A bare-slug URL would match #/projects/{slug} but NOT #/projects/{repo}/{slug}
+        // We check that no link has exactly two path segments after '#/projects/'.
+        // Valid namespaced: #/projects/repo/slug or #/projects/repo/slug/runs/file
+        // Invalid bare-slug: #/projects/slug or #/projects/slug/runs/file
+        if (href.startsWith('#/projects/')) {
+          const segments = href.slice('#/projects/'.length).split('/').filter(Boolean);
+          // Must have at least 2 segments (repo + slug).
+          expect(segments.length).toBeGreaterThanOrEqual(2);
+        }
+      }
     } finally { cleanupApp(app); }
   });
 });

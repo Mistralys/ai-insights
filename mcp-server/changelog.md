@@ -1,5 +1,45 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.32.2 - Namespaced Project Links in Insights and Knowledge Views
+- GUI: `insights.js` project links now use the namespaced `#/projects/{repo}/{slug}` form when `repository_name` is non-null; entries with a null `repository_name` (e.g. from a shallow plan path) fall back to plain escaped text — no anchor, no broken link.
+- GUI: `knowledge.js` origin-plan links now use the namespaced `#/projects/{repo}/{slug}` form when both `origin_plan` and `repository_name` are present; fall back to a `<span>` (no anchor) when `repository_name` is null; omit the element entirely when `origin_plan` is absent.
+- GUI: Added inline comments at the `projectLink` assignment site in `insights.js` and the `originPlanHtml` assignment site in `knowledge.js` explaining the namespaced link format and fallback rationale.
+- Tests: Added `tests/gui/insights-knowledge-links.test.ts` — 9 tests covering all four acceptance criteria for both views, including URL-encoding of special characters, null/undefined `repository_name` fallbacks, and bare-slug absence assertions.
+
+## v1.32.1 - InsightEntry repository_name Field
+- GUI: Added `repository_name: string | null` field to the `InsightEntry` interface.
+- GUI: `handleGetInsights()` now derives `repository_name` from the project storage path using the same
+  inline derivation pattern as `handleListProjects` — original casing is preserved (display field, not
+  a storage key).
+- GUI: Entries where the repository cannot be inferred from a shallow plan path receive
+  `repository_name: null` (never `undefined`), matching AC-3.
+- Tests: Corrected the AC-3 null-path test in `api.test.ts` to use a genuinely shallow planPath
+  (`/docs/agents/plans/...`) and assert `toBe(null)` directly; the previous assertion was tautologically
+  true and did not enforce the null requirement.
+- Docs: Updated `api-surface.md` `InsightEntry` interface with `repository_name` field and display-vs-storage
+  semantics note.
+- Docs: Added inline comments at both `repository_name` derivation call sites in `api.ts` explaining why
+  `deriveRepoName()` is intentionally not used there.
+
+## v1.32.0 - Orchestrator Sidecar, Resume Run Button, and GUI Resume Flow
+- GUI: Added `GET /api/projects/:slug/run-metadata` endpoint; reads plan-dir
+  `.orchestrator-run.json` sidecar and returns parsed JSON or HTTP 404.
+- GUI: `handleOrchestratorStart()` accepts optional `resumeThreadId` in request
+  body; validates UUID v4 format (HTTP 400 on invalid); forwards to
+  `startOrchestrator()`.
+- GUI: `startOrchestrator()` gains optional `resumeThreadId` param; when provided,
+  spawns orchestrator with `--resume <threadId>` instead of plan path alone.
+- GUI: Project detail view renders a "Resume Run" button when metadata is present,
+  `dry_run===false`, `result` is not SUCCESS/null, and project is not
+  COMPLETE/ARCHIVED; click handler disables button, calls `orchestratorStart()`,
+  polls queue every 3 s, and re-enables on timeout with inline error banner.
+- GUI: Added `#orch-resume-cell` layout container and `.btn-resume` / hover /
+  disabled styles to `styles.css`.
+- GUI: Added `API.getRunMetadata(slug)` to `api-client.js`.
+- Tests: Added `api-run-metadata.test.ts` — 5 unit tests for `handleGetRunMetadata`
+  covering HTTP 200, file-absent 404, project-not-found 404, unsafe-slug 400, and
+  path-construction contract.
+
 ## v1.31.0 - Knowledge Store, Namespaced Storage, and Repository Scope
 - Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo collisions.
 - Storage: Auto-migrates on startup; `resolveProjectDir()` handles bare slugs and composites.

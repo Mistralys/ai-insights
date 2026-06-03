@@ -36,6 +36,14 @@ export interface RawQueueEntry {
   pid: number;
   planPath: string;
   expectedSlug: string;
+  /**
+   * Repository name (workspace root slug) written by the Python orchestrator.
+   * Set to `null` for legacy queue entries that pre-date multi-root workspace
+   * support — the read boundary in `validate-entry.ts` normalizes missing
+   * `expected_repo` fields to `null` so every downstream consumer can rely on
+   * `string | null` and never needs to handle `undefined`.
+   */
+  expectedRepo: string | null;
   startedAt: string;
   status: 'pending';
 }

@@ -13,9 +13,14 @@ entry has the shape::
         "pid":          12345,
         "planPath":     "/abs/path/to/plan.md",
         "expectedSlug": "2026-05-05-feature",
+        "expectedRepo": "my-repo",
         "startedAt":    "2026-05-05T10:00:00.000000+00:00",
         "status":       "pending"
     }
+
+``expectedRepo`` is the repository name derived from the plan directory path
+(``plan_dir.parents[3].name``).  It is ``None`` for legacy queue entries
+produced by older orchestrator versions that did not include this field.
 
 Lock file
 ---------
@@ -57,6 +62,7 @@ def register(
     plan_path: str,
     slug: str,
     started_at: str,
+    repo_name: str | None = None,
 ) -> str:
     """Append a new entry to the run queue and return its UUID.
 
@@ -74,6 +80,16 @@ def register(
         lifecycle tracking and log file look-ups).
     started_at:
         ISO 8601 timestamp string captured at run start (``run_start_ts``).
+    repo_name:
+        Repository name derived from ``plan_dir.parents[3].name``.  Written as
+        ``expectedRepo`` in the queue entry.  The GUI uses this value together
+        with ``expectedSlug`` to build namespaced project links of the form
+        ``#/projects/{repo_name}/{slug}`` — for example,
+        ``#/projects/my-repo/2026-05-05-feature``.  Without ``expectedRepo``
+        the GUI cannot route to the correct project in a multi-root workspace.
+        Pass ``None`` (or omit) when the repo name cannot be determined; the
+        field is written as ``null`` in that case so consumers can detect legacy
+        entries and fall back gracefully (e.g. flat link or no project link).
 
     Returns
     -------
@@ -82,12 +98,16 @@ def register(
     """
     _LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Normalise empty string to None so consumers always see str | None, never "".
+    repo_name = repo_name or None
+
     entry_id = str(uuid.uuid4())
     entry: dict = {
         "id": entry_id,
         "pid": pid,
         "planPath": plan_path,
         "expectedSlug": slug,
+        "expectedRepo": repo_name,
         "startedAt": started_at,
         "status": "pending",
     }

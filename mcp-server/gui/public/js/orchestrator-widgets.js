@@ -252,7 +252,7 @@ var OrchestratorWidgets = (function () {
   }
 
   // ------------------------------------------------------------------
-  // renderLogPreview(container, slug, filename) → cleanup()
+  // renderLogPreview(container, repo, slug, filename) → cleanup()
   // ------------------------------------------------------------------
 
   /**
@@ -264,18 +264,19 @@ var OrchestratorWidgets = (function () {
    * 3 seconds.  Only events after the last seen line are prepended.
    *
    * @param {HTMLElement} container - The element to prepend log entries into.
-   * @param {string}      slug      - Project slug used for the API call.
+   * @param {string}      repo      - Repository name that owns the project (URI-encoded by API client).
+   * @param {string}      slug      - Project slug used for the API call (URI-encoded by API client).
    * @param {string}      filename  - JSONL log filename.
    * @returns {Function} cleanup — call to stop polling and clear the interval.
    */
-  function renderLogPreview(container, slug, filename) {
+  function renderLogPreview(container, repo, slug, filename) {
     var afterLine  = 0;
     var stopped    = false;
     var intervalId = null;
 
     function fetchEntries() {
       if (stopped) return;
-      API.getRunLogEntries(slug, filename, afterLine).then(function (data) {
+      API.getRunLogEntries(repo, slug, filename, afterLine).then(function (data) {
         if (stopped) return;
         var entries    = (data && Array.isArray(data.entries)) ? data.entries : [];
         var totalLines = (data && typeof data.totalLines === 'number')

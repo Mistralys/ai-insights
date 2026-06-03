@@ -96,6 +96,7 @@ describe('handleOrchestratorStart', () => {
       '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
       WORKSPACE,
       true,
+      undefined,
     );
     expect(result).toBe(mockResult);
   });
@@ -112,6 +113,7 @@ describe('handleOrchestratorStart', () => {
       '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
       WORKSPACE,
       false,
+      undefined,
     );
   });
 
@@ -128,6 +130,128 @@ describe('handleOrchestratorStart', () => {
       '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
       WORKSPACE,
       false,
+      undefined,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleOrchestratorStart — WP-003: resumeThreadId forwarding (AC-3, AC-4)
+// ---------------------------------------------------------------------------
+
+describe('handleOrchestratorStart — resumeThreadId (WP-003 AC-3, AC-4)', () => {
+  const WORKSPACE = '/workspace';
+  const PLAN_PATH = '/workspace/docs/agents/plans/2026-05-05-feat/plan.md';
+  const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('AC-3: rejects resumeThreadId that is not a UUID v4 string (v1 format)', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, {
+        planPath: PLAN_PATH,
+        resumeThreadId: 'not-a-uuid',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(mockStartOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: rejects resumeThreadId that is a v1-format UUID (wrong version digit)', async () => {
+    // UUID v1: version digit is 1, not 4
+    await expect(
+      handleOrchestratorStart(WORKSPACE, {
+        planPath: PLAN_PATH,
+        resumeThreadId: '550e8400-e29b-11d4-a716-446655440000',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-3: rejects resumeThreadId that is an empty string', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, {
+        planPath: PLAN_PATH,
+        resumeThreadId: '',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-3: rejects resumeThreadId that is a number', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, {
+        planPath: PLAN_PATH,
+        resumeThreadId: 12345,
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-3: rejected resumeThreadId error is an ApiError with VALIDATION_ERROR code', async () => {
+    const err = await handleOrchestratorStart(WORKSPACE, {
+      planPath: PLAN_PATH,
+      resumeThreadId: 'bad-uuid',
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('AC-4: forwards a valid UUID v4 resumeThreadId to startOrchestrator unchanged', async () => {
+    const mockResult = { checks: [], started: true, pid: 42 };
+    mockStartOrchestrator.mockResolvedValueOnce(mockResult);
+
+    await handleOrchestratorStart(WORKSPACE, {
+      planPath: PLAN_PATH,
+      resumeThreadId: VALID_UUID,
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      PLAN_PATH,
+      WORKSPACE,
+      false,
+      VALID_UUID,
+    );
+  });
+
+  it('AC-4: UUID v4 with uppercase hex digits is accepted', async () => {
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 1 });
+    const upperUuid = VALID_UUID.toUpperCase();
+
+    await handleOrchestratorStart(WORKSPACE, {
+      planPath: PLAN_PATH,
+      resumeThreadId: upperUuid,
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      PLAN_PATH,
+      WORKSPACE,
+      false,
+      upperUuid,
+    );
+  });
+
+  it('AC-4: valid resumeThreadId is forwarded alongside dryRun: true', async () => {
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: false });
+
+    await handleOrchestratorStart(WORKSPACE, {
+      planPath: PLAN_PATH,
+      dryRun: true,
+      resumeThreadId: VALID_UUID,
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      PLAN_PATH,
+      WORKSPACE,
+      true,
+      VALID_UUID,
+    );
+  });
+
+  it('AC-4 (AC-5 regression): omitting resumeThreadId still passes undefined as 4th arg', async () => {
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 7 });
+
+    await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      PLAN_PATH,
+      WORKSPACE,
+      false,
+      undefined,
     );
   });
 });

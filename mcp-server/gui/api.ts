@@ -161,6 +161,16 @@ function assertSafeQueueId(id: string): void {
  * The inline comment in the catch block documents the downgrade decision;
  * do not restore the original AMBIGUOUS message without a security review.
  *
+ * @remarks **Diagnostic logging — metadata read failures:**
+ * When reading `.meta.json` fails (e.g. file missing, corrupt JSON, schema
+ * mismatch), the second catch block logs a structured message to `stderr`
+ * before calling `notFound()`. The log line includes the slug, optional repo
+ * name, and the error message so operators can diagnose storage issues without
+ * enabling debug-level verbosity. The function's externally-visible behaviour
+ * is unchanged: callers always receive a NOT_FOUND response. Do not remove the
+ * `stderr.write` call — it is the only signal that distinguishes a missing
+ * project from a corrupted metadata file in production logs.
+ *
  * @throws ApiError NOT_FOUND when the project cannot be located, is ambiguous
  *   across namespaces, or has no metadata.
  */
@@ -191,7 +201,15 @@ async function resolveProjectStore(
     const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
     const meta = ProjectMetaSchema.parse(JSON.parse(raw));
     return new LedgerStore(meta.plan_path, ledgerRoot);
-  } catch {
+  } catch (err) {
+    // .meta.json missing, corrupt JSON, or schema validation failure —
+    // log for operator diagnostics (stderr only) and return 404 to the caller.
+    const errMsg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
+        (repoName !== undefined ? ` repo="${repoName}"` : '') +
+        `: ${errMsg}\n`
+    );
     notFound(`Project '${slug}' not found or has no metadata.`);
   }
 }
@@ -203,6 +221,7 @@ async function resolveProjectStore(
 export interface InsightEntry {
   project_slug: string;
   project_status: ProjectStatus;
+  repository_name: string | null;
   type: string;
   priority: 'low' | 'medium' | 'high';
   timestamp: string;
@@ -238,11 +257,23 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
       const comments = rootIndex.project_comments;
       if (!comments || comments.length === 0) return;
 
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on InsightEntry and ProjectSummary, where original casing must
+      // be preserved. Both call sites (handleGetInsights and handleListProjects) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
+      const repository_name: string | null = projectRoot
+        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
+        : null;
+
       for (const comment of comments) {
         entries.push({
+          ...comment,
           project_slug: meta.slug,
           project_status: meta.status,
-          ...comment,
+          repository_name,
         });
       }
     })
@@ -431,6 +462,12 @@ export async function handleListProjects(
       }
 
       // Derive repository_name from the project root directory name.
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on ProjectSummary and InsightEntry, where original casing must
+      // be preserved. Both call sites (handleListProjects and handleGetInsights) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
         : null;
@@ -1595,7 +1632,18 @@ export async function handleOrchestratorStart(
   }
   const planPath = b['planPath'];
   const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
-  return startOrchestrator(planPath, workspaceRoot, dryRun);
+
+  // Optional resume thread ID — must be UUID v4 when supplied.
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let resumeThreadId: string | undefined;
+  if ('resumeThreadId' in b) {
+    if (typeof b['resumeThreadId'] !== 'string' || !UUID_V4.test(b['resumeThreadId'])) {
+      validationError('body.resumeThreadId must be a valid UUID v4 string.');
+    }
+    resumeThreadId = b['resumeThreadId'];
+  }
+
+  return startOrchestrator(planPath, workspaceRoot, dryRun, resumeThreadId);
 }
 
 // ---------------------------------------------------------------------------
@@ -1691,4 +1739,44 @@ export async function handleGetRunStatus(
     notFound(`Invalid run-status filename: '${statusFilename}'.`);
   }
   return getRunStatus(logsDir, statusFilename);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/run-metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the `.orchestrator-run.json` sidecar file written by the Python
+ * orchestrator into the plan directory, parsed as JSON.
+ *
+ * The file contains the run identity fields (`thread_id`, `plan_path`,
+ * `started_at`, `is_resume`, `dry_run`, `log_filename`, `pid`) and the run
+ * outcome fields (`result`, `error`, `duration_s`).  While a run is in
+ * progress, `result`, `error`, and `duration_s` are `null`.
+ *
+ * Throws NOT_FOUND when:
+ * - The project slug is unsafe (path-traversal guard).
+ * - The project does not exist in the ledger.
+ * - The project has no `meta.plan_path` (metadata missing).
+ * - The sidecar file does not exist on disk.
+ *
+ * @param ledgerRoot - Absolute path to the ledger root directory.
+ * @param slug       - URL-decoded project slug from the request path.
+ * @param repoName   - Optional repository name for namespaced lookups.
+ */
+export async function handleGetRunMetadata(
+  ledgerRoot: string,
+  slug: string,
+  repoName?: string
+): Promise<unknown> {
+  assertSafeSlug(slug);
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const planPath = store.planPath;
+  const metaFilePath = join(planPath, '.orchestrator-run.json');
+  try {
+    const raw = await readFile(metaFilePath, 'utf-8');
+    return JSON.parse(raw) as unknown;
+  } catch {
+    notFound(`Run metadata not found for project '${slug}'.`);
+  }
 }

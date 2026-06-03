@@ -2392,6 +2392,28 @@ th[data-sort="total_work_packages"] {
 .orchestrator-kill-btn  { /* no extra rules */ }
 .orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
 
+/* Resume Run button — project detail Orchestrator Runs section */
+#orch-resume-cell {
+  padding-bottom: 8px;
+}
+
+.btn-resume {
+  background: transparent;
+  color: var(--color-btn-bg);
+  border-color: var(--color-btn-bg);
+}
+
+.btn-resume:hover {
+  background: var(--color-btn-bg);
+  color: #fff;
+  opacity: 1;
+}
+
+.btn-resume:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ============================================================
    Knowledge Page
    ============================================================ */

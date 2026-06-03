@@ -71,6 +71,14 @@ All are private (prefixed `_`) but documented here for agent navigation.
 | `signal_shutdown` | `stage="cli"`, `result="INTERRUPTED"`, `level="WARNING"`, `thread_id` | Emitted when SIGTERM/SIGINT triggers the graceful shutdown race path in `_run()`. The graph task is cancelled, the run is **not** marked terminal (resumable via `--resume`), and the process exits with code `1`. Integration-tested by `TestSignalInterruptedRun` in `tests/test_cli.py` (Unix-only; skipped on Windows). |
 | `run_end` | `result`, `thread_id`, **`total_duration_s`** | Enriched: `total_duration_s` — wallclock seconds for the full run (float, 1 dp); omitted when `run_start_ts` unavailable. |
 
+#### CLI private helpers (`src/cli.py`)
+
+Module-level helper functions used by the CLI entry point. All are private (prefixed `_`) but documented here for agent navigation.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `_derive_repo_name` | `(plan_dir: Path, fallback: str) -> str` | Derives the repository name from a plan directory path. Takes `plan_dir.parents[3].name` (the fourth ancestor, counting from zero), lowercases it to align with TypeScript's `deriveRepoName()` convention in `ledger-root.ts`. Falls back to *fallback* when the path has fewer than four ancestor levels or when the ancestor name is empty. Example: `/workspace/MyRepo/docs/agents/plans/2026-01-01-slug` → `"myrepo"`. Used by `_derive_ledger_log_dir()` and by the queue registration call in `cli.py` to populate `expectedRepo`. |
+
 ### Duration field conventions
 
 | Field | Scope | Present on |
@@ -244,15 +252,21 @@ use an atomic tmp+rename write so no partial content is ever observable.
   "pid":          12345,
   "planPath":     "/abs/path/to/plan.md",
   "expectedSlug": "2026-05-05-feature",
+  "expectedRepo": "my-repo",
   "startedAt":    "2026-05-05T10:00:00.000000+00:00",
   "status":       "pending"
 }
 ```
 
+`expectedRepo` is the repository name derived from `plan_dir.parents[3].name`.
+The GUI uses it together with `expectedSlug` to build namespaced project links
+(`#/projects/{repo}/{slug}`). It is `null` for legacy entries produced by older
+orchestrator versions — consumers must handle `null` gracefully.
+
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `QUEUE_FILE` | `Path` | Public constant. Absolute path to `orchestrator/logs/.run-queue.json`. Read by GUI and external tools to enumerate active runs. |
-| `register` | `register(pid: int, plan_path: str, slug: str, started_at: str) -> str` | Appends a new entry to the queue file and returns its UUID v4. Creates the queue file (and `logs/` directory) if absent. Acquires an exclusive lock before every read/write. |
+| `register` | `register(pid: int, plan_path: str, slug: str, started_at: str, repo_name: str \| None = None) -> str` | Appends a new entry to the queue file and returns its UUID v4. Creates the queue file (and `logs/` directory) if absent. Acquires an exclusive lock before every read/write. `repo_name` is written as `expectedRepo`; pass `None` (or omit) when the repository cannot be determined — the field is always written, as `null` for legacy-detection. Any falsy string is normalised to `None` at the API boundary. |
 | `unregister` | `unregister(entry_id: str) -> None` | Removes the entry with *entry_id* from the queue. Silent no-op when the queue file is missing or *entry_id* is not found. Acquires an exclusive lock before every read/write. |
 
 **CLI integration pattern (best-effort)**
