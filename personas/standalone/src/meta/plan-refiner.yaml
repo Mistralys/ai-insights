@@ -4,8 +4,8 @@ description: "Orchestrate iterative plan refinement: architectural review, findi
 vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
-version: "1.0.0"
-last_updated: "2026-05-20"
+version: "1.0.4"
+last_updated: "2026-05-31"
 
 tools:
   - vscode

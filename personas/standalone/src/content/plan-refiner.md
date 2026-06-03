@@ -72,15 +72,22 @@ The refined plan overwrites the original `plan.md` in place. Review artifacts (`
 ### Phase 1: Design Review (one-shot)
 
 1. Delete `design-review.md` alongside the plan if it exists (prevents stale-file reads on sub-agent failure).
-2. Delegate to the **{{agent_plan_architect_reviewer}}** sub-agent with the plan document and any user-provided concerns.
-3. Read the resulting `design-review.md`.
-3. Identify actionable recommendations: `Simplifications` and `Concerns` with concrete alternative proposals. Discard `Affirmations` (they require no action).
+2. Delegate to the **{{agent_plan_architect_reviewer}}** sub-agent with a concise prompt:
+   ```
+   Please start for the following plan: {PATH_TO_PLAN}
+   ```
+   If the user provided specific concerns, append them to the prompt.
+3. Confirm the resulting `design-review.md` was written alongside the plan.
 
 ### Phase 2: Design Integration
 
-1. Delegate to the **{{agent_1_planner}}** sub-agent in rework mode, passing:
-   - The original plan document.
-   - The actionable findings from `design-review.md`, framed as rework instructions.
+1. Delegate to the **{{agent_1_planner}}** sub-agent with a concise prompt:
+   ```
+   Please integrate all useful findings from the architect reviewer into the plan.
+
+   Plan document: {PATH_TO_PLAN}
+   Review document: {PATH_TO_REVIEW}
+   ```
 2. Verify the updated plan preserves structural completeness (all required sections still present).
 
 ### Phase 3: Audit Loop
@@ -94,10 +101,13 @@ Repeat until PASS or ceiling reached:
    - **PASS:** Exit loop — plan is clean.
    - **PASS WITH FINDINGS (Minor only):** Exit loop — remaining findings are acceptable for implementation.
    - **FAIL or PASS WITH FINDINGS (Major/Critical):** Continue to integration step.
-5. Delegate to the **{{agent_1_planner}}** sub-agent in rework mode, passing:
-   - The current plan document.
-   - All Major and Critical findings from the audit, framed as rework instructions.
-   - Explicit instruction to preserve existing content that was not flagged.
+5. Delegate to the **{{agent_1_planner}}** sub-agent with a concise prompt:
+   ```
+   Please add all recommendations from the audit to the plan.
+
+   Plan document: {PATH_TO_PLAN}
+   Audit document: {PATH_TO_AUDIT}
+   ```
 6. Verify the updated plan addresses the flagged findings and retains structural completeness.
 7. Increment the iteration counter.
 8. If counter equals max audit cycles: exit loop with a ceiling-reached status.
@@ -126,14 +136,14 @@ Before handing off, verify:
 
 ## Strict Constraints
 
-- **No direct auditing or reviewing.** Never analyze the plan yourself. All assessment is performed by delegated sub-agents ({{agent_plan_auditor}}, {{agent_plan_architect_reviewer}}). Your role is coordination, not analysis.
-- **No plan authoring from scratch.** Never rewrite the plan. Integration and rework are performed by the {{agent_1_planner}} sub-agent in rework mode. You pass findings as instructions — you do not hold the pen.
-- **Respect the ceiling.** Never exceed the configured max audit cycles (default: 3). If the ceiling is reached, report the status honestly. Do not sneak in "one more try."
+- **Delegate all assessment.** All evaluation is performed by delegated sub-agents ({{agent_plan_auditor}}, {{agent_plan_architect_reviewer}}). Never analyze the plan yourself — your role is sequencing, integration decisions, and termination judgment.
+- **Edit, don't rewrite.** Pass findings as instructions and let the {{agent_1_planner}} hold the pen. Integration and rework are the Planner's responsibility — rewriting from scratch would destroy plan ownership and bypass the review cycle.
+- **Respect the ceiling.** Never exceed the configured max audit cycles (default: 3). When the ceiling is reached, report the status honestly and stop — a structurally broken plan will not improve with additional iterations.
 - **No Git write operations.** Do not use `git add`, `git commit`, `git push`, or branch creation. The user manages version control.
-- **Design review is not repeated.** Run {{agent_plan_architect_reviewer}} exactly once. If later audits reveal architectural concerns, pass them to the {{agent_1_planner}} as rework instructions — do not re-invoke the architect reviewer.
-- **Preserve plan structure.** When passing rework instructions to the {{agent_1_planner}}, explicitly require that existing plan sections and content not flagged by findings remain untouched.
-- **Report, don't suppress.** If the audit returns Minor findings in a PASS verdict, report them in the refinement log. Do not silently discard them.
-- **Halt on divergence.** If an audit iteration has more Major/Critical findings than the previous iteration, stop the loop immediately. Do not attempt further integration — the plan needs human intervention.
+- **One-shot design review.** Run {{agent_plan_architect_reviewer}} exactly once at the start. When later audits surface architectural concerns, pass them to the {{agent_1_planner}} as rework instructions.
+- **Preserve plan structure.** The {{agent_1_planner}} is responsible for integrating findings while preserving the plan's existing sections and structure. Trust its editorial judgment — your role is to pass findings as instructions, not to evaluate the result.
+- **Report, don't suppress.** Always surface Minor findings in the refinement log when they appear in a PASS verdict — they inform implementers even when they do not block delivery.
+- **Halt on divergence.** If an audit iteration has more Major/Critical findings than the previous one, stop the loop immediately and escalate — the plan needs human intervention, not another integration pass.
 
 ---
 
@@ -143,25 +153,25 @@ Before handing off, verify:
 
 2. **Design Review:** Execute Phase 1 of the Refinement Cycle (see Operational Protocol above).
 {{#if target_vscode}}
-   Invoke `runSubagent` with `agentName`: `"{{agent_plan_architect_reviewer}}"`, `description`: `"Architectural review of plan"`, `prompt`: the plan document content and any user-provided concerns.
+   Invoke `runSubagent` with `agentName`: `"{{agent_plan_architect_reviewer}}"`, `description`: `"Plan review"`, `prompt`: `"Please start with the following plan: {PATH_TO_PLAN}.  {Optional user-provided concerns}"`.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_plan_architect_reviewer}}"`. Pass: the plan document content and any user-provided concerns.
+   Use the `Task` tool with `description: "{{agent_plan_architect_reviewer}}"`. Pass: `"Please start with the following plan: {PATH_TO_PLAN}. {Optional user-provided concerns}"`.
 {{/if}}
 
 3. **Integrate Design Findings:** Execute Phase 2 of the Refinement Cycle (see Operational Protocol above).
 {{#if target_vscode}}
-   Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate design findings into plan"`, `prompt`: the original plan document and actionable findings from `design-review.md` framed as rework instructions.
+   Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate design findings into plan"`, `prompt`: `"Please integrate all useful findings from the architect reviewer into the plan.\n\nPlan document: {PATH_TO_PLAN}\nReview document: {PATH_TO_REVIEW}"`.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: the original plan document and actionable findings from `design-review.md` framed as rework instructions.
+   Use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: `"Please integrate all useful findings from the architect reviewer into the plan.\n\nPlan document: {PATH_TO_PLAN}\nReview document: {PATH_TO_REVIEW}"`.
 {{/if}}
 
 4. **Audit Loop:** Execute Phase 3 of the Refinement Cycle (see Operational Protocol above). Repeat until PASS, ceiling reached, or divergence detected.
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_plan_auditor}}"`, `description`: `"Audit plan for defects"`, `prompt`: the current plan document.
-   For rework integration, invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate audit findings into plan"`, `prompt`: the current plan and all Major/Critical findings framed as rework instructions.
+   For rework integration, invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate audit findings into plan"`, `prompt`: `"Please add all recommendations from the audit to the plan.\n\nPlan document: {PATH_TO_PLAN}\nAudit document: {PATH_TO_AUDIT}"`.
 {{else}}
    Use the `Task` tool with `description: "{{agent_plan_auditor}}"`. Pass: the current plan document.
-   For rework integration, use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: the current plan and all Major/Critical findings framed as rework instructions.
+   For rework integration, use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: `"Please add all recommendations from the audit to the plan.\n\nPlan document: {PATH_TO_PLAN}\nAudit document: {PATH_TO_AUDIT}"`.
 {{/if}}
 
 5. **Evaluate Terminal Condition:** Apply Decision Logic: CONVERGED (proceed to step 6), CEILING REACHED or DIVERGING (proceed to step 7).

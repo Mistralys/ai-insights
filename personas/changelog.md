@@ -1,6 +1,8 @@
 # Personas Changelog
 
 ## v3.22.0 - Knowledge Collection System and Persona Improvements
+- Standalone: Plan Refiner wording improvements to remove overly imperative instructions.
+- Standalone: Plan Refiner handoff improvements to give subagents more agency.
 - Standalone: CTX Architect variable examples escaped so persona-builder no longer treats them as
   unresolved template variables; requires `@mistralys/persona-builder` ≥ 2.5.1.
 - Build: Upgraded `@mistralys/persona-builder` dependency to v2.5.1 (variable escape syntax).
