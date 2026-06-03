@@ -72,6 +72,14 @@ Scan for natural work boundaries. A good WP boundary occurs when:
 - The scope is narrow enough that each pipeline stage (especially implementation) fits in one focused session
 - It does not mix unrelated concerns (e.g., a rename + a logic change should be separate WPs)
 
+**Bundle these into the WP that owns the primary change** (they belong in its documentation pipeline stage, not in a standalone WP):
+
+- Changelog entries
+- Minor documentation updates that are a direct by-product of an implementation change
+- Version bumps tied to a specific feature or fix
+
+Splitting these into their own WP produces either redundant work or an instant-pass verification gate — both waste planning overhead. The documentation pipeline stage of the owning WP is the correct home for these artifacts.
+
 ### Step 3 — Write WP Definitions
 
 For each WP, produce a definition using the Output Template above.
@@ -97,6 +105,7 @@ Before submitting your output, verify:
 - [ ] No WP is a catch-all (e.g., "Update all the things")
 - [ ] Every deliverable is concrete and observable
 - [ ] Large WPs (complexity: High) have a noted justification for not splitting further
+- [ ] No standalone WP exists solely for a changelog entry, version bump, or trivial doc update that is a by-product of another WP's change
 - [ ] WP numbering is sequential and gap-free
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection
 - [ ] Every WP with a non-trivial design decision in the plan's "Rationale" or "Approach" sections has a corresponding `**Rationale:**` field
