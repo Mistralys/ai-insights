@@ -16,7 +16,7 @@ import {
   isTerminalStatus,
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 import {
   DEFAULT_PIPELINE_STAGES,

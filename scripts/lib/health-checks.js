@@ -13,7 +13,7 @@
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 9 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> with 8 annotated entries.
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
