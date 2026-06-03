@@ -161,6 +161,16 @@ function assertSafeQueueId(id: string): void {
  * The inline comment in the catch block documents the downgrade decision;
  * do not restore the original AMBIGUOUS message without a security review.
  *
+ * @remarks **Diagnostic logging — metadata read failures:**
+ * When reading `.meta.json` fails (e.g. file missing, corrupt JSON, schema
+ * mismatch), the second catch block logs a structured message to `stderr`
+ * before calling `notFound()`. The log line includes the slug, optional repo
+ * name, and the error message so operators can diagnose storage issues without
+ * enabling debug-level verbosity. The function's externally-visible behaviour
+ * is unchanged: callers always receive a NOT_FOUND response. Do not remove the
+ * `stderr.write` call — it is the only signal that distinguishes a missing
+ * project from a corrupted metadata file in production logs.
+ *
  * @throws ApiError NOT_FOUND when the project cannot be located, is ambiguous
  *   across namespaces, or has no metadata.
  */
@@ -191,7 +201,15 @@ async function resolveProjectStore(
     const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
     const meta = ProjectMetaSchema.parse(JSON.parse(raw));
     return new LedgerStore(meta.plan_path, ledgerRoot);
-  } catch {
+  } catch (err) {
+    // .meta.json missing, corrupt JSON, or schema validation failure —
+    // log for operator diagnostics (stderr only) and return 404 to the caller.
+    const errMsg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
+        (repoName !== undefined ? ` repo="${repoName}"` : '') +
+        `: ${errMsg}\n`
+    );
     notFound(`Project '${slug}' not found or has no metadata.`);
   }
 }
@@ -203,6 +221,7 @@ async function resolveProjectStore(
 export interface InsightEntry {
   project_slug: string;
   project_status: ProjectStatus;
+  repository_name: string | null;
   type: string;
   priority: 'low' | 'medium' | 'high';
   timestamp: string;
@@ -238,11 +257,23 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
       const comments = rootIndex.project_comments;
       if (!comments || comments.length === 0) return;
 
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on InsightEntry and ProjectSummary, where original casing must
+      // be preserved. Both call sites (handleGetInsights and handleListProjects) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
+      const repository_name: string | null = projectRoot
+        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
+        : null;
+
       for (const comment of comments) {
         entries.push({
+          ...comment,
           project_slug: meta.slug,
           project_status: meta.status,
-          ...comment,
+          repository_name,
         });
       }
     })
@@ -431,6 +462,12 @@ export async function handleListProjects(
       }
 
       // Derive repository_name from the project root directory name.
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on ProjectSummary and InsightEntry, where original casing must
+      // be preserved. Both call sites (handleListProjects and handleGetInsights) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
         : null;

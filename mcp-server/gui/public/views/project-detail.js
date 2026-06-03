@@ -18,18 +18,18 @@ function extractSynopsis(markdown) {
   return match ? match[1].trim() : null;
 }
 
-async function renderPlan(app, slug) {
+async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
   try {
-    var result = await API.getPlanDocument(slug);
+    var result = await API.getPlanDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Plan').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Plan').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
@@ -40,18 +40,18 @@ async function renderPlan(app, slug) {
 /* ----------------------------------------------------------
    4b-ii. View: Synthesis Document
    ---------------------------------------------------------- */
-async function renderSynthesis(app, slug) {
+async function renderSynthesis(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
   try {
-    var result = await API.getSynthesisDocument(slug);
+    var result = await API.getSynthesisDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
@@ -107,7 +107,7 @@ function buildRunBadges(item, isActive) {
   return badges;
 }
 
-function renderProjectDetail(app, slug) {
+function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
   _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
   _pdLogPreviewCleanups = [];
@@ -115,9 +115,9 @@ function renderProjectDetail(app, slug) {
   showLoading(app);
 
   Promise.all([
-    API.getProject(slug),
-    API.getPlanDocument(slug).catch(function () { return null; }),
-    API.getWorkPackageOverview(slug).catch(function () { return null; }),
+    API.getProject(repo, slug),
+    API.getPlanDocument(repo, slug).catch(function () { return null; }),
+    API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
@@ -139,8 +139,8 @@ function renderProjectDetail(app, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
-      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
-        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
+      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
         '<td>' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td>' + statusBadge(wp.status) + '</td>' +
@@ -178,7 +178,7 @@ function renderProjectDetail(app, slug) {
       : '<p class="text-muted">No comments yet.</p>';
 
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
-    ProjectNameCache.set(slug, displayTitle);
+    ProjectNameCache.set(makeProjectCacheKey(repo, slug), displayTitle);
     app.innerHTML =
       breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
@@ -221,7 +221,7 @@ function renderProjectDetail(app, slug) {
             synopsisHtml =
               '<div class="plan-synopsis">' +
               '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
-              '<a href="#/projects/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+              '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
               '</div>';
           }
         }
@@ -231,7 +231,7 @@ function renderProjectDetail(app, slug) {
       (function () {
         if (!project.synthesis_generated) return '';
         return '<div class="synthesis-link-row">' +
-          '<a href="#/projects/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
+          '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
       })() +
 
@@ -256,8 +256,8 @@ function renderProjectDetail(app, slug) {
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
     if (unarchiveBannerBtn) {
       unarchiveBannerBtn.addEventListener('click', function () {
-        API.unarchiveProject(slug).then(function () {
-          renderProjectDetail(app, slug);
+        API.unarchiveProject(repo, slug).then(function () {
+          renderProjectDetail(app, repo, slug);
         }).catch(function (err) {
           alert('Unarchive failed: ' + (err.message || String(err)));
         });
@@ -278,18 +278,18 @@ function renderProjectDetail(app, slug) {
       resetBtn.addEventListener('click', function () {
         resetBtn.disabled = true;
         resetBtn.textContent = 'Analyzing…';
-        API.analyzeProjectReset(slug).then(function (diagnosis) {
+        API.analyzeProjectReset(repo, slug).then(function (diagnosis) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
           if (diagnosis.work_packages_needing_reset === 0) {
             if (meta.status === 'IN_PROGRESS') {
-              showResetModal(slug, diagnosis, { markComplete: true });
+              showResetModal(repo, slug, diagnosis, { markComplete: true });
             } else {
               alert('All work packages are healthy — no reset needed.');
             }
             return;
           }
-          showResetModal(slug, diagnosis);
+          showResetModal(repo, slug, diagnosis);
         }).catch(function (err) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
@@ -335,7 +335,7 @@ function renderProjectDetail(app, slug) {
             return;
           }
           input.disabled = true;
-          API.renameProject(slug, newTitle).then(function () {
+          API.renameProject(repo, slug, newTitle).then(function () {
             currentTitle = newTitle;
             headingEl.textContent = newTitle;
             if (breadcrumbEl) breadcrumbEl.textContent = newTitle;
@@ -435,8 +435,8 @@ function renderProjectDetail(app, slug) {
           }
           input.disabled = true;
           clearSlugError();
-          API.renameSlug(currentSlug, newSlug).then(function () {
-            window.location.hash = '#/projects/' + encodeURIComponent(newSlug);
+          API.renameSlug(repo, currentSlug, newSlug).then(function () {
+            window.location.hash = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(newSlug);
           }).catch(function (err) {
             input.disabled = false;
             inputDone = false;
@@ -469,7 +469,7 @@ function renderProjectDetail(app, slug) {
     // Health badge — async, non-blocking
     var healthBadge = document.getElementById('health-badge');
     if (healthBadge) {
-      API.getProjectHealth(slug).then(function (health) {
+      API.getProjectHealth(repo, slug).then(function (health) {
         if (health.work_packages_needing_reset === 0) {
           healthBadge.textContent = '\u2713 All pipelines complete';
           healthBadge.className = 'health-badge healthy';
@@ -483,7 +483,7 @@ function renderProjectDetail(app, slug) {
       });
     }
     // Orchestrator Runs — async, non-blocking; section becomes visible only when logs exist
-    API.getRunLogs(slug).then(function (logs) {
+    API.getRunLogs(repo, slug).then(function (logs) {
       var wrapperEl = document.getElementById('orchestrator-runs-wrapper');
       var runsEl = document.getElementById('orchestrator-runs-section');
       if (!wrapperEl || !runsEl) return;
@@ -504,8 +504,8 @@ function renderProjectDetail(app, slug) {
 
       // Render the full runs list; called with the matched queue entry (or null).
       // NOTE (refactor candidate): renderRunsList is a nested closure inside the getRunLogs().then()
-      // callback to close over sorted, slug, and activeFilename. A future pass could extract this as
-      // a module-level helper accepting (sorted, slug, activeFilename, matchingQueueEntry) to improve
+      // callback to close over sorted, repo, slug, and activeFilename. A future pass could extract this as
+      // a module-level helper accepting (sorted, repo, slug, activeFilename, matchingQueueEntry) to improve
       // testability and reduce closure depth.
       function renderRunsList(matchingQueueEntry) {
         // Drain any existing log preview cleanups before rebuilding the DOM.
@@ -515,7 +515,7 @@ function renderProjectDetail(app, slug) {
         runsEl.innerHTML = sorted.map(function (item, index) {
           var filename = (item && item.filename) ? item.filename : String(item);
           var isActive = index === 0 && !!(item && item.is_active);
-          var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+          var href = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
           var runNumber = sorted.length - index;
 
           var dateStr = (function () {
@@ -583,7 +583,7 @@ function renderProjectDetail(app, slug) {
         if (activeFilename) {
           var previewEl = document.getElementById('orch-project-log-preview');
           if (previewEl) {
-            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, slug, activeFilename);
+            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, repo, slug, activeFilename);
             _pdLogPreviewCleanups.push(cleanup);
           }
         }
@@ -623,7 +623,23 @@ function renderProjectDetail(app, slug) {
         var resumeCell = document.getElementById('orch-resume-cell');
         if (resumeCell && meta.plan_path &&
             meta.status !== 'COMPLETE' && meta.status !== 'ARCHIVED') {
-          API.getRunMetadata(slug).then(function (runMeta) {
+
+          // showResumeError: reusable helper that creates the error banner on first
+          // call and reuses it on subsequent calls. The getElementById guard prevents
+          // duplicate DOM nodes if the user triggers multiple failed resume attempts
+          // (e.g. rapid re-clicks after the button is re-enabled on error).
+          function showResumeError(msg) {
+            var errEl = document.getElementById('orch-resume-error');
+            if (!errEl) {
+              errEl = document.createElement('p');
+              errEl.id = 'orch-resume-error';
+              errEl.className = 'error-banner';
+              resumeCell.appendChild(errEl);
+            }
+            errEl.textContent = msg;
+          }
+
+          API.getRunMetadata(repo, slug).then(function (runMeta) {
             if (!runMeta || !runMeta.thread_id ||
                 runMeta.dry_run === true || runMeta.result === 'SUCCESS') {
               return;
@@ -652,7 +668,7 @@ function renderProjectDetail(app, slug) {
                       });
                       if (hasActiveEntry) {
                         Router._clearPolling();
-                        renderProjectDetail(app, slug);
+                        renderProjectDetail(app, repo, slug);
                       }
                     }).catch(function () { /* keep polling */ });
                   };
@@ -660,26 +676,12 @@ function renderProjectDetail(app, slug) {
                 } else {
                   resumeBtn.disabled = false;
                   resumeBtn.textContent = 'Resume Run';
-                  var errEl = document.getElementById('orch-resume-error');
-                  if (!errEl) {
-                    errEl = document.createElement('p');
-                    errEl.id = 'orch-resume-error';
-                    errEl.className = 'error-banner';
-                    resumeCell.appendChild(errEl);
-                  }
-                  errEl.textContent = 'Resume could not be started.';
+                  showResumeError('Resume could not be started.');
                 }
               }).catch(function (err) {
                 resumeBtn.disabled = false;
                 resumeBtn.textContent = 'Resume Run';
-                var errEl = document.getElementById('orch-resume-error');
-                if (!errEl) {
-                  errEl = document.createElement('p');
-                  errEl.id = 'orch-resume-error';
-                  errEl.className = 'error-banner';
-                  resumeCell.appendChild(errEl);
-                }
-                errEl.textContent = 'Resume failed: ' + (err.message || String(err));
+                showResumeError('Resume failed: ' + (err.message || String(err)));
               });
             });
 
@@ -703,7 +705,7 @@ function renderProjectDetail(app, slug) {
    ---------------------------------------------------------- */
 var PIPELINE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
-function showResetModal(slug, diagnosis, options) {
+function showResetModal(repo, slug, diagnosis, options) {
   // Remove any existing modal
   var existing = document.getElementById('reset-modal-overlay');
   if (existing) existing.remove();
@@ -980,7 +982,7 @@ function showResetModal(slug, diagnosis, options) {
 
     if (markCompleteMode) {
       applyBtn.textContent = 'Marking…';
-      API.markProjectComplete(slug).then(function () {
+      API.markProjectComplete(repo, slug).then(function () {
         closeModal();
         var toast = document.createElement('div');
         toast.className = 'success-banner';
@@ -989,7 +991,7 @@ function showResetModal(slug, diagnosis, options) {
         document.body.appendChild(toast);
         setTimeout(function () { toast.remove(); }, 4000);
         var app = document.getElementById('app');
-        if (app) renderProjectDetail(app, slug);
+        if (app) renderProjectDetail(app, repo, slug);
       }).catch(function (err) {
         applyBtn.disabled = false;
         applyBtn.textContent = 'Mark as Complete';
@@ -1015,7 +1017,7 @@ function showResetModal(slug, diagnosis, options) {
       }
     });
 
-    API.applyProjectReset(slug, decisions).then(function (result) {
+    API.applyProjectReset(repo, slug, decisions).then(function (result) {
       closeModal();
       // Show brief success toast
       var toast = document.createElement('div');
@@ -1026,7 +1028,7 @@ function showResetModal(slug, diagnosis, options) {
       setTimeout(function () { toast.remove(); }, 4000);
       // Refresh the project view
       var app = document.getElementById('app');
-      if (app) renderProjectDetail(app, slug);
+      if (app) renderProjectDetail(app, repo, slug);
     }).catch(function (err) {
       applyBtn.disabled = false;
       applyBtn.textContent = 'Apply Reset';

@@ -77,6 +77,15 @@ EXIT_ERROR = 1
 EXIT_SAFETY_LIMIT = 2
 
 # ---------------------------------------------------------------------------
+# Interrupt detection flag
+# ---------------------------------------------------------------------------
+
+# Set to True by each interrupt path (signal, KeyboardInterrupt, MCP startup).
+# Used in result determination instead of substring-matching outside_errors.
+# Python's GIL guarantees atomic boolean assignment, so no locking is needed.
+_was_interrupted: bool = False
+
+# ---------------------------------------------------------------------------
 # Interrupt-on stage mapping
 # Stage names that can be specified in --interrupt-on map to graph node names.
 # "fail" is a meta-stage meaning: interrupt before developer when handling rework.
@@ -93,6 +102,31 @@ _INTERRUPT_STAGE_MAP: dict[str, str] = {
 # Path helpers
 # ---------------------------------------------------------------------------
 
+def _derive_repo_name(plan_dir: Path, fallback: str) -> str:
+    """Derive the repository name from a plan directory path.
+
+    The repository name is taken from ``plan_dir.parents[3].name``
+    (the fourth ancestor, counting from zero), lowercased to align with
+    TypeScript's ``deriveRepoName()`` convention in ``ledger-root.ts``.
+
+    Falls back to *fallback* when the path has fewer than four ancestor
+    levels or when the ancestor name is empty.
+
+    Parameters
+    ----------
+    plan_dir:
+        Path to the plan directory (e.g.
+        ``/workspace/MyRepo/docs/agents/plans/2026-01-01-slug``).
+    fallback:
+        Value returned when the ancestor cannot be resolved.
+    """
+    try:
+        name = plan_dir.parents[3].name
+        return name.lower() if name else fallback
+    except IndexError:
+        return fallback
+
+
 def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
     """Derive the ledger storage log directory for a given plan.
 
@@ -101,15 +135,12 @@ def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
 
-    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is
-    ``plan_dir.parents[3].name``, falling back to ``"unknown"`` when the path
+    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is derived via
+    :func:`_derive_repo_name`, falling back to ``"unknown"`` when the path
     has fewer than four ancestor levels or the ancestor name is empty.
     """
     slug = plan_dir.name
-    try:
-        repo_name = plan_dir.parents[3].name or "unknown"
-    except IndexError:
-        repo_name = "unknown"
+    repo_name = _derive_repo_name(plan_dir, "unknown")
     return (
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
@@ -586,8 +617,29 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     cancelled, and the run exits with code ``1`` (COMPLETED WITH ERRORS).
     Because no terminal marker is written, the same thread ID can be passed
     to ``--resume`` to restart from the last LangGraph checkpoint.
+
+    Side-effects on module state
+    ----------------------------
+    This function mutates the module-level ``_was_interrupted`` flag:
+
+    * **Reset to** ``False`` at the top of every invocation (before any
+      async work begins) so that repeated calls do not inherit state from
+      a previous run.
+    * **Set to** ``True`` by any of the three interrupt paths:
+
+      1. Signal-triggered shutdown (SIGTERM / SIGINT via ``shutdown_event``).
+      2. ``KeyboardInterrupt`` raised during graph execution.
+      3. ``KeyboardInterrupt`` raised during MCP server startup.
+
+    The flag is read in the result-determination block at the bottom of
+    ``_run()`` to decide whether ``_meta_result`` should be
+    ``"INTERRUPTED"``, replacing the previous fragile substring match on
+    ``outside_errors``.
     """
     from src.mcp_client import MCPToolkit
+
+    global _was_interrupted
+    _was_interrupted = False  # Reset per-run in case _run() is called more than once.
 
     # ── Resolve paths ───────────────────────────────────────────────────────
     plan_path = Path(args.plan).resolve()
@@ -748,11 +800,16 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         # ── Register in shared run queue ─────────────────────────────────
         try:
             from src.utils import run_queue
+            # Empty-string fallback → None means "untracked" (run_queue treats
+            # repo_name=None as an unassociated entry; 'unknown' is reserved for
+            # ledger log-dir paths where a concrete slug is always needed).
+            _repo_name: str | None = _derive_repo_name(plan_dir, "") or None
             entry_id = run_queue.register(
                 pid=os.getpid(),
                 plan_path=str(plan_path),
                 slug=plan_dir.name,
                 started_at=run_start_ts,
+                repo_name=_repo_name,
             )
         except Exception:
             log.warning("Could not register in run queue; continuing without tracking.")
@@ -866,6 +923,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                                 f"\n[signal] Graceful shutdown. "
                                 f"Resume with: orchestrate --resume {thread_id}"
                             )
+                            _was_interrupted = True
                             outside_errors.append("Interrupted by signal.")
                             # Retrieve any partial state from the graph task.
                             if graph_task in done:
@@ -889,6 +947,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                             thread_id,
                         )
                         print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
+                        _was_interrupted = True
                         outside_errors.append("Interrupted by user.")
                     except Exception as exc:
                         log.error("Graph execution failed: %s", exc, exc_info=True)
@@ -897,6 +956,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                     await db_conn.close()
 
         except KeyboardInterrupt:
+            _was_interrupted = True
             outside_errors.append("Interrupted during MCP server startup.")
         except Exception as exc:
             log.error("MCP server startup failed: %s", exc, exc_info=True)
@@ -969,7 +1029,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             if outside_errors
             else (final_state.get("fatal_error") if final_state else None)
         )
-        _is_interrupted = any("Interrupted" in e for e in outside_errors) or (
+        _is_interrupted = _was_interrupted or (
             bool(interrupt_before) and not outside_errors and not _meta_fatal
         )
         if _is_interrupted:
