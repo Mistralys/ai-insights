@@ -238,3 +238,99 @@ describe('getProjectLedgerStatus — path-segment guard (this plan AC-2)', () =>
     expect(result).toEqual({ exists: false, synthesisGenerated: false });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Deduplication: when multiple entries share the same (expectedRepo, expectedSlug)
+// pair, only the most recently started entry is returned.
+// ---------------------------------------------------------------------------
+
+describe('getQueue — deduplication: keeps only the most recent entry per slug', () => {
+  let env: TestEnv;
+
+  beforeEach(async () => {
+    env = await setup();
+  });
+
+  afterEach(async () => {
+    await teardown(env.tempDir);
+  });
+
+  it('returns only the most recent entry when two entries share the same slug', async () => {
+    const slug = '2026-06-01-wizard-preselection-api';
+    // Both PIDs are unreachable. Project ledger exists → both entries resolve to
+    // effectiveStatus: 'started' (dead process + project exists → 'started').
+    const entries = [
+      {
+        id:           'old-run',
+        pid:          999_999_998,
+        planPath:     `/fake/plans/${slug}/plan.md`,
+        expectedSlug: slug,
+        startedAt:    '2026-05-01T00:00:00Z',
+        status:       'pending',
+      },
+      {
+        id:           'new-run',
+        pid:          999_999_999,
+        planPath:     `/fake/plans/${slug}/plan.md`,
+        expectedSlug: slug,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+    ];
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify(entries), 'utf-8');
+    await createProjectLedger(env.ledgerRoot, slug);
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe('new-run');
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+
+  it('keeps a single entry unchanged when there is no duplicate', async () => {
+    const slug = '2026-06-01-no-duplicate';
+    const entry = {
+      id:           'only-run',
+      pid:          999_999_998,
+      planPath:     `/fake/plans/${slug}/plan.md`,
+      expectedSlug: slug,
+      startedAt:    '2026-05-01T00:00:00Z',
+      status:       'pending',
+    };
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify([entry]), 'utf-8');
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe('only-run');
+  });
+
+  it('keeps entries with different slugs independently', async () => {
+    const slug1 = '2026-06-01-project-alpha';
+    const slug2 = '2026-06-01-project-beta';
+    const entries = [
+      {
+        id:           'alpha-run',
+        pid:          999_999_998,
+        planPath:     `/fake/plans/${slug1}/plan.md`,
+        expectedSlug: slug1,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+      {
+        id:           'beta-run',
+        pid:          999_999_997,
+        planPath:     `/fake/plans/${slug2}/plan.md`,
+        expectedSlug: slug2,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+    ];
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify(entries), 'utf-8');
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id).sort()).toEqual(['alpha-run', 'beta-run']);
+  });
+});

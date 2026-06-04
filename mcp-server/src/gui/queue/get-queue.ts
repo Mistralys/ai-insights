@@ -211,5 +211,25 @@ export async function getQueue(params: {
     }),
   );
 
-  return enriched.filter((e): e is QueueEntry => e !== null);
+  const filtered = enriched.filter((e): e is QueueEntry => e !== null);
+
+  // Deduplication: when multiple entries share the same (expectedRepo, expectedSlug)
+  // pair (e.g. a previous run that died before cleanup + a new active run), keep only
+  // the most recently started entry per pair.  Older runs for the same project are
+  // stale noise — the queue should surface only the latest run per project.
+  if (filtered.length < 2) return filtered;
+
+  const latestByKey = new Map<string, QueueEntry>();
+  for (const entry of filtered) {
+    const key = `${entry.expectedRepo ?? ''}:${entry.expectedSlug}`;
+    const existing = latestByKey.get(key);
+    if (!existing || entry.startedAt > existing.startedAt) {
+      latestByKey.set(key, entry);
+    }
+  }
+  // Preserve the original ordering for entries that were not deduplicated.
+  return filtered.filter((entry) => {
+    const key = `${entry.expectedRepo ?? ''}:${entry.expectedSlug}`;
+    return latestByKey.get(key) === entry;
+  });
 }
