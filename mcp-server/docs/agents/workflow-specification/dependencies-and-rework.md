@@ -308,6 +308,28 @@ When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and
 
 **Related sections:** [§16.3b](#163b-circuit-breaker-reset) (PM rework count reset), [§21.68](edge-cases.md#2168-orphaned-pipeline-recovery-agent-crash-between-begin_work-and-complete_pipeline) (orphaned pipeline recovery), [§19.1](auxiliary-systems.md#191-algorithm) (`completeSynthesis` pending guard)
 
+### 16.3d Administrative Reopen of Incorrectly Cancelled WPs
+
+`ledger_reopen_cancelled_wp` is a PM-only tool for recovering a WP that was cancelled by mistake. It mirrors the pattern of `ledger_reset_rework_count` (§16.3b): a targeted administrative bypass of a normally terminal constraint, with mandatory audit trail.
+
+**When to use:**
+
+- A WP was cancelled in error (e.g., wrong WP ID passed to `updateWorkPackageStatus(CANCELLED)`)
+- Automated orchestrator cancelled a WP (§16.3c) but an operator later determined the root cause was transient and the WP should proceed
+
+**How it differs from normal state machine transitions:**
+
+| Property | Normal transitions | `ledger_reopen_cancelled_wp` |
+|----------|-------------------|------------------------------|
+| `isValidStatusTransition('CANCELLED', *)` | `false` — rejected | Bypassed — tool proceeds regardless |
+| Access control | Any authorised agent per transition table | PM-only, hard-coded |
+| Audit | Standard status-change timestamp | Explicit `reason` string written to `root.project_comments` |
+| Initial status | Depends on source status | Dep-aware: `canStartWorkPackage` → READY or BLOCKED |
+
+**Side effects and invariants:** See [§21.1a](edge-cases.md#21a-administrative-reopen-of-cancelled-wps) for the full atomic side-effect list (counter increment, synthesis invalidation, cascade reblock, pipeline history preservation).
+
+**Related sections:** [§16.3b](#163b-circuit-breaker-reset) (reset_rework_count — same bypass pattern), [§21.1a](edge-cases.md#21a-administrative-reopen-of-cancelled-wps) (full edge-case specification), [§15.5](dependencies-and-rework.md) (cascade reblock, called post-write to block downstream dependents)
+
 ### 16.4 Rework Flow
 
 The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).

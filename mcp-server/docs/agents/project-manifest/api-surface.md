@@ -232,6 +232,36 @@ The `agent` field is required because the server checks which persona is attempt
 - **Audit trail:** On reset, appends `{ type: 'rework_reset', priority: 'high', agent: 'Project Manager', note: 'Reset rework count for <type> on <WP-###> from <N> to 0. Reason: <reason>' }` to `root.project_comments`.
 - **Use case:** Allows the PM to unblock a WP that has hit the rework circuit breaker (`rework_counts[type] >= MAX_REWORK_COUNT`).
 
+#### `ledger_reopen_cancelled_wp`
+
+```typescript
+(args: {
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
+  work_package_id: string; // WP-### format
+  agent_role: string;  // Must be "Project Manager"
+  reason: string;      // Non-empty, non-whitespace; stored in audit trail
+}) => Promise<MCPResult>
+```
+
+**PM-only administrative bypass tool (§16.3d, §21.1a).** Recovers a CANCELLED work package to READY or BLOCKED, bypassing the normal terminal state machine. Mirrors the `ledger_reset_rework_count` pattern: targeted escape hatch with mandatory audit trail.
+
+- **Precondition guard:** Target WP must be in `CANCELLED` status. Non-CANCELLED WPs return an error without modifying state (checked atomically inside the write lock — no TOCTOU).
+- **Dep-aware initial status:** Inside the atomic write, `canStartWorkPackage` determines the recovery status. If all upstream dependencies are `COMPLETE`, WP transitions to `READY`; otherwise `BLOCKED` with a `dependency` blocker.
+- **Atomic side effects (inside `updateWorkPackageWithSync`):**
+  - `status` set to `READY` or `BLOCKED` (dep-aware)
+  - `status_changed_at` stamped with current timestamp
+  - `assigned_to` cleared to `null`
+  - `rework_counts` deleted
+  - Root summary entry synced: `status` and `assigned_to = null`
+  - `root.pending_work_packages` incremented by 1
+  - `synthesis_generated` set to `false` via `clearSynthesisState()`
+  - Audit comment appended: `{ type: 'reopen_cancelled', priority: 'high', agent: 'Project Manager', note: 'Reopened CANCELLED WP <id> to <status>. Reason: <reason>' }`
+- **Post-write:** `propagateDependencyReblock` cascades to block downstream READY/IN_PROGRESS WPs that were relying on the CANCELLED WP's terminal status.
+- **State machine invariant preserved:** `isValidStatusTransition('CANCELLED', *)` continues to return `false`.
+- **Reason required:** `reason` must be a non-empty, non-whitespace string.
+- **Response fields:** `{ work_package_id, final_status ('READY' | 'BLOCKED'), message, isError: false }`
+
 #### `ledger_update_acceptance_criteria`
 
 ```typescript

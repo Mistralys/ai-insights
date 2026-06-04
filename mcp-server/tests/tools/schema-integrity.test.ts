@@ -82,6 +82,7 @@ const EXPECTED_TOOL_NAMES = [
   'ledger_claim_work_package',
   'ledger_update_work_package_status',
   'ledger_reset_rework_count',
+  'ledger_reopen_cancelled_wp',
   'ledger_update_acceptance_criteria',
   // knowledge
   'ledger_add_insight',
@@ -92,9 +93,9 @@ const EXPECTED_TOOL_NAMES = [
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Schema Integrity — all 26 tool schemas produce non-empty JSON Schema', () => {
-  it('registers exactly 26 tools', () => {
-    expect(capturedSchemas.size).toBe(26);
+describe('Schema Integrity — all 27 tool schemas produce non-empty JSON Schema', () => {
+  it('registers exactly 27 tools', () => {
+    expect(capturedSchemas.size).toBe(27);
   });
 
   it('registers all expected tool names', () => {

@@ -315,7 +315,12 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 | `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
 | `COMPLETE` | `CANCELLED` | PM-only agent guard |
 
-`CANCELLED` is the only fully **terminal status** — it has no outward transitions. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
+`CANCELLED` is the only fully **terminal status** — it has no outward transitions in the normal state machine. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
+
+> **Administrative bypass:** `ledger_reopen_cancelled_wp` (PM-only) provides an escape hatch for recovering incorrectly cancelled WPs without modifying this state machine invariant. `isValidStatusTransition('CANCELLED', *)` continues to return `false`; the tool bypasses the check explicitly. See [§16.3d](../workflow-specification/dependencies-and-rework.md#163d-administrative-reopen-of-incorrectly-cancelled-wps) and [§21.1a](../workflow-specification/edge-cases.md#211a-administrative-reopen-of-cancelled-wps).
+
+> **PM-only tool guard placement convention:** PM-only guards must fire **before** `resolveProjectPath()` and any `LedgerStore` construction — no file lock is acquired on early rejection. The `reopenCancelledWp` handler is the canonical model: `agent_role` is checked at the top of the handler body, before any I/O. Prefer this placement over the older `resetReworkCount` pattern (PM guard inside `try` after store construction). All new PM-only tools should follow the `reopenCancelledWp` placement.
+
 **Rule:** A work package cannot be marked `COMPLETE` unless all acceptance criteria have `met: true`.
 
 **Enforcement:** `canCompleteWorkPackage()` validator in `ledger_update_work_package_status` tool.
