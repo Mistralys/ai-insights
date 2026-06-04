@@ -1,6 +1,6 @@
 # Personas Changelog
 
-## UNRELEASED - WIP TITLE
+## v3.22.0 - Persona Improvements
 - Standalone: Ledger Doctor: Added holistic repair philosophy and routing verification.
 - Standalone: Ledger Doctor: Refreshed workflow knowledge.
 - Standalone: Ledger Doctor: Added project recovery tool, improved repair procedure.
