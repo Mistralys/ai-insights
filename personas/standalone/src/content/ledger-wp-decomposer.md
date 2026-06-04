@@ -72,6 +72,12 @@ Scan for natural work boundaries. A good WP boundary occurs when:
 - The scope is narrow enough that each pipeline stage (especially implementation) fits in one focused session
 - It does not mix unrelated concerns (e.g., a rename + a logic change should be separate WPs)
 
+**Bundle tests into the implementation WP.** Tests that validate a feature's acceptance criteria belong in the same WP as the implementation they verify. A developer writes tests alongside the code — separating them into a downstream WP creates an artificial boundary that produces either redundant context-loading or an instant-pass verification gate. A separate test WP is justified only when:
+
+- It requires a different agent's expertise (e.g., end-to-end integration tests owned by QA)
+- It cannot begin until an upstream deliverable is verified externally
+- The test scope is genuinely independent of the implementation (e.g., regression suite for a pre-existing module)
+
 **Bundle these into the WP that owns the primary change** (they belong in its documentation pipeline stage, not in a standalone WP):
 
 - Changelog entries
@@ -106,6 +112,7 @@ Before submitting your output, verify:
 - [ ] Every deliverable is concrete and observable
 - [ ] Large WPs (complexity: High) have a noted justification for not splitting further
 - [ ] No standalone WP exists solely for a changelog entry, version bump, or trivial doc update that is a by-product of another WP's change
+- [ ] No standalone WP exists solely for unit/integration tests that validate an implementation WP's acceptance criteria — tests belong with the code they verify unless an exception applies
 - [ ] WP numbering is sequential and gap-free
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection
 - [ ] Every WP with a non-trivial design decision in the plan's "Rationale" or "Approach" sections has a corresponding `**Rationale:**` field
