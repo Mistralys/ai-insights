@@ -94,6 +94,7 @@ Key documents:
 | `ledger_start_pipeline` | Start a pipeline on an already-claimed WP | Restart a specific stage without re-claiming |
 | `ledger_update_work_package_status` | Transition WP status | Unblock a stuck WP, cancel abandoned WP |
 | `ledger_reset_rework_count` | Reset rework circuit breaker (PM-only) | WP hit MAX_REWORK_COUNT (5) due to flaky failures |
+| `ledger_reopen_cancelled_wp` | Recover a WP from CANCELLED back to READY/BLOCKED (PM-only) | WP was cancelled by mistake or the cancellation reason is no longer valid |
 | `ledger_claim_work_package` | Re-claim a WP (with PM override) | WP stuck as READY after an interrupted claim |
 | `ledger_begin_work` | Claim + start pipeline in one step | Resume work on a WP that needs restart |
 | `ledger_complete_pipeline` | Complete a pipeline that an agent left incomplete | Agent crashed before completing its pipeline |
@@ -132,6 +133,7 @@ Scan for these common failure patterns:
 - **Orphaned pipeline:** A pipeline is `IN_PROGRESS` but the agent has moved on (common after crashes)
 - **Circuit breaker hit:** `rework_counts[type] >= 5` — rework loop has been exhausted
 - **Missing assigned_to:** WP is `IN_PROGRESS` but `assigned_to` is null
+- **Incorrectly cancelled:** WP is `CANCELLED` but the cancellation was a mistake — apply Repair 9
 
 #### Pipeline Anomalies
 - **Prerequisite not met:** Agent tried to start a pipeline but its prerequisite hasn't passed
@@ -264,6 +266,21 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 3. Check if the upstream pipeline can be started by its owning agent
 4. If the upstream pipeline itself is stuck, diagnose recursively
 5. In extreme cases (true deadlock), cancelling and re-creating the WP may be necessary — escalate to the user
+
+### Repair 9: Incorrectly Cancelled WP Recovery
+
+**Symptom:** A WP is in `CANCELLED` status but the cancellation was a mistake (wrong WP ID, transient failure, erroneous orchestrator circuit-breaker trigger, or the blocker has since been resolved).
+
+**Diagnosis:** Confirm the WP should actually proceed. Review `root.project_comments` to understand why it was cancelled. Check that the WP's upstream dependency statuses are still valid.
+
+**Procedure:**
+1. Call `ledger_get_work_package` to read current state and confirm status is `CANCELLED`
+2. Call `ledger_reopen_cancelled_wp` with `agent_role: "Project Manager"`, the WP's `work_package_id`, and a clear `reason` explaining why the cancellation was incorrect
+3. The tool will dep-check and set the WP to `READY` (all deps satisfied) or `BLOCKED` (pending deps)
+4. If BLOCKED, diagnose the blocking dependency before proceeding
+5. Document the recovery in a project comment — include the original cancellation reason and the corrective action taken
+
+> **Note:** `ledger_reopen_cancelled_wp` is PM-only and bypasses the normal terminal state machine. It automatically increments `pending_work_packages`, clears `assigned_to` and `rework_counts`, invalidates `synthesis_generated`, writes an audit comment, and cascade-reblocks any downstream WPs that were relying on the CANCELLED WP being terminal.
 
 ---
 

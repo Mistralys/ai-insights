@@ -8,6 +8,7 @@
 - Standalone: CTX Architect Variable examples escaped to fix warnings.
 - Standalone: CTX Architect: Updated integrated knowledge.
 - Standalone: WP Decomposer: Integrated some live usage insights.
+- Standalone: WP Decomposer: Added the test-bundling rule within the same WPs.
 - Standalone: Added Knowledge Archiver persona for retrospective extraction from archived projects.
 - Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
 - Standalone: Git Committer: Excludes CTX files from commits on feature branches.
