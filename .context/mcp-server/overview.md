@@ -132,7 +132,7 @@ The server manages three types of files, all stored under the centralized ledger
 5. **Archived Documents** (`storage/ledger/{slug}/plan.md`, `synthesis.md`): Read-only snapshots of key project documents
    - `plan.md` — copied from the project folder when `ledger_initialize_project` is called
    - `synthesis.md` — copied when `ledger_complete_synthesis` is called
-   - Both are served as formatted HTML by the GUI (`#/projects/:slug/plan` and `#/projects/:slug/synthesis`)
+   - Both are served as formatted HTML by the GUI (`#/projects/:repo/:slug/plan` and `#/projects/:repo/:slug/synthesis`)
    - Copies are best-effort; each tool response includes `archived_documents[]` and, when relevant, `archive_skipped[]`
 
 All four file types are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation.
@@ -326,8 +326,8 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Search & filter** — text input in the filter bar triggers a **debounced (300 ms) server-side search** by slug or project name; page resets to 1 on each new query; the status dropdown filters results server-side and shows **per-status project counts** (e.g. `Ready (3)`, `In Progress (2)`); status preference persists via `localStorage` (key `mcp-status-filter`), defaulting to `ACTIVE`
 - Drill down into project and work package details
 - View project-level comments and incidents (sorted newest-first) on the Project Detail page
-- **View archived plan** — **View full plan →** link on the Project Detail page (shown when a plan synopsis is available); renders as formatted HTML at `#/projects/:slug/plan`
-- **View archived synthesis** — **View synthesis →** link on the Project Detail page (shown when `synthesis_generated === true`); renders the final synthesis report as formatted HTML at `#/projects/:slug/synthesis`
+- **View archived plan** — **View full plan →** link on the Project Detail page (shown when a plan synopsis is available); renders as formatted HTML at `#/projects/:repo/:slug/plan`
+- **View archived synthesis** — **View synthesis →** link on the Project Detail page (shown when `synthesis_generated === true`); renders the final synthesis report as formatted HTML at `#/projects/:repo/:slug/synthesis`
 - **Pipeline stage badge track** — the work-packages table in the Project Detail view replaces the redundant Title column with a colored stage badge track per WP; badges are colored by pipeline status (grey=pending, blue=in-progress, green=pass, red=fail) and show abbreviated agent-role labels with full-name tooltips; stages with rework > 0 display an overlay count badge; falls back to a plain WP ID cell when the overview data is unavailable
 - **Pipeline progression bar** — the WP Detail view renders a "Pipeline Progression" card above the Pipelines section, showing the WP's active stages as status-colored badges; derives all data from the already-fetched WP detail (no extra API call); all stages default to pending when no pipelines have run yet
 - **Per-pipeline duration badge** — each pipeline entry in the WP Detail view shows a duration badge (e.g. `2m 15s`) when `duration_ms` is present; pipelines without timing data render without a badge (backward-compatible with older pipeline records)
@@ -717,6 +717,12 @@ npm run test:watch   # Run tests in watch mode
 The test suite includes unit tests for all modules and **integration tests** for the auto-handoff chain. Integration tests use real `LedgerStore` instances against temp directories and a mock agents directory — no real VS Code installation or filesystem paths are required.
 
 Key integration test file: `tests/integration/auto-handoff.test.ts` (23 tests covering the full PM → Developer → QA → Reviewer → Documentation → Synthesis chain, depth limit enforcement, rework cycles, and graceful degradation without an agent registry).
+
+#### GUI unit test coverage
+
+GUI frontend files (`mcp-server/gui/public/`) are tested in `tests/gui/`. If you add or modify a GUI utility, add a corresponding test file in that directory.
+
+> **Known gap:** `ProjectNameCache` (the bounded 200-entry display-name cache in `utils.js`) does not yet have a dedicated test file. The eviction behavior was verified during QA via inline Node `vm` execution, but a permanent regression suite at `tests/gui/utils-project-name-cache.test.ts` (covering the four acceptance criteria and edge cases) is planned for WP-005.
 
 ### Development Mode
 

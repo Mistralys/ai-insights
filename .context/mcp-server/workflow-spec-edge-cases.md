@@ -27,10 +27,34 @@ Edge case handling, dependency and rework patterns, auxiliary systems, and agent
 
 ### 21.1 Terminal Status Invariants
 
-- `CANCELLED` is strictly terminal — no outward transitions allowed
+- `CANCELLED` is strictly terminal — no outward transitions allowed in the normal state machine
 - `COMPLETE` is *normally terminal* but may be reopened to `IN_PROGRESS` by PM or Documentation (see [§6.2](state-machines.md#62-transition-table))
 - Both `COMPLETE` and `CANCELLED` satisfy dependency requirements
 - `isTerminalStatus()` returns `true` for both `COMPLETE` and `CANCELLED` for dependency checks and counter calculations
+
+#### §21.1a Administrative Reopen of CANCELLED WPs
+
+The `ledger_reopen_cancelled_wp` tool provides a PM-only administrative escape hatch that bypasses the normal terminal state machine without modifying it. This is the same pattern used by `ledger_reset_rework_count` (§16.3b), which bypasses the rework limit without modifying the limit rule.
+
+**Behavior:**
+
+- Only callable by `agent_role: "Project Manager"` — all other callers are rejected with `isError: true` before any disk I/O
+- Target WP must be in `CANCELLED` status — non-CANCELLED targets return an error without modifying state
+- A mandatory `reason` string is required; the tool writes an audit comment of type `reopen_cancelled` to `root.project_comments`
+- **Dep-aware initial status:** Inside the atomic write, `canStartWorkPackage` is evaluated against the current root. If all upstream dependencies are `COMPLETE`, the WP transitions to `READY`; otherwise it transitions to `BLOCKED` with a `dependency` blocker describing the unmet deps. This matches `createWorkPackage` L306–316 semantics (single-write, no post-write second call needed).
+- **Side effects (all applied atomically inside `updateWorkPackageWithSync`):**
+  - `status` set to `READY` or `BLOCKED` (dep-aware)
+  - `status_changed_at` stamped
+  - `assigned_to` cleared (set to `null`)
+  - `rework_counts` cleared (deleted)
+  - Root summary entry (`root.work_packages[]`) synced: `status` and `assigned_to` updated
+  - `root.pending_work_packages` incremented by 1 (CANCELLED was terminal; WP is now non-terminal)
+  - `synthesis_generated` set to `false` via `clearSynthesisState()`
+  - Audit comment of type `reopen_cancelled` appended to `root.project_comments`
+- **Post-write:** `propagateDependencyReblock` is called to cascade-block any downstream READY/IN_PROGRESS WPs that were relying on the CANCELLED WP being terminal
+- **State machine invariant preserved:** `isValidStatusTransition('CANCELLED', *)` continues to return `false` for all transitions. The tool operates as an explicit bypass, not a state machine extension.
+- **Revision unchanged:** CANCELLED WPs never delivered output; revision tracks rework of delivered work, not recovery of unstarted intent.
+- **Pipeline history preserved:** Existing pipelines are retained for audit trail purposes; freshness guards in the normal flow handle staleness organically.
 
 ### 21.2 Empty Project
 
@@ -226,13 +250,13 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.27 Auto-Cancelled Pipelines
 
 - When a pipeline is cancelled by system automation (cascade reblock via §15.5, or manual IN_PROGRESS → BLOCKED transition via §6.2), the `auto_cancelled` flag is set to `true`
-- Auto-cancelled pipelines are **excluded** from rework detection and circuit breaker calculations:
+- Auto-cancelled pipelines are **excluded** from rework detection, circuit breaker calculations, and prerequisite checks:
   - `hasDownstreamFail` (§11.3): filters out auto-cancelled pipelines
   - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
   - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
   - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
   - Re-validation guard in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` for the temporal baseline, ensuring auto-cancelled pipelines do not shift the comparison timestamp
-- Auto-cancelled pipelines are **not** excluded from prerequisite checks — an auto-cancelled prerequisite still blocks the next stage (but the WP will typically be BLOCKED anyway after cascade reblock)
+  - Prerequisite check in `startPipeline` (§11.1, §8.2): filters out auto-cancelled pipelines; a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start — the auto-cancelled FAIL does not mask the genuine PASS
 - This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
 - The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
 
@@ -1083,6 +1107,28 @@ When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and
 
 **Related sections:** [§16.3b](#163b-circuit-breaker-reset) (PM rework count reset), [§21.68](edge-cases.md#2168-orphaned-pipeline-recovery-agent-crash-between-begin_work-and-complete_pipeline) (orphaned pipeline recovery), [§19.1](auxiliary-systems.md#191-algorithm) (`completeSynthesis` pending guard)
 
+### 16.3d Administrative Reopen of Incorrectly Cancelled WPs
+
+`ledger_reopen_cancelled_wp` is a PM-only tool for recovering a WP that was cancelled by mistake. It mirrors the pattern of `ledger_reset_rework_count` (§16.3b): a targeted administrative bypass of a normally terminal constraint, with mandatory audit trail.
+
+**When to use:**
+
+- A WP was cancelled in error (e.g., wrong WP ID passed to `updateWorkPackageStatus(CANCELLED)`)
+- Automated orchestrator cancelled a WP (§16.3c) but an operator later determined the root cause was transient and the WP should proceed
+
+**How it differs from normal state machine transitions:**
+
+| Property | Normal transitions | `ledger_reopen_cancelled_wp` |
+|----------|-------------------|------------------------------|
+| `isValidStatusTransition('CANCELLED', *)` | `false` — rejected | Bypassed — tool proceeds regardless |
+| Access control | Any authorised agent per transition table | PM-only, hard-coded |
+| Audit | Standard status-change timestamp | Explicit `reason` string written to `root.project_comments` |
+| Initial status | Depends on source status | Dep-aware: `canStartWorkPackage` → READY or BLOCKED |
+
+**Side effects and invariants:** See [§21.1a](edge-cases.md#21a-administrative-reopen-of-cancelled-wps) for the full atomic side-effect list (counter increment, synthesis invalidation, cascade reblock, pipeline history preservation).
+
+**Related sections:** [§16.3b](#163b-circuit-breaker-reset) (reset_rework_count — same bypass pattern), [§21.1a](edge-cases.md#21a-administrative-reopen-of-cancelled-wps) (full edge-case specification), [§15.5](dependencies-and-rework.md) (cascade reblock, called post-write to block downstream dependents)
+
 ### 16.4 Rework Flow
 
 The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
@@ -1897,7 +1943,7 @@ function wpClaimedDuration(wp):
 
 ### 14.13 `hasDownstreamReengagedSince` Algorithm
 
-Determines whether the downstream agent (whose FAIL triggered Developer rework) has started a new pipeline since the Developer's most recent implementation PASS. Used by the Developer recommendation engine (§14.2, priority 5) to prevent redundant rework cycles.
+Determines whether the downstream agent (whose FAIL routes to Developer) has started a new pipeline that resulted in FAIL since the Developer's most recent implementation PASS. A PASS re-engagement signals that the downstream agent verified the fix successfully — only FAIL re-engagements trigger Developer rework. Used by the Developer recommendation engine (§14.2, priority 5) to prevent redundant rework cycles.
 
 ```pseudocode
 function hasDownstreamReengagedSince(pipelines, upstreamType):
@@ -1915,7 +1961,8 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
     if dsPipelines is not empty:
       mostRecent = dsPipelines.last()
       if mostRecent.started_at is not null
-         AND mostRecent.started_at >= upstreamPass.completed_at:
+         AND mostRecent.started_at >= upstreamPass.completed_at
+         AND mostRecent.status == "FAIL":
         return true
   
   return false
@@ -1925,8 +1972,9 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
 |----------|--------|
 | impl-1 PASS → qa-1 FAIL (no further activity) | `true` — QA validated the current implementation and FAILed; priority 5 routes to REWORK |
 | impl-1 PASS → qa-1 FAIL → impl-2 PASS (no QA re-engagement) | `false` — Developer's fix delivered but downstream hasn't re-engaged; priority 5 negated guard fires → WAIT_FOR_DOWNSTREAM |
-| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 started | `true` — QA re-engaged after the fix (if qa-2 is still IN_PROGRESS, priority 5's outer `isMostRecentPipelineFail` check is false → priority 5 does not fire) |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 IN_PROGRESS | `false` — QA re-engaged but has not yet FAILed; only FAIL re-engagements trigger rework. P5's outer `hasDownstreamFail` guard (`isMostRecentPipelineFail`) already prevents priority 5 from firing when the most recent downstream pipeline is IN_PROGRESS. |
 | impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL | `true` — QA re-engaged and failed again; priority 5 routes to REWORK |
+| impl-1 PASS → code-review FAIL → impl-2 PASS → qa-2 PASS | `false` — QA verified the fix successfully; a PASS re-engagement is not a quality failure. Priority 5 does not fire and the WP advances normally. |
 
 > **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). The negated guard in priority 5 evaluates `NOT true` → does not fire, so the code falls through to REWORK — correctly routing the Developer to fix the code again. After a new implementation PASS (impl-3), `hasDownstreamReengagedSince` returns `false` (no downstream pipeline started since impl-3 PASS), and the negated guard fires, routing the Developer to WAIT_FOR_DOWNSTREAM until QA re-engages. The net effect: REWORK fires immediately when the downstream agent validates and FAILs, WAIT_FOR_DOWNSTREAM fires when the Developer has delivered a fix that hasn't been validated yet. This prevents the pathological loop identified in §21.52 while preserving immediate rework signaling after repeated failures.
 

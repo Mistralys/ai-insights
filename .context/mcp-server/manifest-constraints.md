@@ -334,7 +334,12 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 | `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
 | `COMPLETE` | `CANCELLED` | PM-only agent guard |
 
-`CANCELLED` is the only fully **terminal status** — it has no outward transitions. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
+`CANCELLED` is the only fully **terminal status** — it has no outward transitions in the normal state machine. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
+
+> **Administrative bypass:** `ledger_reopen_cancelled_wp` (PM-only) provides an escape hatch for recovering incorrectly cancelled WPs without modifying this state machine invariant. `isValidStatusTransition('CANCELLED', *)` continues to return `false`; the tool bypasses the check explicitly. See [§16.3d](../workflow-specification/dependencies-and-rework.md#163d-administrative-reopen-of-incorrectly-cancelled-wps) and [§21.1a](../workflow-specification/edge-cases.md#211a-administrative-reopen-of-cancelled-wps).
+
+> **PM-only tool guard placement convention:** PM-only guards must fire **before** `resolveProjectPath()` and any `LedgerStore` construction — no file lock is acquired on early rejection. The `reopenCancelledWp` handler is the canonical model: `agent_role` is checked at the top of the handler body, before any I/O. Prefer this placement over the older `resetReworkCount` pattern (PM guard inside `try` after store construction). All new PM-only tools should follow the `reopenCancelledWp` placement.
+
 **Rule:** A work package cannot be marked `COMPLETE` unless all acceptance criteria have `met: true`.
 
 **Enforcement:** `canCompleteWorkPackage()` validator in `ledger_update_work_package_status` tool.
@@ -1489,7 +1494,7 @@ if (autoFinalizeResult === 'finalized') { /* ... */ }
 
 **Rule:** When a caller supplies both `project_path` and `cwd_path`, `resolveProjectPath()` uses `project_path` and silently ignores `cwd_path`. Supplying both parameters is **not** an error. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema to enforce exclusivity.
 
-**Precedence rule (in `resolveProjectPath()`, `src/utils/path-validator.ts`):**
+**Precedence rule (in `resolveProjectPath()`, `src/utils/project-resolver.ts`):**
 1. If `project_path` is provided (truthy) → use it directly; `cwd_path` is ignored.
 2. If only `cwd_path` is provided → auto-detect the active project from the workspace root.
 3. If neither is provided → throw a missing-path error.
@@ -1500,7 +1505,7 @@ if (autoFinalizeResult === 'finalized') { /* ... */ }
 - If you pass both, `project_path` wins; `cwd_path` is a no-op in that call.
 
 **Enforcement:**
-- `resolveProjectPath()` (`src/utils/path-validator.ts`) applies the precedence rule at the top of its body. Every tool handler that accepts both optional path fields calls `resolveProjectPath()`.
+- `resolveProjectPath()` (`src/utils/project-resolver.ts`) applies the precedence rule at the top of its body. Every tool handler that accepts both optional path fields calls `resolveProjectPath()`.
 - The predicate `mutuallyExclusivePaths` and the constant `MUTUAL_EXCLUSIVITY_PATH_MSG` remain exported from `src/utils/path-validator.ts` for backward compatibility and test coverage. They are **not used in production tool files**.
 - Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt from this consideration. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
 
@@ -2031,6 +2036,48 @@ await withLock(knowledgeDir(), async () => {
 ```
 
 **Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.
+
+---
+
+### 74. Queue-Entry Path Segments Must Be Validated at Two Layers (Defense-in-Depth)
+
+**Rule:** Any code path that constructs a filesystem path from a queue-entry `slug` or `expectedRepo` field **must** apply `assertSafeSegment()` validation **before** passing those values to `join()` or any file-system API. Validation must occur at **both** of the following layers:
+
+1. **Type-guard layer — `isRawQueueEntry()` in `validate-entry.ts`:**
+   Normalizes `expectedRepo` to `null` in-place when the value is absent, not a string, or an empty/whitespace-only string (`.trim().length === 0`). This ensures every validated `RawQueueEntry` carries `expectedRepo: string | null` with no empty strings downstream.
+
+2. **Call-site layer — `getProjectLedgerStatus()` in `get-queue.ts`:**
+   Calls `assertSafeSegment(slug)` (always) and `assertSafeSegment(expectedRepo)` (when non-null) immediately before any `join()` call. Returns `{ exists: false, synthesisGenerated: false }` (fail-safe) when either check fails.
+
+**Rationale:** The two-layer approach is necessary because `getProjectLedgerStatus()` is also called directly by `killQueueEntry()` and `dismissQueueEntry()` in `orchestrator-manager.ts`. Future call sites that bypass `isRawQueueEntry()` (or receive an entry via a code path that didn't filter through the type guard) would have no path-segment protection without the second layer. The call-site guard is cheap (one regex test) and eliminates the need for callers to reason about whether their entry arrived via the type guard.
+
+**Fail-safe defaults:** Both layers follow fail-safe semantics:
+- `isRawQueueEntry()` normalizes silently to `null` — the entry remains valid for other fields.
+- `getProjectLedgerStatus()` returns `{ exists: false, synthesisGenerated: false }` on any assertion failure — the safe direction; entries are not displayed as active.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — constructs a path directly from a queue-entry field without validation
+const ledgerPath = join(ledgerRoot, entry.expectedRepo!, entry.expectedSlug, 'project-ledger.json');
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — assertSafeSegment() guards before any join()
+if (!assertSafeSegment(slug)) {
+  return { exists: false, synthesisGenerated: false };
+}
+if (expectedRepo !== null && !assertSafeSegment(expectedRepo)) {
+  return { exists: false, synthesisGenerated: false };
+}
+const ledgerPath = expectedRepo
+  ? join(ledgerRoot, expectedRepo, slug, 'project-ledger.json')
+  : join(ledgerRoot, slug, 'project-ledger.json');
+```
+
+**`assertSafeSegment()` rejects:** uppercase letters, path separators (`/`, `\`), traversal sequences (`..`), null bytes, Unicode lookalikes, empty strings, and whitespace-only strings (SAFE_SLUG_REGEX anchor `^[a-z0-9]` + Boolean guard).
+
+**See also:** Constraint 6b (ledger paths must include the repo-namespace tier); `api-surface.md` §`assertSafeSegment` (canonical validation delegate).
 
 ---
 

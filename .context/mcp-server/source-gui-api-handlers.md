@@ -667,6 +667,16 @@ function assertSafeQueueId(id: string): void {
  * The inline comment in the catch block documents the downgrade decision;
  * do not restore the original AMBIGUOUS message without a security review.
  *
+ * @remarks **Diagnostic logging — metadata read failures:**
+ * When reading `.meta.json` fails (e.g. file missing, corrupt JSON, schema
+ * mismatch), the second catch block logs a structured message to `stderr`
+ * before calling `notFound()`. The log line includes the slug, optional repo
+ * name, and the error message so operators can diagnose storage issues without
+ * enabling debug-level verbosity. The function's externally-visible behaviour
+ * is unchanged: callers always receive a NOT_FOUND response. Do not remove the
+ * `stderr.write` call — it is the only signal that distinguishes a missing
+ * project from a corrupted metadata file in production logs.
+ *
  * @throws ApiError NOT_FOUND when the project cannot be located, is ambiguous
  *   across namespaces, or has no metadata.
  */
@@ -697,7 +707,15 @@ async function resolveProjectStore(
     const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
     const meta = ProjectMetaSchema.parse(JSON.parse(raw));
     return new LedgerStore(meta.plan_path, ledgerRoot);
-  } catch {
+  } catch (err) {
+    // .meta.json missing, corrupt JSON, or schema validation failure —
+    // log for operator diagnostics (stderr only) and return 404 to the caller.
+    const errMsg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
+        (repoName !== undefined ? ` repo="${repoName}"` : '') +
+        `: ${errMsg}\n`
+    );
     notFound(`Project '${slug}' not found or has no metadata.`);
   }
 }
@@ -709,6 +727,7 @@ async function resolveProjectStore(
 export interface InsightEntry {
   project_slug: string;
   project_status: ProjectStatus;
+  repository_name: string | null;
   type: string;
   priority: 'low' | 'medium' | 'high';
   timestamp: string;
@@ -744,11 +763,23 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
       const comments = rootIndex.project_comments;
       if (!comments || comments.length === 0) return;
 
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on InsightEntry and ProjectSummary, where original casing must
+      // be preserved. Both call sites (handleGetInsights and handleListProjects) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
+      const repository_name: string | null = projectRoot
+        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
+        : null;
+
       for (const comment of comments) {
         entries.push({
+          ...comment,
           project_slug: meta.slug,
           project_status: meta.status,
-          ...comment,
+          repository_name,
         });
       }
     })
@@ -937,6 +968,12 @@ export async function handleListProjects(
       }
 
       // Derive repository_name from the project root directory name.
+      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
+      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
+      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
+      // like repository_name on ProjectSummary and InsightEntry, where original casing must
+      // be preserved. Both call sites (handleListProjects and handleGetInsights) use this
+      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
         : null;
@@ -2101,7 +2138,18 @@ export async function handleOrchestratorStart(
   }
   const planPath = b['planPath'];
   const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
-  return startOrchestrator(planPath, workspaceRoot, dryRun);
+
+  // Optional resume thread ID — must be UUID v4 when supplied.
+  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let resumeThreadId: string | undefined;
+  if ('resumeThreadId' in b) {
+    if (typeof b['resumeThreadId'] !== 'string' || !UUID_V4.test(b['resumeThreadId'])) {
+      validationError('body.resumeThreadId must be a valid UUID v4 string.');
+    }
+    resumeThreadId = b['resumeThreadId'];
+  }
+
+  return startOrchestrator(planPath, workspaceRoot, dryRun, resumeThreadId);
 }
 
 // ---------------------------------------------------------------------------
@@ -2197,6 +2245,46 @@ export async function handleGetRunStatus(
     notFound(`Invalid run-status filename: '${statusFilename}'.`);
   }
   return getRunStatus(logsDir, statusFilename);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/run-metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the `.orchestrator-run.json` sidecar file written by the Python
+ * orchestrator into the plan directory, parsed as JSON.
+ *
+ * The file contains the run identity fields (`thread_id`, `plan_path`,
+ * `started_at`, `is_resume`, `dry_run`, `log_filename`, `pid`) and the run
+ * outcome fields (`result`, `error`, `duration_s`).  While a run is in
+ * progress, `result`, `error`, and `duration_s` are `null`.
+ *
+ * Throws NOT_FOUND when:
+ * - The project slug is unsafe (path-traversal guard).
+ * - The project does not exist in the ledger.
+ * - The project has no `meta.plan_path` (metadata missing).
+ * - The sidecar file does not exist on disk.
+ *
+ * @param ledgerRoot - Absolute path to the ledger root directory.
+ * @param slug       - URL-decoded project slug from the request path.
+ * @param repoName   - Optional repository name for namespaced lookups.
+ */
+export async function handleGetRunMetadata(
+  ledgerRoot: string,
+  slug: string,
+  repoName?: string
+): Promise<unknown> {
+  assertSafeSlug(slug);
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const planPath = store.planPath;
+  const metaFilePath = join(planPath, '.orchestrator-run.json');
+  try {
+    const raw = await readFile(metaFilePath, 'utf-8');
+    return JSON.parse(raw) as unknown;
+  } catch {
+    notFound(`Run metadata not found for project '${slug}'.`);
+  }
 }
 ```
 ###  Path: `/mcp-server/gui/chunk-renderer.ts`
@@ -2907,6 +2995,13 @@ export function renderChunksToMarkdown(jsonlContent: string): string {
  *   pending + dead   + project exists               → effectiveStatus: 'started'
  *   started + synthesis_generated true              → excluded from result (AC-6)
  *
+ * Note (WP-007): The `synthesis_generated` ledger lookup performed for the AC-6
+ * exclusion row is namespace-aware. When a queue entry carries a non-null
+ * `expectedRepo`, `getProjectLedgerStatus()` resolves the ledger file from a
+ * namespaced path (`<ledgerRoot>/<expectedRepo>/<slug>/project-ledger.json`);
+ * entries without `expectedRepo` use the legacy flat path. This applies at all
+ * three call sites: `getQueue()`, `killQueueEntry()`, and `dismissQueueEntry()`.
+ *
  * @see {@link computeEffectiveStatus} — canonical implementation of the transition rules above.
  */
 
@@ -3045,7 +3140,7 @@ export async function killQueueEntry(params: {
   // only alive+no-project entries are 'pending'. getQueue() passes hasStageActivity
   // for display purposes but kill must not promote stale entries.
   const alive = isProcessAlive(entry.pid);
-  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug);
+  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug, entry.expectedRepo);
   const effectiveStatus = computeEffectiveStatus(alive, projectExists);
 
   if (effectiveStatus !== 'pending') {
@@ -3096,7 +3191,7 @@ export async function dismissQueueEntry(params: {
   // Recompute effective status. Intentionally omits the hasLogActivity argument
   // (defaults to false) — dismiss eligibility uses the same conservative rule as kill.
   const alive = isProcessAlive(entry.pid);
-  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug);
+  const { exists: projectExists } = await getProjectLedgerStatus(ledgerRoot, entry.expectedSlug, entry.expectedRepo);
   const effectiveStatus = computeEffectiveStatus(alive, projectExists);
 
   if (effectiveStatus !== 'dead') {
@@ -3445,11 +3540,15 @@ export async function getRunStatus(
  * @param planPath       - Absolute path to the plan `.md` file.
  * @param workspaceRoot  - Absolute path to the workspace root directory.
  * @param dryRun         - When `true`, skip spawning even if all checks pass.
+ * @param resumeThreadId - When provided, passes `--resume <threadId>` to the
+ *                         spawned process so the orchestrator resumes an
+ *                         existing LangGraph thread instead of starting fresh.
  */
 export async function startOrchestrator(
-  planPath:      string,
-  workspaceRoot: string,
-  dryRun         = false,
+  planPath:        string,
+  workspaceRoot:   string,
+  dryRun           = false,
+  resumeThreadId?: string,
 ): Promise<StartResult> {
   const resolvedPlan = resolve(planPath);
   const resolvedRoot = resolve(workspaceRoot);
@@ -3488,7 +3587,10 @@ export async function startOrchestrator(
   // All checks passed — spawn a detached orchestrator process.
   const bin            = resolveOrchestrateBin(resolvedRoot);
   const statusFilename = runStatusFilename(resolvedPlan);
-  const child = spawn(bin, [resolvedPlan], {
+  const spawnArgs      = resumeThreadId
+    ? ['--resume', resumeThreadId, resolvedPlan]
+    : [resolvedPlan];
+  const child = spawn(bin, spawnArgs, {
     detached: true,
     stdio:    ['ignore', 'ignore', 'ignore'],
     env:      { ...process.env, PYTHONUTF8: '1' },
@@ -3557,6 +3659,7 @@ import {
   handleOrchestratorKill,
   handleOrchestratorDismiss,
   handleGetRunStatus,
+  handleGetRunMetadata,
   ApiError,
 } from './api.js';
 import {
@@ -3887,6 +3990,9 @@ function matchRoute(
     return () => handleListProjects(ledgerRoot, params);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/plan instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/plan
   if (
     method === 'GET' &&
@@ -3898,6 +4004,9 @@ function matchRoute(
     return () => handleGetPlanDocument(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/synthesis instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/synthesis
   if (
     method === 'GET' &&
@@ -3909,6 +4018,9 @@ function matchRoute(
     return () => handleGetSynthesisDocument(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/health instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/health
   if (
     method === 'GET' &&
@@ -3920,12 +4032,32 @@ function matchRoute(
     return () => handleGetProjectHealth(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/run-metadata instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
+  // GET /api/projects/:slug/run-metadata
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'run-metadata'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetRunMetadata(ledgerRoot, slug);
+  }
+
+  // @deprecated — Use GET /api/projects/:repo/:slug instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug
   if (method === 'GET' && rest.length === 2 && rest[0] === 'projects') {
     const slug = rest[1]!;
     return () => handleGetProject(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/work-packages
   if (
     method === 'GET' &&
@@ -3937,6 +4069,9 @@ function matchRoute(
     return () => handleListWorkPackages(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/overview instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/work-packages/overview
   // IMPORTANT: this route has rest.length === 4 and must appear BEFORE the
   // generic /:wpId handler at the same length, otherwise 'overview' would be
@@ -3952,6 +4087,9 @@ function matchRoute(
     return () => handleGetWorkPackageOverview(ledgerRoot, slug);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/dialogues/:filename instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/dialogues/:filename
   // rest.length === 4, rest[2] === 'dialogues' — must appear before the generic
   // work-packages/:wpId handler at the same length.
@@ -3966,6 +4104,9 @@ function matchRoute(
     return () => handleGetDialogueFile(ledgerRoot, slug, filename);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/:wpId instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/work-packages/:wpId
   if (
     method === 'GET' &&
@@ -3978,6 +4119,9 @@ function matchRoute(
     return () => handleGetWorkPackage(ledgerRoot, slug, wpId);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/dialogues instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/dialogues[?wp=WP-001]
   // rest.length === 3, rest[2] === 'dialogues' — does not shadow other rest[2] routes
   if (
@@ -3994,6 +4138,9 @@ function matchRoute(
     return () => handleListDialogues(ledgerRoot, slug, wpId);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/chunks instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/chunks
   // rest.length === 3, rest[2] === 'chunks' — analogous to the dialogues list route
   if (
@@ -4010,6 +4157,9 @@ function matchRoute(
     return () => handleListChunks(ledgerRoot, slug, wpId);
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename/rendered instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/chunks/:filename/rendered
   // rest.length === 5, rest[2] === 'chunks', rest[4] === 'rendered'
   // Placement note: this route (rest.length === 5) and the raw-file route below
@@ -4032,6 +4182,9 @@ function matchRoute(
       }));
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/chunks/:filename
   // rest.length === 4, rest[2] === 'chunks' — analogous to dialogues/:filename
   if (
@@ -4134,6 +4287,32 @@ function matchRoute(
       }
       const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
       return handleGetProjectHealth(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/run-metadata
+  // rest.length === 4, rest[3] === 'run-metadata'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'run-metadata' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetRunMetadata(ledgerRoot, slug, repoName);
     };
   }
 
@@ -4450,7 +4629,8 @@ function matchRoute(
     rest[2] !== 'work-packages' &&
     rest[2] !== 'dialogues' &&
     rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
+    rest[2] !== 'runs' &&
+    rest[2] !== 'run-metadata'
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
@@ -4463,6 +4643,9 @@ function matchRoute(
     };
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/runs instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/runs
   // rest.length === 3, rest[2] === 'runs' — does not shadow work-packages (different rest[2] value)
   // Resolves the canonical namespaced storage directory first to avoid creating
@@ -4522,6 +4705,9 @@ function matchRoute(
     };
   }
 
+  // @deprecated — Use GET /api/projects/:repo/:slug/runs/:filename instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // GET /api/projects/:slug/runs/:filename
   // rest.length === 4, rest[2] === 'runs' — does not shadow work-packages/:wpId (different rest[2] value)
   // Resolves the canonical namespaced storage directory first (same as the list
@@ -4584,12 +4770,18 @@ function matchRoute(
     };
   }
 
+  // @deprecated — Use DELETE /api/projects/:repo/:slug instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // DELETE /api/projects/:slug
   if (method === 'DELETE' && rest.length === 2 && rest[0] === 'projects') {
     const slug = rest[1]!;
     return () => handleDeleteProject(ledgerRoot, slug);
   }
 
+  // @deprecated — Use POST /api/projects/:repo/:slug/archive instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // POST /api/projects/:slug/archive
   if (
     method === 'POST' &&
@@ -4601,6 +4793,9 @@ function matchRoute(
     return () => handleArchiveProject(ledgerRoot, slug);
   }
 
+  // @deprecated — Use POST /api/projects/:repo/:slug/unarchive instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // POST /api/projects/:slug/unarchive
   if (
     method === 'POST' &&
@@ -4612,6 +4807,9 @@ function matchRoute(
     return () => handleUnarchiveProject(ledgerRoot, slug);
   }
 
+  // @deprecated — Use POST /api/projects/:repo/:slug/complete instead.
+  // This non-namespaced route is retained for backward compatibility and will be
+  // removed in the next major version.
   // POST /api/projects/:slug/complete
   if (
     method === 'POST' &&
@@ -4685,36 +4883,67 @@ function matchRoute(
   }
 
   // No match found — fall through to 404.
-  // Route map summary (body-free routes in matchRoute; body-parsing routes handled above in handleRequest):
+  // ---------------------------------------------------------------------------
+  // Route map summary
+  // Body-free routes are dispatched in matchRoute(); body-parsing routes are
+  // handled above in handleRequest() and are noted inline below.
+  //
+  // ACTIVE ROUTES (namespaced /:repo/:slug — use these going forward):
   //   GET    /api/insights
   //   GET    /api/orchestrator/queue
   //   GET    /api/orchestrator/run-status/:filename
   //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]
-  //   GET    /api/projects/:slug
-  //   GET    /api/projects/:slug/plan
-  //   GET    /api/projects/:slug/synthesis
-  //   GET    /api/projects/:slug/health
-  //   GET    /api/projects/:slug/work-packages
-  //   GET    /api/projects/:slug/work-packages/overview
-  //   GET    /api/projects/:slug/work-packages/:wpId
-  //   GET    /api/projects/:slug/dialogues[?wp=WP-001]
-  //   GET    /api/projects/:slug/dialogues/:filename
-  //   GET    /api/projects/:slug/chunks[?wp=WP-001]
-  //   GET    /api/projects/:slug/chunks/:filename
-  //   GET    /api/projects/:slug/chunks/:filename/rendered
-  //   GET    /api/projects/:slug/runs
-  //   GET    /api/projects/:slug/runs/:filename[?after=N]
-  //   DELETE /api/projects/:slug
-  //   POST   /api/projects/:slug/archive
-  //   POST   /api/projects/:slug/unarchive
-  //   POST   /api/projects/:slug/complete
-  //   (namespaced /:repo/:slug variants of the above also registered)
+  //   GET    /api/projects/:repo/:slug
+  //   GET    /api/projects/:repo/:slug/plan
+  //   GET    /api/projects/:repo/:slug/synthesis
+  //   GET    /api/projects/:repo/:slug/health
+  //   GET    /api/projects/:repo/:slug/run-metadata
+  //   GET    /api/projects/:repo/:slug/work-packages
+  //   GET    /api/projects/:repo/:slug/work-packages/overview
+  //   GET    /api/projects/:repo/:slug/work-packages/:wpId
+  //   GET    /api/projects/:repo/:slug/dialogues[?wp=WP-001]
+  //   GET    /api/projects/:repo/:slug/dialogues/:filename
+  //   GET    /api/projects/:repo/:slug/chunks[?wp=WP-001]
+  //   GET    /api/projects/:repo/:slug/chunks/:filename
+  //   GET    /api/projects/:repo/:slug/chunks/:filename/rendered
+  //   GET    /api/projects/:repo/:slug/runs
+  //   GET    /api/projects/:repo/:slug/runs/:filename[?after=N]
+  //   DELETE /api/projects/:repo/:slug
+  //   POST   /api/projects/:repo/:slug/archive
+  //   POST   /api/projects/:repo/:slug/unarchive
+  //   POST   /api/projects/:repo/:slug/complete
+  //   PATCH  /api/projects/:repo/:slug      (body-parsing — handled in handleRequest)
+  //   POST   /api/projects/:repo/:slug/reset (body-parsing — handled in handleRequest)
   //   GET    /api/knowledge[?scope&category&tags&repository_name&query&limit&offset]
   //   DELETE /api/knowledge/:id[?scope&repository_name]
   //   POST   /api/knowledge/:id/promote[?scope&repository_name]
-  //   PATCH  /api/knowledge/:id           (body-parsing — handled in handleRequest)
-  //   POST   /api/knowledge/:id/move      (body-parsing — handled in handleRequest)
-  //   PATCH  /api/projects/:slug          (body-parsing — handled in handleRequest; guard: /^\/api\/projects\/.+$/.test(path))
+  //   PATCH  /api/knowledge/:id             (body-parsing — handled in handleRequest)
+  //   POST   /api/knowledge/:id/move        (body-parsing — handled in handleRequest)
+  //
+  // DEPRECATED ROUTES (non-namespaced /:slug — retained for backward
+  // compatibility only; will be removed in the next major version):
+  //   GET    /api/projects/:slug                        → /api/projects/:repo/:slug
+  //   GET    /api/projects/:slug/plan                   → /api/projects/:repo/:slug/plan
+  //   GET    /api/projects/:slug/synthesis              → /api/projects/:repo/:slug/synthesis
+  //   GET    /api/projects/:slug/health                 → /api/projects/:repo/:slug/health
+  //   GET    /api/projects/:slug/run-metadata           → /api/projects/:repo/:slug/run-metadata
+  //   GET    /api/projects/:slug/work-packages          → /api/projects/:repo/:slug/work-packages
+  //   GET    /api/projects/:slug/work-packages/overview → /api/projects/:repo/:slug/work-packages/overview
+  //   GET    /api/projects/:slug/work-packages/:wpId    → /api/projects/:repo/:slug/work-packages/:wpId
+  //   GET    /api/projects/:slug/dialogues              → /api/projects/:repo/:slug/dialogues
+  //   GET    /api/projects/:slug/dialogues/:filename    → /api/projects/:repo/:slug/dialogues/:filename
+  //   GET    /api/projects/:slug/chunks                 → /api/projects/:repo/:slug/chunks
+  //   GET    /api/projects/:slug/chunks/:filename       → /api/projects/:repo/:slug/chunks/:filename
+  //   GET    /api/projects/:slug/chunks/:filename/rendered → /api/projects/:repo/:slug/chunks/:filename/rendered
+  //   GET    /api/projects/:slug/runs                   → /api/projects/:repo/:slug/runs
+  //   GET    /api/projects/:slug/runs/:filename         → /api/projects/:repo/:slug/runs/:filename
+  //   DELETE /api/projects/:slug                        → /api/projects/:repo/:slug
+  //   POST   /api/projects/:slug/archive                → /api/projects/:repo/:slug/archive
+  //   POST   /api/projects/:slug/unarchive              → /api/projects/:repo/:slug/unarchive
+  //   POST   /api/projects/:slug/complete               → /api/projects/:repo/:slug/complete
+  //   PATCH  /api/projects/:slug   (body-parsing)       → /api/projects/:repo/:slug
+  //   POST   /api/projects/:slug/reset (body-parsing)   → /api/projects/:repo/:slug/reset
+  // ---------------------------------------------------------------------------
 
   return null;
 }
@@ -4859,6 +5088,9 @@ export async function handleRequest(
         const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
         result = await handleRenameProject(ledgerRoot, slug, body, repoName);
       } else {
+        // @deprecated — Use PATCH /api/projects/:repo/:slug instead.
+        // This non-namespaced route is retained for backward compatibility and will be
+        // removed in the next major version.
         // Flat: PATCH /api/projects/:slug
         const slug = decodeURIComponent(rawPath);
         result = await handleRenameProject(ledgerRoot, slug, body);
@@ -4880,6 +5112,9 @@ export async function handleRequest(
   // POST /api/projects/:slug/reset — special case: requires body parsing
   if (method === 'POST') {
     const postSegments = path.split('/').filter(Boolean);
+    // @deprecated — Use POST /api/projects/:repo/:slug/reset instead.
+    // This non-namespaced route is retained for backward compatibility and will be
+    // removed in the next major version.
     // Flat: POST /api/projects/:slug/reset — postSegments.length === 4
     if (
       postSegments.length === 4 &&

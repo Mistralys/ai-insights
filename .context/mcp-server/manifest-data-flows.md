@@ -1109,16 +1109,16 @@ Return success message listing applied operations
 
 ## Flow 16: Synthesis Document View (GUI)
 
-**Entry Point:** User navigates to `#/projects/:slug/synthesis` in the dashboard
+**Entry Point:** User navigates to `#/projects/:repo/:slug/synthesis` in the dashboard
 
 ```
-Browser hash → #/projects/:slug/synthesis
+Browser hash → #/projects/:repo/:slug/synthesis
   ↓
 Router.dispatch()
   ↓
-synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/)
+synthesisMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/synthesis$/)
   ↓
-renderSynthesis(app, slug)
+renderSynthesis(app, decodeURIComponent(synthesisMatch[1]), decodeURIComponent(synthesisMatch[2]))
   ↓
   app.innerHTML = '<p class="loading">Loading synthesis…</p>'   ← immediate feedback
   ↓
@@ -1151,12 +1151,12 @@ On other errors:
 **Synthesis link on Project Detail page:**
 
 ```
-User navigates to #/projects/:slug
+User navigates to #/projects/:repo/:slug
   ↓
-renderProjectDetail(app, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
+renderProjectDetail(app, repo, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
   ↓
 project.synthesis_generated === true?
-  YES → inject <div class="synthesis-link-row"><a href="#/projects/:slug/synthesis">View synthesis →</a></div>
+  YES → inject <div class="synthesis-link-row"><a href="#/projects/:repo/:slug/synthesis">View synthesis →</a></div>
   NO  → nothing rendered (no HTTP call)
 ```
 
@@ -1354,6 +1354,67 @@ gui/api.ts — handleListProjects processing pipeline:
 - Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
 - Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
 - The entire enrichment step runs in memory; pagination is applied last (no streaming).
+
+---
+
+## Flow 14: Frontend Namespace Resolution
+
+**Entry Point:** Browser navigates to a project page, triggering `handleListProjects` or direct project API calls.
+
+This flow describes how the frontend resolves the `repository_name` (repo namespace) from the project listing and uses it to construct namespaced `/:repo/:slug` API URLs for all subsequent per-project requests.
+
+```
+Browser → GET /api/projects[?page&limit&status&search&sort&dir]
+  ↓
+gui/server.ts → handleListProjects(ledgerRoot, rawParams)
+  ↓
+gui/api.ts — handleListProjects():
+  LedgerStore.listAllProjects(ledgerRoot)
+  → ProjectSummary[] (each includes repository_name from .meta.json)
+  ↓
+ProjectListEnvelope returned to browser:
+  {
+    projects: [{
+      slug: string,
+      repository_name: string,   ← repo-namespace key
+      ...
+    }, ...],
+    ...
+  }
+  ↓
+Browser (gui/public/views/project-list.js):
+  For each project in the list, stores both project.slug and project.repository_name
+  Navigation link: #/projects/{repository_name}/{slug}
+  ↓
+Router dispatches to renderProjectDetail(app, repo, slug)
+  where repo = project.repository_name, slug = project.slug
+  ↓
+gui/public/views/project-detail.js — renderProjectDetail(app, repo, slug):
+  All API calls use namespaced pattern:
+    GET /api/projects/{repo}/{slug}
+    GET /api/projects/{repo}/{slug}/plan
+    GET /api/projects/{repo}/{slug}/synthesis
+    GET /api/projects/{repo}/{slug}/work-packages
+    GET /api/projects/{repo}/{slug}/work-packages/overview
+    POST /api/projects/{repo}/{slug}/reset
+    ...
+  ↓
+gui/server.ts → resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam)
+  Validates repoUrlParam and slugUrlParam via assertSafeSlug()
+  Reads {ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json
+  Returns stored repository_name (falls back to repoUrlParam if absent/malformed)
+  ↓
+Handler called with (ledgerRoot, resolvedRepo, slug):
+  Constructs storage path: {ledgerRoot}/{resolvedRepo}/{slug}/project-ledger.json
+  ↓
+Returns project data to browser
+```
+
+**Key invariant:** `repository_name` is the canonical namespace — it is stored in `.meta.json` at project initialization time and flows from the server to the browser in every `ProjectSummary`. The browser never constructs repo segments from user input; it always reads `repository_name` from the API response.
+
+**Legacy fallback:** Non-namespaced `/:slug` routes (deprecated) call `resolveRepoName()` to derive the correct repo segment from disk before delegating to the same handlers. This ensures backward compatibility for any client still using the old URL form.
+
+**`resolveRepoName()` guard:** Both `repoUrlParam` and `slugUrlParam` are validated via the file-local `assertSafeSlug()` guard before any filesystem access. Invalid segments and missing meta files both throw `ApiError NOT_FOUND` (information-hiding — distinguishable from the client side only by intent, not by error shape).
 
 ---
 
@@ -1612,5 +1673,71 @@ gui/server.ts → HTTP 200 { data: Insight }
 - `repository → repository`: moves a repository insight to a different repository (`source_repository_name !== repository_name` enforced).
 
 **Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.
+
+---
+
+## Flow O.6: GUI — Resume Run
+
+**Entry Point:** User clicks "Resume Run" button in the project detail view
+
+```
+project-detail.js (no active queue entry, run-metadata cell rendered)
+  ↓
+API.getRunMetadata(slug)
+  ↓
+GET /api/projects/:slug/run-metadata
+  ↓
+handleGetRunMetadata(ledgerRoot, slug, repoName?)
+  ↓
+  resolveProjectPlanPath(ledgerRoot, slug, repoName?) → planPath
+    → NOT_FOUND if project has no meta.plan_path
+    → path-traversal check via assertSafeSlug()
+  ↓
+  fs.readFile(path.join(planPath, '.orchestrator-run.json'))
+    → NOT_FOUND (HTTP 404) if file absent
+  ↓
+  JSON.parse(content)
+  → RunMetadata { thread_id, plan_path, slug, result, dry_run, … }
+  ↓
+HTTP 200 { data: RunMetadata }
+  ↓
+project-detail.js resume-button condition check:
+  thread_id present AND dry_run === false
+  AND result !== 'SUCCESS' AND result !== null
+  AND project status not COMPLETE or ARCHIVED
+  → render <button class="btn-resume">Resume Run</button>
+
+User clicks Resume Run
+  ↓
+btn.disabled = true
+API.orchestratorStart(planPath, false, threadId)
+  ↓
+POST /api/orchestrator/start
+  Body: { planPath, dryRun: false, resumeThreadId: threadId }
+  ↓
+handleOrchestratorStart(workspaceRoot, body)
+  ↓
+  Zod: body.planPath — required string
+  Zod: body.resumeThreadId — optional; if present must match UUID v4 regex
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    → HTTP 400 VALIDATION_ERROR if invalid
+  ↓
+  startOrchestrator(planPath, workspaceRoot, dryRun=false, resumeThreadId)
+  ↓
+  (pre-flight checks: binary exists, plan file exists, no active process)
+  ↓
+  spawn(['--resume', resumeThreadId, resolvedPlan], { detached: true, … })
+    child.unref()  ← survives GUI server exit
+  ↓
+HTTP 200 { started: true, pid }
+  ↓
+project-detail.js polls run queue every 3 s
+  → re-renders project detail once active entry appears
+  → if no entry within timeout: re-enables button + shows inline error
+```
+
+**Result:** The orchestrator process resumes the existing LangGraph thread identified by
+`resumeThreadId`, continuing from the last checkpoint. The GUI polls the queue until the
+new run entry appears, then re-renders the project detail view to reflect the active run.
 
 ```

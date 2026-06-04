@@ -115,6 +115,7 @@ _SOURCE: MCP server source directory tree_
         │   └── path-validator.ts
         │   └── pipeline-maps.ts
         │   └── project-reset.ts
+        │   └── project-resolver.ts
         │   └── read-project-name.ts
         │   └── runner.ts
         │   └── server-version.ts
@@ -129,6 +130,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── api-knowledge.test.ts
         │   ├── api-orchestrator.test.ts
         │   ├── api-reset.test.ts
+        │   ├── api-run-metadata.test.ts
         │   ├── api-wp-overview.test.ts
         │   ├── api.test.ts
         │   ├── auto-archive.test.ts
@@ -137,6 +139,10 @@ _SOURCE: MCP server source directory tree_
         │   ├── config.test.ts
         │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
+        │   ├── helpers/
+        │   │   ├── create-namespaced-project.test.ts
+        │   │   ├── create-namespaced-project.ts
+        │   ├── insights-knowledge-links.test.ts
         │   ├── knowledge-api.test.ts
         │   ├── knowledge-repository-scope.test.ts
         │   ├── log-resolver.test.ts
@@ -144,12 +150,15 @@ _SOURCE: MCP server source directory tree_
         │   ├── orchestrator-view.test.ts
         │   ├── orchestrator-widgets.test.ts
         │   ├── project-detail-runs.test.ts
+        │   ├── project-list.test.ts
+        │   ├── queue-ledger-status.test.ts
         │   ├── queue/
         │   │   ├── compute-effective-status.test.ts
         │   │   ├── format-progress-entry.test.ts
         │   │   ├── get-queue.test.ts
         │   │   ├── resolve-progress.test.ts
         │   │   ├── validate-entry.test.ts
+        │   ├── router-utils.test.ts
         │   ├── run-log-handlers.test.ts
         │   ├── run-log-server.test.ts
         │   ├── run-log.test.ts
@@ -189,6 +198,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── pipeline-duration.test.ts
         │   ├── pipeline.test.ts
         │   ├── project-lifecycle.test.ts
+        │   ├── reopen-cancelled-wp.test.ts
         │   ├── rework-circuit-breaker.test.ts
         │   ├── runner-integration.test.ts
         │   ├── schema-integrity.test.ts
@@ -209,6 +219,7 @@ _SOURCE: MCP server source directory tree_
         │   └── pipeline-maps.test.ts
         │   └── progress.test.ts
         │   └── project-reset.test.ts
+        │   └── project-resolver.test.ts
         │   └── runner.test.ts
         │   └── timestamp.test.ts
         │   └── workflow-helpers.test.ts

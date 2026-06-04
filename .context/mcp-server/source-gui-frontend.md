@@ -80,50 +80,265 @@ var API = (function () {
   }
 
   return {
+    /**
+     * List all projects, optionally filtered by query parameters.
+     *
+     * @param {Record<string, any>|null|undefined} params - Query parameters
+     *   (e.g. `{ status, repo }`). `undefined`/empty-string values are omitted.
+     * @returns {Promise<object[]>} Parsed JSON response from `GET /api/projects`.
+     */
     getProjects: function (params) {
       return request('GET', '/projects' + buildQueryString(params));
     },
-    getProject:               function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug)); },
-    getWorkPackages:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages'); },
-    getWorkPackage:           function (slug, wpId)   { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages/' + encodeURIComponent(wpId)); },
-    deleteProject:            function (slug)         { return request('DELETE', '/projects/' + encodeURIComponent(slug)); },
-    archiveProject:           function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/archive'); },
-    unarchiveProject:         function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/unarchive'); },
+
+    /**
+     * Fetch a single project by repository and slug.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Project detail from `GET /api/projects/{repo}/{slug}`.
+     */
+    getProject: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
+
+    /**
+     * List all work packages for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object[]>} Work package list from `GET /api/projects/{repo}/{slug}/work-packages`.
+     */
+    getWorkPackages: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages'); },
+
+    /**
+     * Fetch a single work package by ID.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} wpId - Work package ID (e.g. `'WP-001'`; URI-encoded automatically).
+     * @returns {Promise<object>} Work package detail from `GET /api/projects/{repo}/{slug}/work-packages/{wpId}`.
+     */
+    getWorkPackage: function (repo, slug, wpId) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/' + encodeURIComponent(wpId)); },
+
+    /**
+     * Permanently delete a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteProject: function (repo, slug) { return request('DELETE', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
+
+    /**
+     * Archive a project (moves it to archived status).
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/archive`.
+     */
+    archiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/archive'); },
+
+    /**
+     * Restore an archived project to active status.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/unarchive`.
+     */
+    unarchiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/unarchive'); },
+
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
     getInsights:              function ()             { return request('GET',    '/insights'); },
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
-    getPlanDocument:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/plan'); },
-    getSynthesisDocument:     function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/synthesis'); },
-    analyzeProjectReset:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
-    applyProjectReset:        function (slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
-    getProjectHealth:         function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/health'); },
-    getWorkPackageOverview:   function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages/overview'); },
-    renameProject:            function (slug, title)  { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { title: title }); },
-    renameSlug:               function (slug, newSlug) { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { slug: newSlug }); },
-    markProjectComplete:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/complete'); },
-    getRunLogs:               function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/runs'); },
-    getRunLogEntries:         function (slug, filename, afterLine) {
+
+    /**
+     * Fetch the plan document (Markdown) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Plan document from `GET /api/projects/{repo}/{slug}/plan`.
+     */
+    getPlanDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan'); },
+
+    /**
+     * Fetch the synthesis document (Markdown) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Synthesis document from `GET /api/projects/{repo}/{slug}/synthesis`.
+     */
+    getSynthesisDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis'); },
+
+    /**
+     * Perform a dry-run reset analysis for a project.
+     *
+     * Returns what would change if a reset were applied, without making any
+     * modifications. Use `applyProjectReset` to apply the reset with decisions.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Reset analysis from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: true`).
+     */
+    analyzeProjectReset: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
+
+    /**
+     * Apply a project reset with caller-supplied decisions.
+     *
+     * @param {string}   repo      - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}   slug      - Unique project slug within the repository (URI-encoded automatically).
+     * @param {object[]} decisions - Array of decision objects returned by `analyzeProjectReset`.
+     * @returns {Promise<object>} Reset result from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: false`).
+     */
+    applyProjectReset: function (repo, slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
+
+    /**
+     * Fetch the health summary for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Health report from `GET /api/projects/{repo}/{slug}/health`.
+     */
+    getProjectHealth: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/health'); },
+
+    /**
+     * Fetch the work package overview (aggregate status summary) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Overview from `GET /api/projects/{repo}/{slug}/work-packages/overview`.
+     */
+    getWorkPackageOverview: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/overview'); },
+
+    /**
+     * Rename a project's display title.
+     *
+     * @param {string} repo  - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug  - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} title - New display title for the project.
+     * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     */
+    renameProject: function (repo, slug, title) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { title: title }); },
+
+    /**
+     * Change a project's slug identifier.
+     *
+     * @param {string} repo    - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug    - Current project slug (URI-encoded automatically).
+     * @param {string} newSlug - New slug to assign to the project.
+     * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     */
+    renameSlug: function (repo, slug, newSlug) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { slug: newSlug }); },
+
+    /**
+     * Mark a project as complete.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/complete`.
+     */
+    markProjectComplete: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/complete'); },
+
+    /**
+     * List all run log files for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object[]>} Run log file list from `GET /api/projects/{repo}/{slug}/runs`.
+     */
+    getRunLogs: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs'); },
+
+    /**
+     * Fetch log entries from a specific run log file, optionally starting after
+     * a given line number.
+     *
+     * `afterLine` uses an inline ternary rather than `buildQueryString` because
+     * `0` is a valid boundary value that must be included in the query string —
+     * `buildQueryString` omits falsy values such as `0`, which would cause
+     * the server to return entries from the beginning of the file instead of
+     * line 1.
+     *
+     * @param {string}         repo      - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}         slug      - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string}         filename  - Run log filename (URI-encoded automatically).
+     * @param {number|null}    afterLine - Return only entries after this line number.
+     *   Pass `null` or `undefined` to retrieve all entries from the start.
+     *   `0` is a valid value and correctly produces `?after=0`.
+     * @returns {Promise<object>} Log entries from `GET /api/projects/{repo}/{slug}/runs/{filename}`.
+     */
+    getRunLogEntries: function (repo, slug, filename, afterLine) {
       var qs = (afterLine !== undefined && afterLine !== null) ? ('?after=' + encodeURIComponent(afterLine)) : '';
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
     },
-    getDialogues: function (slug, wpId) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
+
+    /**
+     * Fetch run metadata for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Run metadata from `GET /api/projects/{repo}/{slug}/run-metadata`.
+     */
+    getRunMetadata: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/run-metadata'); },
+
+    /**
+     * List dialogues for a project, optionally filtered by work package ID.
+     *
+     * @param {string}          repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}          slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
+     *   Pass `undefined` to retrieve dialogues for all work packages.
+     * @returns {Promise<object[]>} Dialogue list from `GET /api/projects/{repo}/{slug}/dialogues`.
+     */
+    getDialogues: function (repo, slug, wpId) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
     },
-    getDialogueContent: function (slug, filename) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
+
+    /**
+     * Fetch the content of a single dialogue file.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Dialogue filename (URI-encoded automatically).
+     * @returns {Promise<string>} Raw dialogue content string from
+     *   `GET /api/projects/{repo}/{slug}/dialogues/{filename}`.
+     */
+    getDialogueContent: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
         .then(function (data) { return data.content; });
     },
-    getChunks: function (slug, wpId) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
+
+    /**
+     * List context chunks for a project, optionally filtered by work package ID.
+     *
+     * @param {string}           repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}           slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
+     *   Pass `undefined` to retrieve chunks for all work packages.
+     * @returns {Promise<object[]>} Chunk list from `GET /api/projects/{repo}/{slug}/chunks`.
+     */
+    getChunks: function (repo, slug, wpId) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
     },
-    getChunkRendered: function (slug, filename) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
+
+    /**
+     * Fetch the rendered content of a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<string>} Rendered chunk content string from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered`.
+     */
+    getChunkRendered: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
         .then(function (data) { return data.content; });
     },
 
     // -- Orchestrator --------------------------------------------------
-    orchestratorStart:       function (planPath, dryRun) { return request('POST',   '/orchestrator/start',                                         { planPath: planPath, dryRun: dryRun }); },
+    orchestratorStart: function (planPath, dryRun, resumeThreadId) {
+      var body = { planPath: planPath, dryRun: dryRun };
+      if (resumeThreadId !== undefined) body.resumeThreadId = resumeThreadId;
+      return request('POST', '/orchestrator/start', body);
+    },
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
@@ -515,7 +730,7 @@ var OrchestratorWidgets = (function () {
   }
 
   // ------------------------------------------------------------------
-  // renderLogPreview(container, slug, filename) → cleanup()
+  // renderLogPreview(container, repo, slug, filename) → cleanup()
   // ------------------------------------------------------------------
 
   /**
@@ -527,18 +742,19 @@ var OrchestratorWidgets = (function () {
    * 3 seconds.  Only events after the last seen line are prepended.
    *
    * @param {HTMLElement} container - The element to prepend log entries into.
-   * @param {string}      slug      - Project slug used for the API call.
+   * @param {string}      repo      - Repository name that owns the project (URI-encoded by API client).
+   * @param {string}      slug      - Project slug used for the API call (URI-encoded by API client).
    * @param {string}      filename  - JSONL log filename.
    * @returns {Function} cleanup — call to stop polling and clear the interval.
    */
-  function renderLogPreview(container, slug, filename) {
+  function renderLogPreview(container, repo, slug, filename) {
     var afterLine  = 0;
     var stopped    = false;
     var intervalId = null;
 
     function fetchEntries() {
       if (stopped) return;
-      API.getRunLogEntries(slug, filename, afterLine).then(function (data) {
+      API.getRunLogEntries(repo, slug, filename, afterLine).then(function (data) {
         if (stopped) return;
         var entries    = (data && Array.isArray(data.entries)) ? data.entries : [];
         var totalLines = (data && typeof data.totalLines === 'number')
@@ -776,33 +992,33 @@ var Router = (function () {
       return;
     }
 
-    var planMatch = path.match(/^\/projects\/([^/]+)\/plan$/);
+    var planMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/plan$/);
     if (planMatch) {
-      renderPlan(app, decodeURIComponent(planMatch[1]));
+      renderPlan(app, decodeURIComponent(planMatch[1]), decodeURIComponent(planMatch[2]));
       return;
     }
 
-    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/);
+    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/synthesis$/);
     if (synthesisMatch) {
-      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]));
+      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]), decodeURIComponent(synthesisMatch[2]));
       return;
     }
 
-    var projectMatch = path.match(/^\/projects\/([^/]+)$/);
+    var projectMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)$/);
     if (projectMatch) {
-      renderProjectDetail(app, decodeURIComponent(projectMatch[1]));
+      renderProjectDetail(app, decodeURIComponent(projectMatch[1]), decodeURIComponent(projectMatch[2]));
       return;
     }
 
-    var wpMatch = path.match(/^\/projects\/([^/]+)\/wp\/([^/]+)$/);
+    var wpMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/wp\/([^/]+)$/);
     if (wpMatch) {
-      renderWorkPackageDetail(app, decodeURIComponent(wpMatch[1]), decodeURIComponent(wpMatch[2]));
+      renderWorkPackageDetail(app, decodeURIComponent(wpMatch[1]), decodeURIComponent(wpMatch[2]), decodeURIComponent(wpMatch[3]));
       return;
     }
 
-    var runLogMatch = path.match(/^\/projects\/([^/]+)\/runs\/([^/]+)$/);
+    var runLogMatch = path.match(/^\/projects\/([^/]+)\/([^/]+)\/runs\/([^/]+)$/);
     if (runLogMatch) {
-      renderRunLog(app, decodeURIComponent(runLogMatch[1]), decodeURIComponent(runLogMatch[2]));
+      renderRunLog(app, decodeURIComponent(runLogMatch[1]), decodeURIComponent(runLogMatch[2]), decodeURIComponent(runLogMatch[3]));
       return;
     }
 
@@ -1042,6 +1258,16 @@ var Theme = (function () {
    Section 4 of the MCP Server Dashboard SPA
    ============================================================ */
 
+/**
+ * Build the namespaced cache key used by ProjectNameCache.
+ * @param {string} repo - Repository name (e.g. "ai-insights").
+ * @param {string} slug - Project slug (e.g. "2026-05-31-my-plan").
+ * @returns {string} Composite key in the form `repo/slug`.
+ */
+function makeProjectCacheKey(repo, slug) {
+  return repo + '/' + slug;
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -1083,16 +1309,63 @@ function statusBadge(status) {
   return '<span class="' + cls + '">' + escapeHtml(status) + '</span>';
 }
 
-// Cache of slug → display name, populated by views that fetch project data.
+// Cache of namespaced key → display name, populated by views that fetch project data.
 // breadcrumb().project() reads from here automatically.
+// The cache key is the composite `repo + '/' + slug` to prevent collisions
+// between same-slug projects in different repositories.
+// Bounded to MAX_SIZE entries; oldest entries are evicted when the cap is exceeded.
 var ProjectNameCache = (function () {
+  var MAX_SIZE = 200;
   var _cache = {};
+  var _keys = []; // insertion-order tracker for eviction (no duplicates)
+
   return {
-    set: function (slug, name) {
-      if (slug && name && name.trim()) _cache[slug] = name.trim();
+    /**
+     * Store a display name for a project.
+     * @param {string} key  - Namespaced key in the form `repo/slug` (use makeProjectCacheKey()).
+     * @param {string} name - Display name to cache.
+     */
+    set: function (key, name) {
+      if (!key || !name || !name.trim()) return;
+      var trimmed = name.trim();
+      // Update the value; only add to order tracker if this is a new key.
+      // NOTE: This is FIFO eviction, not LRU. Updating an existing key refreshes
+      // its value but does NOT move it to the back of the eviction queue — the key
+      // retains its original insertion position. For this cache (display names for
+      // up to 200 projects, rarely refreshed), FIFO is correct and sufficient.
+      if (!Object.prototype.hasOwnProperty.call(_cache, key)) {
+        _keys.push(key);
+        // Evict oldest entry if cap exceeded.
+        if (_keys.length > MAX_SIZE) {
+          var oldest = _keys.shift();
+          delete _cache[oldest];
+        }
+      }
+      _cache[key] = trimmed;
     },
-    get: function (slug) {
-      return _cache[slug] || slug;
+    /**
+     * Retrieve the display name for a project.
+     * @param {string} key - Namespaced key in the form `repo/slug`.
+     *   Falsy values (null, undefined, empty string) are handled gracefully: a null/undefined
+     *   key returns null without throwing; an empty string key falls through to the slug
+     *   extraction path and returns an empty string.
+     * @returns {string|null} Cached display name, or the slug portion of the key (after the
+     *   last '/') if not found — so breadcrumbs show a readable label before project data is
+     *   fetched. Returns null for null/undefined input.
+     */
+    get: function (key) {
+      if (_cache[key]) return _cache[key];
+      // Fall back to the slug portion (after the last '/') so breadcrumbs show
+      // a readable label even before the project data is fetched.
+      var lastSlash = key ? key.lastIndexOf('/') : -1;
+      return lastSlash >= 0 ? key.slice(lastSlash + 1) : key;
+    },
+    /**
+     * Returns the current number of cached entries.
+     * Intended for testing; not part of the public API.
+     */
+    _size: function () {
+      return _keys.length;
     },
   };
 }());
@@ -1104,8 +1377,8 @@ function breadcrumb() {
       segments.push({ label: 'Projects', href: '#/' });
       return api;
     },
-    project: function (slug) {
-      segments.push({ label: ProjectNameCache.get(slug), href: '#/projects/' + encodeURIComponent(slug) });
+    project: function (repo, slug) {
+      segments.push({ label: ProjectNameCache.get(makeProjectCacheKey(repo, slug)), href: '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) });
       return api;
     },
     leaf: function (label) {
@@ -1277,9 +1550,16 @@ function renderInsights(app) {
             ctxItems +
           '</div>';
       }
+      /* Namespaced link: #/projects/{repo}/{slug} — requires repository_name so
+         the router can scope the project view to the correct repository. Entries
+         where repository_name is null (e.g. from a shallow plan path) fall back
+         to plain escaped text — no anchor, no broken link. */
+      var projectLink = e.repository_name
+        ? '<a href="#/projects/' + encodeURIComponent(e.repository_name) + '/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>'
+        : escapeHtml(e.project_slug);
       return '<div class="comment-card' + priorityClass + '">' +
         '<div class="comment-meta">' +
-          '<a href="#/projects/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>' +
+          projectLink +
           ' &mdash; ' +
           escapeHtml(e.agent || '\u2014') +
           ' <span class="comment-type">' + escapeHtml(e.type || '') + '</span>' +
@@ -1565,8 +1845,16 @@ function renderKnowledge(app) {
         moveHtml = '<button class="btn btn-sm" data-action="move" data-id="' + id + '">Move to Repository</button>';
       }
 
+      /* origin_plan link: three cases —
+           1. No origin_plan → empty string (omit the element entirely).
+           2. origin_plan present AND repository_name present → namespaced anchor
+              (#/projects/{repo}/{slug}) so the router scopes the view correctly.
+           3. origin_plan present but repository_name null (global insights or
+              shallow storage path) → plain <span> fallback, no broken link. */
       var originPlanHtml = ins.origin_plan
-        ? '<a href="#/projects/' + encodeURIComponent(ins.origin_plan) + '" style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</a>'
+        ? (ins.repository_name
+            ? '<a href="#/projects/' + encodeURIComponent(ins.repository_name) + '/' + encodeURIComponent(ins.origin_plan) + '" style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</a>'
+            : '<span style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</span>')
         : '';
 
       return '<div class="card" data-id="' + id + '">' +
@@ -2164,7 +2452,20 @@ function renderOrchestrator(app) {
 
   /** Builds the queue table HTML string from the entries array.
    *  Returns the complete <table>…</table> markup ready to be assigned to
-   *  container.innerHTML. */
+   *  container.innerHTML.
+   *
+   *  Log-link rendering rules (progress cell):
+   *    - A "View Log →" anchor using the namespaced `#/projects/{repo}/{slug}/runs/{filename}`
+   *      form is rendered only when `entry.logFilename`, `entry.expectedRepo`, AND
+   *      `entry.expectedSlug` are all non-null/non-empty.
+   *    - Legacy entries that have `entry.logFilename` but a null `entry.expectedRepo`
+   *      do NOT render a log link — falling through to the "Waiting for log…" span
+   *      (when no progress text is present) or simply omitting the link entirely.
+   *      This prevents broken bare-slug URLs for queue entries predating the
+   *      namespace migration introduced in WP-011.
+   *
+   *  Both `entry.expectedRepo` and `entry.expectedSlug` are passed through
+   *  `encodeURIComponent` before being embedded in any URL. */
   function _buildQueueHtml(entries) {
     var html = '<table class="table orch-queue-table"><thead>' +
       '<tr><th></th><th>Plan</th><th>Status</th><th>Elapsed</th><th>Progress</th><th>Actions</th></tr>' +
@@ -2182,8 +2483,9 @@ function renderOrchestrator(app) {
       if (entry.progress) {
         progressHtml += ' <span class="orch-progress-text">' + escapeHtml(entry.progress) + '</span>';
       }
-      if (entry.logFilename && entry.expectedSlug) {
+      if (entry.logFilename && entry.expectedRepo && entry.expectedSlug) {
         progressHtml += ' <a href="#/projects/' +
+          encodeURIComponent(entry.expectedRepo) + '/' +
           encodeURIComponent(entry.expectedSlug) + '/runs/' +
           encodeURIComponent(entry.logFilename) + '" class="orch-log-link">View Log →</a>';
       } else if (!entry.progress) {
@@ -2218,9 +2520,15 @@ function renderOrchestrator(app) {
    *  Branch priority (dismissibility-first):
    *    1. pending  → Kill button   (process is still running)
    *    2. dead     → Dismiss button (process has exited without completing)
-   *    3. projectExists → View Project link (project ledger is on disk)
+   *    3. projectExists + expectedRepo + expectedSlug → "View Project" link using
+   *       the namespaced `#/projects/{repo}/{slug}` form (WP-011)
+   *    4. projectExists + expectedSlug, but expectedRepo is null → no link rendered
+   *       (legacy queue entry; omitted to avoid constructing a broken bare-slug URL)
    *  The dead branch precedes the projectExists branch so that a dead entry
    *  that also has a known project slug always renders Dismiss, not View Project.
+   *  Case 4 is an explicit empty branch retained for clarity — it documents the
+   *  intentional omission so future contributors understand why no link appears for
+   *  entries that were enqueued before the namespace migration (WP-011).
    *
    *  Closure dependencies (from renderOrchestrator() scope):
    *    `expandedIds`            — tracks which queue rows are expanded; mutated
@@ -2244,12 +2552,18 @@ function renderOrchestrator(app) {
           delete expandedIds[id];
           refreshQueue();
         }));
-      } else if (entry.projectExists === true && entry.expectedSlug) {
+      } else if (entry.projectExists === true && entry.expectedRepo && entry.expectedSlug) {
         var link = document.createElement('a');
-        link.href = '#/projects/' + encodeURIComponent(entry.expectedSlug);
+        link.href = '#/projects/' +
+          encodeURIComponent(entry.expectedRepo) + '/' +
+          encodeURIComponent(entry.expectedSlug);
         link.className = 'btn btn-sm btn-secondary orch-queue-action-btn';
         link.textContent = 'View Project';
         cell.appendChild(link);
+      } else if (entry.projectExists === true && entry.expectedSlug && !entry.expectedRepo) {
+        // Legacy queue entry without expectedRepo — omit the project link to
+        // avoid constructing a broken bare-slug URL. The entry is still shown
+        // in the queue but no navigation link is rendered.
       }
     });
 
@@ -2281,11 +2595,12 @@ function renderOrchestrator(app) {
   function _mountLogPreviews(container, entries) {
     entries.forEach(function (entry) {
       var id = entry.id || '';
-      if (!expandedIds[id] || !entry.logFilename || !entry.expectedSlug) return;
+      if (!expandedIds[id] || !entry.logFilename || !entry.expectedRepo || !entry.expectedSlug) return;
       var previewEl = document.getElementById('orch-log-' + id);
       if (!previewEl) return;
       var cleanup = OrchestratorWidgets.renderLogPreview(
         previewEl,
+        entry.expectedRepo,
         entry.expectedSlug,
         entry.logFilename
       );
@@ -2379,18 +2694,18 @@ function extractSynopsis(markdown) {
   return match ? match[1].trim() : null;
 }
 
-async function renderPlan(app, slug) {
+async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
   try {
-    var result = await API.getPlanDocument(slug);
+    var result = await API.getPlanDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Plan').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Plan').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
@@ -2401,18 +2716,18 @@ async function renderPlan(app, slug) {
 /* ----------------------------------------------------------
    4b-ii. View: Synthesis Document
    ---------------------------------------------------------- */
-async function renderSynthesis(app, slug) {
+async function renderSynthesis(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
   try {
-    var result = await API.getSynthesisDocument(slug);
+    var result = await API.getSynthesisDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
@@ -2468,7 +2783,7 @@ function buildRunBadges(item, isActive) {
   return badges;
 }
 
-function renderProjectDetail(app, slug) {
+function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
   _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
   _pdLogPreviewCleanups = [];
@@ -2476,9 +2791,9 @@ function renderProjectDetail(app, slug) {
   showLoading(app);
 
   Promise.all([
-    API.getProject(slug),
-    API.getPlanDocument(slug).catch(function () { return null; }),
-    API.getWorkPackageOverview(slug).catch(function () { return null; }),
+    API.getProject(repo, slug),
+    API.getPlanDocument(repo, slug).catch(function () { return null; }),
+    API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
@@ -2500,8 +2815,8 @@ function renderProjectDetail(app, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
-      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
-        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
+      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
         '<td>' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td>' + statusBadge(wp.status) + '</td>' +
@@ -2539,7 +2854,7 @@ function renderProjectDetail(app, slug) {
       : '<p class="text-muted">No comments yet.</p>';
 
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
-    ProjectNameCache.set(slug, displayTitle);
+    ProjectNameCache.set(makeProjectCacheKey(repo, slug), displayTitle);
     app.innerHTML =
       breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
@@ -2582,7 +2897,7 @@ function renderProjectDetail(app, slug) {
             synopsisHtml =
               '<div class="plan-synopsis">' +
               '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
-              '<a href="#/projects/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+              '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
               '</div>';
           }
         }
@@ -2592,7 +2907,7 @@ function renderProjectDetail(app, slug) {
       (function () {
         if (!project.synthesis_generated) return '';
         return '<div class="synthesis-link-row">' +
-          '<a href="#/projects/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
+          '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
       })() +
 
@@ -2609,6 +2924,7 @@ function renderProjectDetail(app, slug) {
       // Orchestrator Runs section — rendered for any project; shown only when logs exist
       '<div id="orchestrator-runs-wrapper" style="display:none">' +
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
+        '<div id="orch-resume-cell"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
 
@@ -2616,8 +2932,8 @@ function renderProjectDetail(app, slug) {
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
     if (unarchiveBannerBtn) {
       unarchiveBannerBtn.addEventListener('click', function () {
-        API.unarchiveProject(slug).then(function () {
-          renderProjectDetail(app, slug);
+        API.unarchiveProject(repo, slug).then(function () {
+          renderProjectDetail(app, repo, slug);
         }).catch(function (err) {
           alert('Unarchive failed: ' + (err.message || String(err)));
         });
@@ -2638,18 +2954,18 @@ function renderProjectDetail(app, slug) {
       resetBtn.addEventListener('click', function () {
         resetBtn.disabled = true;
         resetBtn.textContent = 'Analyzing…';
-        API.analyzeProjectReset(slug).then(function (diagnosis) {
+        API.analyzeProjectReset(repo, slug).then(function (diagnosis) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
           if (diagnosis.work_packages_needing_reset === 0) {
             if (meta.status === 'IN_PROGRESS') {
-              showResetModal(slug, diagnosis, { markComplete: true });
+              showResetModal(repo, slug, diagnosis, { markComplete: true });
             } else {
               alert('All work packages are healthy — no reset needed.');
             }
             return;
           }
-          showResetModal(slug, diagnosis);
+          showResetModal(repo, slug, diagnosis);
         }).catch(function (err) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
@@ -2695,7 +3011,7 @@ function renderProjectDetail(app, slug) {
             return;
           }
           input.disabled = true;
-          API.renameProject(slug, newTitle).then(function () {
+          API.renameProject(repo, slug, newTitle).then(function () {
             currentTitle = newTitle;
             headingEl.textContent = newTitle;
             if (breadcrumbEl) breadcrumbEl.textContent = newTitle;
@@ -2795,8 +3111,8 @@ function renderProjectDetail(app, slug) {
           }
           input.disabled = true;
           clearSlugError();
-          API.renameSlug(currentSlug, newSlug).then(function () {
-            window.location.hash = '#/projects/' + encodeURIComponent(newSlug);
+          API.renameSlug(repo, currentSlug, newSlug).then(function () {
+            window.location.hash = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(newSlug);
           }).catch(function (err) {
             input.disabled = false;
             inputDone = false;
@@ -2829,7 +3145,7 @@ function renderProjectDetail(app, slug) {
     // Health badge — async, non-blocking
     var healthBadge = document.getElementById('health-badge');
     if (healthBadge) {
-      API.getProjectHealth(slug).then(function (health) {
+      API.getProjectHealth(repo, slug).then(function (health) {
         if (health.work_packages_needing_reset === 0) {
           healthBadge.textContent = '\u2713 All pipelines complete';
           healthBadge.className = 'health-badge healthy';
@@ -2843,7 +3159,7 @@ function renderProjectDetail(app, slug) {
       });
     }
     // Orchestrator Runs — async, non-blocking; section becomes visible only when logs exist
-    API.getRunLogs(slug).then(function (logs) {
+    API.getRunLogs(repo, slug).then(function (logs) {
       var wrapperEl = document.getElementById('orchestrator-runs-wrapper');
       var runsEl = document.getElementById('orchestrator-runs-section');
       if (!wrapperEl || !runsEl) return;
@@ -2864,8 +3180,8 @@ function renderProjectDetail(app, slug) {
 
       // Render the full runs list; called with the matched queue entry (or null).
       // NOTE (refactor candidate): renderRunsList is a nested closure inside the getRunLogs().then()
-      // callback to close over sorted, slug, and activeFilename. A future pass could extract this as
-      // a module-level helper accepting (sorted, slug, activeFilename, matchingQueueEntry) to improve
+      // callback to close over sorted, repo, slug, and activeFilename. A future pass could extract this as
+      // a module-level helper accepting (sorted, repo, slug, activeFilename, matchingQueueEntry) to improve
       // testability and reduce closure depth.
       function renderRunsList(matchingQueueEntry) {
         // Drain any existing log preview cleanups before rebuilding the DOM.
@@ -2875,7 +3191,7 @@ function renderProjectDetail(app, slug) {
         runsEl.innerHTML = sorted.map(function (item, index) {
           var filename = (item && item.filename) ? item.filename : String(item);
           var isActive = index === 0 && !!(item && item.is_active);
-          var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+          var href = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
           var runNumber = sorted.length - index;
 
           var dateStr = (function () {
@@ -2943,7 +3259,7 @@ function renderProjectDetail(app, slug) {
         if (activeFilename) {
           var previewEl = document.getElementById('orch-project-log-preview');
           if (previewEl) {
-            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, slug, activeFilename);
+            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, repo, slug, activeFilename);
             _pdLogPreviewCleanups.push(cleanup);
           }
         }
@@ -2978,6 +3294,78 @@ function renderProjectDetail(app, slug) {
       } else {
         // No active run — render without queue interaction.
         renderRunsList(null);
+
+        // Resume button: show when run metadata indicates a resumable interrupted run.
+        var resumeCell = document.getElementById('orch-resume-cell');
+        if (resumeCell && meta.plan_path &&
+            meta.status !== 'COMPLETE' && meta.status !== 'ARCHIVED') {
+
+          // showResumeError: reusable helper that creates the error banner on first
+          // call and reuses it on subsequent calls. The getElementById guard prevents
+          // duplicate DOM nodes if the user triggers multiple failed resume attempts
+          // (e.g. rapid re-clicks after the button is re-enabled on error).
+          function showResumeError(msg) {
+            var errEl = document.getElementById('orch-resume-error');
+            if (!errEl) {
+              errEl = document.createElement('p');
+              errEl.id = 'orch-resume-error';
+              errEl.className = 'error-banner';
+              resumeCell.appendChild(errEl);
+            }
+            errEl.textContent = msg;
+          }
+
+          API.getRunMetadata(repo, slug).then(function (runMeta) {
+            if (!runMeta || !runMeta.thread_id ||
+                runMeta.dry_run === true || runMeta.result === 'SUCCESS') {
+              return;
+            }
+            var threadId = runMeta.thread_id;
+            var planPath = meta.plan_path;
+
+            var resumeBtn = document.createElement('button');
+            resumeBtn.id = 'orch-resume-btn';
+            resumeBtn.className = 'btn btn-resume';
+            resumeBtn.textContent = 'Resume Run';
+
+            resumeBtn.addEventListener('click', function () {
+              resumeBtn.disabled = true;
+              resumeBtn.textContent = 'Resuming\u2026';
+
+              API.orchestratorStart(planPath, false, threadId).then(function (result) {
+                if (result && result.started) {
+                  resumeBtn.textContent = 'Launching\u2026';
+                  // Poll the queue; re-render the full view once an active entry appears.
+                  var pollResume = function () {
+                    API.orchestratorGetQueue().then(function (queue) {
+                      var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
+                        return entry && (entry.effectiveStatus === 'pending' ||
+                                        entry.effectiveStatus === 'started');
+                      });
+                      if (hasActiveEntry) {
+                        Router._clearPolling();
+                        renderProjectDetail(app, repo, slug);
+                      }
+                    }).catch(function () { /* keep polling */ });
+                  };
+                  Router._setPolling(pollResume, 3000);
+                } else {
+                  resumeBtn.disabled = false;
+                  resumeBtn.textContent = 'Resume Run';
+                  showResumeError('Resume could not be started.');
+                }
+              }).catch(function (err) {
+                resumeBtn.disabled = false;
+                resumeBtn.textContent = 'Resume Run';
+                showResumeError('Resume failed: ' + (err.message || String(err)));
+              });
+            });
+
+            resumeCell.appendChild(resumeBtn);
+          }).catch(function () {
+            // Metadata unavailable — silently skip resume button.
+          });
+        }
       }
     }).catch(function () {
       // Silent failure — don't show error for projects without logs
@@ -2993,7 +3381,7 @@ function renderProjectDetail(app, slug) {
    ---------------------------------------------------------- */
 var PIPELINE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
-function showResetModal(slug, diagnosis, options) {
+function showResetModal(repo, slug, diagnosis, options) {
   // Remove any existing modal
   var existing = document.getElementById('reset-modal-overlay');
   if (existing) existing.remove();
@@ -3270,7 +3658,7 @@ function showResetModal(slug, diagnosis, options) {
 
     if (markCompleteMode) {
       applyBtn.textContent = 'Marking…';
-      API.markProjectComplete(slug).then(function () {
+      API.markProjectComplete(repo, slug).then(function () {
         closeModal();
         var toast = document.createElement('div');
         toast.className = 'success-banner';
@@ -3279,7 +3667,7 @@ function showResetModal(slug, diagnosis, options) {
         document.body.appendChild(toast);
         setTimeout(function () { toast.remove(); }, 4000);
         var app = document.getElementById('app');
-        if (app) renderProjectDetail(app, slug);
+        if (app) renderProjectDetail(app, repo, slug);
       }).catch(function (err) {
         applyBtn.disabled = false;
         applyBtn.textContent = 'Mark as Complete';
@@ -3305,7 +3693,7 @@ function showResetModal(slug, diagnosis, options) {
       }
     });
 
-    API.applyProjectReset(slug, decisions).then(function (result) {
+    API.applyProjectReset(repo, slug, decisions).then(function (result) {
       closeModal();
       // Show brief success toast
       var toast = document.createElement('div');
@@ -3316,7 +3704,7 @@ function showResetModal(slug, diagnosis, options) {
       setTimeout(function () { toast.remove(); }, 4000);
       // Refresh the project view
       var app = document.getElementById('app');
-      if (app) renderProjectDetail(app, slug);
+      if (app) renderProjectDetail(app, repo, slug);
     }).catch(function (err) {
       applyBtn.disabled = false;
       applyBtn.textContent = 'Apply Reset';
@@ -3472,7 +3860,9 @@ function renderProjectList(app) {
 
     var rows = projects.map(function (p) {
       var projectName = (p.project_name != null && p.project_name !== '') ? escapeHtml(p.project_name) : escapeHtml(p.slug);
-      ProjectNameCache.set(p.slug, p.project_name || p.slug);
+      if (p.repository_name) {
+        ProjectNameCache.set(makeProjectCacheKey(p.repository_name, p.slug), p.project_name || p.slug);
+      }
       var doneCellHtml;
       if (p.total_work_packages > 0) {
         var pct = p.progress_pct != null ? p.progress_pct : 0;
@@ -3481,9 +3871,17 @@ function renderProjectList(app) {
         doneCellHtml = '\u2014';
       }
       var wpCount = p.total_work_packages != null ? String(p.total_work_packages) : '\u2014';
+      var repo = p.repository_name;
+      var nameCell;
+      if (repo) {
+        nameCell = '<td><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>';
+      } else {
+        console.warn('[project-list] project "' + p.slug + '" has no repository_name — rendering as read-only row');
+        nameCell = '<td title="' + escapeHtml(p.slug) + '">' + projectName + '</td>';
+      }
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
-        '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>' +
-        '<td class="repo-col">' + escapeHtml(p.repository_name || '\u2014') + '</td>' +
+        nameCell +
+        '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>' +
         '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
@@ -3491,7 +3889,7 @@ function renderProjectList(app) {
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +
-          '<div class="action-menu-wrapper" data-slug="' + escapeHtml(p.slug) + '" data-status="' + escapeHtml(p.status) + '">' +
+          '<div class="action-menu-wrapper" data-slug="' + escapeHtml(p.slug) + '" data-repo="' + escapeHtml(repo || '') + '" data-status="' + escapeHtml(p.status) + '">' +
             '<button class="action-menu-btn" aria-haspopup="menu" aria-expanded="false" title="Actions">&#8942;</button>' +
           '</div>' +
         '</td>' +
@@ -3735,19 +4133,23 @@ function renderProjectList(app) {
         if (openMenuWrapper) closeOpenMenu();
 
         var slug = wrapper.getAttribute('data-slug');
+        var repo = wrapper.getAttribute('data-repo');
         var status = wrapper.getAttribute('data-status');
+        var viewHtml = repo
+          ? '<a class="action-menu-item" role="menuitem" href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '">View</a>'
+          : '';
         var archiveHtml = status !== 'ARCHIVED'
-          ? '<button class="action-menu-item" role="menuitem" data-portal-action="archive" data-slug="' + escapeHtml(slug) + '">Archive</button>'
+          ? '<button class="action-menu-item" role="menuitem" data-portal-action="archive" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Archive</button>'
           : '';
         var unarchiveHtml = status === 'ARCHIVED'
-          ? '<button class="action-menu-item" role="menuitem" data-portal-action="unarchive" data-slug="' + escapeHtml(slug) + '">Unarchive</button>'
+          ? '<button class="action-menu-item" role="menuitem" data-portal-action="unarchive" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Unarchive</button>'
           : '';
 
         menuPortal.innerHTML =
-          '<a class="action-menu-item" role="menuitem" href="#/projects/' + encodeURIComponent(slug) + '">View</a>' +
+          viewHtml +
           archiveHtml +
           unarchiveHtml +
-          '<button class="action-menu-item danger" role="menuitem" data-portal-action="delete" data-slug="' + escapeHtml(slug) + '">Delete</button>';
+          '<button class="action-menu-item danger" role="menuitem" data-portal-action="delete" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Delete</button>';
 
         menuPortal.style.display = 'block';
         var btnRect = btn.getBoundingClientRect();
@@ -3791,17 +4193,24 @@ function renderProjectList(app) {
         if (!item) return;
         var action = item.getAttribute('data-portal-action');
         var slug = item.getAttribute('data-slug');
+        var repo = item.getAttribute('data-repo');
         closeOpenMenu();
+        if (!repo) {
+          // Null-repo projects should not reach action handlers (no View link, action buttons
+          // still render for archive/delete). Log silently rather than disrupting the operator.
+          console.error('[project-list] action "' + action + '" skipped: project "' + slug + '" has no repository_name.');
+          return;
+        }
         if (action === 'delete') {
           if (!confirm('Permanently delete project "' + slug + '"? This cannot be undone.')) return;
-          API.deleteProject(slug).then(function () { currentPage = 1; load(); })
+          API.deleteProject(repo, slug).then(function () { currentPage = 1; load(); })
             .catch(function (err) { alert('Delete failed: ' + (err.message || String(err))); });
         } else if (action === 'archive') {
           if (!confirm('Archive project "' + slug + '"? It will be hidden from the active list but remain accessible.')) return;
-          API.archiveProject(slug).then(function () { load(); })
+          API.archiveProject(repo, slug).then(function () { load(); })
             .catch(function (err) { alert('Archive failed: ' + (err.message || String(err))); });
         } else if (action === 'unarchive') {
-          API.unarchiveProject(slug).then(function () { load(); })
+          API.unarchiveProject(repo, slug).then(function () { load(); })
             .catch(function (err) { alert('Unarchive failed: ' + (err.message || String(err))); });
         }
       });
@@ -4197,11 +4606,20 @@ function buildRunEventCard(entry) {
  * the incremental `?after=N` parameter. Polling stops automatically when a
  * `run_end` or `run_error` entry is encountered.
  *
- * @param {HTMLElement} app    - The main content container.
- * @param {string}      slug   - Project slug.
+ * Both `repo` and `slug` are required for multi-root workspace support: they
+ * are passed through to every `API.getRunLogEntries(repo, slug, filename,
+ * afterLine)` call so the server can resolve the correct namespaced project
+ * store. In a single-root workspace `repo` is typically an empty string, but
+ * must still be supplied — this is why the signature changed from the legacy
+ * two-argument `(app, filename)` form.
+ *
+ * @param {HTMLElement} app      - The main content container.
+ * @param {string}      repo     - Repository namespace (may be empty string for
+ *                                 single-root workspaces; must not be omitted).
+ * @param {string}      slug     - Project slug.
  * @param {string}      filename - Log filename (e.g. "20260225T113355-my-project.jsonl").
  */
-function renderRunLog(app, slug, filename) {
+function renderRunLog(app, repo, slug, filename) {
   showLoading(app);
 
   // Track how many lines we have seen (used as `afterLine` for incremental fetches)
@@ -4216,7 +4634,7 @@ function renderRunLog(app, slug, filename) {
    */
   function buildPageShell() {
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Run Log').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +
@@ -4281,7 +4699,7 @@ function renderRunLog(app, slug, filename) {
    * @param {number} afterLine - Number of lines already seen.
    */
   function fetchAndAppend(afterLine) {
-    API.getRunLogEntries(slug, filename, afterLine).then(function (result) {
+    API.getRunLogEntries(repo, slug, filename, afterLine).then(function (result) {
       if (!result) return;
       var entries = Array.isArray(result.entries) ? result.entries : [];
       var newTotal = typeof result.totalLines === 'number' ? result.totalLines : totalLinesSeen;
@@ -4312,7 +4730,7 @@ function renderRunLog(app, slug, filename) {
   }
 
   // Initial load — fetch all entries
-  API.getRunLogEntries(slug, filename).then(function (result) {
+  API.getRunLogEntries(repo, slug, filename).then(function (result) {
     if (!result) {
       showError(app, 'Failed to load run log: empty response');
       return;
@@ -4411,10 +4829,10 @@ function buildWpDetailBar(wp) {
   '</div>';
 }
 
-function renderWorkPackageDetail(app, slug, wpId) {
+function renderWorkPackageDetail(app, repo, slug, wpId) {
   showLoading(app);
 
-  API.getWorkPackage(slug, wpId).then(function (wp) {
+  API.getWorkPackage(repo, slug, wpId).then(function (wp) {
     // Acceptance criteria
     var acHtml = (wp.acceptance_criteria || []).map(function (ac) {
       var met = ac.met === true;
@@ -4488,7 +4906,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
       : '';
 
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf(wpId).html() +
+      breadcrumb().projects().project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
@@ -4519,8 +4937,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
     Promise.all([
       // getChunks errors are silently swallowed — absent chunks directory is
       // expected for older runs that predate streaming capture.
-      API.getChunks(slug, wpId).catch(function () { return []; }),
-      API.getDialogues(slug, wpId),
+      API.getChunks(repo, slug, wpId).catch(function () { return []; }),
+      API.getDialogues(repo, slug, wpId),
     ]).then(function (results) {
       var chunks = results[0] || [];
       var dialogues = results[1] || [];
@@ -4559,6 +4977,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
           var label = escapeHtml(stage + '-r' + idx);
           return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
             'aria-expanded="false" ' +
+            'data-repo="' + escapeHtml(repo) + '" ' +
             'data-slug="' + escapeHtml(slug) + '" ' +
             'data-filename="' + escapeHtml(d.filename) + '" ' +
             'data-use-chunks="' + (useChunks ? '1' : '0') + '">' +
@@ -4613,6 +5032,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
         btn.classList.add('dialogue-btn-active');
         btn.setAttribute('aria-expanded', 'true');
 
+        var dlgRepo = btn.getAttribute('data-repo');
         var dlgSlug = btn.getAttribute('data-slug');
         var dlgFilename = btn.getAttribute('data-filename');
         var dlgUseChunks = btn.getAttribute('data-use-chunks') === '1';
@@ -4626,8 +5046,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
         // Fetch rendered Markdown: use the /rendered chunk endpoint for chunk
         // files, or the plain dialogue content endpoint for Markdown files.
         var fetchPromise = dlgUseChunks
-          ? API.getChunkRendered(dlgSlug, dlgFilename)
-          : API.getDialogueContent(dlgSlug, dlgFilename);
+          ? API.getChunkRendered(dlgRepo, dlgSlug, dlgFilename)
+          : API.getDialogueContent(dlgRepo, dlgSlug, dlgFilename);
 
         fetchPromise.then(function (md) {
           var rendered = (typeof marked !== 'undefined' && marked.parse)

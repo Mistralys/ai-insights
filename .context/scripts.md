@@ -633,11 +633,16 @@ const MODULES = [
 
 /**
  * Extract the first semver version from a changelog's `## v{X.Y.Z}` heading.
+ * Returns 'UNRELEASED' if the first heading is an UNRELEASED entry.
  * @param {string} filePath - Absolute path to the changelog file.
- * @returns {string|null} The version string (without the "v" prefix), or null.
+ * @returns {string|null} The version string (without the "v" prefix), 'UNRELEASED', or null.
  */
 function readChangelogVersion(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
+  const firstHeading = content.match(/^##\s+(.+)/m);
+  if (firstHeading && /unreleased/i.test(firstHeading[1])) {
+    return 'UNRELEASED';
+  }
   const m = content.match(/^##\s+v(\d+\.\d+\.\d+)/m);
   return m ? m[1] : null;
 }
@@ -661,6 +666,11 @@ for (const mod of MODULES) {
   } catch (err) {
     console.error(`[check-version-sync] ERROR: Cannot read ${mod.name}/${mod.manifestFmt}: ${err.message}`);
     process.exit(1);
+  }
+
+  if (changelogVer === 'UNRELEASED') {
+    console.log(`[check-version-sync] Skipping ${mod.name}: changelog has an UNRELEASED entry.`);
+    continue;
   }
 
   if (!changelogVer) {
@@ -752,8 +762,6 @@ const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
 const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
-const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
-
 // --- Pre-flight checks ---
 
 function checkWorkspaceRoot() {
@@ -2457,7 +2465,7 @@ main().catch((err) => {
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 9 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> with 8 annotated entries.
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
@@ -2472,7 +2480,8 @@ import { spawn } from 'child_process';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '../..');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
+const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
 const SIBLING_DIR       = path.resolve(WORKSPACE_ROOT, '..');
@@ -2609,7 +2618,7 @@ export const HEALTH_CHECKS = [
     /** @returns {boolean} */
     detect() {
       if (!fs.existsSync(MCP_DIST_SENTINEL)) return false;
-      const distMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
+      const distMtime = latestMtime(MCP_DIST_DIR);
       return latestMtime(MCP_SRC_DIR) <= distMtime;
     },
     fix: 'cd mcp-server && npm run build',
