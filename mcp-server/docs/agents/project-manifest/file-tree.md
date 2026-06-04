@@ -204,6 +204,7 @@ mcp-server/
     │   ├── pipeline-duration.test.ts
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
+    │   ├── reopen-cancelled-wp.test.ts  # 22 tests for ledger_reopen_cancelled_wp: PM-only guard, non-CANCELLED status guards, core side effects (dep-aware READY/BLOCKED branching, field clearing, counter adjustment, audit comment, pipeline history preservation), cascade reblock (READY and IN_PROGRESS downstream dependents), and state machine invariant preservation
     │   ├── rework-circuit-breaker.test.ts
     │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   ├── schema-integrity.test.ts

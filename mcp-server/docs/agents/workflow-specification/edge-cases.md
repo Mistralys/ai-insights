@@ -8,10 +8,34 @@
 
 ### 21.1 Terminal Status Invariants
 
-- `CANCELLED` is strictly terminal — no outward transitions allowed
+- `CANCELLED` is strictly terminal — no outward transitions allowed in the normal state machine
 - `COMPLETE` is *normally terminal* but may be reopened to `IN_PROGRESS` by PM or Documentation (see [§6.2](state-machines.md#62-transition-table))
 - Both `COMPLETE` and `CANCELLED` satisfy dependency requirements
 - `isTerminalStatus()` returns `true` for both `COMPLETE` and `CANCELLED` for dependency checks and counter calculations
+
+#### §21.1a Administrative Reopen of CANCELLED WPs
+
+The `ledger_reopen_cancelled_wp` tool provides a PM-only administrative escape hatch that bypasses the normal terminal state machine without modifying it. This is the same pattern used by `ledger_reset_rework_count` (§16.3b), which bypasses the rework limit without modifying the limit rule.
+
+**Behavior:**
+
+- Only callable by `agent_role: "Project Manager"` — all other callers are rejected with `isError: true` before any disk I/O
+- Target WP must be in `CANCELLED` status — non-CANCELLED targets return an error without modifying state
+- A mandatory `reason` string is required; the tool writes an audit comment of type `reopen_cancelled` to `root.project_comments`
+- **Dep-aware initial status:** Inside the atomic write, `canStartWorkPackage` is evaluated against the current root. If all upstream dependencies are `COMPLETE`, the WP transitions to `READY`; otherwise it transitions to `BLOCKED` with a `dependency` blocker describing the unmet deps. This matches `createWorkPackage` L306–316 semantics (single-write, no post-write second call needed).
+- **Side effects (all applied atomically inside `updateWorkPackageWithSync`):**
+  - `status` set to `READY` or `BLOCKED` (dep-aware)
+  - `status_changed_at` stamped
+  - `assigned_to` cleared (set to `null`)
+  - `rework_counts` cleared (deleted)
+  - Root summary entry (`root.work_packages[]`) synced: `status` and `assigned_to` updated
+  - `root.pending_work_packages` incremented by 1 (CANCELLED was terminal; WP is now non-terminal)
+  - `synthesis_generated` set to `false` via `clearSynthesisState()`
+  - Audit comment of type `reopen_cancelled` appended to `root.project_comments`
+- **Post-write:** `propagateDependencyReblock` is called to cascade-block any downstream READY/IN_PROGRESS WPs that were relying on the CANCELLED WP being terminal
+- **State machine invariant preserved:** `isValidStatusTransition('CANCELLED', *)` continues to return `false` for all transitions. The tool operates as an explicit bypass, not a state machine extension.
+- **Revision unchanged:** CANCELLED WPs never delivered output; revision tracks rework of delivered work, not recovery of unstarted intent.
+- **Pipeline history preserved:** Existing pipelines are retained for audit trail purposes; freshness guards in the normal flow handle staleness organically.
 
 ### 21.2 Empty Project
 
