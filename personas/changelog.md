@@ -2,6 +2,7 @@
 
 ## UNRELEASED - WIP TITLE
 - Standalone: Ledger Doctor: Refreshed workflow knowledge.
+- Standalone: Ledger Doctor: Added project recovery tool, improved repair procedure.
 - Standalone: Plan Refiner: Wording improvements to remove overly imperative instructions.
 - Standalone: Plan Refiner: Handoff improvements to give subagents more agency.
 - Standalone: Plan Auditor: No longer nags about navigational aids like line positions.
