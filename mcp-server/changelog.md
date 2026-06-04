@@ -1,6 +1,6 @@
 # Project Ledger MCP Server - Changelog
 
-## UNRELEASED - WIP TITLE
+## v2.0.0 - Knowledge Storage
 - Workflow: Fixed some cancellation edge cases.
 - Workflow: Fixed some rework cases despite completed stages.
 - GUI: Insights project links now use namespaced URLs; degrade to plain text when repository is absent.
@@ -14,6 +14,7 @@
 - GUI: All five handlers validate `repository_name` against slug regex; unknown scope → HTTP 400.
 - GUI: Fixed null-guard patterns in `api-client.js` for knowledge mutation functions.
 - GUI: Fixed breadcrumb project name, Dismiss button for dead runs, and filter focus on refresh.
+- GUI: Fixed duplicate orchestrator run entries.
 - Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo collisions.
 - Storage: Auto-migrates on startup; `resolveProjectDir()` handles bare slugs and composites.
 - Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write.

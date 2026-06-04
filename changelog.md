@@ -1,6 +1,8 @@
 # AI Insights Changelog
 
-## UNRELEASED - WIP TITLE
+## v2.0.0 - Knowledge Storage
+> mcp v2.0.0 · orchestrator v1.0.0 · personas v3.22.0
+
 - MCP: Added the knowledge accumulation system.
 - MCP: Added dedicated knowledge search and registration tools.
 - MCP: Storage upgraded to folders namespaced by repository to eliminate collisions.
