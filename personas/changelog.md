@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## UNRELEASED - WIP TITLE
+- Standalone: Ledger Doctor: Added holistic repair philosophy and routing verification.
 - Standalone: Ledger Doctor: Refreshed workflow knowledge.
 - Standalone: Ledger Doctor: Added project recovery tool, improved repair procedure.
 - Standalone: Plan Refiner: Wording improvements to remove overly imperative instructions.
