@@ -4,8 +4,8 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-version: "3.6.0"
-last_updated: "2026-05-30"
+version: "3.7.0"
+last_updated: "2026-06-05"
 
 tools:
   - vscode
