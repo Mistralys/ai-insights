@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.23.0 - Knowledge Archiver Marker File
+- Ledger: Synthesis: Added deferred items collection to the operational protocol.
 - Standalone: Plan Reviewer: Improved review philosophy.
 - Standalone: Knowledge Archiver: Added marker file for local archiving tasks.
 
