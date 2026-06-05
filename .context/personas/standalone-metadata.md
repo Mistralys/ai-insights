@@ -502,8 +502,8 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.5.0"
-last_updated: "2026-05-29"
+version: "1.6.0"
+last_updated: "2026-06-05"
 
 tools:
   - vscode
@@ -624,13 +624,14 @@ description: "Extract and commit reusable knowledge from completed ledger projec
 vs_file_name: knowledge-archiver.agent.md
 id: standalone-knowledge-archiver
 cc_file_name: knowledge-archiver.md
-version: "1.4.0"
-last_updated: "2026-05-30"
+version: "1.5.1"
+last_updated: "2026-06-04"
 mcp_server_name: central_pm
 
 tools:
   - vscode
   - read
+  - edit
   - search
   - central_pm/*
 

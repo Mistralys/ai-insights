@@ -561,7 +561,8 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 
 1. **Aggregator:** Collect all `PASS`/`FAIL` metrics, test coverage data, and completed artifacts. Aggregate failed metrics (blockers, failures and security concerns) in a dedicated section for better visibility.
 2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** comments from the ledger (added by Reviewers/Validators).
-3. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
+3. **Deferred & Follow-Up Items:** Scan all WP comments, project comments, and pipeline comments for items explicitly marked as deferred, out-of-scope, or flagged for follow-up by any agent. Collect these into a dedicated list so they are not lost between cycles. Include: the source WP (if applicable), the originating agent, a brief description, and any stated priority or rationale.
+4. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
 
 ```
 ###  Path: `/personas/shared/partials/synthesis-output-format.md`
@@ -573,6 +574,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     * **Executive Summary:** What was built.
     * **Metrics:** Tests passed, coverage, clean code scores.
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
+    * **Deferred & Follow-Up Items:** Items explicitly deferred, marked out-of-scope, or flagged for follow-up during the project. For each item list: source (WP ID or project-level), originating agent, description, and priority/rationale if stated. Mark items clearly as either **deferred** (intentionally postponed) or **out-of-scope** (beyond this plan's boundaries). The Planner uses this section to seed the next cycle's plan.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
 2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call.
