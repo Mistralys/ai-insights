@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.23.0 - Knowledge Archiver Marker File
+- Standalone: Plan Reviewer: Improved review philosophy.
+- Standalone: Knowledge Archiver: Added marker file for local archiving tasks.
+
 ## v3.22.0 - Persona Improvements
 - Standalone: Ledger Doctor: Added holistic repair philosophy and routing verification.
 - Standalone: Ledger Doctor: Refreshed workflow knowledge.
