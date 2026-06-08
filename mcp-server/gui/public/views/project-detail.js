@@ -107,6 +107,157 @@ function buildRunBadges(item, isActive) {
   return badges;
 }
 
+/* ----------------------------------------------------------
+   Orchestrator Toolbar
+   Renders Kill + Resume buttons into toolbarEl.
+   Always visible; buttons are disabled (with explanatory
+   tooltips) when the corresponding action is unavailable.
+
+   opts: {
+     loading:      bool,           — show "Loading…" disabled state
+     hasActiveRun: bool,           — is there an active run?
+     queueEntry:   object|null,    — matching queue entry (kill)
+     runMeta:      object|null,    — run metadata (resume)
+     meta:         object,         — project meta (plan_path, status)
+     repo:         string,
+     slug:         string,
+     app:          Element,        — root element (re-render after resume)
+     onKillDone:   Function,       — called after a successful kill
+   }
+   ---------------------------------------------------------- */
+function renderOrchToolbar(toolbarEl, opts) {
+  if (!toolbarEl) return;
+  toolbarEl.innerHTML = '';
+
+  var loading      = !!opts.loading;
+  var hasActiveRun = !!opts.hasActiveRun;
+  var queueEntry   = opts.queueEntry  || null;
+  var runMeta      = opts.runMeta     || null;
+  var meta         = opts.meta        || {};
+  var repo         = opts.repo        || '';
+  var slug         = opts.slug        || '';
+  var app          = opts.app         || null;
+  var onKillDone   = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
+
+  // ── Kill button ─────────────────────────────────────────────────────
+  var killDisabled = true;
+  var killTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (!hasActiveRun) {
+      killTitle = 'No active run to kill';
+    } else if (!queueEntry) {
+      killTitle = 'Run is active but not found in the queue \u2014 use: node scripts/kill-orchestrator.js --force';
+    } else {
+      killDisabled = false;
+      killTitle    = '';
+    }
+  }
+
+  if (killDisabled) {
+    var killBtn = document.createElement('button');
+    killBtn.type = 'button';
+    killBtn.className = 'btn btn-danger btn-sm orchestrator-kill-btn';
+    killBtn.textContent = 'Kill';
+    killBtn.disabled = true;
+    if (killTitle) killBtn.title = killTitle;
+    toolbarEl.appendChild(killBtn);
+  } else {
+    toolbarEl.appendChild(
+      OrchestratorWidgets.renderKillButton(queueEntry.id, function () {
+        if (onKillDone) onKillDone();
+      })
+    );
+  }
+
+  // ── Resume button ────────────────────────────────────────────────────
+  var resumeDisabled = true;
+  var resumeTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (hasActiveRun) {
+      resumeTitle = 'Cannot resume while a run is active';
+    } else if (!meta.plan_path) {
+      resumeTitle = 'No plan path configured for this project';
+    } else if (meta.status === 'COMPLETE') {
+      resumeTitle = 'Project is already complete \u2014 nothing to resume';
+    } else if (meta.status === 'ARCHIVED') {
+      resumeTitle = 'Project is archived';
+    } else if (!runMeta || !runMeta.thread_id) {
+      resumeTitle = 'No interrupted run found';
+    } else if (runMeta.dry_run === true) {
+      resumeTitle = 'Dry runs cannot be resumed';
+    } else if (runMeta.result === 'SUCCESS') {
+      resumeTitle = 'Last run completed successfully \u2014 nothing to resume';
+    } else {
+      resumeDisabled = false;
+      resumeTitle    = '';
+    }
+  }
+
+  var resumeBtn = document.createElement('button');
+  resumeBtn.id   = 'orch-resume-btn';
+  resumeBtn.type = 'button';
+  resumeBtn.className = 'btn btn-resume btn-sm';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.disabled = resumeDisabled;
+  if (resumeTitle) resumeBtn.title = resumeTitle;
+
+  if (!resumeDisabled) {
+    var threadId = runMeta.thread_id;
+    var planPath = meta.plan_path;
+
+    resumeBtn.addEventListener('click', function () {
+      resumeBtn.disabled = true;
+      resumeBtn.textContent = 'Resuming\u2026';
+      // Remove any stale error banner.
+      var prevErr = document.getElementById('orch-resume-error');
+      if (prevErr) prevErr.remove();
+
+      API.orchestratorStart(planPath, false, threadId).then(function (result) {
+        if (result && result.started) {
+          resumeBtn.textContent = 'Launching\u2026';
+          var pollResume = function () {
+            API.orchestratorGetQueue().then(function (queue) {
+              var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
+                return entry && (entry.effectiveStatus === 'pending' ||
+                                 entry.effectiveStatus === 'started');
+              });
+              if (hasActiveEntry) {
+                Router._clearPolling();
+                if (app) renderProjectDetail(app, repo, slug);
+              }
+            }).catch(function () { /* keep polling */ });
+          };
+          Router._setPolling(pollResume, 3000);
+        } else {
+          resumeBtn.disabled = false;
+          resumeBtn.textContent = 'Resume';
+          var errEl = document.getElementById('orch-resume-error');
+          if (!errEl) {
+            errEl = document.createElement('p');
+            errEl.id = 'orch-resume-error';
+            errEl.className = 'error-banner';
+            toolbarEl.insertAdjacentElement('afterend', errEl);
+          }
+          errEl.textContent = 'Resume could not be started.';
+        }
+      }).catch(function (err) {
+        resumeBtn.disabled = false;
+        resumeBtn.textContent = 'Resume';
+        var errEl = document.getElementById('orch-resume-error');
+        if (!errEl) {
+          errEl = document.createElement('p');
+          errEl.id = 'orch-resume-error';
+          errEl.className = 'error-banner';
+          toolbarEl.insertAdjacentElement('afterend', errEl);
+        }
+        errEl.textContent = 'Resume failed: ' + (err.message || String(err));
+      });
+    });
+  }
+
+  toolbarEl.appendChild(resumeBtn);
+}
+
 function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
   _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
@@ -245,10 +396,10 @@ function renderProjectDetail(app, repo, slug) {
       '<div class="card-title" style="margin-top:24px">Project Comments</div>' +
       commentCards +
 
-      // Orchestrator Runs section — rendered for any project; shown only when logs exist
-      '<div id="orchestrator-runs-wrapper" style="display:none">' +
+      // Orchestrator Runs section — toolbar always visible; runs list shown when logs exist
+      '<div id="orchestrator-runs-wrapper">' +
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
-        '<div id="orch-resume-cell"></div>' +
+        '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
 
@@ -482,13 +633,40 @@ function renderProjectDetail(app, repo, slug) {
         if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
       });
     }
-    // Orchestrator Runs — async, non-blocking; section becomes visible only when logs exist
+
+    // Render the toolbar in its initial loading state immediately so buttons are
+    // always visible while the async data loads.
+    renderOrchToolbar(document.getElementById('orch-toolbar'), {
+      loading: true, meta: meta, repo: repo, slug: slug, app: app,
+    });
+
+    // Orchestrator Runs — async, non-blocking
+    // The toolbar is always visible; the runs list section is populated when logs exist.
     API.getRunLogs(repo, slug).then(function (logs) {
       var wrapperEl = document.getElementById('orchestrator-runs-wrapper');
-      var runsEl = document.getElementById('orchestrator-runs-section');
+      var runsEl    = document.getElementById('orchestrator-runs-section');
+      var toolbarEl = document.getElementById('orch-toolbar');
       if (!wrapperEl || !runsEl) return;
-      if (!Array.isArray(logs) || logs.length === 0) return;
-      wrapperEl.style.display = '';
+
+      var hasLogs = Array.isArray(logs) && logs.length > 0;
+
+      if (!hasLogs) {
+        runsEl.innerHTML = '';
+        // No runs yet — fetch runMeta anyway so the Resume button reflects
+        // the correct disabled reason (e.g. "No interrupted run found").
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
+        return;
+      }
 
       // Sort most recent first — filename prefix (YYYYMMDDTHHmmss) is lexicographically
       // sortable, so a descending filename sort is equivalent to a descending date sort.
@@ -499,7 +677,7 @@ function renderProjectDetail(app, repo, slug) {
       });
 
       // Only the most recent run can be truly active.
-      var activeItem = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
+      var activeItem     = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
       var activeFilename = activeItem ? (activeItem.filename || '') : null;
 
       // Render the full runs list; called with the matched queue entry (or null).
@@ -538,46 +716,15 @@ function renderProjectDetail(app, repo, slug) {
             var statusCardHtml = matchingQueueEntry
               ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
               : '';
-            var cliKillHint = !matchingQueueEntry
-              ? '<p class="orch-cli-kill-hint text-muted">To kill this run: ' +
-                  '<code>node scripts/kill-orchestrator.js --force</code></p>'
-              : '';
             rowHtml +=
               '<div class="orch-active-run-section">' +
                 statusCardHtml +
-                '<div id="orch-active-kill-cell"></div>' +
-                cliKillHint +
                 '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
               '</div>';
           }
 
           return rowHtml;
         }).join('');
-
-        // Inject DOM-based kill button when a matching queue entry exists.
-        if (matchingQueueEntry) {
-          var killCell = document.getElementById('orch-active-kill-cell');
-          if (killCell) {
-            killCell.appendChild(OrchestratorWidgets.renderKillButton(
-              matchingQueueEntry.id,
-              function () {
-                // Re-poll the queue and re-render after kill.
-                API.orchestratorGetQueue().then(function (q) {
-                  var newMatch = null;
-                  if (Array.isArray(q)) {
-                    for (var i = 0; i < q.length; i++) {
-                      if (q[i] && q[i].logFilename === activeFilename) {
-                        newMatch = q[i];
-                        break;
-                      }
-                    }
-                  }
-                  renderRunsList(newMatch);
-                }).catch(function () { renderRunsList(null); });
-              }
-            ));
-          }
-        }
 
         // Start inline log preview for the active run.
         if (activeFilename) {
@@ -591,7 +738,10 @@ function renderProjectDetail(app, repo, slug) {
 
       if (activeFilename) {
         // Active run: fetch the queue to find the matching entry, then render.
-        // Polling refreshes the status card and log preview every 5 s.
+        // Polling refreshes the status card, log preview, and toolbar every 5 s.
+        // Run metadata is fetched once — resume is always disabled while active anyway.
+        var runMetaForToolbar = API.getRunMetadata(repo, slug).catch(function () { return null; });
+
         var pollQueue = function () {
           // Drain existing log previews before re-fetching.
           _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
@@ -608,8 +758,44 @@ function renderProjectDetail(app, repo, slug) {
               }
             }
             renderRunsList(match);
+            // Update toolbar; runMetaForToolbar is cached after the first resolution.
+            runMetaForToolbar.then(function (runMeta) {
+              renderOrchToolbar(toolbarEl, {
+                hasActiveRun: true,
+                queueEntry:   match,
+                runMeta:      runMeta,
+                meta:         meta,
+                repo:         repo,
+                slug:         slug,
+                app:          app,
+                onKillDone:   function () {
+                  // Re-poll after kill so both the runs list and toolbar reflect
+                  // the new state immediately (without waiting for the next tick).
+                  API.orchestratorGetQueue().then(function (q) {
+                    var newMatch = null;
+                    if (Array.isArray(q)) {
+                      for (var i = 0; i < q.length; i++) {
+                        if (q[i] && q[i].logFilename === activeFilename) { newMatch = q[i]; break; }
+                      }
+                    }
+                    renderRunsList(newMatch);
+                    runMetaForToolbar.then(function (rm) {
+                      renderOrchToolbar(toolbarEl, {
+                        hasActiveRun: true, queueEntry: newMatch, runMeta: rm,
+                        meta: meta, repo: repo, slug: slug, app: app,
+                        onKillDone: function () {},
+                      });
+                    });
+                  }).catch(function () { renderRunsList(null); });
+                },
+              });
+            });
           }).catch(function () {
             renderRunsList(null);
+            renderOrchToolbar(toolbarEl, {
+              hasActiveRun: true, queueEntry: null, runMeta: null,
+              meta: meta, repo: repo, slug: slug, app: app,
+            });
           });
         };
 
@@ -619,80 +805,24 @@ function renderProjectDetail(app, repo, slug) {
         // No active run — render without queue interaction.
         renderRunsList(null);
 
-        // Resume button: show when run metadata indicates a resumable interrupted run.
-        var resumeCell = document.getElementById('orch-resume-cell');
-        if (resumeCell && meta.plan_path &&
-            meta.status !== 'COMPLETE' && meta.status !== 'ARCHIVED') {
-
-          // showResumeError: reusable helper that creates the error banner on first
-          // call and reuses it on subsequent calls. The getElementById guard prevents
-          // duplicate DOM nodes if the user triggers multiple failed resume attempts
-          // (e.g. rapid re-clicks after the button is re-enabled on error).
-          function showResumeError(msg) {
-            var errEl = document.getElementById('orch-resume-error');
-            if (!errEl) {
-              errEl = document.createElement('p');
-              errEl.id = 'orch-resume-error';
-              errEl.className = 'error-banner';
-              resumeCell.appendChild(errEl);
-            }
-            errEl.textContent = msg;
-          }
-
-          API.getRunMetadata(repo, slug).then(function (runMeta) {
-            if (!runMeta || !runMeta.thread_id ||
-                runMeta.dry_run === true || runMeta.result === 'SUCCESS') {
-              return;
-            }
-            var threadId = runMeta.thread_id;
-            var planPath = meta.plan_path;
-
-            var resumeBtn = document.createElement('button');
-            resumeBtn.id = 'orch-resume-btn';
-            resumeBtn.className = 'btn btn-resume';
-            resumeBtn.textContent = 'Resume Run';
-
-            resumeBtn.addEventListener('click', function () {
-              resumeBtn.disabled = true;
-              resumeBtn.textContent = 'Resuming\u2026';
-
-              API.orchestratorStart(planPath, false, threadId).then(function (result) {
-                if (result && result.started) {
-                  resumeBtn.textContent = 'Launching\u2026';
-                  // Poll the queue; re-render the full view once an active entry appears.
-                  var pollResume = function () {
-                    API.orchestratorGetQueue().then(function (queue) {
-                      var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
-                        return entry && (entry.effectiveStatus === 'pending' ||
-                                        entry.effectiveStatus === 'started');
-                      });
-                      if (hasActiveEntry) {
-                        Router._clearPolling();
-                        renderProjectDetail(app, repo, slug);
-                      }
-                    }).catch(function () { /* keep polling */ });
-                  };
-                  Router._setPolling(pollResume, 3000);
-                } else {
-                  resumeBtn.disabled = false;
-                  resumeBtn.textContent = 'Resume Run';
-                  showResumeError('Resume could not be started.');
-                }
-              }).catch(function (err) {
-                resumeBtn.disabled = false;
-                resumeBtn.textContent = 'Resume Run';
-                showResumeError('Resume failed: ' + (err.message || String(err)));
-              });
-            });
-
-            resumeCell.appendChild(resumeBtn);
-          }).catch(function () {
-            // Metadata unavailable — silently skip resume button.
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
           });
-        }
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
       }
     }).catch(function () {
-      // Silent failure — don't show error for projects without logs
+      // Silent failure — update toolbar to show correct disabled state.
+      renderOrchToolbar(document.getElementById('orch-toolbar'), {
+        hasActiveRun: false, queueEntry: null, runMeta: null,
+        meta: meta, repo: repo, slug: slug, app: app,
+      });
     });
 
   }).catch(function (err) {

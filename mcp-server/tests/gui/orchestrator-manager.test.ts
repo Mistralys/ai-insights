@@ -1059,6 +1059,15 @@ describe('startOrchestrator — plan-basename checks (AC-5)', () => {
     const basenameCheck = result.checks.find((c) => c.name === 'plan-basename');
     expect(basenameCheck?.pass).toBe(true);
   });
+
+  it('AC-5: folder path (no file) → plan-basename check passes', async () => {
+    // The GUI resume button sends the plan folder path directly, not the file.
+    const planDir = join(workspaceRoot, 'plans', '2026-05-05-test');
+    const result = await startOrchestrator(planDir, workspaceRoot, true);
+
+    const basenameCheck = result.checks.find((c) => c.name === 'plan-basename');
+    expect(basenameCheck?.pass).toBe(true);
+  });
 });
 
 describe('startOrchestrator — no-conflict check (AC-6)', () => {
