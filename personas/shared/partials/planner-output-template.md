@@ -7,6 +7,9 @@
 - Audits: none — {{agent_plan_auditor}}
 - Architectural Reviews: none — {{agent_plan_architect_reviewer}}
 
+## Prior Project Context
+{Optional — omit section entirely if no prior history was retrieved. When present, summarize relevant findings from ledger_get_repository_context and ledger_search_insights: prior project outcomes, recurring patterns, known pitfalls, or reusable insights that informed this plan's design decisions.}
+
 ## Summary
 {One-paragraph summary of the overall goal}
 

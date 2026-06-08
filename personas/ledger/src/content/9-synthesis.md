@@ -99,7 +99,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
    Expected output: An extraction report summarizing insights committed to the
    knowledge base. Review it before proceeding to Step 9.
-9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"` and `synthesis_file: "synthesis.md"`. This archives the synthesis document, sets `synthesis_generated: true`, and transitions the project to `COMPLETE`.
+9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and `outcome_summary` set to a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
 10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
     ```
     CURRENT AGENT: {Current agent from response}
