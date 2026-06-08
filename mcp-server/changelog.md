@@ -1,5 +1,9 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.0.2 - **UNRELEASED**
+- GUI: Fixed the Orchestrator "Resume" button failing.
+- Fixed plan folder without `plan.md` appended not being recognized.
+
 ## v2.0.1 - Register Button Slug Sanitiser
 - GUI: Added `sanitiseSlug(raw)` helper inside `renderStrategyList` in `strategy.js`.
 - GUI: "Register" button now pre-fills `#new-repo-id` with a sanitised slug (lowercase, special chars replaced with hyphens, leading non-alphanumeric chars stripped, consecutive and trailing hyphens collapsed, fallback to `'repo'`).

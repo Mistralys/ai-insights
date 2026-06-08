@@ -2392,9 +2392,46 @@ th[data-sort="total_work_packages"] {
 .orchestrator-kill-btn  { /* no extra rules */ }
 .orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
 
-/* Resume Run button — project detail Orchestrator Runs section */
-#orch-resume-cell {
-  padding-bottom: 8px;
+/* ── Button group ───────────────────────────────────────────
+   Fused row of same-size buttons sharing inner borders.
+   Usage:  <div class="btn-group"><button class="btn btn-sm …">…</button>…</div>
+   The container accepts an optional margin via .btn-group--spaced.
+   ---------------------------------------------------------- */
+.btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 8px 0 12px;
+}
+
+.btn-group > .btn {
+  border-radius: 0;
+  margin-left: -1px; /* collapse adjacent borders */
+}
+
+.btn-group > .btn:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+  margin-left: 0;
+}
+
+.btn-group > .btn:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.btn-group > .btn:only-child {
+  border-radius: var(--radius);
+}
+
+.btn-group > .btn:focus,
+.btn-group > .btn:hover {
+  z-index: 1; /* bring focused button above its sibling to show full border */
+  position: relative;
+}
+
+/* Disabled buttons in any group show a not-allowed cursor; the browser
+   renders the native title attribute as a tooltip explaining why. */
+.btn-group > .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-resume {

@@ -253,18 +253,27 @@ function resolveOrchestrateBin(workspaceRoot: string): string {
 /**
  * Validates the plan folder basename matches `YYYY-MM-DD-{project-name}`.
  * Wraps planFolderBasename() so any thrown error becomes a failed check.
+ *
+ * Handles both folder paths (`.../2026-06-05-my-feature`) and file paths
+ * (`.../2026-06-05-my-feature/plan.md`) — tries the path directly first,
+ * then falls back to its dirname.
  */
 function checkPlanBasename(resolvedPlan: string): PreflightResult {
   try {
-    planFolderBasename(dirname(resolvedPlan));
+    planFolderBasename(resolvedPlan);
     return { name: 'plan-basename', pass: true, detail: 'Plan folder follows naming convention' };
   } catch {
-    return {
-      name:   'plan-basename',
-      pass:   false,
-      detail: 'Plan path does not follow naming convention',
-      fix:    'The plan folder must match YYYY-MM-DD-{project-name} (e.g. 2026-05-05-my-feature)',
-    };
+    try {
+      planFolderBasename(dirname(resolvedPlan));
+      return { name: 'plan-basename', pass: true, detail: 'Plan folder follows naming convention' };
+    } catch {
+      return {
+        name:   'plan-basename',
+        pass:   false,
+        detail: 'Plan path does not follow naming convention',
+        fix:    'The plan folder must match YYYY-MM-DD-{project-name} (e.g. 2026-05-05-my-feature)',
+      };
+    }
   }
 }
 

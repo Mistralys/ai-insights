@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v2.0.1 - **UNRELEASED**
+- GUI: Fixed the Orchestrator "Resume" button failing.
+
 ## v2.0.0 - Knowledge Storage
 > mcp v2.0.0 · orchestrator v1.0.0 · personas v3.22.0
 
