@@ -17,7 +17,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 
 ### Project Ledger MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes 20 tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
+A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes 25 tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
 
 → [mcp-server/README.md](mcp-server/README.md)
 

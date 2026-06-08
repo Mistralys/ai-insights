@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { KnowledgeStoreManager } from '../../src/storage/knowledge-store.js';
+import { KnowledgeStoreManager, SlugValidationError } from '../../src/storage/knowledge-store.js';
 import type { KnowledgeStore, Insight } from '../../src/schema/knowledge.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -964,5 +964,44 @@ describe('KnowledgeStoreManager', () => {
       expect(store.insights).toHaveLength(N);
       expect(store.next_id).toBe(N + 1);
     });
+  });
+});
+
+// ─── SlugValidationError ───────────────────────────────────────────────────
+
+describe('SlugValidationError', () => {
+  it('is an instance of Error', () => {
+    const err = new SlugValidationError('bad-slug', 'invalid_characters');
+    expect(err instanceof Error).toBe(true);
+  });
+
+  it('has name "SlugValidationError"', () => {
+    const err = new SlugValidationError('bad-slug', 'invalid_characters');
+    expect(err.name).toBe('SlugValidationError');
+  });
+
+  it('stores the provided slug on the slug property', () => {
+    const err = new SlugValidationError('my-repo', 'invalid_characters');
+    expect(err.slug).toBe('my-repo');
+  });
+
+  it('includes the slug in the message for invalid_characters', () => {
+    const err = new SlugValidationError('bad slug!', 'invalid_characters');
+    expect(err.message).toContain('bad slug!');
+  });
+
+  it('produces the correct message for reserved_name', () => {
+    const err = new SlugValidationError('global', 'reserved_name');
+    expect(err.message).toBe(
+      "'global' is a reserved name and cannot be used as a repository name."
+    );
+    expect(err.slug).toBe('global');
+  });
+
+  it('produces the correct message for invalid_characters', () => {
+    const err = new SlugValidationError('../evil', 'invalid_characters');
+    expect(err.message).toBe(
+      'Invalid repository name: "../evil". Name must start with a letter or digit and contain only letters, digits, underscores, and hyphens.'
+    );
   });
 });

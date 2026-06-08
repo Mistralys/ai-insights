@@ -1,5 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.0.1 - Register Button Slug Sanitiser
+- GUI: Added `sanitiseSlug(raw)` helper inside `renderStrategyList` in `strategy.js`.
+- GUI: "Register" button now pre-fills `#new-repo-id` with a sanitised slug (lowercase, special chars replaced with hyphens, leading non-alphanumeric chars stripped, consecutive and trailing hyphens collapsed, fallback to `'repo'`).
+- GUI: `#new-repo-label` and `#new-repo-folders` continue to receive the raw folder name (unchanged).
+- GUI: Removed `/* NOTE: ... */` comment that documented the previous pre-fill gap.
+- Docs: Documented `sanitiseSlug` scope constraint (local to `renderStrategyList`, not reusable from other views) in `README.md` and `api-client.js`.
+
 ## v2.0.0 - Knowledge Storage
 - Workflow: Fixed some cancellation edge cases.
 - Workflow: Fixed some rework cases despite completed stages.

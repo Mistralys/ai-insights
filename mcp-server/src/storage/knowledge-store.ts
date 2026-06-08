@@ -13,6 +13,30 @@ import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
 import { now } from '../utils/timestamp.js';
 
+// ─── Custom Errors ────────────────────────────────────────────────────────
+
+/**
+ * Thrown when a repository name fails slug validation — either because it
+ * matches the reserved name `'global'` or because it contains characters
+ * that do not satisfy {@link SLUG_REGEX}.
+ *
+ * Consumers can use `instanceof SlugValidationError` to distinguish slug
+ * failures from genuine I/O errors without coupling to message strings.
+ */
+export class SlugValidationError extends Error {
+  public readonly slug: string;
+
+  constructor(slug: string, reason: 'reserved_name' | 'invalid_characters') {
+    const message =
+      reason === 'reserved_name'
+        ? `'global' is a reserved name and cannot be used as a repository name.`
+        : `Invalid repository name: "${slug}". Name must start with a letter or digit and contain only letters, digits, underscores, and hyphens.`;
+    super(message);
+    this.name = 'SlugValidationError';
+    this.slug = slug;
+  }
+}
+
 /**
  * Manages the `.knowledge/` directory, providing all CRUD operations for
  * insights with atomic writes, file locking, and in-memory search/filter logic.
@@ -61,7 +85,7 @@ export class KnowledgeStoreManager {
    */
   repositoryStorePath(repoName: string): string {
     if (repoName === 'global') {
-      throw new Error("'global' is a reserved name and cannot be used as a repository name.");
+      throw new SlugValidationError('global', 'reserved_name');
     }
     this._validateSlug(repoName);
     return join(this.knowledgeDir(), `${repoName}-insights.json`);
@@ -511,13 +535,11 @@ export class KnowledgeStoreManager {
    * `\`, `.`, or any other character that could escape the .knowledge/ directory.
    *
    * @param name - The repository name to validate
-   * @throws Error if the name contains unsafe characters
+   * @throws {SlugValidationError} if the name contains unsafe characters
    */
   private _validateSlug(slug: string): void {
     if (!SLUG_REGEX.test(slug)) {
-      throw new Error(
-        `Invalid repository name: "${slug}". Name must start with a letter or digit and contain only letters, digits, underscores, and hyphens.`
-      );
+      throw new SlugValidationError(slug, 'invalid_characters');
     }
   }
 

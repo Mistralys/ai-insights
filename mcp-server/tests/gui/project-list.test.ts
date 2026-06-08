@@ -9,6 +9,14 @@
  *  3. ProjectNameCache is populated with the composite key (AC-7)
  *  4. Action-menu wrapper carries data-repo and data-slug attributes (AC-7)
  *  5. Action-menu handler skips when data-repo is empty (AC-7)
+ *
+ * Repository label resolution (WP-010):
+ *  6. Displays the declared label when folder_name matches a registry entry (AC-1)
+ *  7. Label is a link pointing to #/strategy/:repoId (AC-1 extended)
+ *  8. Displays the raw folder name when no registry entry matches (AC-2)
+ *  9. Does not corrupt unmatched rows when a registry is present (AC-2)
+ * 10. Shows the same label for projects from different folder_names of one declared repo (AC-3)
+ * 11. Falls back to raw folder names when the repos endpoint fails (graceful degradation)
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -124,19 +132,36 @@ function makeEnvelope(projects: object[]) {
   };
 }
 
-/** Render the project-list view and wait for the async API call to resolve. */
-async function renderList(projects: object[]): Promise<HTMLElement> {
+/**
+ * Render the project-list view and wait for the async API calls to resolve.
+ *
+ * The view now performs two parallel fetches on every load:
+ *  - GET /api/projects  → returns a projects envelope  (object with .projects array)
+ *  - GET /api/repos     → returns a repos array        (used for label resolution)
+ *
+ * The fetch mock inspects the request URL to return the correct fixture for each
+ * endpoint, keeping existing tests working while allowing repo-label tests to
+ * inject registry data.
+ *
+ * @param projects  - Project rows to include in the envelope.
+ * @param repos     - Optional declared-repository entries for label resolution.
+ *                    Defaults to [] (no declared repositories → no label substitution).
+ */
+async function renderList(projects: object[], repos: object[] = []): Promise<HTMLElement> {
   const app = document.createElement('div');
   document.body.appendChild(app);
 
-  (globalThis as any).fetch = vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => makeEnvelope(projects),
-  }));
+  (globalThis as any).fetch = vi.fn(async (url: string) => {
+    const isRepos = String(url).includes('/api/repos');
+    return {
+      ok: true,
+      status: 200,
+      json: async () => isRepos ? repos : makeEnvelope(projects),
+    };
+  });
 
   globalThis.renderProjectList(app);
-  // Yield once to let the microtask queue (Promise resolution) run
+  // Yield twice to let the microtask queue (Promise resolution) run for both fetches
   await new Promise(r => setTimeout(r, 20));
 
   return app;
@@ -281,6 +306,170 @@ describe('buildTable — action-menu-wrapper attributes', () => {
 // ---------------------------------------------------------------------------
 // Test 5 — Action handler skips when data-repo is empty
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Tests 6–8 — Repository label resolution (WP-010)
+// ---------------------------------------------------------------------------
+
+/** A declared repository entry that maps two folder names to one label. */
+const declaredRepo = {
+  id: 'ai-insights',
+  label: 'AI Insights',
+  folder_names: ['ai-insights', 'ai-insights-dev'],
+};
+
+/**
+ * A project whose repository_name matches the first folder_name of declaredRepo.
+ * The "Repository" column should show "AI Insights" (the label), not "ai-insights".
+ */
+const projectMatchingFolder = {
+  slug: '2026-05-label-plan',
+  project_name: 'Label Plan',
+  repository_name: 'ai-insights',
+  status: 'IN_PROGRESS',
+  runner: 'vscode',
+  total_work_packages: 2,
+  progress_pct: 50,
+  date_created: '2026-05-01T00:00:00Z',
+  last_updated: '2026-05-10T00:00:00Z',
+};
+
+/**
+ * A second project whose repository_name matches the second folder_name of declaredRepo.
+ * Should display the same label as projectMatchingFolder.
+ */
+const projectMatchingAltFolder = {
+  slug: '2026-05-label-plan-dev',
+  project_name: 'Label Plan Dev',
+  repository_name: 'ai-insights-dev',
+  status: 'READY',
+  runner: 'vscode',
+  total_work_packages: 1,
+  progress_pct: 0,
+  date_created: '2026-05-02T00:00:00Z',
+  last_updated: '2026-05-11T00:00:00Z',
+};
+
+/**
+ * A project whose repository_name does NOT match any declared repository.
+ * The "Repository" column should display the raw folder name (no substitution).
+ */
+const projectUnregisteredFolder = {
+  slug: '2026-05-unregistered',
+  project_name: 'Unregistered Plan',
+  repository_name: 'some-other-repo',
+  status: 'READY',
+  runner: 'vscode',
+  total_work_packages: 0,
+  progress_pct: 0,
+  date_created: '2026-05-03T00:00:00Z',
+  last_updated: '2026-05-12T00:00:00Z',
+};
+
+describe('buildTable — repository label resolution (WP-010)', () => {
+  // AC-1: folder name that matches a declared repo → label replaces raw folder name
+  it('displays the declared label when folder_name matches a registry entry', async () => {
+    const app = await renderList([projectMatchingFolder], [declaredRepo]);
+
+    const repoCells = app.querySelectorAll('td.repo-col');
+    expect(repoCells.length).toBeGreaterThan(0);
+
+    const repoCell = repoCells[0] as HTMLElement;
+    expect(repoCell.textContent).toBe(declaredRepo.label);
+    // Should NOT show the raw folder name as text
+    expect(repoCell.textContent).not.toBe(projectMatchingFolder.repository_name);
+
+    document.body.removeChild(app);
+  });
+
+  // AC-1 extended: label links to #/strategy/:repoId
+  it('label is a link pointing to #/strategy/:repoId', async () => {
+    const app = await renderList([projectMatchingFolder], [declaredRepo]);
+
+    const repoCell = app.querySelector('td.repo-col') as HTMLElement;
+    const link = repoCell.querySelector('a') as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute('href')).toBe('#/strategy/' + encodeURIComponent(declaredRepo.id));
+
+    document.body.removeChild(app);
+  });
+
+  // AC-2: folder name NOT in any declared repo → displays raw folder name (no regression)
+  it('displays the raw folder name when no registry entry matches', async () => {
+    const app = await renderList([projectUnregisteredFolder], [declaredRepo]);
+
+    const repoCell = app.querySelector('td.repo-col') as HTMLElement;
+    // No link — plain text with the raw folder name
+    const link = repoCell.querySelector('a');
+    expect(link).toBeNull();
+    expect(repoCell.textContent).toBe(projectUnregisteredFolder.repository_name);
+
+    document.body.removeChild(app);
+  });
+
+  // AC-2: unmatched project still shows raw folder name even when registry has entries
+  it('does not corrupt unmatched rows when a registry is present', async () => {
+    const app = await renderList(
+      [projectMatchingFolder, projectUnregisteredFolder],
+      [declaredRepo],
+    );
+
+    const repoCells = app.querySelectorAll('td.repo-col');
+    expect(repoCells.length).toBe(2);
+
+    // First row: matched → label
+    expect(repoCells[0].textContent).toBe(declaredRepo.label);
+    // Second row: unmatched → raw folder name
+    expect(repoCells[1].textContent).toBe(projectUnregisteredFolder.repository_name);
+
+    document.body.removeChild(app);
+  });
+
+  // AC-3: two projects from different folder_names of the SAME declared repo → same label
+  it('shows the same label for projects from different folder_names of one declared repo', async () => {
+    const app = await renderList(
+      [projectMatchingFolder, projectMatchingAltFolder],
+      [declaredRepo],
+    );
+
+    const repoCells = app.querySelectorAll('td.repo-col');
+    expect(repoCells.length).toBe(2);
+
+    // Both rows should display the same declared label
+    expect(repoCells[0].textContent).toBe(declaredRepo.label);
+    expect(repoCells[1].textContent).toBe(declaredRepo.label);
+
+    document.body.removeChild(app);
+  });
+
+  // Graceful degradation: if listRepos fails, raw folder names are shown (no crash)
+  it('falls back to raw folder names when the repos endpoint fails', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+
+    (globalThis as any).fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/repos')) {
+        // Simulate a network error for the repos endpoint
+        throw new Error('Network error');
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => makeEnvelope([projectMatchingFolder]),
+      };
+    });
+
+    globalThis.renderProjectList(app);
+    await new Promise(r => setTimeout(r, 20));
+
+    const repoCell = app.querySelector('td.repo-col') as HTMLElement;
+    // Should fall back to raw folder name, not crash
+    expect(repoCell).not.toBeNull();
+    expect(repoCell.textContent).toBe(projectMatchingFolder.repository_name);
+
+    document.body.removeChild(app);
+  });
+});
 
 describe('action-menu portal handler — skips when data-repo is empty', () => {
   it('logs an error and does NOT call API.deleteProject for null-repo projects', async () => {

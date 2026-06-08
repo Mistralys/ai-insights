@@ -29,6 +29,10 @@ function renderProjectList(app) {
   var lastTotalPages = 1;
   var searchDebounceTimer = null;
 
+  // ── Repository label lookup (populated on first load, refreshed each load) ──
+  // Maps folder_name → { label: string, id: string } for label resolution in buildTable.
+  var repoFolderMap = {};
+
   // ── Action menu (kebab dropdown) state ──
   var openMenuWrapper = null;
 
@@ -153,9 +157,20 @@ function renderProjectList(app) {
         console.warn('[project-list] project "' + p.slug + '" has no repository_name — rendering as read-only row');
         nameCell = '<td title="' + escapeHtml(p.slug) + '">' + projectName + '</td>';
       }
+
+      // Resolve raw folder name to a declared repository label (if registered).
+      // Falls back to the raw folder name when no match is found in the registry.
+      var repoEntry = repo ? repoFolderMap[repo] : null;
+      var repoCell;
+      if (repoEntry) {
+        repoCell = '<td class="repo-col"><a href="#/strategy/' + encodeURIComponent(repoEntry.id) + '" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
+      } else {
+        repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
+      }
+
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
         nameCell +
-        '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>' +
+        repoCell +
         '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
@@ -501,15 +516,31 @@ function renderProjectList(app) {
   }
 
   function load() {
-    API.getProjects({
-      page: currentPage,
-      limit: pageLimit,
-      status: currentStatus,
-      search: currentSearch,
-      sort: currentSort,
-      dir: currentDir,
-      runner: currentRunner || undefined,
-    }).then(function (envelope) {
+    Promise.all([
+      API.getProjects({
+        page: currentPage,
+        limit: pageLimit,
+        status: currentStatus,
+        search: currentSearch,
+        sort: currentSort,
+        dir: currentDir,
+        runner: currentRunner || undefined,
+      }),
+      API.listRepos().catch(function () { return []; }),
+    ]).then(function (results) {
+      var envelope = results[0];
+      var repos = results[1] || [];
+
+      // Build a folder_name → { label, id } lookup map from the registry.
+      // A single repository can have multiple folder_names; all map to the same label.
+      repoFolderMap = {};
+      repos.forEach(function (r) {
+        var label = r.label || r.id;
+        (r.folder_names || []).forEach(function (fn) {
+          repoFolderMap[fn] = { label: label, id: r.id };
+        });
+      });
+
       render(envelope);
     }).catch(function (err) {
       showError(app, 'Failed to load projects: ' + (err.message || String(err)));

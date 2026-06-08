@@ -100,6 +100,18 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
     expect(meta.status).toBe('READY');
   });
 
+  it('writeProjectMeta with outcome_summary persists and readProjectMeta returns it unchanged', async () => {
+    // outcome_summary is passed via the third `cacheUpdates` argument; key-presence semantics
+    // ensure the field is written (distinguishing an explicit value from an absent/undefined skip).
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      outcome_summary: 'Project delivered X via Y with result Z.',
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.outcome_summary).toBe('Project delivered X via Y with result Z.');
+    expect(meta.status).toBe('COMPLETE');
+  });
+
   it('updateWorkPackageWithSync auto-syncs .meta.json status', async () => {
     await store.writeRootIndex(makeRootIndex({
       status: 'IN_PROGRESS',
