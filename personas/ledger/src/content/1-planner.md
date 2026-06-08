@@ -34,7 +34,7 @@ When in Synthesis Rework mode:
 
 ## Inputs
 - User request or feature description
-- **Codebase context** (actively gathered — see Workflow step 2)
+- **Codebase context** (actively gathered — see Workflow step 4)
 - Optional: Constraints (performance, security, architecture)
 - Optional: A `synthesis.md` document from an executed plan (triggers Synthesis Rework mode)
 
@@ -62,7 +62,7 @@ A structured plan containing:
 
 Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
 
-**Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is alread used, increase the counter.
+**Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is already used, increase the counter.
 
 ---
 
@@ -74,18 +74,30 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 
 ---
 
+## MCP Tools — Project History
+
+You have access to the **`central_pm`** MCP server for retrieving prior project history. Use these tools during the workflow step below to inform planning decisions.
+
+| MCP Tool | Purpose |
+|---|---|
+| `ledger_get_repository_context` | Retrieve prior project history and outcome summaries for the current repository. |
+| `ledger_search_insights` | Search the knowledge base for reusable insights and patterns relevant to the current planning request. |
+
+---
+
 ## Workflow
 1. **Detect mode.** If the user has provided or referenced a `synthesis.md` file, enter Synthesis Rework mode (see Operating Modes). Otherwise, proceed with Normal Planning.
 2. Read and interpret the user request (or, in Synthesis Rework mode, extract actionable items from the synthesis).
-3. **Research the codebase.** Before proposing any design:
+3. **Gather project history.** Call `ledger_get_repository_context` to retrieve prior project history and outcome summaries for the current repository. Call `ledger_search_insights` with keywords from the user request to surface any relevant reusable insights. If either tool returns an error or empty result, proceed without historical context. Use any retrieved history to inform design decisions, avoid repeating past mistakes, and align with established patterns.
+4. **Research the codebase.** Before proposing any design:
    - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface).
    - If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
    - Identify the modules, files, and patterns that are relevant to the request.
-4. Guide the user through refining the plan, grounding all design decisions in the codebase research.
-5. Produce the plan using the provided template.
-6. Save the plan to the specified directory.
-7. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
-8. End the response with:  
+5. Guide the user through refining the plan, grounding all design decisions in the codebase research.
+6. Produce the plan using the provided template.
+7. Save the plan to the specified directory.
+8. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
+9. End the response with:  
    ```
    AGENT: Planning
    STATUS: READY_FOR_PM

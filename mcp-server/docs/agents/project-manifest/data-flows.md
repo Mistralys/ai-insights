@@ -12,6 +12,7 @@ The centralized ledger uses a **two-level repo-namespaced directory structure**:
 {ledgerRoot}/
 ├── .migration-state.json        # Written on first startup after migration; absent on first run
 ├── .migration-in-progress       # Transient sentinel; only present during an active migration
+├── .repositories.json           # Central repository registry (loadRegistry/saveRegistry)
 ├── gui-config.json              # Runtime config (auto_handoff_enabled, max_handoff_depth, …)
 ├── ai-insights/                 # Example repo-namespace dir
 │   └── 2026-05-01-my-plan/          # Per-project subfolder
@@ -909,13 +910,17 @@ withLock() callback
 store.readRootIndex()
   ↓
 rootIndex.synthesis_generated = true
+rootIndex.outcome_summary = args.outcome_summary  ← required 2–3 sentence summary
 rootIndex.auto_handoff_depth = 0
 rootIndex.status = 'COMPLETE'  (if all WPs are done)
   ↓
 store.writeRootIndex(rootIndex)  ← single atomic write
+  propagates outcome_summary to .meta.json via key-presence check ('outcome_summary' in validated)
+  ↓
+Response includes: { synthesis_generated: true, outcome_summary, project_status, ... }
 ```
 
-The reset is performed atomically alongside `synthesis_generated: true` in the same `writeRootIndex` call, inside the `withLock` callback. `buildHandoffResponse` no longer performs the reset.
+The reset is performed atomically alongside `synthesis_generated: true` in the same `writeRootIndex` call, inside the `withLock` callback. `buildHandoffResponse` no longer performs the reset. `outcome_summary` is echoed in the success response body so callers receive confirmation of what was persisted.
 
 ### 13d: Depth-Exceeded Path (chain terminated)
 
@@ -1008,7 +1013,7 @@ Simplified table view:
 **Entry Point:** Synthesis agent (or Project Manager) invokes `ledger_complete_synthesis` tool
 
 ```
-Agent → ledger_complete_synthesis(project_path, agent_role, synthesis_file?)
+Agent → ledger_complete_synthesis(project_path, agent_role, outcome_summary, synthesis_file?)
   ↓
 withLock(store.storageDir, async () => {
   Guard 1 (§19.1): agent_role must be "Synthesis" or "Project Manager"
@@ -1026,12 +1031,14 @@ withLock(store.storageDir, async () => {
     → Error if any WPs remain non-terminal (uses freshly computed count)
     ↓
   Set synthesis_generated = true
+  Set outcome_summary = args.outcome_summary  ← required; Zod rejects absent/null
   Reset auto_handoff_depth = 0  (§18.4)
   Set last_updated = now()
     ↓
   Set project status to COMPLETE (all guards passed)
     ↓
   LedgerStore.writeRootIndex(updatedRoot)
+    propagates outcome_summary to .meta.json via 'outcome_summary' in validated check
     ↓
   store.archiveDocuments([synthesis_file])  — best-effort; inside lock scope
     ↓
@@ -1042,10 +1049,10 @@ withLock(store.storageDir, async () => {
   Assign result content block to outer-scope 'let result!'
 })
   ↓
-Return result + { archived_documents, archive_skipped? }
+Return result + { outcome_summary, archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `outcome_summary` field (required, non-nullable in the input schema) is persisted to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, and echoed in the success response. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 

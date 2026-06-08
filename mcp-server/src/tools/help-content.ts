@@ -44,6 +44,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, repository_name, limit) |
 | ledger_list_insights | None required | List insights with optional filters and pagination |
 | ledger_update_insight | id | Update an existing insight by numeric ID |
+| ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 
 ## Common Mistakes
 
@@ -112,6 +113,8 @@ All ledger files are stored **centrally** at \`{mcp-server}/storage/ledger/{slug
 - **\`.lock\`** — file lock (managed automatically; do not edit)
 `,
 
+  // --- Project Lifecycle ---
+
   ledger_get_project_status: `
 # ledger_get_project_status
 
@@ -161,6 +164,8 @@ not yet exist, it is silently skipped and reported in \`archive_skipped\`.
 }
 \`\`\`
 `,
+
+  // --- Work Packages ---
 
   ledger_get_work_package: `
 # ledger_get_work_package
@@ -242,6 +247,8 @@ ${PROJECT_PATH_PARAM}
 }
 \`\`\`
 `,
+
+  // --- Pipelines ---
 
   ledger_begin_work: `
 # ledger_begin_work
@@ -492,6 +499,8 @@ ${PROJECT_PATH_PARAM}
 \`\`\`
 `,
 
+  // --- Observations ---
+
   ledger_add_observation: `
 # ledger_add_observation
 
@@ -546,6 +555,8 @@ ${PROJECT_PATH_PARAM}
 }
 \`\`\`
 `,
+
+  // --- Workflow Coordination ---
 
   ledger_get_next_action: `
 # ledger_get_next_action
@@ -654,6 +665,8 @@ ${PROJECT_PATH_PARAM}
 \`\`\`
 `,
 
+  // --- Project Registry ---
+
   ledger_list_projects: `
 # ledger_list_projects
 
@@ -696,8 +709,12 @@ Ledger files are at \`{mcp-server}/storage/ledger/{slug}/\` by default.
 Override with \`--ledger-dir <path>\` at server startup.
 `,
 
+  // --- Synthesis ---
+
   ledger_complete_synthesis: `
-# ledger_complete_synthesis Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
+# ledger_complete_synthesis
+
+Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
 
 Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
 
@@ -708,6 +725,7 @@ completion. If the file does not exist, it is silently skipped and reported in
 ## Required Parameters
 ${CWD_PATH_PARAM}
 ${PROJECT_PATH_PARAM}
+- **outcome_summary** (string, **minimum 10 characters**): A 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. Must be at least 10 characters — values shorter than 10 characters are rejected with a Zod validation error. This value is persisted to both \`project-ledger.json\` (root index) and the \`.meta.json\` enrichment cache, and is echoed back in the success response.
 
 ## Optional Parameters
 - **synthesis_file** (string, default: \`"${SYNTHESIS_ARCHIVE_FILENAME}"\`): Filename of the synthesis
@@ -716,6 +734,7 @@ ${PROJECT_PATH_PARAM}
 
 ## Response Fields
 - **synthesis_generated** (boolean): Always \`true\`
+- **outcome_summary** (string): Echoed back from the submitted value — confirms what was persisted
 - **project_status** (string): New project status (\`COMPLETE\` if all WPs are done)
 - **message** (string): Confirmation message
 - **archived_documents** (string[]): Files successfully copied to the ledger storage directory
@@ -725,16 +744,20 @@ ${PROJECT_PATH_PARAM}
 ## When to Call
 - All WPs must be COMPLETE before calling this tool
 - The Synthesis agent calls this at the end of its report generation
-- Only the Synthesis agent should call this tool
+- Only the Synthesis agent (or Project Manager) should call this tool
 
 ## Example
 \`\`\`json
 {
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "agent_role": "Synthesis",
+  "outcome_summary": "Implemented X feature using Y approach. All 42 tests pass with 94% coverage. One limitation: edge case Z was deferred to the next cycle.",
   "synthesis_file": "${SYNTHESIS_ARCHIVE_FILENAME}"
 }
 \`\`\`
 `,
+
+  // --- Knowledge Base ---
 
   ledger_add_insight: `
 # ledger_add_insight
@@ -897,6 +920,141 @@ The updated insight object, including **formatted_id** (KN-NNNN) and the new **u
 \`\`\`json
 { "id": 1, "superseded_by": 5 }
 \`\`\`
+`,
+
+  // --- Repository Context ---
+
+  ledger_get_repository_context: `
+# ledger_get_repository_context
+
+Returns a compact project timeline with curated outcome summaries, relevant knowledge-base insights,
+and strategic vision for a repository. Gives the **Planner agent** access to prior project history
+within the same repository so it can make context-aware planning decisions.
+
+## When to Call
+
+Call this at the start of a planning session to understand:
+- What projects have been worked on in this repository and their outcomes
+- The repository's declared strategic vision (if configured)
+- Relevant global and repository-scoped knowledge-base insights
+
+## Required Parameters (at least one of these must be provided)
+- **cwd_path** (string): Absolute path to the workspace root directory. The server derives the
+  repository name from this path using the same logic as project auto-detection. Use this when you
+  know your workspace directory but haven't set an explicit repository name.
+- **repository_name** (string): Explicit repository name to look up in the registry. When provided,
+  \`cwd_path\` is not used for name derivation. Takes precedence over \`cwd_path\` if both are given.
+
+## Optional Parameters
+- **include_insights** (boolean, default: \`true\`): When \`true\`, the response includes a
+  \`relevant_insights[]\` array populated from both the global and repository-scoped knowledge stores.
+  Set to \`false\` to skip knowledge-store queries and return an empty array — useful when you only
+  need the project timeline and want a smaller response.
+- **max_projects** (integer, positive, default: \`5\`): Maximum number of projects to include in
+  the \`projects[]\` array. Projects are sorted by \`date_created\` descending (most recent first),
+  so this cap retains the most recent history. Increase this if you need deeper historical context.
+
+## Response Shape
+\`\`\`json
+{
+  "repository_name": "ai-insights",
+  "repository_id": "repo-uuid-or-null",
+  "repository_label": "AI Insights (human-readable label or null)",
+  "total_projects": 12,
+  "strategic_vision": {
+    "summary": "Build an agentic ledger system...",
+    "goals": ["Goal A", "Goal B"],
+    "constraints": ["Constraint A"]
+  },
+  "projects": [
+    {
+      "slug": "2026-05-20-feature-x",
+      "plan_path": "/path/to/plans/2026-05-20-feature-x",
+      "status": "COMPLETE",
+      "date_created": "2026-05-20T10:00:00Z",
+      "last_updated": "2026-05-25T14:30:00Z",
+      "title": "Feature X",
+      "outcome_summary": "Implemented X using Y approach. All 35 tests pass.",
+      "progress_pct": 100
+    }
+  ],
+  "relevant_insights": [
+    {
+      "id": 1,
+      "formatted_id": "KN-0001",
+      "scope": "global",
+      "title": "Always validate slugs at the schema boundary",
+      "content": "...",
+      "category": "security",
+      "tags": ["security", "validation"]
+    }
+  ]
+}
+\`\`\`
+
+### Response Field Details
+
+| Field | Type | Description |
+|-------|------|-------------|
+| \`repository_name\` | string | Derived or supplied repository identifier |
+| \`repository_id\` | string \| null | Registry UUID, or \`null\` if no registry entry found |
+| \`repository_label\` | string \| null | Human-readable label from the registry, or \`null\` |
+| \`total_projects\` | number | Total number of projects found across all matched folder names |
+| \`strategic_vision\` | object \| null | Vision block from the registry entry, or \`null\` if not configured |
+| \`projects[]\` | array | Up to \`max_projects\` most recent projects (see Project Entry fields below) |
+| \`relevant_insights[]\` | array | Global + repository-scoped insights (empty array when \`include_insights: false\`) |
+
+### Project Entry Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| \`slug\` | string | Directory slug (e.g., \`2026-05-20-feature-x\`) |
+| \`plan_path\` | string | Original \`project_path\` used during initialization |
+| \`status\` | string | Current project status: READY, IN_PROGRESS, COMPLETE, BLOCKED |
+| \`date_created\` | string | ISO 8601 creation timestamp |
+| \`last_updated\` | string | ISO 8601 last-updated timestamp |
+| \`title\` | string? | Optional human-readable title (omitted when not set) |
+| \`outcome_summary\` | string \| null | 2–3 sentence synthesis summary (set by the Synthesis agent via \`ledger_complete_synthesis\`); \`null\` when no synthesis has been generated |
+| \`progress_pct\` | number? | Completion percentage 0–100 (omitted when not available) |
+
+## Cross-Folder Aggregation
+
+When the resolved repository name matches a declared registry entry that lists multiple
+\`folder_names\`, the tool reads projects from **all** matching folder names and merges the results
+into a single sorted list. This ensures projects stored across aliased repository directories
+(e.g., the same repo renamed or reorganised) all appear in the timeline.
+
+## Examples
+
+### Auto-detect from workspace root
+\`\`\`json
+{
+  "cwd_path": "/Users/name/projects/my-repo"
+}
+\`\`\`
+
+### Explicit repository name
+\`\`\`json
+{
+  "repository_name": "ai-insights"
+}
+\`\`\`
+
+### Deeper history, no insights
+\`\`\`json
+{
+  "repository_name": "ai-insights",
+  "max_projects": 20,
+  "include_insights": false
+}
+\`\`\`
+
+## Usage Notes
+
+- Either \`cwd_path\` or \`repository_name\` must be provided — the tool returns an error if both are omitted.
+- \`outcome_summary\` values are written by the Synthesis agent using \`ledger_complete_synthesis\` (the \`outcome_summary\` parameter). Projects without a completed synthesis will have \`null\` here.
+- The \`relevant_insights[]\` array combines both global insights (cross-repository principles) and repository-scoped insights (patterns specific to this codebase). Results are deduplicated by numeric \`id\` — when the same insight appears in both stores, the global copy is kept and the duplicate is dropped.
+- \`strategic_vision\` is \`null\` unless the repository has been registered and given a vision block via the repository registry (managed by the Project Manager or Planner).
 `,
 };
 

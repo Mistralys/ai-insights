@@ -300,6 +300,90 @@ var API = (function () {
         .then(function (data) { return data.content; });
     },
 
+    // -- Repositories (Strategy) ---------------------------------------
+
+    /**
+     * List repositories from the registry, optionally including filesystem-
+     * discovered undeclared namespaces.
+     *
+     * @param {boolean} [includeUndeclared=false] - When true, appends
+     *   `?include_undeclared=true` to the request, causing the server to also
+     *   return namespace directories not covered by any declared repo's
+     *   `folder_names`. Undeclared entries carry `declared: false`.
+     *
+     * Undeclared entry shape (returned only when `includeUndeclared=true`):
+     *   - `declared`     — always `false`
+     *   - `id`           — the filesystem namespace directory name
+     *   - `label`        — same value as `id` (no user-defined label exists)
+     *   - `folder_names` — single-element array: `[id]`
+     *
+     * This identity contract (`id === label === folder_names[0]`) is relied upon
+     * by `wireRegisterButtons()` in strategy.js, which pre-fills the Add
+     * Repository form fields using `r.id`. Specifically:
+     *   - `#new-repo-id`      receives `sanitiseSlug(r.id)` — a SLUG_REGEX-safe
+     *                          lowercase slug (dots, spaces, and special chars
+     *                          replaced; leading non-alphanumeric chars stripped;
+     *                          consecutive hyphens collapsed; trailing hyphens
+     *                          stripped; falls back to 'repo' for empty results).
+     *   - `#new-repo-label`   receives the raw `r.id` (unchanged).
+     *   - `#new-repo-folders` receives the raw `r.id` (unchanged).
+     *
+     * `sanitiseSlug` is a local function scoped inside `renderStrategyList` and
+     * is not accessible from `renderStrategyDetail` or other view functions. If
+     * slug sanitisation is ever needed elsewhere, the function must be duplicated
+     * or elevated to module scope. If the backend undeclared entry shape ever
+     * changes, the pre-fill logic in `wireRegisterButtons` must be updated
+     * accordingly.
+     *
+     * @returns {Promise<object[]>} Parsed JSON response from `GET /api/repos`.
+     */
+    listRepos: function (includeUndeclared) {
+      var qs = includeUndeclared ? '?include_undeclared=true' : '';
+      return request('GET', '/repos' + qs);
+    },
+
+    /**
+     * Fetch a single repository entry by ID.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<object>} Repository detail from `GET /api/repos/{repoId}`.
+     */
+    getRepo: function (repoId) {
+      return request('GET', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    /**
+     * Create a new repository entry in the registry.
+     *
+     * @param {object} data - Repository fields: id, label, folder_names, vision.
+     * @returns {Promise<object>} Created repository from `POST /api/repos`.
+     */
+    createRepo: function (data) {
+      return request('POST', '/repos', data);
+    },
+
+    /**
+     * Update an existing repository entry.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @param {object} data   - Fields to update: label, folder_names, vision.
+     * @returns {Promise<object>} Updated repository from `PUT /api/repos/{repoId}`.
+     */
+    updateRepo: function (repoId, data) {
+      return request('PUT', '/repos/' + encodeURIComponent(repoId), data);
+    },
+
+    /**
+     * Delete a repository entry from the registry.
+     * Does NOT delete any project data or storage.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteRepo: function (repoId) {
+      return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
     // -- Orchestrator --------------------------------------------------
     orchestratorStart: function (planPath, dryRun, resumeThreadId) {
       var body = { planPath: planPath, dryRun: dryRun };

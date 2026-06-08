@@ -52,14 +52,18 @@ The application is structured as an **MCP (Model Context Protocol) server** that
 
 ### 2. **Repository Pattern**
 
-`LedgerStore` class provides a **central storage abstraction** with:
+`LedgerStore` class provides a **central storage abstraction** for per-project ledger files with:
 - Validated reads (all JSON is parsed and validated with Zod)
 - Atomic writes (write-to-temp-then-rename pattern)
 - Path management (encapsulates all file path logic)
 - Dual-file synchronization (updates both root index and work package atomically)
 
+Cross-project, cross-repository state (such as the `.repositories.json` registry) is managed by **plain-function storage modules** rather than a class instance. This avoids in-memory state, caching, and lifecycle overhead for data that has no per-call state:
+- `src/storage/repository-registry.ts` — `loadRegistry()`, `saveRegistry()`, `findByFolderName()`, `getAllFolderNames()`; uses the same `atomicWriteJson` / `withLock(ledgerRoot)` helpers as `LedgerStore`
+
 **Key Files:**
 - `src/storage/ledger-store.ts`
+- `src/storage/repository-registry.ts`
 
 ---
 
@@ -102,6 +106,7 @@ All data structures are defined as **Zod schemas first**:
 - `src/schema/root-index.ts`
 - `src/schema/enums.ts`
 - `src/schema/validators.ts`
+- `src/schema/repository-registry.ts` — `StrategicVisionSchema`, `RepositoryEntrySchema`, `RepositoryRegistrySchema`
 
 ---
 

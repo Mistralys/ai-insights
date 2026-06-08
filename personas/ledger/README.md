@@ -17,7 +17,7 @@ This is a structured multi-agent workflow for systematic software development. I
 
 ### Agents in the Workflow
 
-1. **Planner Agent**: Creates high-level strategy and implementation plan
+1. **Planner Agent**: Creates high-level strategy and implementation plan; retrieves prior project history and knowledge-base insights via MCP to inform design decisions
 2. **Project Manager Agent**: Breaks plan into work packages and initializes the ledger
 3. **Developer Agent**: Implements work packages with context awareness
 4. **QA Agent**: Verifies acceptance criteria and runs tests
@@ -133,7 +133,7 @@ If the workflow is interrupted (session ends, error, or you pause it), invoke th
 
 ### MCP Server (Required)
 
-Agents 2–9 depend on the **project-ledger MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
+All agents depend on the **project-ledger MCP server**. Agents 2–9 use it for all ledger operations (hard prerequisite — they will refuse to start if it is unreachable). Agent 1 (Planner) uses it to retrieve prior project history and knowledge-base insights; it degrades gracefully if the server is unavailable.
 
 > **Server name is configurable.** The personas reference the server by the name defined in `_shared.yaml` → `mcp_server_name` (default: `central_pm`). If your `.mcp.json` uses a different key, update `mcp_server_name` in `personas/ledger/src/meta/_shared.yaml` and rebuild.
 
@@ -178,6 +178,7 @@ Before starting the workflow, ensure your project has:
 - Be specific about requirements, constraints, and acceptance criteria
 - Reference existing patterns or components to maintain consistency
 - Discuss architectural decisions if the feature is complex
+- The Planner automatically retrieves prior project history (`ledger_get_repository_context`) and searches the knowledge base (`ledger_search_insights`) via the `central_pm` MCP server — ensure the server is running before starting this stage
 
 ---
 
@@ -547,7 +548,7 @@ Add custom validation or review steps by:
 
 ### Agent Flow Description
 
-1. **Planner Agent** → Creates high-level implementation plan
+1. **Planner Agent** → Creates high-level implementation plan; queries prior project history and knowledge base via MCP
 2. **Project Manager Agent** → Breaks plan into work packages and initializes ledger
 3. **Developer Agent** → Implements work packages (iterative, one at a time)
 4. **QA Agent** → Verifies acceptance criteria and runs tests

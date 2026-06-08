@@ -63,6 +63,13 @@ import {
   handlePromoteKnowledge,
   handleMoveKnowledge,
 } from './api-knowledge.js';
+import {
+  handleListRepos,
+  handleGetRepo,
+  handleCreateRepo,
+  handleUpdateRepo,
+  handleDeleteRepo,
+} from './api-repos.js';
 import { renderChunksToMarkdown } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -1227,6 +1234,37 @@ function matchRoute(
   // handled separately in handleRequest() (path-parameter extraction via path.slice).
 
   // ---------------------------------------------------------------------------
+  // Repository Registry routes — added in WP-006.
+  // All routes use the unique 'repos' first segment, so they cannot shadow any
+  // existing route. POST /api/repos and PUT /api/repos/:repoId are handled as
+  // special cases in handleRequest() because they require body parsing.
+  // ---------------------------------------------------------------------------
+
+  // GET /api/repos
+  // rest.length === 1, rest[0] === 'repos'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'repos') {
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const includeUndeclared = sp.get('include_undeclared') === 'true';
+    return () => handleListRepos(ledgerRoot, includeUndeclared);
+  }
+
+  // GET /api/repos/:repoId
+  // rest.length === 2, rest[0] === 'repos'
+  if (method === 'GET' && rest.length === 2 && rest[0] === 'repos') {
+    const repoId = decodeURIComponent(rest[1]!);
+    return () => handleGetRepo(ledgerRoot, repoId);
+  }
+
+  // DELETE /api/repos/:repoId
+  // rest.length === 2, rest[0] === 'repos'
+  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'repos') {
+    const repoId = decodeURIComponent(rest[1]!);
+    return () => handleDeleteRepo(ledgerRoot, repoId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Knowledge routes — added in WP-009.
   // All three routes use the unique 'knowledge' first segment, so they cannot
   // shadow any existing route. PATCH /api/knowledge/:id and
@@ -1308,6 +1346,11 @@ function matchRoute(
   //   POST   /api/projects/:repo/:slug/complete
   //   PATCH  /api/projects/:repo/:slug      (body-parsing — handled in handleRequest)
   //   POST   /api/projects/:repo/:slug/reset (body-parsing — handled in handleRequest)
+  //   GET    /api/repos
+  //   GET    /api/repos/:repoId
+  //   DELETE /api/repos/:repoId
+  //   POST   /api/repos                     (body-parsing — handled in handleRequest)
+  //   PUT    /api/repos/:repoId             (body-parsing — handled in handleRequest)
   //   GET    /api/knowledge[?scope&category&tags&repository_name&query&limit&offset]
   //   DELETE /api/knowledge/:id[?scope&repository_name]
   //   POST   /api/knowledge/:id/promote[?scope&repository_name]
@@ -1613,6 +1656,46 @@ export async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/repos — special case: requires body parsing
+  if (method === 'POST' && path === '/api/repos') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleCreateRepo(ledgerRoot, body);
+      sendJson(res, 201, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/repos: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PUT /api/repos/:repoId — special case: requires body parsing
+  const repoPutMatch = /^\/api\/repos\/([^/]+)$/.exec(path);
+  if (method === 'PUT' && repoPutMatch) {
+    const repoId = decodeURIComponent(repoPutMatch[1]!);
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleUpdateRepo(ledgerRoot, repoId, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PUT /api/repos/:repoId: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }
