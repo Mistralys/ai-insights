@@ -1,6 +1,6 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.0.2 - **UNRELEASED**
+## v2.0.2 - **WIP - UNRELEASED**
 - GUI: Fixed the Orchestrator "Resume" button failing.
 - Fixed plan folder without `plan.md` appended not being recognized.
 
