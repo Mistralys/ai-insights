@@ -44,6 +44,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, repository_name, limit) |
 | ledger_list_insights | None required | List insights with optional filters and pagination |
 | ledger_update_insight | id | Update an existing insight by numeric ID |
+| ledger_delete_insight | id | Permanently delete an insight by numeric ID |
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 
 ## Common Mistakes
@@ -919,6 +920,44 @@ The updated insight object, including **formatted_id** (KN-NNNN) and the new **u
 \`\`\`
 \`\`\`json
 { "id": 1, "superseded_by": 5 }
+\`\`\`
+`,
+
+  ledger_delete_insight: `
+# ledger_delete_insight
+
+Permanently delete an insight from the knowledge base by its numeric ID.
+
+This is a hard-delete — the insight is removed from the store and cannot be recovered.
+For non-destructive deprecation (marking an insight as outdated without removal), use
+\`ledger_update_insight\` with \`confidence: 0\` and \`superseded_by\`.
+
+> **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
+> in both the global store and a repository store. Use \`scope\` and/or \`repository_name\` to make
+> your intent unambiguous and prevent accidental cross-store deletion.
+
+## Required Parameters
+- **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
+
+## Optional Scope Parameters (recommended when IDs may overlap)
+- **scope** ("global" | "repository"): Restrict the search to stores of this scope.
+  Use \`"global"\` to ensure only the global store is searched; use \`"repository"\` combined
+  with \`repository_name\` to target a specific repository store exclusively.
+- **repository_name** (string): Restrict the search to a specific repository store.
+  Accepts only alphanumeric names with hyphens and underscores.
+
+## Response
+A confirmation object with the deleted **id** and **formatted_id** (KN-NNNN), plus \`deleted: true\`.
+
+## Examples
+\`\`\`json
+{ "id": 1 }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "global" }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "repository", "repository_name": "my-repo" }
 \`\`\`
 `,
 

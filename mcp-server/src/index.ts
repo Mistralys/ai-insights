@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   // removed in src/tools/**. The MCP SDK does not expose a listTools() method
   // at startup, so dynamic generation is not currently possible.
   console.error(
-    '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status, ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_get_repository_context'
+    '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status, ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_delete_insight, ledger_get_repository_context'
   );
 
   // Initialise agent registry for auto-handoff

@@ -313,6 +313,65 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
   }
 }
 
+// ─── Tool: ledger_delete_insight ─────────────────────────────────────────
+
+const DeleteInsightSchema = z.object({
+  id: z
+    .number()
+    .int()
+    .describe(
+      'Numeric ID of the insight to delete (as returned in the id field of a previous response).'
+    ),
+  scope: InsightScope.optional().describe(
+    'Optional. Restrict the deletion to stores of this scope ("global" or "repository"). ' +
+    'Recommended when the same numeric ID may exist in both global and repository stores — ' +
+    'prevents accidental cross-store deletion.'
+  ),
+  repository_name: z
+    .string()
+    .regex(SLUG_REGEX)
+    .optional()
+    .describe(
+      'Optional. Restrict the deletion to the specified repository store. ' +
+      'When provided, only that repository\'s store is searched — prevents ambiguous resolution ' +
+      'when the same numeric ID exists in multiple stores.'
+    ),
+});
+
+async function deleteInsight(args: z.infer<typeof DeleteInsightSchema>) {
+  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+
+  try {
+    await manager.deleteInsight(args.id, {
+      scope: args.scope,
+      repository_name: args.repository_name,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            { id: args.id, formatted_id: formatInsightId(args.id), deleted: true },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error deleting insight: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
 /**
  * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
  */
@@ -321,10 +380,12 @@ export const _internal = {
   SearchInsightsSchema,
   ListInsightsSchema,
   UpdateInsightSchema,
+  DeleteInsightSchema,
   addInsight,
   searchInsights,
   listInsights,
   updateInsight,
+  deleteInsight,
 };
 
 export function register(server: McpServer): void {
@@ -366,5 +427,15 @@ export function register(server: McpServer): void {
       inputSchema: UpdateInsightSchema,
     },
     updateInsight as any
+  );
+
+  server.registerTool(
+    'ledger_delete_insight',
+    {
+      description:
+        'Permanently delete an insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same numeric ID may exist in both global and repository stores).',
+      inputSchema: DeleteInsightSchema,
+    },
+    deleteInsight as any
   );
 }

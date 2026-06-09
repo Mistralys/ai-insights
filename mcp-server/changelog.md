@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.2.0 - **WIP - UNRELEASED**
+- Tools: Added the new `ledger_delete_insight` tool.
+
 ## v2.1.0 - Repository Context and Strategy View
 - Tools: Added `ledger_get_repository_context` for cross-project history and outcome access.
 - Storage: Added repository registry with CRUD operations and filesystem-discovery API.
