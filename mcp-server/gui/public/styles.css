@@ -35,9 +35,85 @@
   /* Button danger background (separate from --color-blocked so dark mode can darken it for white-text contrast) */
   --color-btn-danger-bg: var(--color-blocked);
 
-  /* Badge text tokens — split from status tokens so dark mode can use brighter values */
-  --color-badge-ready-text:    var(--color-ready);
-  --color-badge-complete-text: var(--color-complete);
+  /* Badge colour tokens — bg + fg (and border where applicable) for every .badge-{variant} rule */
+  --color-badge-ready-bg:               #dbeafe;
+  --color-badge-ready-fg:               #2563eb;
+  --color-badge-in-progress-bg:         #fef3c7;
+  --color-badge-in-progress-fg:         #d97706;
+  --color-badge-complete-bg:            #dcfce7;
+  --color-badge-complete-fg:            #16a34a;
+  --color-badge-blocked-bg:             #fee2e2;
+  --color-badge-blocked-fg:             #dc2626;
+  --color-badge-archived-bg:            #f3f4f6;
+  --color-badge-archived-fg:            #6b7280;
+  --color-badge-runner-bg:              #ede9fe;
+  --color-badge-runner-fg:              #5b21b6;
+  --color-badge-runner-orchestrator-bg: #e0e7ff;
+  --color-badge-runner-orchestrator-fg: #3730a3;
+  --color-badge-runner-vscode-bg:       #dbeafe;
+  --color-badge-runner-vscode-fg:       #1d4ed8;
+  --color-badge-runner-claude-code-bg:  #fef3c7;
+  --color-badge-runner-claude-code-fg:  #92400e;
+  --color-badge-runner-unknown-bg:      #f3f4f6;
+  --color-badge-runner-unknown-fg:      #6b7280;
+  --color-badge-dry-run-bg:             #f3e8ff;
+  --color-badge-dry-run-fg:             #7c3aed;
+  --color-badge-dry-run-border:         #c4b5fd;
+  --color-badge-pass-bg:                #dcfce7;
+  --color-badge-pass-fg:                #15803d;
+  --color-badge-pass-border:            #bbf7d0;
+  --color-badge-fail-bg:                #fee2e2;
+  --color-badge-fail-fg:                #b91c1c;
+  --color-badge-fail-border:            #fecaca;
+  --color-badge-pending-bg:             #fef9c3;
+  --color-badge-pending-fg:             #a16207;
+  --color-badge-started-bg:             #dcfce7;
+  --color-badge-started-fg:             #15803d;
+  --color-badge-dead-bg:                #fee2e2;
+  --color-badge-dead-fg:                #b91c1c;
+  --color-badge-info-bg:                #dbeafe;
+  --color-badge-info-fg:                #1d4ed8;
+  --color-badge-success-bg:             #dcfce7;
+  --color-badge-success-fg:             #15803d;
+  --color-badge-error-bg:               #fee2e2;
+  --color-badge-error-fg:               #b91c1c;
+  --color-badge-warning-bg:             #fef3c7;
+  --color-badge-warning-fg:             #92400e;
+  --color-badge-neutral-bg:             #f3f4f6;
+  --color-badge-neutral-fg:             #6b7280;
+  --color-badge-scope-global-bg:        #dbeafe;
+  --color-badge-scope-global-fg:        #1d4ed8;
+  --color-badge-scope-repository-bg:    #dcfce7;
+  --color-badge-scope-repository-fg:    #15803d;
+
+  /* Banner colour tokens — bg, border, and fg where needed */
+  /* Note: error and success variants reuse the semantic --color-blocked and
+     --color-complete tokens for their foreground colour instead of dedicated
+     -fg tokens; info and stale variants require a distinct -fg value. */
+  --color-banner-error-bg:         #fff1f2;
+  --color-banner-error-border:     #fecdd3;
+  --color-banner-success-bg:       #f0fdf4;
+  --color-banner-success-border:   #bbf7d0;
+  --color-banner-info-bg:          #eff6ff;
+  --color-banner-info-fg:          #1d4ed8;
+  --color-banner-info-border:      #bfdbfe;
+  --color-banner-stale-bg:         #fef3c7;
+  --color-banner-stale-fg:         #78350f;
+  --color-banner-stale-border:     #f59e0b;
+  --color-banner-warn-bg:          #fef3c7;
+  --color-banner-warn-fg:          #92400e;
+  --color-banner-warn-border:      #f59e0b;
+
+  /* Run-stage badge colour tokens */
+  --color-run-stage-active-bg:     #fef3c7;
+  --color-run-stage-active-fg:     var(--color-in-progress);
+  --color-run-stage-active-border: #fde68a;
+  --color-run-stage-done-bg:       #dcfce7;
+  --color-run-stage-done-fg:       var(--color-complete);
+  --color-run-stage-done-border:   #bbf7d0;
+  --color-run-stage-error-bg:      #fee2e2;
+  --color-run-stage-error-fg:      var(--color-blocked);
+  --color-run-stage-error-border:  #fecaca;
 
   /* Spacing */
   --radius:            6px;
@@ -73,14 +149,87 @@
   /* Button danger BG: must be dark enough for white text */
   --color-btn-danger-bg: #b91c1c;     /* red-700   — ~5.8:1 with #ffffff */
 
-  /* Badge text tokens: brighter than --color-ready/complete for dark badge backgrounds */
-  --color-badge-ready-text:    #93c5fd; /* blue-300  — ~5.8:1 on badge #1e3a5f */
-  --color-badge-complete-text: #86efac; /* green-300 — ~5.8:1 on badge #14532d */
+  /* Badge colour tokens — dark values (replaces per-class [data-theme="dark"] .badge-* overrides) */
+  --color-badge-ready-bg:               #1e3a5f;
+  --color-badge-ready-fg:               #93c5fd;
+  --color-badge-in-progress-bg:         #451a03;
+  --color-badge-in-progress-fg:         #f59e0b;
+  --color-badge-complete-bg:            #14532d;
+  --color-badge-complete-fg:            #86efac;
+  --color-badge-blocked-bg:             #450a0a;
+  --color-badge-blocked-fg:             #f87171;
+  --color-badge-archived-bg:            #374151;
+  --color-badge-archived-fg:            #9ca3af;
+  --color-badge-runner-bg:              #2e1065;
+  --color-badge-runner-fg:              #c4b5fd;
+  --color-badge-runner-orchestrator-bg: #1e1b4b;
+  --color-badge-runner-orchestrator-fg: #a5b4fc;
+  --color-badge-runner-vscode-bg:       #1e3a5f;
+  --color-badge-runner-vscode-fg:       #93c5fd;
+  --color-badge-runner-claude-code-bg:  #451a03;
+  --color-badge-runner-claude-code-fg:  #fcd34d;
+  --color-badge-runner-unknown-bg:      #374151;
+  --color-badge-runner-unknown-fg:      #9ca3af;
+  --color-badge-dry-run-bg:             #3b0764;
+  --color-badge-dry-run-fg:             #d8b4fe;
+  --color-badge-dry-run-border:         #7e22ce;
+  --color-badge-pass-bg:                #14532d;
+  --color-badge-pass-fg:                #86efac;
+  --color-badge-pass-border:            #166534;
+  --color-badge-fail-bg:                #450a0a;
+  --color-badge-fail-fg:                #fca5a5;
+  --color-badge-fail-border:            #7f1d1d;
+  --color-badge-pending-bg:             #422006;
+  --color-badge-pending-fg:             #fcd34d;
+  --color-badge-started-bg:             #052e16;
+  --color-badge-started-fg:             #4ade80;
+  --color-badge-dead-bg:                #450a0a;
+  --color-badge-dead-fg:                #fca5a5;
+  --color-badge-info-bg:                #172554;
+  --color-badge-info-fg:                #93c5fd;
+  --color-badge-success-bg:             #052e16;
+  --color-badge-success-fg:             #4ade80;
+  --color-badge-error-bg:               #450a0a;
+  --color-badge-error-fg:               #fca5a5;
+  --color-badge-warning-bg:             #422006;
+  --color-badge-warning-fg:             #fcd34d;
+  --color-badge-neutral-bg:             #1f2937;
+  --color-badge-neutral-fg:             #9ca3af;
+  --color-badge-scope-global-bg:        #1e3a5f;
+  --color-badge-scope-global-fg:        #93c5fd;
+  --color-badge-scope-repository-bg:    #14532d;
+  --color-badge-scope-repository-fg:    #86efac;
 
   /* Brighter priority colors for dark backgrounds */
   --color-priority-high:   #f87171;   /* red-400 */
   --color-priority-medium: #fbbf24;   /* amber-400 */
   --color-priority-low:    #cbd5e1;   /* slate-300 — ~9.4:1 on #0f172a */
+
+  /* Banner colour tokens — dark values */
+  --color-banner-error-bg:         #450a0a;
+  --color-banner-error-border:     #7f1d1d;
+  --color-banner-success-bg:       #14532d;
+  --color-banner-success-border:   #166534;
+  --color-banner-info-bg:          #1e3a5f;
+  --color-banner-info-fg:          #93c5fd;
+  --color-banner-info-border:      #1e40af;
+  --color-banner-stale-bg:         #451a03;
+  --color-banner-stale-fg:         #fbbf24;
+  --color-banner-stale-border:     #92400e;
+  --color-banner-warn-bg:          #451a03;
+  --color-banner-warn-fg:          #fbbf24;
+  --color-banner-warn-border:      #92400e;
+
+  /* Run-stage badge colour tokens — dark values */
+  /* -fg tokens are intentionally absent: the :root definitions use var(--color-in-progress),
+     var(--color-complete), and var(--color-blocked) which already have dark overrides above,
+     so the fg values cascade correctly without repeating them here. */
+  --color-run-stage-active-bg:     #451a03;
+  --color-run-stage-active-border: #92400e;
+  --color-run-stage-done-bg:       #14532d;
+  --color-run-stage-done-border:   #166534;
+  --color-run-stage-error-bg:      #450a0a;
+  --color-run-stage-error-border:  #7f1d1d;
 }
 
 /* ----------------------------------------------------------
@@ -181,61 +330,135 @@ main {
 }
 
 .badge-ready {
-  background: #dbeafe;
-  color: var(--color-ready);
+  background: var(--color-badge-ready-bg);
+  color: var(--color-badge-ready-fg);
 }
 
 .badge-in-progress,
 .badge-in_progress {
-  background: #fef3c7;
-  color: var(--color-in-progress);
+  background: var(--color-badge-in-progress-bg);
+  color: var(--color-badge-in-progress-fg);
 }
 
 .badge-complete {
-  background: #dcfce7;
-  color: var(--color-complete);
+  background: var(--color-badge-complete-bg);
+  color: var(--color-badge-complete-fg);
 }
 
 .badge-blocked {
-  background: #fee2e2;
-  color: var(--color-blocked);
+  background: var(--color-badge-blocked-bg);
+  color: var(--color-badge-blocked-fg);
 }
 
 .badge-archived {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--color-badge-archived-bg);
+  color: var(--color-badge-archived-fg);
 }
 
 /* Runner badges — base + per-runner variants */
 .badge-runner {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--color-badge-runner-bg);
+  color: var(--color-badge-runner-fg);
 }
 
 .badge-runner-orchestrator {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--color-badge-runner-orchestrator-bg);
+  color: var(--color-badge-runner-orchestrator-fg);
 }
 
 .badge-runner-vscode {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--color-badge-runner-vscode-bg);
+  color: var(--color-badge-runner-vscode-fg);
 }
 
 .badge-runner-claude-code {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-badge-runner-claude-code-bg);
+  color: var(--color-badge-runner-claude-code-fg);
 }
 
 .badge-runner-unknown {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--color-badge-runner-unknown-bg);
+  color: var(--color-badge-runner-unknown-fg);
 }
 
 .badge-dry-run {
-  background: #f3e8ff;
-  color: #7c3aed;
-  border: 1px dashed #c4b5fd;
+  background: var(--color-badge-dry-run-bg);
+  color: var(--color-badge-dry-run-fg);
+  border: 1px dashed var(--color-badge-dry-run-border);
+}
+
+/* Inline result badges (pass/fail) */
+.badge-pass {
+  background: var(--color-badge-pass-bg);
+  color: var(--color-badge-pass-fg);
+  border: 1px solid var(--color-badge-pass-border);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-fail {
+  background: var(--color-badge-fail-bg);
+  color: var(--color-badge-fail-fg);
+  border: 1px solid var(--color-badge-fail-border);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Queue / orchestrator status badges */
+.badge-pending {
+  background: var(--color-badge-pending-bg);
+  color: var(--color-badge-pending-fg);
+}
+
+.badge-started {
+  background: var(--color-badge-started-bg);
+  color: var(--color-badge-started-fg);
+}
+
+.badge-dead {
+  background: var(--color-badge-dead-bg);
+  color: var(--color-badge-dead-fg);
+}
+
+/* Progress badges (used by renderProgressBadge) */
+.badge-info {
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-fg);
+}
+
+.badge-success {
+  background: var(--color-badge-success-bg);
+  color: var(--color-badge-success-fg);
+}
+
+.badge-error {
+  background: var(--color-badge-error-bg);
+  color: var(--color-badge-error-fg);
+}
+
+.badge-warning {
+  background: var(--color-badge-warning-bg);
+  color: var(--color-badge-warning-fg);
+}
+
+.badge-neutral {
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-fg);
+}
+
+/* Scope badges (knowledge view) */
+.badge-scope-global {
+  background: var(--color-badge-scope-global-bg);
+  color: var(--color-badge-scope-global-fg);
+}
+
+.badge-scope-repository {
+  background: var(--color-badge-scope-repository-bg);
+  color: var(--color-badge-scope-repository-fg);
 }
 
 /* ----------------------------------------------------------
@@ -716,9 +939,9 @@ input[type="number"].form-control {
    Error state
    ---------------------------------------------------------- */
 .error-banner {
-  background: #fff1f2;
+  background: var(--color-banner-error-bg);
   color: var(--color-blocked);
-  border: 1px solid #fecdd3;
+  border: 1px solid var(--color-banner-error-border);
   border-radius: var(--radius);
   padding: 12px 16px;
   font-size: 14px;
@@ -728,9 +951,9 @@ input[type="number"].form-control {
    Success message
    ---------------------------------------------------------- */
 .success-banner {
-  background: #f0fdf4;
+  background: var(--color-banner-success-bg);
   color: var(--color-complete);
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--color-banner-success-border);
   border-radius: var(--radius);
   padding: 12px 16px;
   font-size: 14px;
@@ -741,9 +964,9 @@ input[type="number"].form-control {
    Info / archive banner
    ---------------------------------------------------------- */
 .info-banner {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: var(--color-banner-info-bg);
+  color: var(--color-banner-info-fg);
+  border: 1px solid var(--color-banner-info-border);
   border-radius: var(--radius);
   padding: 12px 16px;
   font-size: 14px;
@@ -760,9 +983,9 @@ input[type="number"].form-control {
   position: sticky;
   top: 0;
   z-index: 200;
-  background: #fef3c7;
-  color: #78350f;
-  border-bottom: 2px solid #f59e0b;
+  background: var(--color-banner-stale-bg);
+  color: var(--color-banner-stale-fg);
+  border-bottom: 2px solid var(--color-banner-stale-border);
   padding: 12px 24px;
   font-size: 14px;
   box-sizing: border-box;
@@ -932,33 +1155,6 @@ input[type="number"].form-control {
   line-height: 1.6;
 }
 
-/* ----------------------------------------------------------
-   Insights — Filter Bar
-   ---------------------------------------------------------- */
-
-/* Horizontal filter bar for the Insights page.
-   Reuses .filter-bar layout patterns. */
-.insights-filters {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-
-.insights-filters label {
-  font-weight: 500;
-  font-size: 13px;
-}
-
-.insights-filters select {
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  font-size: 13px;
-  background: var(--color-surface);
-  cursor: pointer;
-}
 /* ----------------------------------------------------------
    Plan document view
    ---------------------------------------------------------- */
@@ -1177,10 +1373,10 @@ input[type="number"].form-control {
 
 .reset-modal-banner {
   padding: 12px 20px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-banner-warn-bg);
+  color: var(--color-banner-warn-fg);
   font-size: 13px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-banner-warn-border);
 }
 
 .reset-bulk-controls {
@@ -1495,95 +1691,9 @@ th[data-sort="total_work_packages"] {
    Dark theme — hardcoded hex overrides
    ---------------------------------------------------------- */
 
-/* Badge backgrounds */
-[data-theme="dark"] .badge-ready {
-  background: #1e3a5f;
-  color: var(--color-badge-ready-text);
-}
-
-[data-theme="dark"] .badge-in-progress,
-[data-theme="dark"] .badge-in_progress {
-  background: #451a03;
-}
-
-[data-theme="dark"] .badge-complete {
-  background: #14532d;
-  color: var(--color-badge-complete-text);
-}
-
-[data-theme="dark"] .badge-blocked {
-  background: #450a0a;
-}
-
-[data-theme="dark"] .badge-archived {
-  background: #374151;
-  color: #9ca3af;
-}
-
-/* Runner badge dark overrides */
-[data-theme="dark"] .badge-runner {
-  background: #2e1065;
-  color: #c4b5fd;
-}
-
-[data-theme="dark"] .badge-runner-orchestrator {
-  background: #1e1b4b;
-  color: #a5b4fc;
-}
-
-[data-theme="dark"] .badge-runner-vscode {
-  background: #1e3a5f;
-  color: #93c5fd;
-}
-
-[data-theme="dark"] .badge-runner-claude-code {
-  background: #451a03;
-  color: #fcd34d;
-}
-
-[data-theme="dark"] .badge-runner-unknown {
-  background: #374151;
-  color: #9ca3af;
-}
-
-[data-theme="dark"] .badge-dry-run {
-  background: #3b0764;
-  color: #d8b4fe;
-  border: 1px dashed #7e22ce;
-}
-
 /* Table row hover */
 [data-theme="dark"] tbody tr:hover {
   background: var(--color-surface);
-}
-
-/* Error / success banners */
-[data-theme="dark"] .error-banner {
-  background: #450a0a;
-  border-color: #7f1d1d;
-}
-
-[data-theme="dark"] .success-banner {
-  background: #14532d;
-  border-color: #166534;
-}
-
-[data-theme="dark"] .info-banner {
-  background: #1e3a5f;
-  color: #93c5fd;
-  border-color: #1e40af;
-}
-
-[data-theme="dark"] .stale-banner {
-  background: #451a03;
-  color: #fbbf24;
-  border-bottom-color: #92400e;
-}
-
-/* Reset modal warning banner */
-[data-theme="dark"] .reset-modal-banner {
-  background: #451a03;
-  color: #fbbf24;
 }
 
 /* Reset stage badges */
@@ -1615,8 +1725,7 @@ th[data-sort="total_work_packages"] {
 }
 
 /* Form controls in filter bars */
-[data-theme="dark"] .filter-bar select,
-[data-theme="dark"] .insights-filters select {
+[data-theme="dark"] .filter-bar select {
   background: var(--color-surface);
   color: var(--color-text);
 }
@@ -1789,28 +1898,6 @@ th[data-sort="total_work_packages"] {
   border: 1px solid var(--color-border);
 }
 
-/* ── Inline result badges ──────────────────────────────── */
-
-.badge-pass {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.badge-fail {
-  background: #fee2e2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 /* ── Pipeline summary block ────────────────────────────── */
 
 .run-event-summary {
@@ -1869,42 +1956,24 @@ th[data-sort="total_work_packages"] {
 }
 
 .run-stage-badge--active {
-  background: #fef3c7;
-  color: var(--color-in-progress);
-  border-color: #fde68a;
+  background: var(--color-run-stage-active-bg);
+  color: var(--color-run-stage-active-fg);
+  border-color: var(--color-run-stage-active-border);
 }
 
 .run-stage-badge--done {
-  background: #dcfce7;
-  color: var(--color-complete);
-  border-color: #bbf7d0;
+  background: var(--color-run-stage-done-bg);
+  color: var(--color-run-stage-done-fg);
+  border-color: var(--color-run-stage-done-border);
 }
 
 .run-stage-badge--error {
-  background: #fee2e2;
-  color: var(--color-blocked);
-  border-color: #fecaca;
+  background: var(--color-run-stage-error-bg);
+  color: var(--color-run-stage-error-fg);
+  border-color: var(--color-run-stage-error-border);
 }
 
 /* ── Dark theme overrides ──────────────────────────────── */
-
-[data-theme="dark"] .run-event--info    { border-left-color: var(--color-ready); }
-[data-theme="dark"] .run-event--warning { border-left-color: var(--color-in-progress); }
-[data-theme="dark"] .run-event--error   { border-left-color: var(--color-blocked); }
-[data-theme="dark"] .run-event--success { border-left-color: var(--color-complete); }
-[data-theme="dark"] .run-event--debug   { border-left-color: var(--color-border); }
-
-[data-theme="dark"] .badge-pass {
-  background: #14532d;
-  color: #86efac;
-  border-color: #166534;
-}
-
-[data-theme="dark"] .badge-fail {
-  background: #450a0a;
-  color: #fca5a5;
-  border-color: #7f1d1d;
-}
 
 [data-theme="dark"] .run-event-summary {
   background: var(--color-surface);
@@ -1914,24 +1983,6 @@ th[data-sort="total_work_packages"] {
 [data-theme="dark"] .run-wp-badge {
   background: var(--color-surface);
   color: var(--color-text);
-}
-
-[data-theme="dark"] .run-stage-badge--active {
-  background: #451a03;
-  color: #fbbf24;
-  border-color: #92400e;
-}
-
-[data-theme="dark"] .run-stage-badge--done {
-  background: #14532d;
-  color: #86efac;
-  border-color: #166534;
-}
-
-[data-theme="dark"] .run-stage-badge--error {
-  background: #450a0a;
-  color: #fca5a5;
-  border-color: #7f1d1d;
 }
 
 /* ----------------------------------------------------------
@@ -2052,48 +2103,6 @@ th[data-sort="total_work_packages"] {
 /* ----------------------------------------------------------
    Orchestrator View (WP-011)
    ---------------------------------------------------------- */
-
-/* Status badges for effectiveStatus */
-.badge-pending {
-  background: #fef9c3;
-  color: #a16207;
-}
-
-.badge-started {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.badge-dead {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-/* Progress badges (used by renderProgressBadge) */
-.badge-info {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.badge-success {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.badge-error {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.badge-warning {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.badge-neutral {
-  background: #f3f4f6;
-  color: #6b7280;
-}
 
 /* Section layout */
 .orch-section {
@@ -2288,46 +2297,6 @@ th[data-sort="total_work_packages"] {
   border-color: var(--color-border);
 }
 
-[data-theme="dark"] .badge-pending {
-  background: #422006;
-  color: #fcd34d;
-}
-
-[data-theme="dark"] .badge-started {
-  background: #052e16;
-  color: #4ade80;
-}
-
-[data-theme="dark"] .badge-dead {
-  background: #450a0a;
-  color: #fca5a5;
-}
-
-[data-theme="dark"] .badge-info {
-  background: #172554;
-  color: #93c5fd;
-}
-
-[data-theme="dark"] .badge-success {
-  background: #052e16;
-  color: #4ade80;
-}
-
-[data-theme="dark"] .badge-error {
-  background: #450a0a;
-  color: #fca5a5;
-}
-
-[data-theme="dark"] .badge-warning {
-  background: #422006;
-  color: #fcd34d;
-}
-
-[data-theme="dark"] .badge-neutral {
-  background: #1f2937;
-  color: #9ca3af;
-}
-
 /* ============================================================
    Orchestrator widget classes (WP-014)
    ============================================================ */
@@ -2352,11 +2321,9 @@ th[data-sort="total_work_packages"] {
 
 /* Status card (rendered by OrchestratorWidgets.renderStatusCard) */
 .orchestrator-status-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
   padding: 0.75rem 1rem;
   margin-bottom: 0.75rem;
+  box-shadow: none;
 }
 
 .orchestrator-status-header {
@@ -2493,20 +2460,6 @@ th[data-sort="total_work_packages"] {
   font-weight: 600;
 }
 
-/* ── Scope badges ────────────────────────────────────────── */
-
-/* Global scope — blue tones (AC: distinct colours per scope) */
-.badge-scope-global {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-/* Repository scope — green tones (AC: distinct colours per scope) */
-.badge-scope-repository {
-  background: #dcfce7;
-  color: #15803d;
-}
-
 /* ── Category pill ───────────────────────────────────────── */
 
 .category-pill {
@@ -2566,17 +2519,6 @@ th[data-sort="total_work_packages"] {
 }
 
 /* ── Dark mode overrides ─────────────────────────────────── */
-
-/* Scope badge dark overrides (AC: dark mode for colour-dependent classes) */
-[data-theme="dark"] .badge-scope-global {
-  background: #1e3a5f;
-  color: #93c5fd;
-}
-
-[data-theme="dark"] .badge-scope-repository {
-  background: #14532d;
-  color: #86efac;
-}
 
 /* Category pill dark override */
 [data-theme="dark"] .category-pill {
@@ -2655,11 +2597,6 @@ th[data-sort="total_work_packages"] {
 }
 
 /* Dark mode overrides for new widget classes */
-[data-theme="dark"] .orchestrator-status-card {
-  background: var(--color-surface);
-  border-color: var(--color-border);
-}
-
 [data-theme="dark"] .orchestrator-cli-reference {
   background: var(--color-surface);
   border-color: var(--color-border);

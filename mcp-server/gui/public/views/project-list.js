@@ -2,7 +2,7 @@
    views/project-list.js — Project List view
    Section 4a of the MCP Server Dashboard SPA
    Depends on: API, Router, escapeHtml, formatDate, statusBadge,
-               showLoading, showError
+               showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderProjectList(app) {
@@ -75,7 +75,7 @@ function renderProjectList(app) {
   function runnerBadge(runner) {
     var safeRunner = runner && runner !== 'unknown' ? runner : 'unknown';
     var label = RUNNER_LABELS[safeRunner] || (runner ? runner : 'Unknown');
-    return '<span class="badge badge-runner badge-runner-' + escapeHtml(safeRunner) + '">' + escapeHtml(label) + '</span>';
+    return UI.badge('runner-' + safeRunner, label);
   }
 
   // ── Build runner filter dropdown options ──
@@ -126,7 +126,7 @@ function renderProjectList(app) {
 
   function buildTable(projects) {
     if (!projects.length) {
-      return '<p class="text-muted mt-16">No projects found.</p>';
+      return UI.emptyState('No projects found.');
     }
 
     function thSort(label, key) {
@@ -291,6 +291,12 @@ function renderProjectList(app) {
       searchSelEnd = prevSearchEl.selectionEnd || 0;
     }
 
+    var plFb = UI.filterBar('pl-filter-bar', [
+      { type: 'text',   id: 'project-search', placeholder: 'Search projects\u2026', value: currentSearch },
+      { type: 'select', id: 'status-filter',  label: 'Status:', optionsHtml: buildStatusOptions(statusCounts) },
+      { type: 'select', id: 'runner-filter',  label: 'Runner:', optionsHtml: buildRunnerOptions(runnerCounts) }
+    ]);
+
     app.innerHTML =
       '<div class="page-header">' +
         '<h1>Projects</h1>' +
@@ -298,13 +304,7 @@ function renderProjectList(app) {
           '<button class="btn btn-secondary btn-sm" id="refresh-btn">\u21bb Refresh</button>' +
         '</div>' +
       '</div>' +
-      '<div class="filter-bar">' +
-        '<input type="text" id="project-search" placeholder="Search projects\u2026" value="' + escapeHtml(currentSearch) + '">' +
-        '<label for="status-filter">Status:</label>' +
-        '<select id="status-filter">' + buildStatusOptions(statusCounts) + '</select>' +
-        '<label for="runner-filter">Runner:</label>' +
-        '<select id="runner-filter">' + buildRunnerOptions(runnerCounts) + '</select>' +
-      '</div>' +
+      plFb.html +
       buildTable(projects) +
       buildPagination(envelope.page, envelope.total_pages, envelope.total, envelope.limit);
 
@@ -340,43 +340,36 @@ function renderProjectList(app) {
       });
     }
 
-    // Status filter
-    var filterEl = document.getElementById('status-filter');
-    if (filterEl) {
-      filterEl.addEventListener('change', function () {
-        currentStatus = this.value;
-        localStorage.setItem(STATUS_STORAGE, currentStatus);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Runner filter
-    var runnerFilterEl = document.getElementById('runner-filter');
-    if (runnerFilterEl) {
-      runnerFilterEl.addEventListener('change', function () {
-        currentRunner = this.value;
-        localStorage.setItem(RUNNER_STORAGE, currentRunner);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Search with 300ms debounce
-    var searchEl = document.getElementById('project-search');
-    if (searchEl) {
-      searchEl.addEventListener('input', function () {
-        var val = this.value;
+    // Filter bar events
+    plFb.bind(function (state) {
+      var newSearch = state['project-search'];
+      if (newSearch !== currentSearch) {
+        // Search changed — debounce the reload
         clearTimeout(searchDebounceTimer);
+        currentSearch = newSearch;
         searchDebounceTimer = setTimeout(function () {
-          currentSearch = val;
           currentPage = 1;
           load();
         }, 300);
-      });
+        return;
+      }
+      // Status or runner changed — update localStorage and reload immediately
+      if (state['status-filter'] !== currentStatus) {
+        currentStatus = state['status-filter'];
+        localStorage.setItem(STATUS_STORAGE, currentStatus);
+      }
+      if (state['runner-filter'] !== currentRunner) {
+        currentRunner = state['runner-filter'];
+        localStorage.setItem(RUNNER_STORAGE, currentRunner);
+      }
+      currentPage = 1;
+      load();
+    });
 
-      // Restore focus and cursor position if search was active before re-render
-      if (searchHadFocus) {
+    // Restore focus and cursor position if search was active before re-render
+    if (searchHadFocus) {
+      var searchEl = document.getElementById('project-search');
+      if (searchEl) {
         searchEl.focus();
         searchEl.setSelectionRange(searchSelStart, searchSelEnd);
       }

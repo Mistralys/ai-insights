@@ -3,7 +3,8 @@
    Sections 4b–4d of the MCP Server Dashboard SPA
    Depends on: API, Router, marked, escapeHtml, formatDate,
                statusBadge, showLoading, showError,
-               OrchestratorWidgets (js/orchestrator-widgets.js)
+               OrchestratorWidgets (js/orchestrator-widgets.js),
+               UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -32,7 +33,7 @@ async function renderPlan(app, repo, slug) {
         breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load plan document.');
     }
   }
 }
@@ -54,7 +55,7 @@ async function renderSynthesis(app, repo, slug) {
         breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load synthesis document.');
     }
   }
 }
@@ -346,7 +347,7 @@ function renderProjectDetail(app, repo, slug) {
         '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
         '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
-      '<div class="card">' +
+      UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
@@ -361,8 +362,8 @@ function renderProjectDetail(app, repo, slug) {
             : '') +
           (project.server_version ? '<br><strong>Server version:</strong> <span class="monospace">v' + escapeHtml(project.server_version) + '</span>' : '') +
           (project.ledger_version ? ' &nbsp; <strong>Spec version:</strong> <span class="monospace">v' + escapeHtml(project.ledger_version) + '</span>' : '') +
-        '</div>' +
-      '</div>' +
+        '</div>'
+      ) +
 
       (function () {
         var synopsisHtml = '';

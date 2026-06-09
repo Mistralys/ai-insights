@@ -10,7 +10,7 @@ function renderConfig(app) {
   API.getConfig().then(function (config) {
     app.innerHTML =
       '<div class="page-header"><h1>Configuration</h1></div>' +
-      '<div class="card" style="max-width:560px">' +
+      UI.card(null,
         '<form id="config-form">' +
           '<div class="form-group">' +
             '<label class="form-label" for="auto-handoff">' +
@@ -43,8 +43,9 @@ function renderConfig(app) {
           '</div>' +
           '<button type="submit" class="btn btn-primary">Save</button>' +
           '<div id="config-msg"></div>' +
-        '</form>' +
-      '</div>';
+        '</form>',
+        { style: 'max-width:560px' }
+      );
 
     var form = document.getElementById('config-form');
     if (form) {
@@ -53,13 +54,13 @@ function renderConfig(app) {
         var autoHandoff = document.getElementById('auto-handoff').checked;
         var maxDepth = parseInt(document.getElementById('max-depth').value, 10);
         if (isNaN(maxDepth) || maxDepth < 1) {
-          document.getElementById('config-msg').innerHTML = '<p class="error-banner">Max handoff depth must be a positive integer.</p>';
+          showError(document.getElementById('config-msg'), 'Max handoff depth must be a positive integer.');
           return;
         }
         var captureDialogues = document.getElementById('capture-dialogues').checked;
         var autoArchiveDays = parseInt(document.getElementById('auto-archive-days').value, 10);
         if (isNaN(autoArchiveDays) || autoArchiveDays < 0) {
-          document.getElementById('config-msg').innerHTML = '<p class="error-banner">Auto-archive days must be a non-negative integer.</p>';
+          showError(document.getElementById('config-msg'), 'Auto-archive days must be a non-negative integer.');
           return;
         }
         // ledger_root intentionally omitted (read-only)
@@ -68,7 +69,7 @@ function renderConfig(app) {
             document.getElementById('config-msg').innerHTML = '<p class="success-banner">Configuration saved.</p>';
           })
           .catch(function (err) {
-            document.getElementById('config-msg').innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
+            showError(document.getElementById('config-msg'), 'Save failed: ' + (err.message || String(err)));
           });
       });
     }

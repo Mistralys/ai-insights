@@ -36,7 +36,7 @@
 
    Depends on: API (api-client.js), Router (router.js),
                OrchestratorWidgets (js/orchestrator-widgets.js),
-               escapeHtml (utils.js)
+               escapeHtml (utils.js), UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -143,8 +143,7 @@ function renderOrchestrator(app) {
     API.orchestratorStart(planPath, true).then(function (result) {
       renderPreflightResults((result && result.checks) ? result.checks : []);
     }).catch(function (err) {
-      resultsEl.innerHTML = '<p class="error-banner">Preflight error: ' +
-        escapeHtml((err && err.message) ? err.message : String(err)) + '</p>';
+      resultsEl.innerHTML = UI.banner('error', 'Preflight error: ' + ((err && err.message) ? err.message : String(err)));
     }).then(function () {
       preflightBtn.disabled = false;
       preflightBtn.textContent = 'Run Preflight';
@@ -187,10 +186,7 @@ function renderOrchestrator(app) {
       if (result && result.started) {
         var runStatusFilename = result.runStatusFilename || null;
         planInput.value = '';
-        resultsEl.innerHTML =
-          '<p class="success-banner">✓ Orchestrator launched' +
-          (result.pid ? ' (PID\u00a0' + result.pid + ')' : '') +
-          '. Waiting for the run to appear in the queue below…</p>';
+        resultsEl.innerHTML = UI.banner('success', '\u2713 Orchestrator launched' + (result.pid ? ' (PID\u00a0' + String(result.pid) + ')' : '') + '. Waiting for the run to appear in the queue below\u2026');
         allChecksPassed = false;
         startBtn.disabled = true;
         refreshQueue();
@@ -207,9 +203,7 @@ function renderOrchestrator(app) {
               if (!status) return; // file not yet written — run still in progress
               clearInterval(statusPollTimer);
               if (status.result === 'ERROR' && status.error) {
-                resultsEl.innerHTML =
-                  '<p class="error-banner">Run failed: ' +
-                  escapeHtml(status.error) + '</p>';
+                resultsEl.innerHTML = UI.banner('error', 'Run failed: ' + status.error);
               }
               // SUCCESS: queue will reflect the project; leave the banner.
             }).catch(function () {
@@ -295,8 +289,7 @@ function renderOrchestrator(app) {
       var planName   = _orchBasename(entry.planPath || '');
       var elapsed    = _orchElapsed(entry.startedAt);
       var isExpanded = !!expandedIds[id];
-      var statusBadgeHtml = '<span class="badge badge-' + escapeHtml(status) + '">' +
-        escapeHtml(_orchStatusLabel(status)) + '</span>';
+      var statusBadgeHtml = UI.badge(status, _orchStatusLabel(status));
       // Progress cell: badge + text summary + optional log link.
       var progressHtml = OrchestratorWidgets.renderProgressBadge(entry.lastAction || null);
       if (entry.progress) {

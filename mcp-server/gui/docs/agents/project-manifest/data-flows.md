@@ -69,7 +69,9 @@ Browser loads index.html
   │   ├── api-client.js → window.API
   │   ├── theme.js → window.Theme
   │   ├── router.js → window.Router
-  │   ├── utils.js → window.escapeHtml, formatDate, breadcrumb, etc.
+  │   ├── utils.js → window.escapeHtml, formatDate, breadcrumb, showLoading,
+  │   │             showError (→ UI.banner('error', …) since rework-1), etc.
+  │   ├── components.js → window.UI
   │   ├── views/*.js → window.renderProjectList, etc.
   │   ├── orchestrator-widgets.js → window.OrchestratorWidgets
   │   ├── stale-check.js → window.StaleCheck

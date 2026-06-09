@@ -50,8 +50,7 @@ function formatDate(isoString) {
 
 function statusBadge(status) {
   if (!status) return '';
-  var cls = 'badge badge-' + status.toLowerCase().replace(/_/g, '-');
-  return '<span class="' + cls + '">' + escapeHtml(status) + '</span>';
+  return UI.badge(status, status);
 }
 
 // Cache of namespaced key → display name, populated by views that fetch project data.
@@ -152,7 +151,7 @@ function showLoading(container) {
 }
 
 function showError(container, message) {
-  container.innerHTML = '<div class="error-banner">' + escapeHtml(message) + '</div>';
+  container.innerHTML = UI.banner('error', message);
 }
 
 function formatDuration(ms) {

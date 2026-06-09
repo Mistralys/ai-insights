@@ -16,8 +16,7 @@ gui/
     ├── app.js                   # Bootstrap: Theme.init(), Router.init(), StaleCheck.init()
     ├── router.js                # Hash-based SPA router (Router namespace)
     ├── api-client.js            # Client-side API wrapper (API namespace)
-    ├── utils.js                 # Shared utilities: escapeHtml, formatDate, breadcrumb, etc.
-    ├── theme.js                 # Theme toggle logic (Theme namespace)
+    ├── utils.js                 # Shared utilities: escapeHtml, formatDate, breadcrumb, etc.    ├── components.js              # Shared UI render helpers (UI namespace): badge, banner, emptyState    ├── theme.js                 # Theme toggle logic (Theme namespace)
     ├── theme-init.js            # Early theme application (prevents FOUC; runs in <head>)
     ├── stale-check.js           # Background polling for server version mismatch (StaleCheck namespace)
     ├── views/                   # One JS file per SPA view/page
@@ -49,4 +48,5 @@ gui/
 | `public/styles.css` | ~2670 | Complete CSS component library |
 | `public/api-client.js` | ~350 | All API methods |
 | `public/utils.js` | ~200 | Shared utility functions |
+| `public/components.js` | ~80 | UI namespace (badge, banner, emptyState) |
 | `public/js/orchestrator-widgets.js` | ~500 | Widget library |

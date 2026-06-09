@@ -114,7 +114,7 @@ function renderStrategyList(app) {
       wireRegisterButtons();
       wireToggle();
     }).catch(function (err) {
-      if (tableEl) tableEl.innerHTML = '<p class="error-banner">Failed to load repositories: ' + escapeHtml(err.message || String(err)) + '</p>';
+      if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
       wireToggle();
     });
   }
@@ -214,12 +214,12 @@ function renderStrategyList(app) {
         : [];
 
       if (!id) {
-        msgEl.innerHTML = '<p class="error-banner">ID is required.</p>';
+        showError(msgEl, 'ID is required.');
         return;
       }
 
       if (!folderNames.length) {
-        msgEl.innerHTML = '<p class="error-banner">At least one folder name is required.</p>';
+        showError(msgEl, 'At least one folder name is required.');
         return;
       }
 
@@ -229,7 +229,7 @@ function renderStrategyList(app) {
           Router.navigate('#/strategy/' + encodeURIComponent(id));
         })
         .catch(function (err) {
-          msgEl.innerHTML = '<p class="error-banner">Failed to create repository: ' + escapeHtml(err.message || String(err)) + '</p>';
+          showError(msgEl, 'Failed to create repository: ' + (err.message || String(err)));
         });
     });
   }
@@ -386,7 +386,7 @@ function renderStrategyDetail(app, repoId) {
 
       var currentFolderNames = collectFolderNamesFromDOM();
       if (!currentFolderNames.length) {
-        msgEl.innerHTML = '<p class="error-banner">At least one folder name is required.</p>';
+        showError(msgEl, 'At least one folder name is required.');
         return;
       }
 
@@ -416,7 +416,7 @@ function renderStrategyDetail(app, repoId) {
           }
         })
         .catch(function (err) {
-          msgEl.innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
+          showError(msgEl, 'Save failed: ' + (err.message || String(err)));
         });
     });
   }

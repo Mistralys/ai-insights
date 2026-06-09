@@ -36,6 +36,65 @@
 
 Dark theme (`[data-theme="dark"]`) overrides all color tokens for dark backgrounds.
 
+### Badge Colour Tokens
+
+All badge colours use CSS custom property indirection — no hardcoded hex values in `.badge-*` rules.
+Light-mode values are defined in `:root`; dark-mode overrides live in `[data-theme="dark"] :root`.
+
+| Token | Light value | Badge variant |
+|-------|-------------|---------------|
+| `--color-badge-ready-bg` / `-fg` | `#dbeafe` / `#2563eb` | `.badge-ready` |
+| `--color-badge-in-progress-bg` / `-fg` | `#fef3c7` / `#d97706` | `.badge-in-progress` |
+| `--color-badge-complete-bg` / `-fg` | `#dcfce7` / `#16a34a` | `.badge-complete` |
+| `--color-badge-blocked-bg` / `-fg` | `#fee2e2` / `#dc2626` | `.badge-blocked` |
+| `--color-badge-archived-bg` / `-fg` | `#f3f4f6` / `#6b7280` | `.badge-archived` |
+| `--color-badge-runner-bg` / `-fg` | `#ede9fe` / `#5b21b6` | `.badge-runner` |
+| `--color-badge-runner-orchestrator-bg` / `-fg` | `#e0e7ff` / `#3730a3` | `.badge-runner-orchestrator` |
+| `--color-badge-runner-vscode-bg` / `-fg` | `#dbeafe` / `#1d4ed8` | `.badge-runner-vscode` |
+| `--color-badge-runner-claude-code-bg` / `-fg` | `#fef3c7` / `#92400e` | `.badge-runner-claude-code` |
+| `--color-badge-runner-unknown-bg` / `-fg` | `#f3f4f6` / `#6b7280` | `.badge-runner-unknown` |
+| `--color-badge-dry-run-bg` / `-fg` / `-border` | `#f3e8ff` / `#7c3aed` / `#c4b5fd` | `.badge-dry-run` |
+| `--color-badge-pass-bg` / `-fg` / `-border` | `#dcfce7` / `#15803d` / `#bbf7d0` | `.badge-pass` |
+| `--color-badge-fail-bg` / `-fg` / `-border` | `#fee2e2` / `#b91c1c` / `#fecaca` | `.badge-fail` |
+| `--color-badge-pending-bg` / `-fg` | `#fef9c3` / `#a16207` | `.badge-pending` |
+| `--color-badge-started-bg` / `-fg` | `#dcfce7` / `#15803d` | `.badge-started` |
+| `--color-badge-dead-bg` / `-fg` | `#fee2e2` / `#b91c1c` | `.badge-dead` |
+| `--color-badge-info-bg` / `-fg` | `#dbeafe` / `#1d4ed8` | `.badge-info` |
+| `--color-badge-success-bg` / `-fg` | `#dcfce7` / `#15803d` | `.badge-success` |
+| `--color-badge-error-bg` / `-fg` | `#fee2e2` / `#b91c1c` | `.badge-error` |
+| `--color-badge-warning-bg` / `-fg` | `#fef3c7` / `#92400e` | `.badge-warning` |
+| `--color-badge-neutral-bg` / `-fg` | `#f3f4f6` / `#6b7280` | `.badge-neutral` |
+| `--color-badge-scope-global-bg` / `-fg` | `#dbeafe` / `#1d4ed8` | `.badge-scope-global` |
+| `--color-badge-scope-repository-bg` / `-fg` | `#dcfce7` / `#15803d` | `.badge-scope-repository` |
+
+### Banner Colour Tokens
+
+| Token | Light value | Banner variant |
+|-------|-------------|----------------|
+| `--color-banner-error-bg` / `-border` | `#fff1f2` / `#fecdd3` | `.error-banner` |
+| `--color-banner-success-bg` / `-border` | `#f0fdf4` / `#bbf7d0` | `.success-banner` |
+| `--color-banner-info-bg` / `-fg` / `-border` | `#eff6ff` / `#1d4ed8` / `#bfdbfe` | `.info-banner` |
+| `--color-banner-stale-bg` / `-fg` / `-border` | `#fef3c7` / `#78350f` / `#f59e0b` | `.stale-banner` |
+| `--color-banner-warn-bg` / `-fg` / `-border` | `#fef3c7` / `#92400e` / `#f59e0b` | `.reset-modal-banner` |
+
+**Note:** `error` and `success` variants reuse the semantic `--color-blocked` / `--color-complete`
+tokens for their foreground colour instead of dedicated `-fg` tokens; `info`, `stale`, and `warn`
+variants require a distinct `-fg` value.
+
+### Run-Stage Badge Colour Tokens
+
+| Token | Light value | Used by |
+|-------|-------------|---------|
+| `--color-run-stage-active-bg` / `-fg` / `-border` | `#fef3c7` / `var(--color-in-progress)` / `#fde68a` | `.run-stage-badge--active` |
+| `--color-run-stage-done-bg` / `-fg` / `-border` | `#dcfce7` / `var(--color-complete)` / `#bbf7d0` | `.run-stage-badge--done` |
+| `--color-run-stage-error-bg` / `-fg` / `-border` | `#fee2e2` / `var(--color-blocked)` / `#fecaca` | `.run-stage-badge--error` |
+
+**Note:** The `-fg` tokens are defined via `var()` references to semantic tokens (`--color-in-progress`,
+`--color-complete`, `--color-blocked`). Since those semantic tokens each have their own dark overrides,
+no `[data-theme="dark"]` override is needed for the run-stage `-fg` tokens — they cascade automatically.
+
+**Badge-specific tokens** — see Section 4 for the full naming convention and instructions for adding new variants.
+
 ---
 
 ## 2. Layout Classes
@@ -111,6 +170,28 @@ Fused row of same-size buttons sharing inner borders.
 | `.badge-fail` | Red outline — pipeline fail. |
 | `.badge-scope-global` | Blue — global knowledge scope. |
 | `.badge-scope-repository` | Green — repository knowledge scope. |
+
+### CSS Token Convention
+
+Each `.badge-{variant}` rule uses CSS custom property indirection — **no hardcoded hex values**.
+All badge colours are declared as tokens in `:root` and dark-mode values override them in
+`[data-theme="dark"]`. This eliminates individual `[data-theme="dark"] .badge-*` override blocks.
+
+**Token naming:**
+
+| Token | Usage |
+|-------|-------|
+| `--color-badge-{variant}-bg` | `background` of `.badge-{variant}` |
+| `--color-badge-{variant}-fg` | `color` of `.badge-{variant}` |
+| `--color-badge-{variant}-border` | `border-color` (only for `dry-run`, `pass`, `fail`) |
+
+**Adding a new badge variant** requires three steps:
+1. Define `--color-badge-{variant}-bg` and `--color-badge-{variant}-fg` in the `:root` block
+   (light-mode values).
+2. Add corresponding dark-mode overrides in the `[data-theme="dark"]` `:root` block.
+3. Write the `.badge-{variant}` rule using `var(--color-badge-{variant}-bg)` and
+   `var(--color-badge-{variant}-fg)`. Do **not** write a separate `[data-theme="dark"] .badge-{variant}`
+   rule — the token cascade handles dark mode automatically.
 
 ---
 
@@ -281,3 +362,172 @@ Fused row of same-size buttons sharing inner borders.
 | `.reset-wp-row` | Individual WP row. |
 | `.reset-wp-actions` | Radio button row (reset/skip). |
 | `.reset-stage-badge` | Stage status in reset context (`.reset-stage-present` / `.reset-stage-missing` / `.reset-stage-inactive`). |
+
+---
+
+## 17. UI JavaScript Namespace (`components.js`)
+
+> **Source file:** `public/components.js`  
+> **Loaded after:** `utils.js` (requires `escapeHtml()`). Loaded before all view scripts.  
+> **Global:** `window.UI` — an ES5 IIFE exposing five pure render helpers.
+
+All functions return HTML strings. Structural attributes (`id`, `data-id`, titles) are HTML-escaped
+via `escapeHtml()`. Style-related fields (`body`, `opts.style`, `opts.accentColor`, `opts.titleStyle`,
+`opts.extraClass`, `optionsHtml`) are inserted verbatim — pass only trusted/literal values.
+
+---
+
+### `UI.badge(type, label, opts?)` → `string`
+
+Returns a status badge `<span>`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | `string` | Badge variant. Normalised via `_normaliseType()` (lowercase, spaces/underscores → hyphens; result is HTML-escaped). |
+| `label` | `string` | Display text. HTML-escaped. |
+| `opts` | `object` | Optional. |
+| `opts.attrs` | `Record<string,string>` | Extra HTML attributes added to the `<span>`; all values are HTML-escaped. |
+
+**Returns:** `<span class="badge badge-{normType}"{extraAttrs}>{escaped-label}</span>`
+
+**Examples:**
+```js
+UI.badge('in-progress', 'In Progress')
+// → '<span class="badge badge-in-progress">In Progress</span>'
+
+UI.badge('fail', 'Error', { attrs: { title: 'Details' } })
+// → '<span class="badge badge-fail" title="Details">Error</span>'
+```
+
+---
+
+### `UI.banner(type, message)` → `string`
+
+Returns an inline-banner `<p>`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | `string` | Banner variant. Normalised via `_normaliseType()`. Supported: `error`, `success`, `info`, `stale`, `warn`. |
+| `message` | `string` | Display text. HTML-escaped. |
+
+**Returns:** `<p class="{normType}-banner">{escaped-message}</p>`
+
+> **Note:** `showError()` in `utils.js` now delegates to `UI.banner('error', message)`, so it also
+> emits `<p class="error-banner">…</p>` (not a `<div>`).
+
+**Example:**
+```js
+UI.banner('error', 'Something failed')
+// → '<p class="error-banner">Something failed</p>'
+```
+
+---
+
+### `UI.emptyState(message)` → `string`
+
+Returns a muted empty-state `<p>`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `message` | `string` | Display text. HTML-escaped. |
+
+**Returns:** `<p class="text-muted mt-16">{escaped-message}</p>`
+
+**Example:**
+```js
+UI.emptyState('No items found')
+// → '<p class="text-muted mt-16">No items found</p>'
+```
+
+---
+
+### `UI.card(title, body, opts?)` → `string`  *(added WP-006)*
+
+Returns a `.card` wrapper div.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `title` | `string \| null` | Card heading. HTML-escaped. Pass `null`/falsy to omit the title element. |
+| `body` | `string` | Raw HTML for the card body. **Not escaped.** |
+| `opts` | `object?` | Optional rendering options (see table below). |
+
+**`opts` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `opts.id` | `string` | `id` attribute on the wrapper `<div>`. HTML-escaped. |
+| `opts.dataId` | `string\|number` | `data-id` attribute on the wrapper. HTML-escaped. |
+| `opts.style` | `string` | Additional inline style on the wrapper. Verbatim — not escaped. |
+| `opts.accentColor` | `string` | Sets `border-left-color` as an inline style. Combined with `opts.style` when both are present. Verbatim. |
+| `opts.titleStyle` | `string` | Inline style on the `.card-title` `<div>`. Verbatim. |
+| `opts.extraClass` | `string` | Extra CSS class(es) appended to the wrapper (result: `"card {extraClass}"`). Verbatim. |
+
+> **Security note:** `opts.style`, `opts.accentColor`, and `opts.titleStyle` are NOT HTML-escaped.
+> Pass only trusted/literal CSS values (e.g. `'max-width:560px'`, `'var(--color-complete)'`).
+> Never interpolate raw user input.
+
+**Returns:** `<div class="card{extraClass}" id=".." data-id=".." style="..">{titleDiv}{body}</div>`
+
+**Examples:**
+```js
+UI.card('Title', '<p>Body</p>')
+// → '<div class="card"><div class="card-title">Title</div><p>Body</p></div>'
+
+UI.card(null, body)
+// → '<div class="card">{body}</div>'
+
+UI.card('Title', body, { accentColor: '#ff0000' })
+// → '<div class="card" style="border-left-color: #ff0000;">…</div>'
+
+UI.card('Title', body, { extraClass: 'orchestrator-status-card', accentColor: 'var(--color-complete)' })
+// → '<div class="card orchestrator-status-card" style="border-left-color: var(--color-complete);">...</div>'
+```
+
+---
+
+### `UI.filterBar(containerId, filters)` → `{ html: string, bind: function }`  *(added WP-007)*
+
+Renders a `.filter-bar` wrapper and returns `{ html, bind }` for two-phase setup.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `containerId` | `string` | `id` attribute on the outer `<div class="filter-bar">` wrapper. HTML-escaped. |
+| `filters` | `FilterDescriptor[]` | Ordered array of filter control descriptors. |
+
+**`FilterDescriptor` fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | `'select'\|'text'` | Yes | Control type. |
+| `id` | `string` | Yes | Element `id`. HTML-escaped. |
+| `label` | `string` | No | `<label for>` text. Omitted when falsy. HTML-escaped. |
+| `options` | `Array<{value, label, selected?}>` | No | Select options. Each `value`/`label` is HTML-escaped. |
+| `optionsHtml` | `string` | No | Pre-built `<option>` HTML. Takes precedence over `options`. Verbatim. |
+| `placeholder` | `string` | No | `placeholder` attribute for text inputs. HTML-escaped. |
+| `value` | `string` | No | `value` attribute for text inputs. HTML-escaped. |
+| `cssClass` | `string` | No | Extra CSS class(es) on the control element. HTML-escaped. |
+
+**Return value:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `html` | `string` | Full HTML including the outer wrapper div and all inner controls. |
+| `bind(onChange)` | `function` | Attaches event listeners (`'change'` for selects, `'input'` for text) via `document.getElementById(f.id)`. On any interaction calls `onChange(state)` where `state` is `{ [id]: currentValue }` for every filter. |
+
+> **DOM insertion required before `bind()`:** `html` must be in the DOM before calling `bind()`.
+> After an `outerHTML` replacement (e.g. knowledge.js tab-switch rebuild), always call `bind()` again
+> immediately after the replacement — the old listeners are discarded with the old element.
+
+**Example:**
+```js
+const fb = UI.filterBar('my-bar', [
+  { type: 'select', id: 'f-status', label: 'Status',
+    options: [{ value: 'ALL', label: 'All', selected: true }, { value: 'READY', label: 'Ready' }] },
+  { type: 'text', id: 'f-search', placeholder: 'Search…' }
+]);
+
+container.innerHTML = fb.html;   // insert first
+fb.bind(function(state) {        // then wire events
+  console.log(state['f-status'], state['f-search']);
+});
+```
