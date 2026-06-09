@@ -1144,6 +1144,36 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 
 ---
 
+### 61. `gui/api-repos.ts` Is the Canonical Location for All Repository Registry Handler Code
+
+**Rule:** All REST handler functions for the `/api/repos` and `/api/repos/:repoId` endpoints (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`), their Zod request-body schemas (`RepoCreateBodySchema`, `RepoUpdateBodySchema`), the `RepoListItem` projection interface, and the private `assertNoFolderNameConflicts` helper MUST reside in `gui/api-repos.ts`. No repository handler code may be added to or remain in `gui/api.ts`.
+
+**Rationale:** Follows the domain-split pattern established by `gui/api-knowledge.ts` (WP-003). Each API domain gets its own handler file imported by `server.ts`, keeping `api.ts` from growing into a maintenance liability. The separation makes ownership explicit and isolates the repository CRUD domain from other handler concerns.
+
+**Implication for `gui/server.ts`:** The HTTP server imports repository handlers from `./api-repos.js` — not `./api.js`. Body-free routes (`GET /api/repos`, `GET /api/repos/:repoId`, `DELETE /api/repos/:repoId`) are dispatched via `matchRoute()`; body-parsing routes (`POST /api/repos`, `PUT /api/repos/:repoId`) are wired as explicit early-return blocks in `handleRequest()`.
+
+**POST /api/repos returns 201, not 200.** This is intentional — correct REST practice for resource creation. All other mutation routes return 200. The 201 is explicitly set in the `handleRequest()` body-parsing block in `server.ts` and must not be changed to 200.
+
+**`RepoCreateBodySchema` and `RepoUpdateBodySchema` are `@internal`.** These schemas are exported so test code can construct validated shapes directly without duplicating the schema logic. They are not a stable public API. Always mark them `@internal` in JSDoc when editing `api-repos.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — repository handler in api.ts
+export async function handleListRepos(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — repository handler in the dedicated module
+// gui/api-repos.ts
+export async function handleListRepos(...) { /* ... */ }
+
+// gui/server.ts
+import { handleListRepos } from './api-repos.js';
+```
+
+---
+
 ### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
 
 **Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.
@@ -2078,6 +2108,83 @@ const ledgerPath = expectedRepo
 **`assertSafeSegment()` rejects:** uppercase letters, path separators (`/`, `\`), traversal sequences (`..`), null bytes, Unicode lookalikes, empty strings, and whitespace-only strings (SAFE_SLUG_REGEX anchor `^[a-z0-9]` + Boolean guard).
 
 **See also:** Constraint 6b (ledger paths must include the repo-namespace tier); `api-surface.md` §`assertSafeSegment` (canonical validation delegate).
+
+---
+
+### 75. Dual-Schema Pattern — Strict Input Schemas, Permissive Storage Schemas
+
+**Rule:** Input schemas (tool parameters) enforce strict contracts (required, non-nullable, min-length). Storage schemas (persisted JSON) declare the same fields as `.nullable().optional()` for backward compatibility with records created before the field existed. Bridge logic uses key-presence checks (`'field' in cacheUpdates`) to distinguish "not provided" from "explicitly null".
+
+**Rationale:** Legacy records must parse without migration. New tool calls must enforce quality. The two concerns require different schema strictness levels — combining them into one schema satisfies neither.
+
+**Canonical example:** `CompleteSynthesisSchema.outcome_summary` is `z.string().min(10)` (input); `ProjectMetaSchema.outcome_summary` is `z.string().nullable().optional()` (storage).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — using .optional() on an input schema to avoid handling legacy data;
+// this shifts the quality gate to runtime callers and allows degenerate input through.
+outcome_summary: z.string().optional()
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — input schema is strict; storage schema is permissive; bridge uses key-presence check.
+// Input schema (tool parameters):
+outcome_summary: z.string().min(10)
+
+// Storage schema (persisted JSON):
+outcome_summary: z.string().nullable().optional()
+
+// Bridge logic (writeProjectMeta):
+if ('outcome_summary' in cacheUpdates) {
+  updates.outcome_summary = cacheUpdates.outcome_summary;
+}
+```
+
+---
+
+### 76. Graceful Degradation — `@remarks` Fallback Contract for Optional Enrichment Paths
+
+**Rule:** Any function that provides optional enrichment data (where absence is acceptable) must document its fallback behavior in a `@remarks` JSDoc block. The remark must state: (1) what conditions trigger the fallback, (2) what value is returned as the fallback, and (3) whether the fallback is silent or logged.
+
+**Rationale:** Three components in the history system use this pattern (`loadRegistry`, `safeListRepositoryInsights`, Planner workflow step). Without explicit documentation, future contributors may "fix" the silent degradation by throwing errors, breaking the enrichment-is-optional contract.
+
+**Canonical examples:** `loadRegistry()` in `repository-registry.ts` (returns `{ repositories: [] }` on absent/corrupt file), `safeListRepositoryInsights()` in `repository-context.ts` (returns `[]` on SLUG_REGEX failure).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — a function that degrades gracefully but documents only the success path in JSDoc.
+/**
+ * Returns the repository registry.
+ */
+async function loadRegistry(root: string): Promise<Registry> {
+  try {
+    return JSON.parse(await fs.readFile(registryPath(root), 'utf-8'));
+  } catch {
+    return { repositories: [] };
+  }
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — @remarks block explicitly states fallback trigger, fallback value, and observability.
+/**
+ * Returns the repository registry.
+ *
+ * @remarks
+ * Falls back to `{ repositories: [] }` when the registry file is absent or contains
+ * invalid JSON. The fallback is silent (no log, no metric). Callers must treat an
+ * empty `repositories` array as a valid state — the registry is optional enrichment.
+ */
+async function loadRegistry(root: string): Promise<Registry> {
+  try {
+    return JSON.parse(await fs.readFile(registryPath(root), 'utf-8'));
+  } catch {
+    return { repositories: [] };
+  }
+}
+```
 
 ---
 

@@ -23,7 +23,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (26 Total)
+## MCP Tools (27 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -95,11 +95,14 @@ Scans the central ledger root directory and returns metadata for all projects. O
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   agent_role: string;
+  outcome_summary: string; // required — 2–3 sentence summary of what was accomplished
   synthesis_file?: string;  // default: 'synthesis.md'
 }) => Promise<MCPResult>
 ```
 
-Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and `synthesis_generated_at = now()` (using the same timestamp for both the root index write and the response JSON), resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
+Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and `synthesis_generated_at = now()` (using the same timestamp for both the root index write and the response JSON), persists `outcome_summary` to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `outcome_summary` (echoed back from the submitted value), `archived_documents: string[]`, and, conditionally, `archive_skipped: string[]` (omitted when empty).
+
+**`outcome_summary`** is a required string field — Zod rejects the call if it is absent or `null`. The value is written to `rootIndex.outcome_summary` and propagated to `.meta.json` via `writeRootIndex()` using key-presence semantics (`'outcome_summary' in validated`). The storage schema (`RootIndexSchema`) declares it as `z.string().nullable().optional()` for backward compatibility with legacy records that predate this field; the input schema (`CompleteSynthesisSchema`) enforces `z.string()` (required, non-nullable) so callers must always supply a value.
 
 **Required:** `agent_role` must be `"Synthesis"` or `"Project Manager"` — other roles receive an error.
 
@@ -578,6 +581,58 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 ---
 
+### Repository Context Tools
+
+#### `ledger_get_repository_context`
+
+```typescript
+(args: {
+  cwd_path?: string;          // Workspace root used to derive the repository name when repository_name is not provided. Ignored when repository_name is supplied.
+  repository_name?: string;   // Explicit repository name. When provided, takes precedence over cwd_path for name derivation and registry lookup.
+  include_insights?: boolean; // default: true — include relevant_insights[] from the knowledge store. When false, returns an empty relevant_insights[] array (field always present).
+  max_projects?: number;      // default: 5 — maximum projects returned in projects[]; total_projects always reflects the full count.
+}) => Promise<MCPResult>
+```
+
+Returns a compact project timeline for a repository. Designed to give the Planner agent access to prior project history, curated outcome summaries, relevant knowledge-base insights, and strategic vision before producing a new plan.
+
+**Parameter precedence:** `repository_name` takes precedence over `cwd_path`. When `repository_name` is supplied, `cwd_path` is not used. At least one of the two must be provided — omitting both returns `isError: true`.
+
+**Response shape:**
+
+```typescript
+{
+  repository_name: string;
+  repository_id: string | null;          // null when no registry entry matches
+  repository_label: string | null;       // null when no registry entry matches
+  total_projects: number;                // full count, unaffected by max_projects cap
+  strategic_vision: StrategicVision | null; // null when no registry entry matches
+  projects: ProjectEntry[];              // capped at max_projects, sorted by date_created descending
+  relevant_insights: Insight[];          // empty array when include_insights: false
+}
+
+interface ProjectEntry {
+  slug: string;
+  plan_path: string;
+  status: string;
+  date_created: string;
+  last_updated: string;
+  title?: string;
+  outcome_summary: string | null;
+  progress_pct?: number;
+}
+```
+
+**Cross-folder aggregation:** When a registry entry declares multiple `folder_names`, projects from ALL matching namespace directories are aggregated, then sorted by `date_created` descending before the `max_projects` cap is applied.
+
+**No-registry fallback:** When no registry entry matches `repository_name`, `repository_id`, `repository_label`, and `strategic_vision` are `null`. The tool reads projects from the single derived folder name only.
+
+**Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by numeric `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Repository-scoped lookup is handled by `safeListRepositoryInsights()`: slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) are intentionally suppressed and return `[]`; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result.
+
+**Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`.
+
+---
+
 ### Knowledge Tools
 
 #### `ledger_add_insight`
@@ -905,6 +960,206 @@ export async function handleMoveKnowledge(
 
 ---
 
+## GUI API — Repository Endpoints
+
+These handler functions are exported from `gui/api-repos.ts` (introduced in WP-006) and called by the HTTP server in `gui/server.ts`. They implement the full CRUD lifecycle for the central `.repositories.json` registry — the same registry that `ledger_get_repository_context` reads when resolving project history for a repository.
+
+> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. Body-free routes (`GET`, `DELETE`) are dispatched via `matchRoute()`; body-parsing routes (`POST`, `PUT`) are handled as explicit early-return blocks in `handleRequest()` — consistent with the pattern used for knowledge body-parsing routes.
+
+### HTTP Route Table
+
+The five repository endpoints registered in `gui/server.ts`, grouped by dispatch tier:
+
+**Tier 1 — body-free routes (dispatched via `matchRoute()`)**
+
+| Method | Path | Return Shape | Status Code | Error Codes |
+|--------|------|--------------|-------------|-------------|
+| `GET` | `/api/repos` | `RepoListItem[]` | 200 | — |
+| `GET` | `/api/repos/:repoId` | `RepositoryEntry` (full shape) | 200 | 404 (repo not found) |
+| `DELETE` | `/api/repos/:repoId` | `{ deleted: true }` | 200 | 404 (repo not found) |
+
+**Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
+
+| Method | Path | Request Body | Return Shape | Status Code | Error Codes |
+|--------|------|-------------|--------------|-------------|-------------|
+| `POST` | `/api/repos` | `RepoCreateBodySchema` — `id`, `label`, `folder_names`, `vision`? | `RepositoryEntry` (created entry) | **201** Created | 400 (invalid body, duplicate id, folder_names conflict) |
+| `PUT` | `/api/repos/:repoId` | `RepoUpdateBodySchema` — `label`?, `folder_names`?, `vision`? | `RepositoryEntry` (updated entry) | 200 | 400 (invalid body, folder_names conflict), 404 (repo not found) |
+
+**Notes:**
+- `POST /api/repos` returns HTTP **201** (Created), unlike most other mutation endpoints in `server.ts` which return 200. This is intentional REST practice and explicitly wired in `server.ts`.
+- `:repoId` is URL-decoded by the server routing layer before being passed to handlers — `decodeURIComponent` is applied at the `matchRoute()` and `handleRequest()` dispatch levels.
+- All routes return `application/json`. Errors follow `{ error: { code: string, message: string, details?: unknown } }` shape.
+- `DELETE /api/repos/:repoId` removes only the registry declaration. **No project data is deleted.** Released folder names become immediately reusable.
+- An empty-body `PUT` (`{}`) is valid — all fields are optional. It is accepted as a no-op update that still stamps `last_modified`. If the product team later requires at least one field to be present, add a `z.refine()` guard to `RepoUpdateBodySchema`.
+- **`folder_names` min-1 constraint (POST and PUT):** `folder_names` must contain at least one non-empty string in both `POST /api/repos` and `PUT /api/repos/:repoId`. Sending an empty array (`[]`) is rejected with HTTP 400 (`VALIDATION_ERROR`). Each entry must also be a non-empty string (whitespace-only entries are rejected). This constraint is enforced server-side by `RepoCreateBodySchema` and `RepoUpdateBodySchema` — API clients **must** enforce it client-side as well to surface a meaningful error before the round-trip.
+
+### `RepoListItem` vs `RepositoryEntry` — Shape Distinction
+
+**`GET /api/repos`** (list) returns `RepoListItem[]` — a slimmed-down projection:
+
+```typescript
+interface RepoListItem {
+  id: string;
+  label: string;
+  folder_names: string[];
+  /** Convenience boolean: true when at least one vision horizon field (short_term | mid_term | long_term) is non-null. */
+  has_vision: boolean;
+  /** Convenience boolean: true when ALL three vision horizon fields (short_term, mid_term, long_term) are non-null. */
+  has_full_vision: boolean;
+  created_at: string;   // ISO 8601
+  last_modified: string; // ISO 8601
+}
+```
+
+The `vision` object itself is **omitted** from list responses. The server computes `has_vision` and `has_full_vision` server-side in `toListItem()` so frontend consumers can display a three-way vision status indicator (`No vision` / `Partial vision` / `Full vision`) without fetching the full entry. `has_vision` is `true` when ≥1 horizon is non-null; `has_full_vision` is `true` only when all three horizons are non-null. Both are independent booleans — `has_vision: false` implies `has_full_vision: false`.
+
+**`GET /api/repos/:repoId`** (get single) returns the full `RepositoryEntry`:
+
+```typescript
+interface RepositoryEntry {
+  id: string;
+  label: string;
+  folder_names: string[];
+  vision: {
+    short_term: string | null;   // null means "not yet authored"
+    mid_term: string | null;
+    long_term: string | null;
+  };
+  created_at: string;
+  last_modified: string;
+}
+```
+
+> **Summary:** Use `GET /api/repos` to enumerate repositories with a fast boolean vision indicator. Use `GET /api/repos/:repoId` when you need the full `vision` horizon content.
+
+### `RepoCreateBodySchema`
+
+```typescript
+// Exported Zod schema for POST /api/repos request bodies.
+// `.strict()` rejects unknown keys. Exported for test use — treat as @internal.
+//
+// All fields required except `vision`, which defaults to all-null horizons when omitted.
+export const RepoCreateBodySchema: z.ZodObject<{
+  id: z.ZodString;           // Must match SLUG_REGEX (alphanumeric, hyphens, underscores; starts with alphanumeric)
+  label: z.ZodString;        // min(1) — non-empty string
+  folder_names: z.ZodArray<z.ZodString>; // min(1) — at least one entry; each entry non-empty
+  vision?: z.ZodOptional<typeof StrategicVisionSchema>; // defaults to all-null on creation
+}>;
+```
+
+### `RepoUpdateBodySchema`
+
+```typescript
+// Exported Zod schema for PUT /api/repos/:repoId request bodies.
+// `.strict()` rejects unknown keys. Exported for test use — treat as @internal.
+//
+// All fields optional — only supplied fields are overwritten. `created_at` is never
+// mutated; `last_modified` is always updated on a successful write.
+export const RepoUpdateBodySchema: z.ZodObject<{
+  label?: z.ZodOptional<z.ZodString>;         // min(1) when present
+  folder_names?: z.ZodOptional<z.ZodArray<z.ZodString>>; // min(1) when present
+  vision?: z.ZodOptional<typeof StrategicVisionSchema>;
+}>;
+```
+
+### `handleListRepos()`
+
+```typescript
+// GET /api/repos
+// Returns all declared repositories as RepoListItem projections.
+// Returns an empty array when the registry file does not exist (first-run).
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+export async function handleListRepos(ledgerRoot: string): Promise<RepoListItem[]>
+```
+
+### `handleGetRepo()`
+
+```typescript
+// GET /api/repos/:repoId
+// Returns the full RepositoryEntry for the given repoId.
+//
+// Error codes:
+//   NOT_FOUND — no entry with the given id exists in the registry (→ HTTP 404)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field of the repository entry to retrieve.
+export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise<RepositoryEntry>
+```
+
+### `handleCreateRepo()`
+
+```typescript
+// POST /api/repos → HTTP 201
+// Creates a new repository entry in the registry.
+//
+// Validations (in order):
+//   1. Body must conform to RepoCreateBodySchema (.strict() — unknown keys rejected).
+//   2. `id` must match SLUG_REGEX.
+//   3. `id` must be unique across existing entries.
+//   4. No `folder_names` value may already appear in any existing entry.
+//
+// On success, returns the created RepositoryEntry (vision defaults to all-null if omitted).
+//
+// Error codes:
+//   VALIDATION_ERROR — invalid body, duplicate id, folder_names conflict (→ HTTP 400)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param body       - Parsed request body (any shape — validated here).
+export async function handleCreateRepo(ledgerRoot: string, body: unknown): Promise<RepositoryEntry>
+```
+
+### `handleUpdateRepo()`
+
+```typescript
+// PUT /api/repos/:repoId → HTTP 200
+// Updates an existing repository entry (partial update — only supplied fields are overwritten).
+//
+// Updatable fields: `label`, `folder_names`, `vision`.
+// Immutable fields: `id`, `created_at` (never mutated).
+// Always updates: `last_modified` (stamped on every successful write, even a no-op body).
+//
+// Validations:
+//   1. `repoId` must match an existing entry (NOT_FOUND → HTTP 404 otherwise).
+//   2. Body must conform to RepoUpdateBodySchema (.strict() — unknown keys rejected).
+//   3. If `folder_names` is supplied, each value must be unique across all OTHER entries.
+//      The current entry's own folder names are excluded from the conflict check so that
+//      a no-change update (re-submitting the same names) always succeeds (self-conflict allowed).
+//
+// Error codes:
+//   NOT_FOUND        — unknown repoId (→ HTTP 404)
+//   VALIDATION_ERROR — invalid body or folder_names conflict (→ HTTP 400)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field of the repository entry to update.
+// @param body       - Parsed request body (any shape — validated here).
+export async function handleUpdateRepo(
+  ledgerRoot: string,
+  repoId: string,
+  body: unknown
+): Promise<RepositoryEntry>
+```
+
+### `handleDeleteRepo()`
+
+```typescript
+// DELETE /api/repos/:repoId → HTTP 200
+// Removes the repository declaration from the registry.
+//
+// IMPORTANT: This operation does NOT delete any project files or ledger data.
+// It only removes the entry from .repositories.json. After deletion, the freed
+// folder names can be reused by a new repository entry.
+//
+// Error codes:
+//   NOT_FOUND — unknown repoId (→ HTTP 404)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field of the repository entry to remove.
+export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Promise<{ deleted: true }>
+```
+
+---
+
 ## Storage API
 
 ### `SlugConflictError`
@@ -1038,7 +1293,7 @@ class LedgerStore {
   // Reads current meta, merges status + optional cacheUpdates (field-preservation: existing cache
   // fields are preserved unless overridden), validates with ProjectMetaSchema, writes atomically.
   // cacheUpdates fields use `undefined` as a skip sentinel, `null` as an explicit written value for
-  // nullable string fields (project_name, repository_name).
+  // nullable string fields (project_name, repository_name, outcome_summary).
   writeProjectMeta(
     planFile: string,
     status?: string,
@@ -1047,6 +1302,7 @@ class LedgerStore {
       pending_work_packages?: number;
       project_name?: string | null;
       repository_name?: string | null;
+      outcome_summary?: string | null;  // 2–3 sentence synthesis summary; uses key-presence semantics
     }
   ): Promise<void>;
   // Sets the user-visible display title. Reads current meta, updates `title`
@@ -1064,6 +1320,18 @@ class LedgerStore {
 
   // Static
   //
+  // listProjectsByFolderNames() — targeted O(declared folders × projects-per-folder) namespace scan.
+  //   Reads .meta.json from {ledgerRoot}/{folderName}/{slug}/.meta.json for each declared folder name.
+  //   Non-existent or unreadable folder directories are silently skipped (graceful empty return).
+  //   Dot-prefixed sub-entries (e.g. .archive) are skipped.
+  //   Invalid or unparseable .meta.json files are skipped with a stderr warning (non-fatal).
+  //   Returns a flat unsorted array — callers are responsible for sorting and capping.
+  //   Used by ledger_get_repository_context (repository-context.ts).
+  static listProjectsByFolderNames(
+    folderNames: string[],
+    ledgerRoot?: string
+  ): Promise<ProjectMeta[]>;
+
   // listAllProjects() — canonical entry point for slug-to-path resolution.
   // Performs a two-level scan of the ledger root:
   //   Level 1 (flat layout, backward compat): {ledgerRoot}/{slug}/.meta.json
@@ -1291,6 +1559,86 @@ class KnowledgeStoreManager {
 
 ---
 
+### Repository Registry — `src/storage/repository-registry.ts`
+
+Plain-function storage module for the central `.repositories.json` registry. Follows the same `atomicWriteJson` / `withLock` pattern as the rest of the storage layer. No class, no in-memory state, no caching.
+
+**File location:** `{ledgerRoot}/.repositories.json` — stored directly under the ledger root, not inside any project sub-directory.
+
+```typescript
+// Exported from src/storage/repository-registry.ts
+
+// ── Async I/O ──────────────────────────────────────────────────────────────
+
+/**
+ * Reads and parses the `.repositories.json` registry file.
+ *
+ * @remarks
+ * **Lossy-fallback contract:** this function silently merges three distinct
+ * failure modes into a single empty-registry return value:
+ *
+ *   - Absent file (first-run scenario — not an error)
+ *   - Malformed JSON (file exists but cannot be parsed)
+ *   - Schema validation failure (file parses but fails RepositoryRegistrySchema)
+ *
+ * Callers that need to distinguish between "absent" and "corrupt" have no
+ * signal from this function's return value. To detect corruption, call
+ * `saveRegistry()` after a round-trip and catch any thrown errors — or keep
+ * a separate diagnostic channel. A future typed-result shape
+ * `{ registry, source: 'loaded' | 'default' | 'corrupt' }` would expose this
+ * information without a breaking change.
+ *
+ * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @returns Parsed RepositoryRegistry, or { repositories: [] } on any error
+ */
+function loadRegistry(ledgerRoot: string): Promise<RepositoryRegistry>;
+
+/**
+ * Writes the registry to `.repositories.json` atomically under a file lock.
+ *
+ * The lock target is `ledgerRoot` (not the file path), serializing all registry
+ * writes via the same lock used by the rest of the ledger infrastructure.
+ * The write itself uses `atomicWriteJson` (write-to-temp-then-rename).
+ *
+ * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @param registry   - Registry data to persist (validated against RepositoryRegistrySchema before write)
+ * @throws Error if schema validation fails or if the atomic write fails
+ */
+function saveRegistry(ledgerRoot: string, registry: RepositoryRegistry): Promise<void>;
+
+// ── Pure Synchronous Helpers (no I/O) ──────────────────────────────────────
+
+/**
+ * Finds the first registry entry whose `folder_names` array contains the given
+ * folder name (case-sensitive exact match).
+ *
+ * O(n×m) over entries × folder_names — acceptable for the expected registry
+ * size (tens of entries, not thousands).
+ *
+ * @param registry   - In-memory registry obtained from loadRegistry()
+ * @param folderName - Workspace folder name to search for
+ * @returns The matching RepositoryEntry, or null if no entry matches
+ */
+function findByFolderName(registry: RepositoryRegistry, folderName: string): RepositoryEntry | null;
+
+/**
+ * Returns a defensive copy of the entry's `folder_names` array.
+ * Prevents callers from mutating the original entry.
+ *
+ * @param entry - A RepositoryEntry from the registry
+ * @returns A new string[] copy of entry.folder_names
+ */
+function getAllFolderNames(entry: RepositoryEntry): string[];
+```
+
+**Concurrency notes:**
+- `saveRegistry()` acquires `withLock(ledgerRoot, …)` — the same lock used by the ledger store for project-level writes. No cross-lock contention exists between `saveRegistry()` and `LedgerStore.writeRootIndex()` because those two callers lock different paths (`ledgerRoot` vs `store.storageDir`).
+- `loadRegistry()` performs no locking (reads are lock-free, consistent with `LedgerStore` read methods and `KnowledgeStoreManager` reads).
+
+**Consumers:** `api-repos.ts` (WP-006) and `repository-context.ts` (WP-005), both of which resolve `ledgerRoot` via `resolveLedgerRoot()` before calling these functions.
+
+---
+
 ### `migrateToNamespacedLayout()`
 
 ```typescript
@@ -1383,6 +1731,7 @@ interface RootIndex {
   auto_handoff_depth?: number;        // Server-managed loop-guard counter; absent/undefined treated as 0
   synthesis_generated?: boolean;      // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
+  outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
   ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
 }
 
@@ -2536,6 +2885,29 @@ export const _internal: {
 ```
 
 Exposes the two observation Zod schemas for unit-test validation of individual fields (e.g. the `work_package_id` regex `/^WP-\d{3,}$/`) in isolation. Formerly `_schemas` — renamed to `_internal` per §53 in `constraints.md`.
+
+### `src/tools/repository-context.ts` — test-only exports
+
+```typescript
+export const _internal: {
+  // Input schema for ledger_get_repository_context. Exposed for schema-level unit tests.
+  GetRepositoryContextSchema: ZodObject<...>;
+  // Core handler implementation. Exposed for direct unit tests bypassing MCP tool registration.
+  getRepositoryContext: (
+    args: z.infer<typeof GetRepositoryContextSchema>
+  ) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
+  // Safely lists repository-scoped insights. Suppresses slug-validation errors
+  // (messages starting with "Invalid repository name:" or "'global' is a reserved name")
+  // and returns [] for those cases. All other errors (genuine I/O failures: EACCES, EIO,
+  // generic Error) are re-thrown. Exposed for direct unit testing of the narrowed catch logic.
+  safeListRepositoryInsights: (
+    manager: KnowledgeStoreManager,
+    repoName: string
+  ) => Promise<Insight[]>;
+};
+```
+
+> **Test-only boundary:** `_internal` must not be imported from production code. The `@internal` JSDoc tag on the export reinforces this. See §53 in `constraints.md` for the full `_internal` naming convention.
 
 ---
 
@@ -3893,6 +4265,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
 | `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/insights`, `/knowledge`, `/orchestrator` |
 | `utils.js` | Shared utilities: `makeProjectCacheKey()`, `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
+| `components.js` | `UI` IIFE — shared render helpers: `UI.badge()`, `UI.banner()`, `UI.emptyState()` (WP-001); `UI.card()` (WP-006); `UI.filterBar()` (WP-007) |
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
 | `views/project-list.js` | `renderProjectList(app)` — project list table with filter, search, pagination, and action menu |
 | `views/project-detail.js` | `renderProjectDetail(app, repo, slug)`, `extractSynopsis(markdown)`, `renderPlan(app, repo, slug)`, `renderSynthesis(app, repo, slug)`, `showResetModal(repo, slug, diagnosis, options)` |
@@ -4007,9 +4380,9 @@ Dark mode overrides for `.dialogue-btn`, `.dialogue-btn-latest`, and `.dialogue-
 
 | Class | Role |
 |-------|------|
-| `.stale-banner` | Full-width sticky banner for stale-instance warnings; `position:sticky; top:0; z-index:200`; amber palette: `#fef3c7` bg / `#78350f` text / `#f59e0b` bottom border (2 px); no `border-radius` (edge-to-edge); `box-sizing:border-box` |
+| `.stale-banner` | Full-width sticky banner for stale-instance warnings; `position:sticky; top:0; z-index:200`; amber palette via CSS tokens (`--color-banner-stale-bg` / `--color-banner-stale-fg` / `--color-banner-stale-border`): light `#fef3c7` bg / `#78350f` text / `#f59e0b` bottom border (2 px); no `border-radius` (edge-to-edge); `box-sizing:border-box` |
 
-Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf24` text / `#92400e` border. WCAG contrast ratios: light mode **8.15:1**, dark mode **8.97:1** — both exceed WCAG AA (4.5:1).
+Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-stale-fg`: `#fbbf24` / `--color-banner-stale-border`: `#92400e`) — no explicit `[data-theme="dark"] .stale-banner` override block (WP-005). WCAG contrast ratios: light mode **8.15:1**, dark mode **8.97:1** — both exceed WCAG AA (4.5:1).
 
 > **DOM placement:** the banner element must be inserted **before `<header>`** in the DOM. Both the banner and the header use `position:sticky; top:0`; the banner wins the top slot because `z-index:200 > z-index:100`. This ensures the banner remains visible while the header scrolls underneath it.
 
@@ -4036,15 +4409,45 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 **`utils.js`:**
 - **`makeProjectCacheKey(repo, slug)`** — Returns the composite cache key `repo + '/' + slug` used by `ProjectNameCache` and all three call sites (`project-list.js`, `project-detail.js`, `breadcrumb().project()`). Centralises key construction to prevent separator-drift if additional views are added. Plain function declaration (no ES module export) — globally available in the browser context. Added in WP-004 (plan `2026-05-31-orchestrator-sidecar-gui-resume-rework-3`).
 - **Utilities**: `escapeHtml()`, `formatDate()`, `formatDuration(ms)`, `statusBadge()`, `showLoading()`, `showError()`. `formatDuration(ms)` renders a millisecond count as a human-readable string (e.g. `"3m 24s"`, `"1h 12m"`, `"45s"`, `"< 1s"`); returns `'—'` for `null` / negative values.
+  - **`statusBadge(status)`** — delegates to `UI.badge(status, status)` (WP-001 refactor). Preserves its pre-refactor falsy guard (`if (!status) return ''`) before delegating, so null/undefined input still returns an empty string rather than a badge with an empty class suffix. Callers are unaffected; HTML output is byte-identical to the pre-refactor implementation for all real-world status values.
+  - **`showError(container, message)`** — delegates to `UI.banner('error', message)` and sets `container.innerHTML` to the result. Emits `<p class="error-banner">{escaped-message}</p>`. The message is HTML-escaped by `UI.banner()`.
 - **`ProjectNameCache`** — module-scoped bounded singleton (`{ set(key, name), get(key), _size() }`); caches composite `repo + '/' + slug` key → display-name mappings populated by views that fetch project data; `breadcrumb().project()` reads from here automatically. Keys must be constructed via `makeProjectCacheKey(repo, slug)`. Bounded to **200 entries** with FIFO eviction: when the cap is exceeded, the oldest-inserted entry is deleted (shift + delete on an insertion-order `_keys` array). Updating an existing key refreshes its value but does **not** reposition it in the eviction queue (FIFO, not LRU — correct for this use case). Duplicate `set()` calls for the same key are guarded by `Object.prototype.hasOwnProperty.call()` to prevent duplicate entries in the order tracker. `_size()` returns the current entry count and is intended for testing only. `get(key)` falls back to the slug portion (after the last `'/'`) for graceful degradation before project data is fetched.
 - **`breadcrumb()`** — fluent builder that accumulates breadcrumb segments and renders them as a `<p class="breadcrumb">` HTML string. Methods: `projects()` (appends a "Projects" link to `#/`), `project(repo, slug)` (appends a project link to `#/projects/{encodeURIComponent(repo)}/{encodeURIComponent(slug)}` using the display name from `ProjectNameCache` — key constructed via `makeProjectCacheKey(repo, slug)`), `leaf(label)` (appends a plain text segment), `leafSpan(label, id)` (appends a `<span id="…">` segment for inline editing), `html()` (renders and returns the final HTML string). *Signature change (WP-008):* `project()` now requires two arguments `(repo, slug)` — callers that passed a single bare `slug` must be updated to pass `(repo, slug)`.
+
+**`components.js`** (added WP-001):
+- **`UI`** — ES5 IIFE; exposes three pure render helpers as globals (loaded after `utils.js`; depends on `escapeHtml()` from `utils.js`):
+  - **`UI.badge(type, label, opts?)`** → `string` — returns `<span class="badge badge-{normType}">{escaped-label}</span>`. `type` is normalised via `_normaliseType()` (which now HTML-escapes the result). `label` is HTML-escaped via `escapeHtml()`. Optional `opts` object:
+    - `opts.attrs` `{Record<string,string>}` — extra HTML attributes rendered on the `<span>`; all values are HTML-escaped. Example: `{ title: 'tooltip' }` → `title="tooltip"` on the span.
+    - Example: `UI.badge('in-progress', 'In Progress')` → `<span class="badge badge-in-progress">In Progress</span>`.
+    - Example: `UI.badge('fail', 'Error', { attrs: { title: 'Details' } })` → `<span class="badge badge-fail" title="Details">Error</span>`.
+  - **`UI.banner(type, message)`** → `string` — returns `<p class="{normType}-banner">{escaped-message}</p>`. Supports types: `error`, `success`, `info`, `stale`, `warn`. Example: `UI.banner('error', 'Something failed')` → `<p class="error-banner">Something failed</p>`. **Important:** the element tag is `<p>`. `showError()` in `utils.js` delegates to `UI.banner('error', message)` — so `showError()` now also emits `<p class="error-banner">`.
+  - **`UI.emptyState(message)`** → `string` — returns `<p class="text-muted mt-16">{escaped-message}</p>`. Example: `UI.emptyState('No items found')` → `<p class="text-muted mt-16">No items found</p>`.
+  - **`UI.card(title, body, opts?)`** → `string` (added WP-006) — returns `<div class="card">{titleDiv}{body}</div>`. `title` is HTML-escaped via `escapeHtml()`; pass `null`/falsy to omit the title element entirely. `body` is raw HTML (not escaped). Optional `opts` object:
+    - `opts.id` `{string}` — `id` attribute on the wrapper `<div>`.
+    - `opts.dataId` `{string|number}` — `data-id` attribute on the wrapper `<div>`.
+    - `opts.style` `{string}` — additional inline style on the wrapper `<div>`.
+    - `opts.accentColor` `{string}` — sets `border-left-color` as an inline style; combined with `opts.style` when both are present.
+    - `opts.titleStyle` `{string}` — inline style on the `.card-title` `<div>`.
+    - `opts.extraClass` `{string}` — extra CSS class(es) appended to the wrapper (result: `"card {extraClass}"`).
+    - **NOTE:** `opts.style`, `opts.accentColor`, `opts.titleStyle`, and `opts.extraClass` are passed through `_safeAttr()`, which escapes `"` as `&quot;` and returns an empty string for `javascript:` / `</style` patterns. Pass only trusted/literal CSS values (e.g. `'max-width:560px'`, `'var(--color-complete)'`); avoid raw user input.
+    - Escaping summary: `id`, `dataId`, `title` → `escapeHtml()`; `body`, `style`, `accentColor`, `titleStyle`, `extraClass` → verbatim.
+    - Example: `UI.card('Title', '<p>Body</p>')` → `<div class="card"><div class="card-title">Title</div><p>Body</p></div>`.
+    - Example: `UI.card(null, body)` → `<div class="card">{body}</div>`.
+    - Example: `UI.card('Title', body, { accentColor: '#ff0000' })` → `<div class="card" style="border-left-color: #ff0000;">…</div>`.
+  - **`UI.filterBar(containerId, filters)`** → `{ html: string, bind: function }` (added WP-007) — renders a `.filter-bar` wrapper div and returns an object with two properties:
+    - `html` — full HTML string including the outer `<div class="filter-bar" id="{containerId}">` wrapper and all inner controls. All attribute values are HTML-escaped via `escapeHtml()`.
+    - `bind(onChange)` — attaches event listeners to each control (via `document.getElementById(f.id)`; uses `'change'` for selects, `'input'` for text inputs). On any interaction, calls `onChange(state)` where `state` is a plain object `{ [id]: currentValue }` for every filter in the `filters` array. **Must be called after the HTML has been inserted into the DOM** (or after an `outerHTML` replacement, as done in `knowledge.js renderFilterBar()`).
+    - `filters` array — each descriptor supports: `type: 'select'|'text'` (required); `id: string` (required — becomes the element `id`); `label?: string` (optional — renders a `<label for>` before the control; omitted when falsy); `options?: Array<{value, label, selected?}>` (for select — each entry produces an `<option>` with escaped value/label); `optionsHtml?: string` (for select — pre-built `<option>` HTML; takes precedence over `options` when both are provided); `placeholder?: string` (for text inputs); `value?: string` (for text inputs — sets the `value` attribute); `cssClass?: string` (extra CSS class(es) on the control element).
+    - Example: `UI.filterBar('my-bar', [{ type: 'select', id: 'f-status', label: 'Status', options: [{value:'ALL',label:'All',selected:true},{value:'READY',label:'Ready'}] }])` → `{ html: '<div class="filter-bar" id="my-bar"><label for="f-status">Status</label><select id="f-status">...</select></div>', bind: fn }`.
+  - **`_normaliseType(type)`** (private) — lowercases the input and replaces spaces and underscores with hyphens (`/[\s_]+/g → '-'`). Returns `''` for falsy input. **The return value is NOT HTML-escaped** — safe only when called with server-controlled status strings (e.g. `READY`, `IN_PROGRESS`). If `type` ever comes from user-controlled input, wrap the result with `escapeHtml()` at the call site.
+  - **Load-order constraint:** `components.js` must be loaded after `utils.js` (for `escapeHtml()`) and before all view scripts. In `index.html` the dependency order is: `utils.js?v=1` → `components.js?v=1` → views.
 
 **`app.js`:**
 - Bootstrap entry point — calls `Theme.init()` then `Router.init()`
 
 **`js/orchestrator-widgets.js`:**
 - **`OrchestratorWidgets`** — ES5-compatible IIFE; exposes 6 functions on a single global object (does not pollute the global namespace beyond this one name):
-  - `renderStatusCard(entry)` → `string` — HTML card with status badge (`.badge-pending` / `.badge-started` / `.badge-dead`), PID, elapsed running time, and progress summary; all user-controlled values are XSS-escaped via `escapeHtml()`
+  - `renderStatusCard(entry)` → `string` — HTML card (rendered via `UI.card()` with `extraClass` and `accentColor`) with status badge (`.badge-pending` / `.badge-started` / `.badge-dead`), PID, elapsed running time, and progress summary; all user-controlled values are XSS-escaped via `escapeHtml()`. The card wrapper carries a `border-left-color` inline style driven by the run status via `statusMeta().accentColor`: green (`var(--color-complete)`) for `started`, red (`var(--color-blocked)`) for `dead`, amber (`var(--color-in-progress)`) for `pending`
   - `renderKillButton(entryId, onDone)` → `HTMLButtonElement` — requires `window.confirm` before calling `API.orchestratorKill(entryId)`; invokes `onDone` on success
   - `renderDismissButton(entryId, onDone)` → `HTMLButtonElement` — calls `API.orchestratorDismiss(entryId)`; invokes `onDone` on success
   - `formatLogAction(entry)` → `string` — maps a raw JSONL log entry object to a human-friendly display string for the log preview widget; covers all 13 action types (`run_start`, `stage_start`, `stage_complete`, `progress_snapshot`, `tool_call`, `wp_complete`, `wp_status_change`, `run_end`, `run_error`, `signal_shutdown`, `heartbeat`, `mcp_error`, `route`); dynamic cases interpolate `entry.stage`, `entry.tool_name`, `entry.wp_id`, `entry.new_status` with empty-string fallbacks; unknown non-empty actions are title-cased (underscores → spaces); null/undefined entry or missing/falsy `action` field falls through to `JSON.stringify(entry)`; intentionally scoped to the log preview only — does **not** affect `renderProgressBadge`

@@ -35,12 +35,24 @@ _SOURCE: MCP server source directory tree_
         │       └── walkthrough.md
     └── gui/
         ├── api-knowledge.ts
+        ├── api-repos.ts
         ├── api.ts
         ├── chunk-renderer.ts
+        ├── docs/
+        │   ├── agents/
+        │   │   └── project-manifest/
+        │   │       └── README.md
+        │   │       └── api-surface.md
+        │   │       └── constraints.md
+        │   │       └── data-flows.md
+        │   │       └── file-tree.md
+        │   │       └── tech-stack.md
+        │   │       └── ui-components.md
         ├── orchestrator-manager.ts
         ├── public/
         │   ├── api-client.js
         │   ├── app.js
+        │   ├── components.js
         │   ├── index.html
         │   ├── js/
         │   │   ├── orchestrator-widgets.js
@@ -60,6 +72,7 @@ _SOURCE: MCP server source directory tree_
         │   │   └── project-detail.js
         │   │   └── project-list.js
         │   │   └── run-log.js
+        │   │   └── strategy.js
         │   │   └── work-package.js
         ├── server.ts
     └── module-context.yaml
@@ -89,6 +102,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── enums.ts
         │   ├── knowledge.ts
         │   ├── project-meta.ts
+        │   ├── repository-registry.ts
         │   ├── root-index.ts
         │   ├── validators.ts
         │   ├── work-package.ts
@@ -101,6 +115,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── observations.ts
         │   ├── pipeline.ts
         │   ├── project-lifecycle.ts
+        │   ├── repository-context.ts
         │   ├── work-package.ts
         │   ├── workflow-handoff.ts
         │   ├── workflow-next-action-batch.ts
@@ -126,9 +141,11 @@ _SOURCE: MCP server source directory tree_
     └── tests/
         ├── gui-server.test.ts
         ├── gui/
+        │   ├── README.md
         │   ├── api-client.test.ts
         │   ├── api-knowledge.test.ts
         │   ├── api-orchestrator.test.ts
+        │   ├── api-repos.test.ts
         │   ├── api-reset.test.ts
         │   ├── api-run-metadata.test.ts
         │   ├── api-wp-overview.test.ts
@@ -168,6 +185,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── server-info.test.ts
         │   ├── server-knowledge-routes.test.ts
         │   ├── server-queue.test.ts
+        │   ├── setup-gui-globals.ts
         │   ├── stale-check.test.ts
         ├── helpers/
         │   ├── create-temp-store.ts
@@ -180,6 +198,8 @@ _SOURCE: MCP server source directory tree_
         │   ├── knowledge.test.ts
         │   ├── project-archiving-schema.test.ts
         │   ├── project-meta-runner.test.ts
+        │   ├── project-meta.test.ts
+        │   ├── repository-registry.test.ts
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
@@ -199,6 +219,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── pipeline.test.ts
         │   ├── project-lifecycle.test.ts
         │   ├── reopen-cancelled-wp.test.ts
+        │   ├── repository-context.test.ts
         │   ├── rework-circuit-breaker.test.ts
         │   ├── runner-integration.test.ts
         │   ├── schema-integrity.test.ts

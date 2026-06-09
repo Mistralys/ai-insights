@@ -8,6 +8,7 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
         └── public/
             └── api-client.js
             └── app.js
+            └── components.js
             └── js/
                 ├── orchestrator-widgets.js
             └── libs/
@@ -25,6 +26,7 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
                 └── project-detail.js
                 └── project-list.js
                 └── run-log.js
+                └── strategy.js
                 └── work-package.js
 
 ```
@@ -333,6 +335,90 @@ var API = (function () {
         .then(function (data) { return data.content; });
     },
 
+    // -- Repositories (Strategy) ---------------------------------------
+
+    /**
+     * List repositories from the registry, optionally including filesystem-
+     * discovered undeclared namespaces.
+     *
+     * @param {boolean} [includeUndeclared=false] - When true, appends
+     *   `?include_undeclared=true` to the request, causing the server to also
+     *   return namespace directories not covered by any declared repo's
+     *   `folder_names`. Undeclared entries carry `declared: false`.
+     *
+     * Undeclared entry shape (returned only when `includeUndeclared=true`):
+     *   - `declared`     — always `false`
+     *   - `id`           — the filesystem namespace directory name
+     *   - `label`        — same value as `id` (no user-defined label exists)
+     *   - `folder_names` — single-element array: `[id]`
+     *
+     * This identity contract (`id === label === folder_names[0]`) is relied upon
+     * by `wireRegisterButtons()` in strategy.js, which pre-fills the Add
+     * Repository form fields using `r.id`. Specifically:
+     *   - `#new-repo-id`      receives `sanitiseSlug(r.id)` — a SLUG_REGEX-safe
+     *                          lowercase slug (dots, spaces, and special chars
+     *                          replaced; leading non-alphanumeric chars stripped;
+     *                          consecutive hyphens collapsed; trailing hyphens
+     *                          stripped; falls back to 'repo' for empty results).
+     *   - `#new-repo-label`   receives the raw `r.id` (unchanged).
+     *   - `#new-repo-folders` receives the raw `r.id` (unchanged).
+     *
+     * `sanitiseSlug` is a local function scoped inside `renderStrategyList` and
+     * is not accessible from `renderStrategyDetail` or other view functions. If
+     * slug sanitisation is ever needed elsewhere, the function must be duplicated
+     * or elevated to module scope. If the backend undeclared entry shape ever
+     * changes, the pre-fill logic in `wireRegisterButtons` must be updated
+     * accordingly.
+     *
+     * @returns {Promise<object[]>} Parsed JSON response from `GET /api/repos`.
+     */
+    listRepos: function (includeUndeclared) {
+      var qs = includeUndeclared ? '?include_undeclared=true' : '';
+      return request('GET', '/repos' + qs);
+    },
+
+    /**
+     * Fetch a single repository entry by ID.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<object>} Repository detail from `GET /api/repos/{repoId}`.
+     */
+    getRepo: function (repoId) {
+      return request('GET', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    /**
+     * Create a new repository entry in the registry.
+     *
+     * @param {object} data - Repository fields: id, label, folder_names, vision.
+     * @returns {Promise<object>} Created repository from `POST /api/repos`.
+     */
+    createRepo: function (data) {
+      return request('POST', '/repos', data);
+    },
+
+    /**
+     * Update an existing repository entry.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @param {object} data   - Fields to update: label, folder_names, vision.
+     * @returns {Promise<object>} Updated repository from `PUT /api/repos/{repoId}`.
+     */
+    updateRepo: function (repoId, data) {
+      return request('PUT', '/repos/' + encodeURIComponent(repoId), data);
+    },
+
+    /**
+     * Delete a repository entry from the registry.
+     * Does NOT delete any project data or storage.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteRepo: function (repoId) {
+      return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
     // -- Orchestrator --------------------------------------------------
     orchestratorStart: function (planPath, dryRun, resumeThreadId) {
       var body = { planPath: planPath, dryRun: dryRun };
@@ -473,6 +559,231 @@ StaleCheck.init();
 
 
 ```
+###  Path: `/mcp-server/gui/public/components.js`
+
+```js
+/* ============================================================
+   components.js — Shared UI render helpers (UI namespace)
+   Loaded after utils.js; depends on escapeHtml() being
+   available as a global.  Follows the OrchestratorWidgets
+   IIFE-namespace pattern.
+   ============================================================ */
+
+var UI = (function () {
+  'use strict';
+
+  /**
+   * Normalise a type/variant string to a CSS-safe slug:
+   * lowercased, spaces and underscores replaced with hyphens.
+   * The return value is HTML-escaped so it is safe to interpolate directly
+   * into HTML attribute values (e.g. class="badge badge-{type}").
+   * @param {string} type
+   * @returns {string}
+   */
+  function _normaliseType(type) {
+    if (!type) return '';
+    return escapeHtml(type.toLowerCase().replace(/[\s_]+/g, '-'));
+  }
+
+  /**
+   * Render a status/type badge.
+   * @param {string} type  - Badge variant (e.g. 'in-progress', 'COMPLETE').
+   *                         Normalised: lowercased, spaces/underscores → hyphens.
+   * @param {string} label - Visible text inside the badge (HTML-escaped).
+   * @param {object} [opts] - Optional rendering options:
+   *   opts.attrs {object} — Extra HTML attributes rendered on the <span>.
+   *                         Keys are attribute names; values are HTML-escaped.
+   *                         Example: { title: 'tooltip text' }
+   * @returns {string} HTML string.
+   *
+   * Examples:
+   *   UI.badge('in-progress', 'In Progress')
+   *     → '<span class="badge badge-in-progress">In Progress</span>'
+   *
+   *   UI.badge('fail', 'Error', { attrs: { title: 'Details here' } })
+   *     → '<span class="badge badge-fail" title="Details here">Error</span>'
+   */
+  function badge(type, label, opts) {
+    var normType = _normaliseType(type);
+    var o = opts || {};
+    var extraAttrs = '';
+    if (o.attrs) {
+      Object.keys(o.attrs).forEach(function (attr) {
+        extraAttrs += ' ' + attr + '="' + escapeHtml(String(o.attrs[attr])) + '"';
+      });
+    }
+    return '<span class="badge badge-' + normType + '"' + extraAttrs + '>' + escapeHtml(label) + '</span>';
+  }
+
+  /**
+   * Render an alert banner.
+   * @param {string} type    - Banner variant: 'error' | 'success' | 'info' | 'stale'.
+   *                           Normalised and used as the CSS class prefix.
+   * @param {string} message - Message text (HTML-escaped).
+   * @returns {string} HTML string.
+   *
+   * Example: UI.banner('error', 'Something failed')
+   *   → '<p class="error-banner">Something failed</p>'
+   */
+  function banner(type, message) {
+    var normType = _normaliseType(type);
+    return '<p class="' + normType + '-banner">' + escapeHtml(message) + '</p>';
+  }
+
+  /**
+   * Render a muted empty-state paragraph.
+   * @param {string} message - Message text (HTML-escaped).
+   * @returns {string} HTML string.
+   *
+   * Example: UI.emptyState('No items found')
+   *   → '<p class="text-muted mt-16">No items found</p>'
+   */
+  function emptyState(message) {
+    return '<p class="text-muted mt-16">' + escapeHtml(message) + '</p>';
+  }
+
+  /**
+   * Sanitise a value for use inside an HTML attribute (style="" or class="").
+   * - Returns an empty string if the value contains a `javascript:` URL or an
+   *   unescaped `</style` sequence — patterns that could break out of the
+   *   inline-style context.
+   * - Escapes `"` as `&quot;` to prevent attribute-boundary injection.
+   * @private
+   * @param {*} v
+   * @returns {string}
+   */
+  function _safeAttr(v) {
+    var s = String(v == null ? '' : v);
+    if (/javascript\s*:/i.test(s) || /<\/style/i.test(s)) return '';
+    return s.replace(/"/g, '&quot;');
+  }
+
+  /**
+   * Render a card container.
+   * @param {string|null} title  - Card title text (HTML-escaped). Pass null/falsy to
+   *                               omit the title element entirely.
+   * @param {string}      body   - Raw HTML string for the card body (not escaped).
+   * @param {object}      [opts] - Optional rendering options:
+   *   opts.id          {string}        — `id` attribute on the card wrapper div.
+   *   opts.dataId      {string|number} — `data-id` attribute on the card wrapper div.
+   *   opts.style       {string}        — Additional inline style on the card wrapper div.
+   *   opts.accentColor {string}        — Sets `border-left-color` as an inline style.
+   *                                      Combined with opts.style when both are present.
+   *   opts.titleStyle  {string}        — Inline style on the `.card-title` div.
+   *   opts.extraClass  {string}        — Extra CSS class(es) appended to the wrapper.
+   *   NOTE: opts.style, opts.accentColor, opts.titleStyle, and opts.extraClass are
+   *   passed through _safeAttr(), which escapes `"` and rejects `javascript:` /
+   *   `</style` patterns. Pass only trusted/literal CSS strings (e.g.
+   *   'max-width:560px', 'var(--color-complete)'); avoid raw user input.
+   * @returns {string} HTML string.
+   *
+   * Examples:
+   *   UI.card('Title', '<p>Body</p>')
+   *     → '<div class="card"><div class="card-title">Title</div><p>Body</p></div>'
+   *
+   *   UI.card(null, body)
+   *     → '<div class="card">…body…</div>'
+   *
+   *   UI.card('Title', body, { accentColor: '#ff0000' })
+   *     → '<div class="card" style="border-left-color: #ff0000;">…</div>'
+   */
+  function card(title, body, opts) {
+    var o = opts || {};
+
+    var classes = 'card' + (o.extraClass ? ' ' + _safeAttr(o.extraClass) : '');
+
+    var idAttr     = o.id     ? ' id="' + escapeHtml(String(o.id)) + '"'         : '';
+    var dataIdAttr = o.dataId != null ? ' data-id="' + escapeHtml(String(o.dataId)) + '"' : '';
+
+    var styleStr = o.accentColor ? 'border-left-color: ' + _safeAttr(o.accentColor) + ';' : '';
+    if (o.style) styleStr = styleStr ? styleStr + ' ' + _safeAttr(o.style) : _safeAttr(o.style);
+    var styleAttr = styleStr ? ' style="' + styleStr + '"' : '';
+
+    var titleStyleAttr = o.titleStyle ? ' style="' + _safeAttr(o.titleStyle) + '"' : '';
+    var titleHtml = title
+      ? '<div class="card-title"' + titleStyleAttr + '>' + escapeHtml(title) + '</div>'
+      : '';
+
+    return '<div class="' + classes + '"' + idAttr + dataIdAttr + styleAttr + '>' +
+      titleHtml +
+      body +
+    '</div>';
+  }
+
+  /**
+   * Render a filter bar.
+   * @param {string} containerId - id attribute on the outer <div class="filter-bar"> wrapper.
+   * @param {Array}  filters     - Array of filter descriptors:
+   *   { type: 'select'|'text', id: string, label?: string,
+   *     options?: Array<{value,label,selected?}>, optionsHtml?: string,
+   *     placeholder?: string, value?: string, cssClass?: string }
+   * @returns {{ html: string, bind: function }}
+   *   html       — full filter bar HTML including wrapper div
+   *   bind(fn)   — attaches event listeners to each control in the filter bar;
+   *                calls fn({[id]: currentValue, …}) on any change/input event
+   */
+  function filterBar(containerId, filters) {
+    var safeId = escapeHtml(String(containerId));
+    var inner = (filters || []).map(function (f) {
+      var labelHtml = f.label
+        ? '<label for="' + escapeHtml(f.id) + '">' + escapeHtml(f.label) + '</label>'
+        : '';
+      var clsAttr = f.cssClass ? ' class="' + escapeHtml(f.cssClass) + '"' : '';
+
+      if (f.type === 'select') {
+        var optHtml = f.optionsHtml || '';
+        if (!optHtml && f.options) {
+          optHtml = f.options.map(function (o) {
+            var sel = o.selected ? ' selected' : '';
+            return '<option value="' + escapeHtml(String(o.value)) + '"' + sel + '>'
+              + escapeHtml(String(o.label)) + '</option>';
+          }).join('');
+        }
+        return labelHtml + '<select id="' + escapeHtml(f.id) + '"' + clsAttr + '>' + optHtml + '</select>';
+      }
+
+      if (f.type === 'text') {
+        var phAttr  = f.placeholder ? ' placeholder="' + escapeHtml(f.placeholder) + '"' : '';
+        var valAttr = f.value != null ? ' value="' + escapeHtml(String(f.value)) + '"' : '';
+        return labelHtml + '<input type="text" id="' + escapeHtml(f.id) + '"' + clsAttr + phAttr + valAttr + '>';
+      }
+
+      return '';
+    }).join('');
+
+    var html = '<div class="filter-bar" id="' + safeId + '">' + inner + '</div>';
+
+    function bind(onChange) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+      (filters || []).forEach(function (f) {
+        var el = document.getElementById(f.id);
+        if (!el) return;
+        var evt = f.type === 'text' ? 'input' : 'change';
+        el.addEventListener(evt, function () {
+          var state = {};
+          (filters || []).forEach(function (ff) {
+            var fe = document.getElementById(ff.id);
+            state[ff.id] = fe ? fe.value : '';
+          });
+          onChange(state);
+        });
+      });
+    }
+
+    return { html: html, bind: bind };
+  }
+
+  return {
+    badge: badge,
+    banner: banner,
+    emptyState: emptyState,
+    card: card,
+    filterBar: filterBar
+  };
+}());
+
+```
 ###  Path: `/mcp-server/gui/public/js/orchestrator-widgets.js`
 
 ```js
@@ -483,7 +794,7 @@ StaleCheck.init();
    Provides reusable UI components for the orchestrator views.
    Exposes a global OrchestratorWidgets namespace object.
 
-   Depends on: API (api-client.js), escapeHtml (utils.js)
+   Depends on: API (api-client.js), escapeHtml (utils.js), UI (components.js)
    ============================================================ */
 
 var OrchestratorWidgets = (function () {
@@ -512,9 +823,9 @@ var OrchestratorWidgets = (function () {
    * @returns {{ cls: string, label: string }}
    */
   function statusMeta(status) {
-    if (status === 'started') return { cls: 'started', label: 'Started'  };
-    if (status === 'dead')    return { cls: 'dead',    label: 'Dead'     };
-    return                           { cls: 'pending', label: 'Pending'  };
+    if (status === 'started') return { cls: 'started', label: 'Started', accentColor: 'var(--color-complete)'    };
+    if (status === 'dead')    return { cls: 'dead',    label: 'Dead',    accentColor: 'var(--color-blocked)'     };
+    return                           { cls: 'pending', label: 'Pending', accentColor: 'var(--color-in-progress)' };
   }
 
   // ------------------------------------------------------------------
@@ -544,30 +855,24 @@ var OrchestratorWidgets = (function () {
       } catch (_) {}
     }
 
-    var html = '<div class="orchestrator-status-card">';
+    var headerHtml =
+      '<div class="orchestrator-status-header">' +
+        UI.badge(meta.cls, meta.label) +
+        (elapsed
+          ? ' <span class="text-muted orchestrator-elapsed">Running ' + escapeHtml(elapsed) + '</span>'
+          : '') +
+      '</div>';
 
-    // Header: status badge + elapsed time
-    html += '<div class="orchestrator-status-header">';
-    html += '<span class="badge badge-' + escapeHtml(meta.cls) + '">' +
-      escapeHtml(meta.label) + '</span>';
-    if (elapsed) {
-      html += ' <span class="text-muted orchestrator-elapsed">Running ' +
-        escapeHtml(elapsed) + '</span>';
-    }
-    html += '</div>';
+    var bodyHtml =
+      '<div class="orchestrator-status-body">' +
+        '<span class="text-muted orchestrator-pid">PID: ' + escapeHtml(pid) + '</span>' +
+        (progress ? '<div class="orchestrator-progress-summary">' + escapeHtml(progress) + '</div>' : '') +
+      '</div>';
 
-    // Body: PID + progress summary
-    html += '<div class="orchestrator-status-body">';
-    html += '<span class="text-muted orchestrator-pid">PID: ' +
-      escapeHtml(pid) + '</span>';
-    if (progress) {
-      html += '<div class="orchestrator-progress-summary">' +
-        escapeHtml(progress) + '</div>';
-    }
-    html += '</div>';
-
-    html += '</div>';
-    return html;
+    return UI.card(null, headerHtml + bodyHtml, {
+      extraClass: 'orchestrator-status-card',
+      accentColor: meta.accentColor
+    });
   }
 
   // ------------------------------------------------------------------
@@ -818,9 +1123,8 @@ var OrchestratorWidgets = (function () {
   function renderProgressBadge(lastAction) {
     var mapping = (lastAction && PROGRESS_BADGE_MAP[lastAction])
       || { icon: '•', color: 'neutral' };
-    var label = lastAction ? escapeHtml(String(lastAction)) : 'idle';
-    return '<span class="badge badge-' + escapeHtml(mapping.color) + '">' +
-      mapping.icon + ' ' + label + '</span>';
+    var rawLabel = lastAction ? String(lastAction) : 'idle';
+    return UI.badge(mapping.color, mapping.icon + ' ' + rawLabel);
   }
 
   // ------------------------------------------------------------------
@@ -1040,6 +1344,17 @@ var Router = (function () {
 
     if (path === '/orchestrator') {
       renderOrchestrator(app);
+      return;
+    }
+
+    if (path === '/strategy') {
+      renderStrategyList(app);
+      return;
+    }
+
+    var strategyDetailMatch = path.match(/^\/strategy\/([^/]+)$/);
+    if (strategyDetailMatch) {
+      renderStrategyDetail(app, decodeURIComponent(strategyDetailMatch[1]));
       return;
     }
 
@@ -1305,8 +1620,7 @@ function formatDate(isoString) {
 
 function statusBadge(status) {
   if (!status) return '';
-  var cls = 'badge badge-' + status.toLowerCase().replace(/_/g, '-');
-  return '<span class="' + cls + '">' + escapeHtml(status) + '</span>';
+  return UI.badge(status, status);
 }
 
 // Cache of namespaced key → display name, populated by views that fetch project data.
@@ -1407,7 +1721,7 @@ function showLoading(container) {
 }
 
 function showError(container, message) {
-  container.innerHTML = '<div class="error-banner">' + escapeHtml(message) + '</div>';
+  container.innerHTML = UI.banner('error', message);
 }
 
 function formatDuration(ms) {
@@ -1440,7 +1754,7 @@ function renderConfig(app) {
   API.getConfig().then(function (config) {
     app.innerHTML =
       '<div class="page-header"><h1>Configuration</h1></div>' +
-      '<div class="card" style="max-width:560px">' +
+      UI.card(null,
         '<form id="config-form">' +
           '<div class="form-group">' +
             '<label class="form-label" for="auto-handoff">' +
@@ -1473,8 +1787,9 @@ function renderConfig(app) {
           '</div>' +
           '<button type="submit" class="btn btn-primary">Save</button>' +
           '<div id="config-msg"></div>' +
-        '</form>' +
-      '</div>';
+        '</form>',
+        { style: 'max-width:560px' }
+      );
 
     var form = document.getElementById('config-form');
     if (form) {
@@ -1483,13 +1798,13 @@ function renderConfig(app) {
         var autoHandoff = document.getElementById('auto-handoff').checked;
         var maxDepth = parseInt(document.getElementById('max-depth').value, 10);
         if (isNaN(maxDepth) || maxDepth < 1) {
-          document.getElementById('config-msg').innerHTML = '<p class="error-banner">Max handoff depth must be a positive integer.</p>';
+          showError(document.getElementById('config-msg'), 'Max handoff depth must be a positive integer.');
           return;
         }
         var captureDialogues = document.getElementById('capture-dialogues').checked;
         var autoArchiveDays = parseInt(document.getElementById('auto-archive-days').value, 10);
         if (isNaN(autoArchiveDays) || autoArchiveDays < 0) {
-          document.getElementById('config-msg').innerHTML = '<p class="error-banner">Auto-archive days must be a non-negative integer.</p>';
+          showError(document.getElementById('config-msg'), 'Auto-archive days must be a non-negative integer.');
           return;
         }
         // ledger_root intentionally omitted (read-only)
@@ -1498,7 +1813,7 @@ function renderConfig(app) {
             document.getElementById('config-msg').innerHTML = '<p class="success-banner">Configuration saved.</p>';
           })
           .catch(function (err) {
-            document.getElementById('config-msg').innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
+            showError(document.getElementById('config-msg'), 'Save failed: ' + (err.message || String(err)));
           });
       });
     }
@@ -1515,7 +1830,7 @@ function renderConfig(app) {
    views/insights.js — Insights view
    Section 4e of the MCP Server Dashboard SPA
    Depends on: API, Router, escapeHtml, formatDate,
-               showLoading, showError
+               showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderInsights(app) {
@@ -1535,7 +1850,7 @@ function renderInsights(app) {
     });
 
     if (!filtered.length) {
-      return '<p class="text-muted mt-16">No insights found.</p>';
+      return UI.emptyState('No insights found.');
     }
 
     return filtered.map(function (e) {
@@ -1591,45 +1906,45 @@ function renderInsights(app) {
     types.sort();
     projects.sort();
 
-    var typeOptions = types.map(function (t) {
-      return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
-    }).join('');
-    var projectOptions = projects.map(function (p) {
-      return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
-    }).join('');
+    var fb = UI.filterBar('insights-filter-bar', [
+      { type: 'select', id: 'insights-type', label: 'Type:', options:
+        [{ value: 'ALL', label: 'All types' }].concat(types.map(function (t) {
+          return { value: t, label: t };
+        }))
+      },
+      { type: 'select', id: 'insights-priority', label: 'Priority:', options: [
+        { value: 'ALL', label: 'All priorities' },
+        { value: 'high',   label: 'high'   },
+        { value: 'medium', label: 'medium' },
+        { value: 'low',    label: 'low'    }
+      ]},
+      { type: 'select', id: 'insights-project', label: 'Project:', options:
+        [{ value: 'ALL', label: 'All projects' }].concat(projects.map(function (p) {
+          return { value: p, label: p };
+        }))
+      }
+    ]);
 
     app.innerHTML =
       '<div class="page-header"><h1>Insights</h1></div>' +
-      '<div class="insights-filters">' +
-        '<label for="insights-type">Type:</label>' +
-        '<select id="insights-type"><option value="ALL">All types</option>' + typeOptions + '</select>' +
-        '<label for="insights-priority">Priority:</label>' +
-        '<select id="insights-priority"><option value="ALL">All priorities</option>' +
-          '<option value="high">high</option>' +
-          '<option value="medium">medium</option>' +
-          '<option value="low">low</option>' +
-        '</select>' +
-        '<label for="insights-project">Project:</label>' +
-        '<select id="insights-project"><option value="ALL">All projects</option>' + projectOptions + '</select>' +
-      '</div>' +
+      fb.html +
       '<div id="insights-list">' + buildCards() + '</div>';
 
-    // Restore saved filter values and wire change listeners
-    var typeEl = document.getElementById('insights-type');
+    // Restore saved filter values
+    var typeEl  = document.getElementById('insights-type');
     var priorEl = document.getElementById('insights-priority');
-    var projEl = document.getElementById('insights-project');
-    if (typeEl) {
-      typeEl.value = filterType;
-      typeEl.addEventListener('change', function () { filterType = this.value; renderCards(); });
-    }
-    if (priorEl) {
-      priorEl.value = filterPriority;
-      priorEl.addEventListener('change', function () { filterPriority = this.value; renderCards(); });
-    }
-    if (projEl) {
-      projEl.value = filterProject;
-      projEl.addEventListener('change', function () { filterProject = this.value; renderCards(); });
-    }
+    var projEl  = document.getElementById('insights-project');
+    if (typeEl)  typeEl.value  = filterType;
+    if (priorEl) priorEl.value = filterPriority;
+    if (projEl)  projEl.value  = filterProject;
+
+    // Wire filter change events
+    fb.bind(function (state) {
+      filterType     = state['insights-type'];
+      filterPriority = state['insights-priority'];
+      filterProject  = state['insights-project'];
+      renderCards();
+    });
   }
 
   function load() {
@@ -1651,7 +1966,7 @@ function renderInsights(app) {
 /* ============================================================
    views/knowledge.js — Knowledge view
    Section 4f of the MCP Server Dashboard SPA
-   Depends on: API, escapeHtml, formatDate, showLoading, showError
+   Depends on: API, escapeHtml, formatDate, showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderKnowledge(app) {
@@ -1720,40 +2035,35 @@ function renderKnowledge(app) {
     return { categories: categories, repositories: repositories };
   }
 
-  /* ── buildFilterBarHtml ──────────────────────────────────── */
-  function buildFilterBarHtml(categories, repositories) {
-    var catOptions = categories.map(function (c) {
-      return '<option value="' + escapeHtml(c) + '"' + (filterCategory === c ? ' selected' : '') + '>' + escapeHtml(c) + '</option>';
-    }).join('');
+  /* ── buildKnFilters ─── returns { html, bind } for the filter bar ── */
+  function buildKnFilters(categories, repositories) {
+    var catOptions = [{ value: '', label: 'All categories' }].concat(
+      categories.map(function (c) {
+        return { value: c, label: c, selected: filterCategory === c };
+      })
+    );
 
-    var baseBar =
-      '<label for="kn-category">Category:</label>' +
-      '<select id="kn-category" class="form-control form-control-sm">' +
-        '<option value="">All categories</option>' + catOptions +
-      '</select>' +
-      '<label for="kn-query">Search:</label>' +
-      '<input id="kn-query" type="text" class="form-control form-control-sm" placeholder="Title, content or tag…" value="' + escapeHtml(filterQuery) + '">';
+    var filters = [];
 
     if (activeTab === 'repository') {
-      var repoOptions = repositories.map(function (r) {
-        return '<option value="' + escapeHtml(r) + '"' + (filterRepository === r ? ' selected' : '') + '>' + escapeHtml(r) + '</option>';
-      }).join('');
-      return (
-        '<label for="kn-repository">Repository:</label>' +
-        '<select id="kn-repository" class="form-control form-control-sm">' +
-          '<option value="">All repositories</option>' + repoOptions +
-        '</select>' +
-        baseBar
+      var repoOptions = [{ value: '', label: 'All repositories' }].concat(
+        repositories.map(function (r) {
+          return { value: r, label: r, selected: filterRepository === r };
+        })
       );
+      filters.push({ type: 'select', id: 'kn-repository', label: 'Repository:', options: repoOptions, cssClass: 'form-control' });
     }
 
-    return baseBar;
+    filters.push({ type: 'select', id: 'kn-category', label: 'Category:', options: catOptions, cssClass: 'form-control' });
+    filters.push({ type: 'text', id: 'kn-query', label: 'Search:', placeholder: 'Title, content or tag…', value: filterQuery, cssClass: 'form-control' });
+
+    return UI.filterBar('kn-filter-bar', filters);
   }
 
   /* ── buildKnowledgeHtml ──────────────────────────────────── */
   function buildKnowledgeHtml(insights) {
     if (!insights.length) {
-      return '<p class="text-muted mt-16">No knowledge entries found.</p>';
+      return UI.emptyState('No knowledge entries found.');
     }
 
     return insights.map(function (ins) {
@@ -1787,7 +2097,7 @@ function renderKnowledge(app) {
       if (isEditing) {
         var tagsValue = ins.tags ? ins.tags.join(', ') : '';
         var confPct   = formatConfidence(ins.confidence != null ? ins.confidence : 0);
-        return '<div class="card" data-id="' + id + '">' +
+        return UI.card(null,
           '<form id="kn-edit-form-' + id + '">' +
             '<div class="form-group">' +
               '<label class="form-label">Title</label>' +
@@ -1814,8 +2124,9 @@ function renderKnowledge(app) {
               '<button type="button" class="btn btn-sm" data-action="cancel-edit" data-id="' + id + '">Cancel</button>' +
             '</div>' +
             '<div id="kn-edit-msg-' + id + '"></div>' +
-          '</form>' +
-        '</div>';
+          '</form>',
+          { dataId: id }
+        );
       }
 
       /* ── Action buttons ── */
@@ -1837,7 +2148,7 @@ function renderKnowledge(app) {
       if (isMoving) {
         moveHtml =
           '<span class="knowledge-move-input">' +
-            '<input id="kn-move-repo-' + id + '" class="form-control form-control-sm" type="text" placeholder="target-repository-name">' +
+            '<input id="kn-move-repo-' + id + '" class="form-control" type="text" placeholder="target-repository-name">' +
             '<button class="btn btn-primary btn-sm" data-action="confirm-move" data-id="' + id + '" data-scope="' + escapeHtml(ins.scope) + '" data-repository="' + escapeHtml(ins.repository_name || '') + '">Confirm</button>' +
             '<button class="btn btn-sm" data-action="cancel-move" data-id="' + id + '">Cancel</button>' +
           '</span>';
@@ -1857,7 +2168,7 @@ function renderKnowledge(app) {
             : '<span style="font-size:12px">Origin: ' + escapeHtml(ins.origin_plan) + '</span>')
         : '';
 
-      return '<div class="card" data-id="' + id + '">' +
+      return UI.card(null,
         '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
           '<span class="' + scopeBadgeClass + '">' + scopeLabel + '</span>' +
           (ins.category ? '<span class="category-pill">' + escapeHtml(ins.category) + '</span>' : '') +
@@ -1881,8 +2192,9 @@ function renderKnowledge(app) {
           deleteHtml +
           promoteHtml +
           moveHtml +
-        '</div>' +
-      '</div>';
+        '</div>',
+        { dataId: id }
+      );
     }).join('');
   }
 
@@ -1895,6 +2207,7 @@ function renderKnowledge(app) {
     var repositories = vals.repositories;
 
     var filtered = applyFilters();
+    var fb = buildKnFilters(categories, repositories);
 
     app.innerHTML =
       '<div class="page-header"><h1>Knowledge</h1></div>' +
@@ -1902,12 +2215,10 @@ function renderKnowledge(app) {
         '<button class="knowledge-tab' + (activeTab === 'global' ? ' active' : '') + '" data-tab="global">Global</button>' +
         '<button class="knowledge-tab' + (activeTab === 'repository' ? ' active' : '') + '" data-tab="repository">Repository</button>' +
       '</div>' +
-      '<div class="filter-bar" id="kn-filter-bar">' +
-        buildFilterBarHtml(categories, repositories) +
-      '</div>' +
+      fb.html +
       '<div id="knowledge-list">' + buildKnowledgeHtml(filtered) + '</div>';
 
-    wireEvents();
+    wireEvents(fb);
     wireRangeSliders();
   }
 
@@ -1921,10 +2232,16 @@ function renderKnowledge(app) {
    */
   function renderFilterBar() {
     var vals = getDistinctValues(allInsights);
+    var fb = buildKnFilters(vals.categories, vals.repositories);
     var filterBarEl = document.getElementById('kn-filter-bar');
     if (filterBarEl) {
-      filterBarEl.innerHTML = buildFilterBarHtml(vals.categories, vals.repositories);
-      wireFilterBarEvents(filterBarEl);
+      filterBarEl.outerHTML = fb.html;
+      fb.bind(function (state) {
+        if ('kn-category'   in state) filterCategory   = state['kn-category'];
+        if ('kn-repository' in state) filterRepository = state['kn-repository'];
+        if ('kn-query'      in state) filterQuery      = state['kn-query'];
+        renderList();
+      });
     }
   }
 
@@ -1955,34 +2272,8 @@ function renderKnowledge(app) {
     });
   }
 
-  /* ── wireFilterBarEvents ─── attach change/input to filter controls ── */
-  function wireFilterBarEvents(filterBarEl) {
-    var catEl  = filterBarEl.querySelector('#kn-category');
-    var repoEl = filterBarEl.querySelector('#kn-repository');
-    var qEl    = filterBarEl.querySelector('#kn-query');
-
-    if (catEl) {
-      catEl.addEventListener('change', function () {
-        filterCategory = this.value;
-        renderList();
-      });
-    }
-    if (repoEl) {
-      repoEl.addEventListener('change', function () {
-        filterRepository = this.value;
-        renderList();
-      });
-    }
-    if (qEl) {
-      qEl.addEventListener('input', function () {
-        filterQuery = this.value;
-        renderList();
-      });
-    }
-  }
-
   /* ── wireEvents ──────────────────────────────────────────── */
-  function wireEvents() {
+  function wireEvents(fb) {
     /* Tab bar */
     var tabButtons = document.querySelectorAll('.knowledge-tab');
     tabButtons.forEach(function (btn) {
@@ -2010,8 +2301,12 @@ function renderKnowledge(app) {
     });
 
     /* Wire filter bar */
-    var filterBarEl = document.getElementById('kn-filter-bar');
-    if (filterBarEl) wireFilterBarEvents(filterBarEl);
+    fb.bind(function (state) {
+      if ('kn-category'   in state) filterCategory   = state['kn-category'];
+      if ('kn-repository' in state) filterRepository = state['kn-repository'];
+      if ('kn-query'      in state) filterQuery      = state['kn-query'];
+      renderList();
+    });
 
     /* Event delegation for card actions */
     var listEl = document.getElementById('knowledge-list');
@@ -2157,7 +2452,7 @@ function renderKnowledge(app) {
           /* Intentional: inline error preserves form state so the user does not lose
              edits on a transient save failure. All destructive actions (delete/promote/move)
              use showError(app, ...) because they navigate away or remove the card. */
-          if (msgEl) msgEl.innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
+          if (msgEl) showError(msgEl, 'Save failed: ' + (err.message || String(err)));
         });
     });
   }
@@ -2217,7 +2512,7 @@ function renderKnowledge(app) {
 
    Depends on: API (api-client.js), Router (router.js),
                OrchestratorWidgets (js/orchestrator-widgets.js),
-               escapeHtml (utils.js)
+               escapeHtml (utils.js), UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -2324,8 +2619,7 @@ function renderOrchestrator(app) {
     API.orchestratorStart(planPath, true).then(function (result) {
       renderPreflightResults((result && result.checks) ? result.checks : []);
     }).catch(function (err) {
-      resultsEl.innerHTML = '<p class="error-banner">Preflight error: ' +
-        escapeHtml((err && err.message) ? err.message : String(err)) + '</p>';
+      resultsEl.innerHTML = UI.banner('error', 'Preflight error: ' + ((err && err.message) ? err.message : String(err)));
     }).then(function () {
       preflightBtn.disabled = false;
       preflightBtn.textContent = 'Run Preflight';
@@ -2368,10 +2662,7 @@ function renderOrchestrator(app) {
       if (result && result.started) {
         var runStatusFilename = result.runStatusFilename || null;
         planInput.value = '';
-        resultsEl.innerHTML =
-          '<p class="success-banner">✓ Orchestrator launched' +
-          (result.pid ? ' (PID\u00a0' + result.pid + ')' : '') +
-          '. Waiting for the run to appear in the queue below…</p>';
+        resultsEl.innerHTML = UI.banner('success', '\u2713 Orchestrator launched' + (result.pid ? ' (PID\u00a0' + String(result.pid) + ')' : '') + '. Waiting for the run to appear in the queue below\u2026');
         allChecksPassed = false;
         startBtn.disabled = true;
         refreshQueue();
@@ -2388,9 +2679,7 @@ function renderOrchestrator(app) {
               if (!status) return; // file not yet written — run still in progress
               clearInterval(statusPollTimer);
               if (status.result === 'ERROR' && status.error) {
-                resultsEl.innerHTML =
-                  '<p class="error-banner">Run failed: ' +
-                  escapeHtml(status.error) + '</p>';
+                resultsEl.innerHTML = UI.banner('error', 'Run failed: ' + status.error);
               }
               // SUCCESS: queue will reflect the project; leave the banner.
             }).catch(function () {
@@ -2476,8 +2765,7 @@ function renderOrchestrator(app) {
       var planName   = _orchBasename(entry.planPath || '');
       var elapsed    = _orchElapsed(entry.startedAt);
       var isExpanded = !!expandedIds[id];
-      var statusBadgeHtml = '<span class="badge badge-' + escapeHtml(status) + '">' +
-        escapeHtml(_orchStatusLabel(status)) + '</span>';
+      var statusBadgeHtml = UI.badge(status, _orchStatusLabel(status));
       // Progress cell: badge + text summary + optional log link.
       var progressHtml = OrchestratorWidgets.renderProgressBadge(entry.lastAction || null);
       if (entry.progress) {
@@ -2679,7 +2967,8 @@ function _orchElapsed(startedAt) {
    Sections 4b–4d of the MCP Server Dashboard SPA
    Depends on: API, Router, marked, escapeHtml, formatDate,
                statusBadge, showLoading, showError,
-               OrchestratorWidgets (js/orchestrator-widgets.js)
+               OrchestratorWidgets (js/orchestrator-widgets.js),
+               UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -2708,7 +2997,7 @@ async function renderPlan(app, repo, slug) {
         breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load plan document.');
     }
   }
 }
@@ -2730,7 +3019,7 @@ async function renderSynthesis(app, repo, slug) {
         breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load synthesis document.');
     }
   }
 }
@@ -2781,6 +3070,157 @@ function buildRunBadges(item, isActive) {
     badges += '<span class="badge badge-dry-run">Dry Run</span>';
   }
   return badges;
+}
+
+/* ----------------------------------------------------------
+   Orchestrator Toolbar
+   Renders Kill + Resume buttons into toolbarEl.
+   Always visible; buttons are disabled (with explanatory
+   tooltips) when the corresponding action is unavailable.
+
+   opts: {
+     loading:      bool,           — show "Loading…" disabled state
+     hasActiveRun: bool,           — is there an active run?
+     queueEntry:   object|null,    — matching queue entry (kill)
+     runMeta:      object|null,    — run metadata (resume)
+     meta:         object,         — project meta (plan_path, status)
+     repo:         string,
+     slug:         string,
+     app:          Element,        — root element (re-render after resume)
+     onKillDone:   Function,       — called after a successful kill
+   }
+   ---------------------------------------------------------- */
+function renderOrchToolbar(toolbarEl, opts) {
+  if (!toolbarEl) return;
+  toolbarEl.innerHTML = '';
+
+  var loading      = !!opts.loading;
+  var hasActiveRun = !!opts.hasActiveRun;
+  var queueEntry   = opts.queueEntry  || null;
+  var runMeta      = opts.runMeta     || null;
+  var meta         = opts.meta        || {};
+  var repo         = opts.repo        || '';
+  var slug         = opts.slug        || '';
+  var app          = opts.app         || null;
+  var onKillDone   = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
+
+  // ── Kill button ─────────────────────────────────────────────────────
+  var killDisabled = true;
+  var killTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (!hasActiveRun) {
+      killTitle = 'No active run to kill';
+    } else if (!queueEntry) {
+      killTitle = 'Run is active but not found in the queue \u2014 use: node scripts/kill-orchestrator.js --force';
+    } else {
+      killDisabled = false;
+      killTitle    = '';
+    }
+  }
+
+  if (killDisabled) {
+    var killBtn = document.createElement('button');
+    killBtn.type = 'button';
+    killBtn.className = 'btn btn-danger btn-sm orchestrator-kill-btn';
+    killBtn.textContent = 'Kill';
+    killBtn.disabled = true;
+    if (killTitle) killBtn.title = killTitle;
+    toolbarEl.appendChild(killBtn);
+  } else {
+    toolbarEl.appendChild(
+      OrchestratorWidgets.renderKillButton(queueEntry.id, function () {
+        if (onKillDone) onKillDone();
+      })
+    );
+  }
+
+  // ── Resume button ────────────────────────────────────────────────────
+  var resumeDisabled = true;
+  var resumeTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (hasActiveRun) {
+      resumeTitle = 'Cannot resume while a run is active';
+    } else if (!meta.plan_path) {
+      resumeTitle = 'No plan path configured for this project';
+    } else if (meta.status === 'COMPLETE') {
+      resumeTitle = 'Project is already complete \u2014 nothing to resume';
+    } else if (meta.status === 'ARCHIVED') {
+      resumeTitle = 'Project is archived';
+    } else if (!runMeta || !runMeta.thread_id) {
+      resumeTitle = 'No interrupted run found';
+    } else if (runMeta.dry_run === true) {
+      resumeTitle = 'Dry runs cannot be resumed';
+    } else if (runMeta.result === 'SUCCESS') {
+      resumeTitle = 'Last run completed successfully \u2014 nothing to resume';
+    } else {
+      resumeDisabled = false;
+      resumeTitle    = '';
+    }
+  }
+
+  var resumeBtn = document.createElement('button');
+  resumeBtn.id   = 'orch-resume-btn';
+  resumeBtn.type = 'button';
+  resumeBtn.className = 'btn btn-resume btn-sm';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.disabled = resumeDisabled;
+  if (resumeTitle) resumeBtn.title = resumeTitle;
+
+  if (!resumeDisabled) {
+    var threadId = runMeta.thread_id;
+    var planPath = meta.plan_path;
+
+    resumeBtn.addEventListener('click', function () {
+      resumeBtn.disabled = true;
+      resumeBtn.textContent = 'Resuming\u2026';
+      // Remove any stale error banner.
+      var prevErr = document.getElementById('orch-resume-error');
+      if (prevErr) prevErr.remove();
+
+      API.orchestratorStart(planPath, false, threadId).then(function (result) {
+        if (result && result.started) {
+          resumeBtn.textContent = 'Launching\u2026';
+          var pollResume = function () {
+            API.orchestratorGetQueue().then(function (queue) {
+              var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
+                return entry && (entry.effectiveStatus === 'pending' ||
+                                 entry.effectiveStatus === 'started');
+              });
+              if (hasActiveEntry) {
+                Router._clearPolling();
+                if (app) renderProjectDetail(app, repo, slug);
+              }
+            }).catch(function () { /* keep polling */ });
+          };
+          Router._setPolling(pollResume, 3000);
+        } else {
+          resumeBtn.disabled = false;
+          resumeBtn.textContent = 'Resume';
+          var errEl = document.getElementById('orch-resume-error');
+          if (!errEl) {
+            errEl = document.createElement('p');
+            errEl.id = 'orch-resume-error';
+            errEl.className = 'error-banner';
+            toolbarEl.insertAdjacentElement('afterend', errEl);
+          }
+          errEl.textContent = 'Resume could not be started.';
+        }
+      }).catch(function (err) {
+        resumeBtn.disabled = false;
+        resumeBtn.textContent = 'Resume';
+        var errEl = document.getElementById('orch-resume-error');
+        if (!errEl) {
+          errEl = document.createElement('p');
+          errEl.id = 'orch-resume-error';
+          errEl.className = 'error-banner';
+          toolbarEl.insertAdjacentElement('afterend', errEl);
+        }
+        errEl.textContent = 'Resume failed: ' + (err.message || String(err));
+      });
+    });
+  }
+
+  toolbarEl.appendChild(resumeBtn);
 }
 
 function renderProjectDetail(app, repo, slug) {
@@ -2871,7 +3311,7 @@ function renderProjectDetail(app, repo, slug) {
         '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
         '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
-      '<div class="card">' +
+      UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
@@ -2886,8 +3326,8 @@ function renderProjectDetail(app, repo, slug) {
             : '') +
           (project.server_version ? '<br><strong>Server version:</strong> <span class="monospace">v' + escapeHtml(project.server_version) + '</span>' : '') +
           (project.ledger_version ? ' &nbsp; <strong>Spec version:</strong> <span class="monospace">v' + escapeHtml(project.ledger_version) + '</span>' : '') +
-        '</div>' +
-      '</div>' +
+        '</div>'
+      ) +
 
       (function () {
         var synopsisHtml = '';
@@ -2921,10 +3361,10 @@ function renderProjectDetail(app, repo, slug) {
       '<div class="card-title" style="margin-top:24px">Project Comments</div>' +
       commentCards +
 
-      // Orchestrator Runs section — rendered for any project; shown only when logs exist
-      '<div id="orchestrator-runs-wrapper" style="display:none">' +
+      // Orchestrator Runs section — toolbar always visible; runs list shown when logs exist
+      '<div id="orchestrator-runs-wrapper">' +
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
-        '<div id="orch-resume-cell"></div>' +
+        '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
 
@@ -3158,13 +3598,40 @@ function renderProjectDetail(app, repo, slug) {
         if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
       });
     }
-    // Orchestrator Runs — async, non-blocking; section becomes visible only when logs exist
+
+    // Render the toolbar in its initial loading state immediately so buttons are
+    // always visible while the async data loads.
+    renderOrchToolbar(document.getElementById('orch-toolbar'), {
+      loading: true, meta: meta, repo: repo, slug: slug, app: app,
+    });
+
+    // Orchestrator Runs — async, non-blocking
+    // The toolbar is always visible; the runs list section is populated when logs exist.
     API.getRunLogs(repo, slug).then(function (logs) {
       var wrapperEl = document.getElementById('orchestrator-runs-wrapper');
-      var runsEl = document.getElementById('orchestrator-runs-section');
+      var runsEl    = document.getElementById('orchestrator-runs-section');
+      var toolbarEl = document.getElementById('orch-toolbar');
       if (!wrapperEl || !runsEl) return;
-      if (!Array.isArray(logs) || logs.length === 0) return;
-      wrapperEl.style.display = '';
+
+      var hasLogs = Array.isArray(logs) && logs.length > 0;
+
+      if (!hasLogs) {
+        runsEl.innerHTML = '';
+        // No runs yet — fetch runMeta anyway so the Resume button reflects
+        // the correct disabled reason (e.g. "No interrupted run found").
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
+        return;
+      }
 
       // Sort most recent first — filename prefix (YYYYMMDDTHHmmss) is lexicographically
       // sortable, so a descending filename sort is equivalent to a descending date sort.
@@ -3175,7 +3642,7 @@ function renderProjectDetail(app, repo, slug) {
       });
 
       // Only the most recent run can be truly active.
-      var activeItem = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
+      var activeItem     = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
       var activeFilename = activeItem ? (activeItem.filename || '') : null;
 
       // Render the full runs list; called with the matched queue entry (or null).
@@ -3214,46 +3681,15 @@ function renderProjectDetail(app, repo, slug) {
             var statusCardHtml = matchingQueueEntry
               ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
               : '';
-            var cliKillHint = !matchingQueueEntry
-              ? '<p class="orch-cli-kill-hint text-muted">To kill this run: ' +
-                  '<code>node scripts/kill-orchestrator.js --force</code></p>'
-              : '';
             rowHtml +=
               '<div class="orch-active-run-section">' +
                 statusCardHtml +
-                '<div id="orch-active-kill-cell"></div>' +
-                cliKillHint +
                 '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
               '</div>';
           }
 
           return rowHtml;
         }).join('');
-
-        // Inject DOM-based kill button when a matching queue entry exists.
-        if (matchingQueueEntry) {
-          var killCell = document.getElementById('orch-active-kill-cell');
-          if (killCell) {
-            killCell.appendChild(OrchestratorWidgets.renderKillButton(
-              matchingQueueEntry.id,
-              function () {
-                // Re-poll the queue and re-render after kill.
-                API.orchestratorGetQueue().then(function (q) {
-                  var newMatch = null;
-                  if (Array.isArray(q)) {
-                    for (var i = 0; i < q.length; i++) {
-                      if (q[i] && q[i].logFilename === activeFilename) {
-                        newMatch = q[i];
-                        break;
-                      }
-                    }
-                  }
-                  renderRunsList(newMatch);
-                }).catch(function () { renderRunsList(null); });
-              }
-            ));
-          }
-        }
 
         // Start inline log preview for the active run.
         if (activeFilename) {
@@ -3267,7 +3703,10 @@ function renderProjectDetail(app, repo, slug) {
 
       if (activeFilename) {
         // Active run: fetch the queue to find the matching entry, then render.
-        // Polling refreshes the status card and log preview every 5 s.
+        // Polling refreshes the status card, log preview, and toolbar every 5 s.
+        // Run metadata is fetched once — resume is always disabled while active anyway.
+        var runMetaForToolbar = API.getRunMetadata(repo, slug).catch(function () { return null; });
+
         var pollQueue = function () {
           // Drain existing log previews before re-fetching.
           _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
@@ -3284,8 +3723,44 @@ function renderProjectDetail(app, repo, slug) {
               }
             }
             renderRunsList(match);
+            // Update toolbar; runMetaForToolbar is cached after the first resolution.
+            runMetaForToolbar.then(function (runMeta) {
+              renderOrchToolbar(toolbarEl, {
+                hasActiveRun: true,
+                queueEntry:   match,
+                runMeta:      runMeta,
+                meta:         meta,
+                repo:         repo,
+                slug:         slug,
+                app:          app,
+                onKillDone:   function () {
+                  // Re-poll after kill so both the runs list and toolbar reflect
+                  // the new state immediately (without waiting for the next tick).
+                  API.orchestratorGetQueue().then(function (q) {
+                    var newMatch = null;
+                    if (Array.isArray(q)) {
+                      for (var i = 0; i < q.length; i++) {
+                        if (q[i] && q[i].logFilename === activeFilename) { newMatch = q[i]; break; }
+                      }
+                    }
+                    renderRunsList(newMatch);
+                    runMetaForToolbar.then(function (rm) {
+                      renderOrchToolbar(toolbarEl, {
+                        hasActiveRun: true, queueEntry: newMatch, runMeta: rm,
+                        meta: meta, repo: repo, slug: slug, app: app,
+                        onKillDone: function () {},
+                      });
+                    });
+                  }).catch(function () { renderRunsList(null); });
+                },
+              });
+            });
           }).catch(function () {
             renderRunsList(null);
+            renderOrchToolbar(toolbarEl, {
+              hasActiveRun: true, queueEntry: null, runMeta: null,
+              meta: meta, repo: repo, slug: slug, app: app,
+            });
           });
         };
 
@@ -3295,80 +3770,24 @@ function renderProjectDetail(app, repo, slug) {
         // No active run — render without queue interaction.
         renderRunsList(null);
 
-        // Resume button: show when run metadata indicates a resumable interrupted run.
-        var resumeCell = document.getElementById('orch-resume-cell');
-        if (resumeCell && meta.plan_path &&
-            meta.status !== 'COMPLETE' && meta.status !== 'ARCHIVED') {
-
-          // showResumeError: reusable helper that creates the error banner on first
-          // call and reuses it on subsequent calls. The getElementById guard prevents
-          // duplicate DOM nodes if the user triggers multiple failed resume attempts
-          // (e.g. rapid re-clicks after the button is re-enabled on error).
-          function showResumeError(msg) {
-            var errEl = document.getElementById('orch-resume-error');
-            if (!errEl) {
-              errEl = document.createElement('p');
-              errEl.id = 'orch-resume-error';
-              errEl.className = 'error-banner';
-              resumeCell.appendChild(errEl);
-            }
-            errEl.textContent = msg;
-          }
-
-          API.getRunMetadata(repo, slug).then(function (runMeta) {
-            if (!runMeta || !runMeta.thread_id ||
-                runMeta.dry_run === true || runMeta.result === 'SUCCESS') {
-              return;
-            }
-            var threadId = runMeta.thread_id;
-            var planPath = meta.plan_path;
-
-            var resumeBtn = document.createElement('button');
-            resumeBtn.id = 'orch-resume-btn';
-            resumeBtn.className = 'btn btn-resume';
-            resumeBtn.textContent = 'Resume Run';
-
-            resumeBtn.addEventListener('click', function () {
-              resumeBtn.disabled = true;
-              resumeBtn.textContent = 'Resuming\u2026';
-
-              API.orchestratorStart(planPath, false, threadId).then(function (result) {
-                if (result && result.started) {
-                  resumeBtn.textContent = 'Launching\u2026';
-                  // Poll the queue; re-render the full view once an active entry appears.
-                  var pollResume = function () {
-                    API.orchestratorGetQueue().then(function (queue) {
-                      var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
-                        return entry && (entry.effectiveStatus === 'pending' ||
-                                        entry.effectiveStatus === 'started');
-                      });
-                      if (hasActiveEntry) {
-                        Router._clearPolling();
-                        renderProjectDetail(app, repo, slug);
-                      }
-                    }).catch(function () { /* keep polling */ });
-                  };
-                  Router._setPolling(pollResume, 3000);
-                } else {
-                  resumeBtn.disabled = false;
-                  resumeBtn.textContent = 'Resume Run';
-                  showResumeError('Resume could not be started.');
-                }
-              }).catch(function (err) {
-                resumeBtn.disabled = false;
-                resumeBtn.textContent = 'Resume Run';
-                showResumeError('Resume failed: ' + (err.message || String(err)));
-              });
-            });
-
-            resumeCell.appendChild(resumeBtn);
-          }).catch(function () {
-            // Metadata unavailable — silently skip resume button.
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
           });
-        }
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
       }
     }).catch(function () {
-      // Silent failure — don't show error for projects without logs
+      // Silent failure — update toolbar to show correct disabled state.
+      renderOrchToolbar(document.getElementById('orch-toolbar'), {
+        hasActiveRun: false, queueEntry: null, runMeta: null,
+        meta: meta, repo: repo, slug: slug, app: app,
+      });
     });
 
   }).catch(function (err) {
@@ -3728,7 +4147,7 @@ function showResetModal(repo, slug, diagnosis, options) {
    views/project-list.js — Project List view
    Section 4a of the MCP Server Dashboard SPA
    Depends on: API, Router, escapeHtml, formatDate, statusBadge,
-               showLoading, showError
+               showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderProjectList(app) {
@@ -3754,6 +4173,10 @@ function renderProjectList(app) {
 
   var lastTotalPages = 1;
   var searchDebounceTimer = null;
+
+  // ── Repository label lookup (populated on first load, refreshed each load) ──
+  // Maps folder_name → { label: string, id: string } for label resolution in buildTable.
+  var repoFolderMap = {};
 
   // ── Action menu (kebab dropdown) state ──
   var openMenuWrapper = null;
@@ -3797,7 +4220,7 @@ function renderProjectList(app) {
   function runnerBadge(runner) {
     var safeRunner = runner && runner !== 'unknown' ? runner : 'unknown';
     var label = RUNNER_LABELS[safeRunner] || (runner ? runner : 'Unknown');
-    return '<span class="badge badge-runner badge-runner-' + escapeHtml(safeRunner) + '">' + escapeHtml(label) + '</span>';
+    return UI.badge('runner-' + safeRunner, label);
   }
 
   // ── Build runner filter dropdown options ──
@@ -3848,7 +4271,7 @@ function renderProjectList(app) {
 
   function buildTable(projects) {
     if (!projects.length) {
-      return '<p class="text-muted mt-16">No projects found.</p>';
+      return UI.emptyState('No projects found.');
     }
 
     function thSort(label, key) {
@@ -3879,9 +4302,20 @@ function renderProjectList(app) {
         console.warn('[project-list] project "' + p.slug + '" has no repository_name — rendering as read-only row');
         nameCell = '<td title="' + escapeHtml(p.slug) + '">' + projectName + '</td>';
       }
+
+      // Resolve raw folder name to a declared repository label (if registered).
+      // Falls back to the raw folder name when no match is found in the registry.
+      var repoEntry = repo ? repoFolderMap[repo] : null;
+      var repoCell;
+      if (repoEntry) {
+        repoCell = '<td class="repo-col"><a href="#/strategy/' + encodeURIComponent(repoEntry.id) + '" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
+      } else {
+        repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
+      }
+
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
         nameCell +
-        '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>' +
+        repoCell +
         '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
@@ -4002,6 +4436,12 @@ function renderProjectList(app) {
       searchSelEnd = prevSearchEl.selectionEnd || 0;
     }
 
+    var plFb = UI.filterBar('pl-filter-bar', [
+      { type: 'text',   id: 'project-search', placeholder: 'Search projects\u2026', value: currentSearch },
+      { type: 'select', id: 'status-filter',  label: 'Status:', optionsHtml: buildStatusOptions(statusCounts) },
+      { type: 'select', id: 'runner-filter',  label: 'Runner:', optionsHtml: buildRunnerOptions(runnerCounts) }
+    ]);
+
     app.innerHTML =
       '<div class="page-header">' +
         '<h1>Projects</h1>' +
@@ -4009,13 +4449,7 @@ function renderProjectList(app) {
           '<button class="btn btn-secondary btn-sm" id="refresh-btn">\u21bb Refresh</button>' +
         '</div>' +
       '</div>' +
-      '<div class="filter-bar">' +
-        '<input type="text" id="project-search" placeholder="Search projects\u2026" value="' + escapeHtml(currentSearch) + '">' +
-        '<label for="status-filter">Status:</label>' +
-        '<select id="status-filter">' + buildStatusOptions(statusCounts) + '</select>' +
-        '<label for="runner-filter">Runner:</label>' +
-        '<select id="runner-filter">' + buildRunnerOptions(runnerCounts) + '</select>' +
-      '</div>' +
+      plFb.html +
       buildTable(projects) +
       buildPagination(envelope.page, envelope.total_pages, envelope.total, envelope.limit);
 
@@ -4051,43 +4485,36 @@ function renderProjectList(app) {
       });
     }
 
-    // Status filter
-    var filterEl = document.getElementById('status-filter');
-    if (filterEl) {
-      filterEl.addEventListener('change', function () {
-        currentStatus = this.value;
-        localStorage.setItem(STATUS_STORAGE, currentStatus);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Runner filter
-    var runnerFilterEl = document.getElementById('runner-filter');
-    if (runnerFilterEl) {
-      runnerFilterEl.addEventListener('change', function () {
-        currentRunner = this.value;
-        localStorage.setItem(RUNNER_STORAGE, currentRunner);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Search with 300ms debounce
-    var searchEl = document.getElementById('project-search');
-    if (searchEl) {
-      searchEl.addEventListener('input', function () {
-        var val = this.value;
+    // Filter bar events
+    plFb.bind(function (state) {
+      var newSearch = state['project-search'];
+      if (newSearch !== currentSearch) {
+        // Search changed — debounce the reload
         clearTimeout(searchDebounceTimer);
+        currentSearch = newSearch;
         searchDebounceTimer = setTimeout(function () {
-          currentSearch = val;
           currentPage = 1;
           load();
         }, 300);
-      });
+        return;
+      }
+      // Status or runner changed — update localStorage and reload immediately
+      if (state['status-filter'] !== currentStatus) {
+        currentStatus = state['status-filter'];
+        localStorage.setItem(STATUS_STORAGE, currentStatus);
+      }
+      if (state['runner-filter'] !== currentRunner) {
+        currentRunner = state['runner-filter'];
+        localStorage.setItem(RUNNER_STORAGE, currentRunner);
+      }
+      currentPage = 1;
+      load();
+    });
 
-      // Restore focus and cursor position if search was active before re-render
-      if (searchHadFocus) {
+    // Restore focus and cursor position if search was active before re-render
+    if (searchHadFocus) {
+      var searchEl = document.getElementById('project-search');
+      if (searchEl) {
         searchEl.focus();
         searchEl.setSelectionRange(searchSelStart, searchSelEnd);
       }
@@ -4227,15 +4654,31 @@ function renderProjectList(app) {
   }
 
   function load() {
-    API.getProjects({
-      page: currentPage,
-      limit: pageLimit,
-      status: currentStatus,
-      search: currentSearch,
-      sort: currentSort,
-      dir: currentDir,
-      runner: currentRunner || undefined,
-    }).then(function (envelope) {
+    Promise.all([
+      API.getProjects({
+        page: currentPage,
+        limit: pageLimit,
+        status: currentStatus,
+        search: currentSearch,
+        sort: currentSort,
+        dir: currentDir,
+        runner: currentRunner || undefined,
+      }),
+      API.listRepos().catch(function () { return []; }),
+    ]).then(function (results) {
+      var envelope = results[0];
+      var repos = results[1] || [];
+
+      // Build a folder_name → { label, id } lookup map from the registry.
+      // A single repository can have multiple folder_names; all map to the same label.
+      repoFolderMap = {};
+      repos.forEach(function (r) {
+        var label = r.label || r.id;
+        (r.folder_names || []).forEach(function (fn) {
+          repoFolderMap[fn] = { label: label, id: r.id };
+        });
+      });
+
       render(envelope);
     }).catch(function (err) {
       showError(app, 'Failed to load projects: ' + (err.message || String(err)));
@@ -4257,7 +4700,7 @@ function renderProjectList(app) {
    views/run-log.js — Orchestrator Run Log Viewer
    Section 4e of the MCP Server Dashboard SPA
 
-   Depends on: API, Router, escapeHtml, formatDate, showLoading, showError
+   Depends on: API, Router, escapeHtml, formatDate, showLoading, showError, UI (components.js)
    ============================================================ */
 
 /* ----------------------------------------------------------
@@ -4321,7 +4764,7 @@ function buildRunEventContent(entry) {
       const plan = entry.plan ? String(entry.plan) : '';
       // Show just the plan filename, not the full path
       const planName = plan ? escapeHtml(plan.split('/').pop() || plan) : '';
-      const dryRunBadge = entry.dry_run ? ' <span class="badge badge-dry-run">Dry Run</span>' : '';
+      const dryRunBadge = entry.dry_run ? ' ' + UI.badge('dry-run', 'Dry Run') : '';
       let html = '<strong>Run started</strong>' + dryRunBadge;
       if (planName) html += ' &mdash; ' + planName;
       if (threadId) html += '<br><span class="text-muted monospace" style="font-size:11px">Thread: ' + threadId + '</span>';
@@ -4348,16 +4791,15 @@ function buildRunEventContent(entry) {
     }
     case 'stage_complete': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      const result = entry.result ? escapeHtml(String(entry.result)) : '';
+      const result = entry.result ? String(entry.result) : '';
       const dur = formatDurationSec(entry.duration_s);
       const tok = formatTokens(entry.tokens_used);
       const details = [];
       if (dur) details.push(dur);
       if (tok) details.push(tok);
-      const resultClass = result === 'PASS' ? 'badge badge-pass' : (result === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
       return '<strong>Stage complete</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
-        (result ? ' <span class="' + resultClass + '">' + result + '</span>' : '') +
+        (result ? ' ' + UI.badge(result === 'PASS' ? 'pass' : (result === 'FAIL' ? 'fail' : 'neutral'), result) : '') +
         (details.length ? ' <span class="text-muted">(' + escapeHtml(details.join(', ')) + ')</span>' : '');
     }
     case 'stage_error': {
@@ -4380,11 +4822,10 @@ function buildRunEventContent(entry) {
       const summaryArr = Array.isArray(entry.summary) ? entry.summary : [];
       const dur = formatDurationSec(entry.duration_s);
 
-      const statusClass = pStatus === 'PASS' ? 'badge badge-pass' : (pStatus === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
       let html = '<strong>Pipeline result</strong>';
       if (pType) html += ' &mdash; <em>' + pType + '</em>';
       if (wpId) html += ' for <strong>' + wpId + '</strong>';
-      if (pStatus) html += ' <span class="' + statusClass + '">' + escapeHtml(pStatus) + '</span>';
+      if (pStatus) html += ' ' + UI.badge(pStatus === 'PASS' ? 'pass' : (pStatus === 'FAIL' ? 'fail' : 'neutral'), pStatus);
 
       // Details line
       const detailBits = [];
@@ -4428,12 +4869,12 @@ function buildRunEventContent(entry) {
     }
     case 'wp_status_change': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      const oldSt = entry.old_status ? escapeHtml(String(entry.old_status)) : '?';
-      const newSt = entry.new_status ? escapeHtml(String(entry.new_status)) : '?';
+      const oldSt = entry.old_status ? String(entry.old_status) : '?';
+      const newSt = entry.new_status ? String(entry.new_status) : '?';
       return '<strong>' + wpId + '</strong> status: ' +
-        '<span class="badge badge-neutral">' + oldSt + '</span>' +
+        UI.badge('neutral', oldSt) +
         ' \u2192 ' +
-        '<span class="badge badge-neutral">' + newSt + '</span>';
+        UI.badge('neutral', newSt);
     }
     case 'wp_complete': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
@@ -4496,18 +4937,18 @@ function buildRunEventContent(entry) {
     case 'dry_run': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
       const stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Stage skipped</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>Stage skipped</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         (stg ? ' &mdash; <em>' + stg + '</em>' : '');
     }
     case 'dry_run_no_ledger': {
       const detail = entry.detail ? escapeHtml(String(entry.detail)) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>No ledger</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>No ledger</strong>' +
         (detail ? ' &mdash; <span class="text-muted">' + detail + '</span>' : '');
     }
     case 'dry_run_complete': {
       const reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Dry run complete</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>Dry run complete</strong>' +
         (reason ? ' &mdash; <span class="text-muted">' + reason + '</span>' : '');
     }
 
@@ -4525,7 +4966,7 @@ function buildRunEventContent(entry) {
       let html = '<span class="text-muted" style="font-size:11px;margin-right:4px">&#9881; tool</span>' +
         '<span class="monospace" style="font-size:12px">' + displayName + '</span>';
       if (isCrossWp) {
-        html += ' <span class="badge badge-fail" title="Tool targeted ' + escapeHtml(toolWpId) + ' but stage is running ' + escapeHtml(stageWpId) + '">&#9888; cross-WP: ' + escapeHtml(toolWpId) + '</span>';
+        html += ' ' + UI.badge('fail', '\u26a0 cross-WP: ' + toolWpId, { attrs: { title: 'Tool targeted ' + toolWpId + ' but stage is running ' + stageWpId } });
       } else if (toolWpId && toolWpId !== stageWpId) {
         // tool_wp_id present but stageWpId is empty (e.g. PM stage)
         html += ' <span class="text-muted" style="font-size:11px">WP: ' + escapeHtml(toolWpId) + '</span>';
@@ -4722,9 +5163,7 @@ function renderRunLog(app, repo, slug, filename) {
       // Non-fatal: log to stderr equivalent and continue polling
       var statusEl = document.getElementById('run-status-message');
       if (statusEl) {
-        statusEl.innerHTML =
-          '<p class="error-banner" style="margin-top:8px">Failed to fetch new entries: ' +
-          escapeHtml((err && err.message) || String(err)) + '</p>';
+        showError(statusEl, 'Failed to fetch new entries: ' + ((err && err.message) || String(err)));
       }
     });
   }
@@ -4766,6 +5205,434 @@ function renderRunLog(app, repo, slug, filename) {
   }).catch(function (err) {
     showError(app, 'Failed to load run log: ' + ((err && err.message) || String(err)));
   });
+}
+
+```
+###  Path: `/mcp-server/gui/public/views/strategy.js`
+
+```js
+/* ============================================================
+   views/strategy.js — Strategy view (Repository List + Detail/Editor)
+   Section 4g of the MCP Server Dashboard SPA
+   Depends on: API, Router, escapeHtml, showLoading, showError
+
+   Rendering model (renderStrategyList):
+     The list view uses a partial-render pattern to preserve Add Repository
+     form state across toggle interactions. The DOM is divided into three
+     independent areas:
+       #strategy-toggle-area  — rebuilt on every render pass
+       #strategy-table-area   — rebuilt on every render pass
+       #add-repo-form (card)  — written once at initial render; never touched
+                                by refreshTable(), so in-flight field values
+                                and validation messages are preserved when the
+                                user toggles the "Show undeclared repositories"
+                                checkbox.
+   ============================================================ */
+
+
+/* ── renderStrategyList ──────────────────────────────────────
+   Renders the repository list at #/strategy.
+   Shows: label, folder names, vision status; Add Repository form.
+   Includes a "Show undeclared repositories" checkbox that re-fetches
+   with ?include_undeclared=true and renders undeclared entries with a
+   muted visual style and a "Register" button that pre-fills the form.
+   ─────────────────────────────────────────────────────────── */
+function renderStrategyList(app) {
+  showLoading(app);
+
+  API.listRepos(false).then(function (repos) {
+    renderList(repos, false);
+  }).catch(function (err) {
+    showError(app, 'Failed to load repositories: ' + (err.message || String(err)));
+  });
+
+  function visionStatus(repo) {
+    if (!repo.has_vision) return '<span class="badge badge-blocked">No vision</span>';
+    return repo.has_full_vision
+      ? '<span class="badge badge-complete">Full vision</span>'
+      : '<span class="badge badge-in-progress">Partial vision</span>';
+  }
+
+  /**
+   * Builds the checkbox toggle HTML for showing/hiding undeclared repositories.
+   * The checked state is preserved across re-renders so the UI doesn't flicker.
+   */
+  function buildToggleHtml(checked) {
+    return (
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">' +
+        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:14px">' +
+          '<input type="checkbox" id="show-undeclared-cb" class="form-check"' + (checked ? ' checked' : '') + '>' +
+          'Show undeclared repositories' +
+        '</label>' +
+      '</div>'
+    );
+  }
+
+  function buildTableHtml(repos) {
+    if (!repos.length) {
+      return '<p class="text-muted mt-16">No repositories declared yet. Use the form below to add one.</p>';
+    }
+    var rows = repos.map(function (r) {
+      var folderNames = (r.folder_names || []).map(escapeHtml).join(', ') || '<em class="text-muted">—</em>';
+      if (r.declared === false) {
+        /* Undeclared (filesystem-discovered) entry — muted row with Register button */
+        return (
+          '<tr style="opacity:0.6">' +
+            '<td>' +
+              '<span class="text-muted" style="font-style:italic">' + escapeHtml(r.label || r.id) + '</span>' +
+              ' <span class="badge badge-archived" style="font-size:10px;vertical-align:middle">Undeclared</span>' +
+            '</td>' +
+            '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
+            '<td class="text-muted">' + folderNames + '</td>' +
+            '<td>' +
+              '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '">Register</button>' +
+            '</td>' +
+          '</tr>'
+        );
+      }
+      return (
+        '<tr>' +
+          '<td><a href="#/strategy/' + encodeURIComponent(r.id) + '">' + escapeHtml(r.label || r.id) + '</a></td>' +
+          '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
+          '<td>' + folderNames + '</td>' +
+          '<td>' + visionStatus(r) + '</td>' +
+        '</tr>'
+      );
+    }).join('');
+    return (
+      '<table class="data-table">' +
+        '<thead><tr>' +
+          '<th>Label</th>' +
+          '<th>ID</th>' +
+          '<th>Folder Names</th>' +
+          '<th>Vision</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>'
+    );
+  }
+
+  /**
+   * Re-renders only the repo table and toggle, preserving the Add Repository
+   * form and its current field values. Called on checkbox toggle.
+   */
+  function refreshTable(checked) {
+    var toggleEl = document.getElementById('strategy-toggle-area');
+    var tableEl = document.getElementById('strategy-table-area');
+    if (toggleEl) toggleEl.innerHTML = buildToggleHtml(checked);
+    if (tableEl) tableEl.innerHTML = '<p class="text-muted" style="font-size:13px">Loading\u2026</p>';
+
+    API.listRepos(checked).then(function (repos) {
+      if (tableEl) tableEl.innerHTML = buildTableHtml(repos);
+      wireRegisterButtons();
+      wireToggle();
+    }).catch(function (err) {
+      if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
+      wireToggle();
+    });
+  }
+
+  /**
+   * Transforms a raw filesystem directory name into a valid SLUG_REGEX slug.
+   * Rules applied in order:
+   *   1. Lowercase
+   *   2. Replace any character that is not [a-z0-9_-] with a hyphen
+   *   3. Strip any leading characters that are not alphanumeric
+   *   4. Collapse consecutive hyphens into a single hyphen
+   *   5. Strip any trailing hyphens
+   *   6. Fall back to 'repo' if the result is empty
+   */
+  function sanitiseSlug(raw) {
+    var slug = raw
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/^[^a-z0-9]+/, '')
+      .replace(/-{2,}/g, '-')
+      .replace(/-+$/, '');
+    return slug || 'repo';
+  }
+
+  /** Wires the "Register" buttons on undeclared rows to pre-fill the Add form. */
+  function wireRegisterButtons() {
+    var tableEl = document.getElementById('strategy-table-area');
+    if (!tableEl) return;
+    tableEl.querySelectorAll('[data-register-folder]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var folderName = btn.getAttribute('data-register-folder');
+        var idInput = document.getElementById('new-repo-id');
+        var labelInput = document.getElementById('new-repo-label');
+        var foldersInput = document.getElementById('new-repo-folders');
+        if (idInput) idInput.value = sanitiseSlug(folderName);
+        if (labelInput) labelInput.value = folderName;
+        if (foldersInput) foldersInput.value = folderName;
+        /* Scroll the Add Repository form into view */
+        var formCard = document.getElementById('add-repo-form');
+        if (formCard) formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (idInput) idInput.focus();
+      });
+    });
+  }
+
+  /** Wires the Show undeclared checkbox change handler after each re-render. */
+  function wireToggle() {
+    var cb = document.getElementById('show-undeclared-cb');
+    if (!cb) return;
+    cb.addEventListener('change', function () {
+      refreshTable(cb.checked);
+    });
+  }
+
+  function renderList(repos, checked) {
+    app.innerHTML =
+      '<div class="page-header">' +
+        '<h1>Strategy</h1>' +
+        '<p class="text-muted">Manage repository declarations and strategic vision.</p>' +
+      '</div>' +
+      '<div id="strategy-toggle-area">' + buildToggleHtml(checked) + '</div>' +
+      '<div id="strategy-table-area">' + buildTableHtml(repos) + '</div>' +
+      '<div class="card mt-24" style="max-width:560px">' +
+        '<h2 style="margin-top:0">Add Repository</h2>' +
+        '<form id="add-repo-form">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="new-repo-id">ID <span class="text-muted">(slug, e.g. my-project)</span></label>' +
+            '<input type="text" id="new-repo-id" class="form-control" placeholder="my-project" required>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="new-repo-label">Label</label>' +
+            '<input type="text" id="new-repo-label" class="form-control" placeholder="My Project">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="new-repo-folders">Folder Names <span class="text-muted">(comma-separated)</span></label>' +
+            '<input type="text" id="new-repo-folders" class="form-control" placeholder="my-project, my-project-dev">' +
+          '</div>' +
+          '<button type="submit" class="btn btn-primary">Add Repository</button>' +
+          '<div id="add-repo-msg"></div>' +
+        '</form>' +
+      '</div>';
+
+    wireRegisterButtons();
+    wireToggle();
+
+    var form = document.getElementById('add-repo-form');
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var msgEl = document.getElementById('add-repo-msg');
+      var id = (document.getElementById('new-repo-id').value || '').trim();
+      var label = (document.getElementById('new-repo-label').value || '').trim();
+      var foldersRaw = (document.getElementById('new-repo-folders').value || '').trim();
+      var folderNames = foldersRaw
+        ? foldersRaw.split(',').map(function (f) { return f.trim(); }).filter(Boolean)
+        : [];
+
+      if (!id) {
+        showError(msgEl, 'ID is required.');
+        return;
+      }
+
+      if (!folderNames.length) {
+        showError(msgEl, 'At least one folder name is required.');
+        return;
+      }
+
+      msgEl.innerHTML = '';
+      API.createRepo({ id: id, label: label || id, folder_names: folderNames })
+        .then(function () {
+          Router.navigate('#/strategy/' + encodeURIComponent(id));
+        })
+        .catch(function (err) {
+          showError(msgEl, 'Failed to create repository: ' + (err.message || String(err)));
+        });
+    });
+  }
+}
+
+/* ── renderStrategyDetail ────────────────────────────────────
+   Renders the repository detail/editor at #/strategy/:repoId.
+   Shows: editable label, folder names (add/remove), three-field
+          vision editor (short-term, mid-term, long-term),
+          save button, breadcrumb navigation.
+   ─────────────────────────────────────────────────────────── */
+function renderStrategyDetail(app, repoId) {
+  showLoading(app);
+
+  API.getRepo(repoId).then(function (repo) {
+    renderDetail(repo);
+  }).catch(function (err) {
+    if (err.code === 'NOT_FOUND' || (err.message && err.message.indexOf('404') !== -1)) {
+      showError(app, 'Repository not found: ' + escapeHtml(repoId));
+    } else {
+      showError(app, 'Failed to load repository: ' + (err.message || String(err)));
+    }
+  });
+
+  function buildFolderListHtml(folderNames) {
+    if (!folderNames || !folderNames.length) {
+      return '<p class="text-muted" id="folder-empty-note">No folder names added yet.</p>';
+    }
+    return folderNames.map(function (f, i) {
+      return (
+        '<div class="folder-entry" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<input type="text" class="form-control folder-name-input" data-folder-idx="' + i + '" value="' + escapeHtml(f) + '" style="flex:1">' +
+          '<button type="button" class="btn btn-danger btn-sm" data-remove-folder="' + i + '">Remove</button>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  /* Reads all folder name inputs from the DOM in index order. */
+  function collectFolderNamesFromDOM() {
+    var result = [];
+    document.querySelectorAll('.folder-name-input').forEach(function (inp) {
+      var val = inp.value.trim();
+      if (val) result.push(val);
+    });
+    return result;
+  }
+
+  function renderDetail(repo) {
+    var vision = repo.vision || {};
+    /* Working copy — mutated by add/remove, then merged with DOM on save. */
+    var folderNames = (repo.folder_names || []).slice();
+
+    function rebuildFolderSection() {
+      var container = document.getElementById('folder-list');
+      if (container) {
+        container.innerHTML = buildFolderListHtml(folderNames);
+        wireRemoveButtons();
+      }
+    }
+
+    function wireRemoveButtons() {
+      var container = document.getElementById('folder-list');
+      if (!container) return;
+      container.querySelectorAll('[data-remove-folder]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          /* Capture any in-flight edits before splicing */
+          folderNames = collectFolderNamesFromDOM();
+          var idx = parseInt(btn.getAttribute('data-remove-folder'), 10);
+          folderNames.splice(idx, 1);
+          rebuildFolderSection();
+        });
+      });
+    }
+
+    app.innerHTML =
+      '<div class="breadcrumb">' +
+        '<a href="#/strategy">Strategy</a>' +
+        ' &rsaquo; ' +
+        escapeHtml(repo.label || repo.id) +
+      '</div>' +
+      '<div class="page-header">' +
+        '<h1>' + escapeHtml(repo.label || repo.id) + '</h1>' +
+        '<p class="text-muted">ID: <code>' + escapeHtml(repo.id) + '</code></p>' +
+      '</div>' +
+      '<div class="card" style="max-width:680px">' +
+        '<form id="detail-form">' +
+          '<h2 style="margin-top:0">Metadata</h2>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="repo-label">Label</label>' +
+            '<input type="text" id="repo-label" class="form-control" value="' + escapeHtml(repo.label || '') + '">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label">Folder Names</label>' +
+            '<div id="folder-list">' + buildFolderListHtml(folderNames) + '</div>' +
+            '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+              '<input type="text" id="new-folder-input" class="form-control" placeholder="Add folder name\u2026" style="flex:1">' +
+              '<button type="button" id="add-folder-btn" class="btn btn-secondary btn-sm">Add</button>' +
+            '</div>' +
+          '</div>' +
+          '<h2 style="margin-top:24px">Strategic Vision</h2>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="vision-short">Short-term</label>' +
+            '<textarea id="vision-short" class="form-control" rows="4" placeholder="Short-term goals and priorities\u2026">' + escapeHtml(vision.short_term || '') + '</textarea>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="vision-mid">Mid-term</label>' +
+            '<textarea id="vision-mid" class="form-control" rows="4" placeholder="Mid-term direction and milestones\u2026">' + escapeHtml(vision.mid_term || '') + '</textarea>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="vision-long">Long-term</label>' +
+            '<textarea id="vision-long" class="form-control" rows="4" placeholder="Long-term aspirations and vision\u2026">' + escapeHtml(vision.long_term || '') + '</textarea>' +
+          '</div>' +
+          '<div style="display:flex;gap:12px;align-items:center">' +
+            '<button type="submit" class="btn btn-primary">Save Changes</button>' +
+            '<a href="#/strategy" class="btn btn-secondary">Cancel</a>' +
+          '</div>' +
+          '<div id="detail-msg"></div>' +
+        '</form>' +
+      '</div>';
+
+    wireRemoveButtons();
+
+    /* ── Add folder button ─────────────────────────────────── */
+    var addFolderBtn = document.getElementById('add-folder-btn');
+    var newFolderInput = document.getElementById('new-folder-input');
+    if (addFolderBtn && newFolderInput) {
+      function doAddFolder() {
+        var val = newFolderInput.value.trim();
+        if (!val) return;
+        /* Capture any in-flight edits before pushing */
+        folderNames = collectFolderNamesFromDOM();
+        folderNames.push(val);
+        newFolderInput.value = '';
+        rebuildFolderSection();
+      }
+
+      addFolderBtn.addEventListener('click', doAddFolder);
+      newFolderInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          doAddFolder();
+        }
+      });
+    }
+
+    /* ── Save form ─────────────────────────────────────────── */
+    var form = document.getElementById('detail-form');
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var msgEl = document.getElementById('detail-msg');
+
+      var currentFolderNames = collectFolderNamesFromDOM();
+      if (!currentFolderNames.length) {
+        showError(msgEl, 'At least one folder name is required.');
+        return;
+      }
+
+      var payload = {
+        label:        (document.getElementById('repo-label').value || '').trim() || repo.id,
+        folder_names: currentFolderNames,
+        vision: {
+          short_term: (document.getElementById('vision-short').value || '').trim() || null,
+          mid_term:   (document.getElementById('vision-mid').value   || '').trim() || null,
+          long_term:  (document.getElementById('vision-long').value  || '').trim() || null,
+        },
+      };
+
+      msgEl.innerHTML = '';
+      API.updateRepo(repoId, payload)
+        .then(function (updated) {
+          msgEl.innerHTML = '<p class="success-banner">Changes saved.</p>';
+          /* Refresh page header label if it changed */
+          var h1 = app.querySelector('.page-header h1');
+          if (h1) h1.textContent = updated.label || updated.id;
+          var breadcrumb = app.querySelector('.breadcrumb');
+          if (breadcrumb) {
+            breadcrumb.innerHTML =
+              '<a href="#/strategy">Strategy</a>' +
+              ' &rsaquo; ' +
+              escapeHtml(updated.label || updated.id);
+          }
+        })
+        .catch(function (err) {
+          showError(msgEl, 'Save failed: ' + (err.message || String(err)));
+        });
+    });
+  }
 }
 
 ```
@@ -4823,10 +5690,10 @@ function buildWpDetailBar(wp) {
     '</span>';
   }).join('');
 
-  return '<div class="card">' +
-    '<div class="card-title" style="margin-bottom:8px">Pipeline Progression</div>' +
-    '<div class="pipeline-track">' + badges + '</div>' +
-  '</div>';
+  return UI.card('Pipeline Progression',
+    '<div class="pipeline-track">' + badges + '</div>',
+    { titleStyle: 'margin-bottom:8px' }
+  );
 }
 
 function renderWorkPackageDetail(app, repo, slug, wpId) {
@@ -4900,9 +5767,11 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
       return acc.concat(p.handoff_notes || []);
     }, []);
     var handoffHtml = handoffNotes.length
-      ? '<div class="card"><div class="card-title">Handoff Notes</div><ul class="pipeline-summary">' +
-          handoffNotes.map(function (n) { return '<li>' + escapeHtml(n) + '</li>'; }).join('') +
-        '</ul></div>'
+      ? UI.card('Handoff Notes',
+          '<ul class="pipeline-summary">' +
+            handoffNotes.map(function (n) { return '<li>' + escapeHtml(n) + '</li>'; }).join('') +
+          '</ul>'
+        )
       : '';
 
     app.innerHTML =
@@ -4911,20 +5780,18 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
       '</div>' +
-      '<div class="card">' +
+      UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '—') + ' &nbsp; ' +
           '<strong>Dependencies:</strong> ' + escapeHtml((wp.dependencies || []).join(', ') || 'none') +
-        '</div>' +
-      '</div>' +
+        '</div>'
+      ) +
       (acHtml
-        ? '<div class="card"><div class="card-title">Acceptance Criteria</div>' +
-            '<ul class="ac-list">' + acHtml + '</ul>' +
-          '</div>'
+        ? UI.card('Acceptance Criteria', '<ul class="ac-list">' + acHtml + '</ul>')
         : '') +
       buildWpDetailBar(wp) +
       (pipelinesHtml
-        ? '<div class="card"><div class="card-title">Pipelines</div>' + wpTimingHtml + pipelinesHtml + '</div>'
+        ? UI.card('Pipelines', wpTimingHtml + pipelinesHtml)
         : '') +
       handoffHtml +
       '<div id="wp-dialogues-section"></div>';
@@ -4949,11 +5816,9 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
       var entries = useChunks ? chunks : dialogues;
 
       if (!entries || entries.length === 0) {
-        dialoguesEl.innerHTML =
-          '<div class="card">' +
-            '<div class="card-title">Dialogues</div>' +
-            '<p class="text-muted">No dialogues available for this work package.</p>' +
-          '</div>';
+        dialoguesEl.innerHTML = UI.card('Dialogues',
+          '<p class="text-muted">No dialogues available for this work package.</p>'
+        );
         return;
       }
 
@@ -4991,11 +5856,7 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
         '</div>';
       }).join('');
 
-      dialoguesEl.innerHTML =
-        '<div class="card" id="wp-dialogues-card">' +
-          '<div class="card-title">Dialogues</div>' +
-          stagesHtml +
-        '</div>';
+      dialoguesEl.innerHTML = UI.card('Dialogues', stagesHtml, { id: 'wp-dialogues-card' });
 
       // Track the currently expanded button
       var activeBtn = null;
@@ -5060,11 +5921,9 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
       });
     }).catch(function (err) {
       if (!dialoguesEl) return;
-      dialoguesEl.innerHTML =
-        '<div class="card">' +
-          '<div class="card-title">Dialogues</div>' +
-          '<p class="text-danger">Failed to load dialogues: ' + escapeHtml(err.message || String(err)) + '</p>' +
-        '</div>';
+      dialoguesEl.innerHTML = UI.card('Dialogues',
+        '<p class="text-danger">Failed to load dialogues: ' + escapeHtml(err.message || String(err)) + '</p>'
+      );
     });
   }).catch(function (err) {
     showError(app, 'Failed to load work package: ' + (err.message || String(err)));

@@ -61,7 +61,7 @@ The MCP server solves these problems by:
 
 ### Architecture
 
-The server exposes **22 MCP tools** that agents invoke to manage project state:
+The server exposes **25 MCP tools** that agents invoke to manage project state:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -86,6 +86,7 @@ The server exposes **22 MCP tools** that agents invoke to manage project state:
          │   JSON Files on Disk │
          ├──────────────────────┤
          │ storage/ledger/      │
+         │   .repositories.json  │ ← Central repository registry
          │   {slug}/             │ ← Per-project subfolder
          │     .meta.json        │ ← Project metadata
          │     project-ledger.json│ ← Root index
@@ -105,7 +106,7 @@ The server exposes **22 MCP tools** that agents invoke to manage project state:
 
 ### Data Model
 
-The server manages three types of files, all stored under the centralized ledger root:
+The server manages several types of files, all stored under the centralized ledger root:
 
 1. **Project Metadata** (`storage/ledger/{slug}/.meta.json`): Lightweight per-project summary
    - Slug, original plan path, current status, timestamps
@@ -118,6 +119,7 @@ The server manages three types of files, all stored under the centralized ledger
    - Project-level comments and incidents
    - Auto-handoff loop-guard counter (`auto_handoff_depth`, server-managed, max 10 before fallback to manual routing)
    - Synthesis completion flag (`synthesis_generated`, set by `ledger_complete_synthesis`)
+   - Outcome summary (`outcome_summary`, a 2–3 sentence project summary written by the Synthesis agent via `ledger_complete_synthesis`; also propagated to `.meta.json`)
 
 3. **Work Package Details** (`storage/ledger/{slug}/WP-###.json`): Per-task implementation details
    - Acceptance criteria and completion status
@@ -135,7 +137,14 @@ The server manages three types of files, all stored under the centralized ledger
    - Both are served as formatted HTML by the GUI (`#/projects/:repo/:slug/plan` and `#/projects/:repo/:slug/synthesis`)
    - Copies are best-effort; each tool response includes `archived_documents[]` and, when relevant, `archive_skipped[]`
 
-All four file types are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation.
+6. **Repository Registry** (`storage/ledger/.repositories.json`): Central cross-project registry of repository entries
+   - Stored directly under the ledger root (not inside any project sub-directory)
+   - Each entry holds an `id`, `label`, one or more `folder_names`, a three-horizon `vision`, and timestamps
+   - Read and written via `src/storage/repository-registry.ts` — a plain-function storage module that follows the same `atomicWriteJson` / `withLock` pattern as the rest of the storage layer
+   - **Lossy-fallback contract:** `loadRegistry()` returns `{ repositories: [] }` for all three error conditions — absent file, malformed JSON, and schema validation failure. Callers that need to distinguish these cases should check the write side (`saveRegistry()`) for errors rather than relying on load-time throws.
+   - Used by `ledger_get_repository_context` (WP-005) to resolve workspace folder names and surface strategic vision to the Planner agent
+
+All project-level file types (items 1–5) are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation. The repository registry (item 6) is managed independently via its own storage module.
 
 ---
 
@@ -502,18 +511,80 @@ Five methods on the `API` object (in `api-client.js`) back the Knowledge page (`
 
 **Coercion rule:** All four mutating methods (`updateKnowledge`, `deleteKnowledge`, `promoteKnowledge`, `moveKnowledge`) use `repositoryName || undefined` to drop falsy names. This is safe in practice because repository names are always non-empty strings — the only exception is `moveKnowledge`'s `targetRepositoryName`, which is intentionally **not** coerced because a move always requires an explicit destination.
 
+#### GUI Frontend — Strategy view (`views/strategy.js`)
+
+The Strategy page (`#/strategy`, `#/strategy/:repoId`) is implemented in **Section 4g** of the SPA module list — `gui/public/views/strategy.js`. It provides the full repository CRUD UI: a list view showing all declared repositories with vision status badges, and a detail/editor view for managing a single repository's label, folder names, and three-horizon strategic vision.
+
+**Module dependencies (declared in the file-level comment):**
+
+| Dependency | Source | Purpose |
+|---|---|---|
+| `API` | `api-client.js` | HTTP calls to all five repo CRUD endpoints |
+| `Router` | `router.js` | `Router.navigate()` for SPA transitions |
+| `escapeHtml` | `utils.js` | XSS-safe HTML rendering of user-supplied strings |
+| `showLoading` | `utils.js` | Standard loading-state placeholder |
+| `showError` | `utils.js` | Standard error-banner rendering |
+
+`strategy.js` is loaded **before** `app.js` in `index.html` (script ordering: `strategy.js?v=1` → `app.js?v=2`), ensuring `renderStrategyList` and `renderStrategyDetail` are defined before `Router.init()` dispatches on page load.
+
+**Five `API` methods used** (all defined in `api-client.js`, follow the same single-line `request()` pattern):
+
+- **`API.listRepos()`** — `GET /api/repos` — called by `renderStrategyList`; returns `RepoListItem[]`
+- **`API.getRepo(id)`** — `GET /api/repos/:repoId` — called by `renderStrategyDetail`; returns full `RepositoryEntry`
+- **`API.createRepo(body)`** — `POST /api/repos` — called by the Add Repository form submit handler
+- **`API.updateRepo(id, body)`** — `PUT /api/repos/:repoId` — called by the Save Changes form handler in `renderStrategyDetail`
+- **`API.deleteRepo(id)`** — `DELETE /api/repos/:repoId` — available for future use (not yet wired in the UI)
+
+**Vision status display (`visionStatus()`):**
+
+`visionStatus()` maps the two booleans returned in `RepoListItem` to a three-state badge:
+- `!has_vision` → `badge-blocked` ("No vision")
+- `has_vision && !has_full_vision` → `badge-in-progress` ("Partial vision")
+- `has_full_vision` → `badge-complete` ("Full vision")
+
+**Register button pre-fill (`wireRegisterButtons()` + `sanitiseSlug()`):**
+
+When the user clicks a "Register" button on an undeclared repository row, `wireRegisterButtons()` pre-fills the Add Repository form using `folderName` (the raw filesystem directory name from `data-register-folder`). The three fields are filled as follows:
+
+| Field | Value |
+|---|---|
+| `#new-repo-id` | `sanitiseSlug(folderName)` — SLUG_REGEX-safe slug |
+| `#new-repo-label` | raw `folderName` (unchanged) |
+| `#new-repo-folders` | raw `folderName` (unchanged) |
+
+`sanitiseSlug(raw)` is a pure helper scoped **inside** `renderStrategyList` (not accessible from `renderStrategyDetail` or other view functions). It applies the following transformations in order:
+1. Lowercase
+2. Replace any character not in `[a-z0-9_-]` with a hyphen
+3. Strip any leading characters that are not alphanumeric
+4. Collapse consecutive hyphens into a single hyphen
+5. Strip any trailing hyphens
+6. Fall back to `'repo'` if the result is empty
+
+This prevents a `VALIDATION_ERROR` for users whose ledger root contains directories with dots, spaces, or special characters. The server still enforces `SLUG_REGEX` independently — `sanitiseSlug` is a UI convenience only.
+
+**Design constraint:** `sanitiseSlug` is intentionally scoped inside `renderStrategyList` (consistent with the existing inner-function nesting pattern: `buildToggleHtml`, `buildTableHtml`, `refreshTable`, `wireRegisterButtons`, `wireToggle`). If slug sanitisation is needed in `renderStrategyDetail` or another view, the function must be duplicated or elevated to module scope.
+
+**Client-side validation (enforced before API calls):**
+
+Both the Add Repository form and the detail Save Changes handler validate input before making API calls:
+- **Add Repository form:** Rejects empty `id` (required); rejects empty `folder_names` array after splitting the comma-separated input — shows `'At least one folder name is required.'` error banner.
+- **Detail Save handler:** Collects `folder_names` via `collectFolderNamesFromDOM()` before building the payload; rejects an empty array with the same error banner without calling the API. Vision textarea values are coerced to `null` when empty (`|| null` after `.trim()`), matching the server-side `StrategicVisionSchema` constraint that rejects empty strings but accepts `null`.
+
 ---
 
 ## Available Tools
 
-The server exposes 22 MCP tools organized by category:
+The server exposes 25 MCP tools organized by category:
 
 ### Project Lifecycle
 - `ledger_get_project_status` — Read project overview
 - `ledger_initialize_project` — Create new ledger
 - `ledger_list_projects` — List all tracked projects (optionally filter by status)
 - `ledger_detect_project` — Auto-detect project from a workspace path
-- `ledger_complete_synthesis` — Mark synthesis as generated; transitions project to COMPLETE if all WPs are done
+- `ledger_complete_synthesis` — Mark synthesis as generated; requires `outcome_summary` (a 2–3 sentence summary persisted to both root index and `.meta.json`); transitions project to COMPLETE if all WPs are done
+
+### Repository Context
+- `ledger_get_repository_context` — Returns a compact project timeline with curated outcome summaries, relevant knowledge-base insights, and strategic vision for a repository. Gives the Planner agent access to prior project history within the same repository. Accepts `cwd_path` (auto-derives the repository name from the workspace root) or `repository_name` (explicit override — takes precedence over `cwd_path`). When both are supplied, `repository_name` wins. Optional: `include_insights` (default: `true` — returns `relevant_insights[]` from the knowledge store; `false` returns an empty `relevant_insights[]` array), `max_projects` (default: `5`)
 
 ### Work Packages
 - `ledger_get_work_package` — Read full WP details
@@ -522,6 +593,7 @@ The server exposes 22 MCP tools organized by category:
 - `ledger_claim_work_package` — Start working on a WP
 - `ledger_update_work_package_status` — Update WP status
 - `ledger_reset_rework_count` — Reset rework counter for a pipeline type on a WP (PM-only)
+- `ledger_reopen_cancelled_wp` — Reopen an incorrectly cancelled WP back to READY (PM-only)
 - `ledger_update_acceptance_criteria` — Add, remove, or modify acceptance criteria on a WP (PM-only)
 
 ### Pipelines
@@ -530,6 +602,12 @@ The server exposes 22 MCP tools organized by category:
 - `ledger_complete_pipeline` — Record results and artifacts
 - `ledger_cancel_pipeline` — Cancel a stale IN_PROGRESS pipeline (marks it FAIL)
 - `ledger_update_pipeline_progress` — Update summary of an IN_PROGRESS pipeline without completing it
+
+### Knowledge
+- `ledger_add_insight` — Add a reusable insight to the global or repository-scoped knowledge base
+- `ledger_search_insights` — Search insights by query string, category, tags, or scope
+- `ledger_list_insights` — List all insights with optional filters and pagination
+- `ledger_update_insight` — Update an existing insight by ID
 
 ### Observations
 - `ledger_add_observation` — Add comment to pipeline

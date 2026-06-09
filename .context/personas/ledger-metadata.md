@@ -36,8 +36,8 @@ vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
-version: "1.5.0"
-last_updated: "2026-05-20"
+version: "1.6.0"
+last_updated: "2026-06-05"
 tools:
   - vscode
   - execute
@@ -47,11 +47,18 @@ tools:
   - web
   - agent
   - todo
+  - central_pm/*
 
-has_mcp: false
+has_mcp: true
 has_detect_project: false
 self_documenting_note: false
 has_incident_logging: false
+
+mcp_tools:
+  - tool: ledger_get_repository_context
+    purpose: "Retrieve prior project history and outcome summaries for the current repository to inform planning decisions."
+  - tool: ledger_search_insights
+    purpose: "Search the knowledge base for reusable insights and patterns relevant to the current planning request."
 
 ```
 ###  Path: `/personas/ledger/src/meta/2-project-manager.yaml`
@@ -440,7 +447,7 @@ mcp_tools:
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
   - tool: ledger_complete_synthesis
-    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
+    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. Pass `outcome_summary` — a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. Write this summary before calling the tool."
   - tool: ledger_get_handoff_status
     purpose: Compute the final AGENT/STATUS handoff block.
   - tool: ledger_help

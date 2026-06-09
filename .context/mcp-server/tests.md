@@ -13,9 +13,11 @@ _SOURCE: Test suite directory structure_
     └── tests/
         └── gui-server.test.ts
         └── gui/
+            ├── README.md
             ├── api-client.test.ts
             ├── api-knowledge.test.ts
             ├── api-orchestrator.test.ts
+            ├── api-repos.test.ts
             ├── api-reset.test.ts
             ├── api-run-metadata.test.ts
             ├── api-wp-overview.test.ts
@@ -55,6 +57,7 @@ _SOURCE: Test suite directory structure_
             ├── server-info.test.ts
             ├── server-knowledge-routes.test.ts
             ├── server-queue.test.ts
+            ├── setup-gui-globals.ts
             ├── stale-check.test.ts
         └── helpers/
             ├── create-temp-store.ts
@@ -67,6 +70,8 @@ _SOURCE: Test suite directory structure_
             ├── knowledge.test.ts
             ├── project-archiving-schema.test.ts
             ├── project-meta-runner.test.ts
+            ├── project-meta.test.ts
+            ├── repository-registry.test.ts
             ├── root-index.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
@@ -77,6 +82,7 @@ _SOURCE: Test suite directory structure_
             ├── list-all-projects.test.ts
             ├── migrate-namespaced.test.ts
             ├── project-meta.test.ts
+            ├── repository-registry.test.ts
             ├── slug-resolution.test.ts
         └── tools/
             ├── begin-work.test.ts
@@ -94,6 +100,7 @@ _SOURCE: Test suite directory structure_
             ├── pipeline.test.ts
             ├── project-lifecycle.test.ts
             ├── reopen-cancelled-wp.test.ts
+            ├── repository-context.test.ts
             ├── rework-circuit-breaker.test.ts
             ├── runner-integration.test.ts
             ├── schema-integrity.test.ts
