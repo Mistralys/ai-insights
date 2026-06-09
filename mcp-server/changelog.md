@@ -1,15 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.0.2 - **WIP - UNRELEASED**
-- GUI: Fixed the Orchestrator "Resume" button failing.
-- Fixed plan folder without `plan.md` appended not being recognized.
-
-## v2.0.1 - Register Button Slug Sanitiser
-- GUI: Added `sanitiseSlug(raw)` helper inside `renderStrategyList` in `strategy.js`.
-- GUI: "Register" button now pre-fills `#new-repo-id` with a sanitised slug (lowercase, special chars replaced with hyphens, leading non-alphanumeric chars stripped, consecutive and trailing hyphens collapsed, fallback to `'repo'`).
-- GUI: `#new-repo-label` and `#new-repo-folders` continue to receive the raw folder name (unchanged).
-- GUI: Removed `/* NOTE: ... */` comment that documented the previous pre-fill gap.
-- Docs: Documented `sanitiseSlug` scope constraint (local to `renderStrategyList`, not reusable from other views) in `README.md` and `api-client.js`.
+## v2.1.0 - Repository Context and Strategy View
+- Tools: Added `ledger_get_repository_context` for cross-project history and outcome access.
+- Storage: Added repository registry with CRUD operations and filesystem-discovery API.
+- Schema: Added `outcome_summary` to project metadata for cross-project result tracking.
+- GUI: Added Strategy page for registering and managing repositories.
+- GUI: Register form pre-fills the ID field with a sanitised slug derived from the folder name.
+- GUI: Introduced `components.js` UI component library; views refactored to shared patterns.
+- GUI: Fixed Orchestrator "Resume" button failing.
+- GUI: Improved plan folder validation in the orchestrator launch form.
+- Tests: Added shared GUI test setup module; hardened UI component and repository API coverage.
 
 ## v2.0.0 - Knowledge Storage
 - Workflow: Fixed some cancellation edge cases.

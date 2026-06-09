@@ -1,7 +1,17 @@
 # AI Insights Changelog
 
-## v2.0.1 - **UNRELEASED**
-- GUI: Fixed the Orchestrator "Resume" button failing.
+## v2.1.0 - Repository History and Planner Expansion
+> mcp v2.1.0 · personas v3.23.0
+
+- MCP: Added `ledger_get_repository_context` tool for cross-project history and outcome access.
+- MCP: Added repository registry with CRUD operations and filesystem-discovery.
+- GUI: Added Strategy page for registering and managing repositories.
+- GUI: Introduced shared UI component library; dashboard views refactored.
+- GUI: Register form pre-fills ID with a sanitised slug derived from the folder name.
+- GUI: Fixed Orchestrator "Resume" button failing.
+- Personas: Planner gains repository history access via the new repository context tool.
+- Personas: Added standalone Planner persona for non-ledger workflows.
+- Personas: Synthesis gains deferred items collection; Plan Architect Reviewer improved.
 
 ## v2.0.0 - Knowledge Storage
 > mcp v2.0.0 · orchestrator v1.0.0 · personas v3.22.0

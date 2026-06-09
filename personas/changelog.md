@@ -1,12 +1,12 @@
 # Personas Changelog
 
-## v3.23.0 - **WIP - UNRELEASED**
-- Ledger: Planner: Inlined unique partials.
-- Ledger: Planner: Add knowledge and strategy with new MCP tools.
-- Standalone: Added Planner persona — ledger-independent variant.
-- Ledger: Synthesis: Added deferred items collection to the operational protocol.
-- Standalone: Plan Reviewer: Improved review philosophy.
-- Standalone: Knowledge Archiver: Added local archiving task support.
+## v3.23.0 - Planner Repository History and Standalone Planner
+- Ledger: Planner gains repository history access via `ledger_get_repository_context`.
+- Ledger: Planner content restructured; shared partials inlined.
+- Standalone: Added Planner — ledger-independent variant for non-ledger workflows.
+- Ledger: Synthesis gains deferred items collection to the operational protocol.
+- Standalone: Plan Architect Reviewer: Improved review philosophy.
+- Standalone: Knowledge Archiver gains local archiving task marker file support.
 
 ## v3.22.0 - Persona Improvements
 - Standalone: Ledger Doctor: Added holistic repair philosophy and routing verification.
