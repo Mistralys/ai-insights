@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.24.0 - **WIP - UNRELEASED**
+- Standalone: Added the Ledger Knowledge Curator persona.
+- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver (ledger-prefixed).
+
 ## v3.23.0 - Planner Repository History and Standalone Planner
 - Ledger: Planner gains repository history access via `ledger_get_repository_context`.
 - Ledger: Planner content restructured; shared partials inlined.
