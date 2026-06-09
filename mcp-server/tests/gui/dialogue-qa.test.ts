@@ -12,7 +12,6 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const apiClientJs     = readFileSync(join(publicDir, 'api-client.js'), 'utf-8');
-const utilsJs         = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
 const wpViewJs        = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
 
@@ -28,6 +27,8 @@ declare global {
   var formatDuration: (ms: number) => string;
   var buildWpDetailBar: (wp: any) => string;
   var STAGE_ABBREV: Record<string, string>;
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 beforeAll(() => {
@@ -38,7 +39,6 @@ beforeAll(() => {
   (globalThis as any).formatDuration = (ms: number) => ms + 'ms';
   (globalThis as any).marked         = { parse: (s: string) => '<p>' + s + '</p>' };
 
-  vm.runInThisContext(utilsJs);
   vm.runInThisContext(apiClientJs);
   vm.runInThisContext(projectDetailJs);
   vm.runInThisContext(wpViewJs);

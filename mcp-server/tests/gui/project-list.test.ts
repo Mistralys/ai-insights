@@ -25,7 +25,6 @@ import { join } from 'node:path';
 import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
-const utilsJs       = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
 const apiClientJs   = readFileSync(join(publicDir, 'api-client.js'), 'utf-8');
 const projectListJs = readFileSync(join(publicDir, 'views/project-list.js'), 'utf-8');
 
@@ -58,6 +57,8 @@ declare global {
   var API: { [k: string]: (...a: any[]) => Promise<any> };
   // eslint-disable-next-line no-var
   var Router: { _setPolling: (fn: () => void, ms: number) => void };
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +98,6 @@ beforeAll(() => {
   // Load scripts in dependency order: utils first (defines escapeHtml, ProjectNameCache,
   // makeProjectCacheKey), then api-client (defines API), then project-list (defines
   // renderProjectList and the private buildTable / event wiring).
-  vm.runInThisContext(utilsJs);
   vm.runInThisContext(apiClientJs);
   vm.runInThisContext(projectListJs);
 });

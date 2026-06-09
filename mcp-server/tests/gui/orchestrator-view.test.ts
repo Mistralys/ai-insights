@@ -35,7 +35,6 @@ import type { QueueEntry } from '../../src/gui/queue/types.js';
 
 const publicDir = join(__dirname, '../../gui/public');
 
-const utilsJs        = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
 const orchestratorJs = readFileSync(join(publicDir, 'views/orchestrator.js'), 'utf-8');
 
 // ---------------------------------------------------------------------------
@@ -67,6 +66,8 @@ declare global {
     renderProgressBadge: Mock;
     renderStatusCard:    Mock;
   };
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,9 +75,6 @@ declare global {
 // ---------------------------------------------------------------------------
 
 beforeAll(() => {
-  // Install utils.js globals (escapeHtml, etc.)
-  vm.runInThisContext(utilsJs);
-
   // Stub API — individual tests override as needed via mockResolvedValue.
   (globalThis as Record<string, unknown>)['API'] = {
     orchestratorStart:       vi.fn().mockResolvedValue({ checks: [], started: false }),

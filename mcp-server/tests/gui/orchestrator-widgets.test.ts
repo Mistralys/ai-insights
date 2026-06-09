@@ -33,8 +33,7 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 
-const utilsJs   = readFileSync(join(publicDir, 'utils.js'),    'utf-8');
-const widgetsJs = readFileSync(
+const widgetsJs    = readFileSync(
   join(publicDir, 'js', 'orchestrator-widgets.js'),
   'utf-8',
 );
@@ -56,6 +55,8 @@ declare global {
   };
   // eslint-disable-next-line no-var
   var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +64,6 @@ declare global {
 // ---------------------------------------------------------------------------
 
 beforeAll(() => {
-  // Install utils.js globals (escapeHtml etc.)
-  vm.runInThisContext(utilsJs);
   // Stub API with placeholder methods; individual tests override as needed.
   (globalThis as Record<string, unknown>)['API'] = {
     orchestratorKill:    vi.fn().mockResolvedValue(null),

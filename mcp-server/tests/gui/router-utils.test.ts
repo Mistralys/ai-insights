@@ -24,7 +24,6 @@ import vm from 'node:vm';
 // ---------------------------------------------------------------------------
 
 const publicDir = join(__dirname, '../../gui/public');
-const utilsJs   = readFileSync(join(publicDir, 'utils.js'),   'utf-8');
 const routerJs  = readFileSync(join(publicDir, 'router.js'),  'utf-8');
 
 // TypeScript declarations for globals injected by the scripts
@@ -89,8 +88,7 @@ beforeEach(() => {
   globalThis.renderStrategyList     = vi.fn();
   globalThis.renderStrategyDetail   = vi.fn();
 
-  // Load utils first (breadcrumb, escapeHtml) then router
-  vm.runInThisContext(utilsJs);
+  // Load router (breadcrumb, escapeHtml from utils.js loaded by setup-gui-globals.ts)
   vm.runInThisContext(routerJs);
 
   // Init the router (registers hashchange listener + dispatches current hash)

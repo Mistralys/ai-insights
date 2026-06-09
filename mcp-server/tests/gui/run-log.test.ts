@@ -16,11 +16,9 @@ import vm from 'node:vm';
 // ---------------------------------------------------------------------------
 
 const publicDir = join(__dirname, '../../gui/public');
-const utilsJs   = readFileSync(join(publicDir, 'utils.js'),                'utf-8');
-const runLogJs  = readFileSync(join(publicDir, 'views/run-log.js'),        'utf-8');
+const runLogJs  = readFileSync(join(publicDir, 'views/run-log.js'), 'utf-8');
 
 beforeAll(() => {
-  vm.runInThisContext(utilsJs);
   vm.runInThisContext(runLogJs);
 });
 
@@ -31,6 +29,8 @@ beforeAll(() => {
 declare global {
   // eslint-disable-next-line no-var
   var renderRunLog: (app: HTMLElement, repo: string, slug: string, filename: string) => void;
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
   // eslint-disable-next-line no-var
   var API: {
     getRunLogEntries: (...args: unknown[]) => Promise<unknown>;

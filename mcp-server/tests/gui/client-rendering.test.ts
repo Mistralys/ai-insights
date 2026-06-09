@@ -12,14 +12,13 @@ import vm from 'node:vm';
 
 // Load client JS files
 const publicDir = join(__dirname, '../../gui/public');
-const utilsJs = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
-const wpViewJs = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
+const wpViewJs        = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
 
 // Execute client scripts in the globalThis context (jsdom window) so their
 // function/var declarations are available as globalThis.buildWpDetailBar etc.
+// utils.js and components.js are loaded by the shared setup-gui-globals.ts.
 beforeAll(() => {
-  vm.runInThisContext(utilsJs);           // escapeHtml, formatDate, statusBadge…
   vm.runInThisContext(projectDetailJs);   // buildPipelineTrack, STAGE_ABBREV
   vm.runInThisContext(wpViewJs);          // buildWpDetailBar, WP_DEFAULT_STAGES
 });
@@ -36,6 +35,12 @@ declare global {
   var STAGE_ABBREV: Record<string, string>;
   // eslint-disable-next-line no-var
   var WP_DEFAULT_STAGES: string[];
+  // eslint-disable-next-line no-var
+  var UI: {
+    badge: (type: string, label: string, opts?: { attrs?: Record<string, string> }) => string;
+    banner: (type: string, message: string) => string;
+    emptyState: (message: string) => string;
+  };
 }
 
 describe('buildWpDetailBar', () => {
@@ -258,5 +263,41 @@ describe('buildPipelineTrack', () => {
     };
     const html = globalThis.buildPipelineTrack(entry);
     expect(html).toContain('CUS'); // first 3 chars of 'custom-stage'
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UI.badge() — opts/attrs extension (AC-2, AC-3, AC-4)
+// ---------------------------------------------------------------------------
+
+describe('UI.badge()', () => {
+  it('renders a basic badge without opts', () => {
+    const html = globalThis.UI.badge('in-progress', 'In Progress');
+    expect(html).toBe('<span class="badge badge-in-progress">In Progress</span>');
+  });
+
+  it('renders extra attrs from opts.attrs on the span (AC-2)', () => {
+    const html = globalThis.UI.badge('fail', 'Error', { attrs: { title: 'tooltip text' } });
+    expect(html).toContain('class="badge badge-fail"');
+    expect(html).toContain('title="tooltip text"');
+    expect(html).toContain('Error');
+  });
+
+  it('HTML-escapes attr values from opts.attrs', () => {
+    const html = globalThis.UI.badge('fail', 'x', { attrs: { title: '<script>alert(1)</script>' } });
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('does not throw when type is null (AC-3)', () => {
+    expect(() => globalThis.UI.badge(null as any, 'text')).not.toThrow();
+    const html = globalThis.UI.badge(null as any, 'text');
+    expect(html).toContain('class="badge badge-"');
+  });
+
+  it('HTML-escapes malicious type strings in class attribute (AC-4)', () => {
+    const html = globalThis.UI.badge('<script>', 'x');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('badge-&lt;script&gt;');
   });
 });

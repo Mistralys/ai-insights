@@ -29,9 +29,8 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 
-const utilsJs     = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
-const insightsJs  = readFileSync(join(publicDir, 'views/insights.js'), 'utf-8');
-const knowledgeJs = readFileSync(join(publicDir, 'views/knowledge.js'), 'utf-8');
+const insightsJs   = readFileSync(join(publicDir, 'views/insights.js'), 'utf-8');
+const knowledgeJs  = readFileSync(join(publicDir, 'views/knowledge.js'), 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Global type stubs
@@ -71,9 +70,6 @@ declare global {
 // ---------------------------------------------------------------------------
 
 beforeAll(() => {
-  // Install utils.js globals (escapeHtml, formatDate, etc.)
-  vm.runInThisContext(utilsJs);
-
   // Stub showLoading / showError so the view scripts can call them.
   (globalThis as Record<string, unknown>)['showLoading'] = vi.fn();
   (globalThis as Record<string, unknown>)['showError']   = vi.fn();

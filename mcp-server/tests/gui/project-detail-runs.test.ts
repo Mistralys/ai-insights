@@ -18,7 +18,6 @@ import vm from 'node:vm';
 // ---------------------------------------------------------------------------
 
 const publicDir = join(__dirname, '../../gui/public');
-const utilsJs         = readFileSync(join(publicDir, 'utils.js'),                   'utf-8');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'),    'utf-8');
 
 beforeAll(() => {
@@ -48,7 +47,6 @@ beforeAll(() => {
     _clearPolling: vi.fn(),
   };
 
-  vm.runInThisContext(utilsJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -92,6 +90,8 @@ declare global {
     _setPolling:   Mock;
     _clearPolling: Mock;
   };
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 // ---------------------------------------------------------------------------
@@ -180,9 +180,9 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     if (app.parentNode) app.parentNode.removeChild(app);
   });
 
-  // ── Hidden by default ─────────────────────────────────────────────────────
+  // ── Empty runs — wrapper always visible, runs section cleared ───────────────
 
-  it('keeps "Orchestrator Runs" wrapper hidden when getRunLogs returns [] (vscode runner)', async () => {
+  it('keeps runs section empty when getRunLogs returns [] (vscode runner)', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
       getRunLogs: () => Promise.resolve([]),
@@ -190,10 +190,14 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
-    expect(wrapper!.style.display).toBe('none');
+    // Wrapper is always visible; no logs → runs section is cleared
+    expect(wrapper!.style.display).not.toBe('none');
+    const runsSection = app.querySelector('#orchestrator-runs-section') as HTMLElement | null;
+    expect(runsSection).not.toBeNull();
+    expect(runsSection!.innerHTML).toBe('');
   });
 
-  it('keeps "Orchestrator Runs" wrapper hidden when runner is undefined and no logs', async () => {
+  it('keeps runs section empty when runner is undefined and no logs', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({})), // no runner field
       getRunLogs: () => Promise.resolve([]),
@@ -201,12 +205,14 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
-    expect(wrapper!.style.display).toBe('none');
+    expect(wrapper!.style.display).not.toBe('none');
+    const runsSection = app.querySelector('#orchestrator-runs-section') as HTMLElement | null;
+    expect(runsSection!.innerHTML).toBe('');
   });
 
   // ── Empty state ───────────────────────────────────────────────────────────
 
-  it('keeps wrapper hidden when getRunLogs returns empty array', async () => {
+  it('keeps runs section empty when getRunLogs returns empty array', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([]),
@@ -214,7 +220,9 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
-    expect(wrapper!.style.display).toBe('none');
+    expect(wrapper!.style.display).not.toBe('none');
+    const runsSection = app.querySelector('#orchestrator-runs-section') as HTMLElement | null;
+    expect(runsSection!.innerHTML).toBe('');
   });
 
   // ── Populated state ───────────────────────────────────────────────────────
@@ -408,10 +416,10 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       getRunLogs: () => Promise.reject({ message: 'Network error', code: 'ERROR' }),
     });
 
-    // Wrapper stays hidden on error (silent failure)
+    // Wrapper stays visible on error (silent failure, toolbar shows disabled state)
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
-    expect(wrapper!.style.display).toBe('none');
+    expect(wrapper!.style.display).not.toBe('none');
 
     // Page still rendered (Work Packages section present)
     expect(app.innerHTML).toContain('Work Packages');
@@ -423,10 +431,10 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       getRunLogs: () => Promise.reject(null),
     });
 
-    // Should not throw; wrapper stays hidden
+    // Should not throw; wrapper stays visible with disabled toolbar
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
-    expect(wrapper!.style.display).toBe('none');
+    expect(wrapper!.style.display).not.toBe('none');
   });
 
   // ── Existing content unaffected ───────────────────────────────────────────
@@ -846,7 +854,7 @@ describe('renderProjectDetail — WP-004: showResumeError helper', () => {
 
   // ── Resume button not shown for ineligible projects ───────────────────────
 
-  it('does not show the resume button for a COMPLETE project', async () => {
+  it('shows a disabled resume button for a COMPLETE project', async () => {
     const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -857,11 +865,13 @@ describe('renderProjectDetail — WP-004: showResumeError helper', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
     expect(app.querySelector('#orch-resume-error')).toBeNull();
   });
 
-  it('does not show the resume button when result is SUCCESS', async () => {
+  it('shows a disabled resume button when result is SUCCESS', async () => {
     const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -872,7 +882,9 @@ describe('renderProjectDetail — WP-004: showResumeError helper', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 });
 
@@ -924,12 +936,13 @@ describe('Resume Run button', () => {
 
     const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
     expect(btn).not.toBeNull();
-    expect(btn!.textContent).toBe('Resume Run');
+    expect(btn!.disabled).toBe(false);
+    expect(btn!.textContent).toBe('Resume');
   });
 
   // ── 2. HIDE: status is COMPLETE ──────────────────────────────────────────
 
-  it('hides the resume button when project status is COMPLETE', async () => {
+  it('shows a disabled resume button when project status is COMPLETE', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -940,12 +953,14 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  // ── 3. HIDE: status is ARCHIVED ──────────────────────────────────────────
+  // ── 3. SHOW DISABLED: status is ARCHIVED ─────────────────────────────────
 
-  it('hides the resume button when project status is ARCHIVED', async () => {
+  it('shows a disabled resume button when project status is ARCHIVED', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -956,12 +971,14 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  // ── 4. HIDE: getRunMetadata returns null / no thread_id ──────────────────
+  // ── 4. SHOW DISABLED: getRunMetadata returns null / no thread_id ──────────
 
-  it('hides the resume button when getRunMetadata returns null', async () => {
+  it('shows a disabled resume button when getRunMetadata returns null', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -972,10 +989,12 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  it('hides the resume button when getRunMetadata returns metadata without thread_id', async () => {
+  it('shows a disabled resume button when getRunMetadata returns metadata without thread_id', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -986,12 +1005,14 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  // ── 5. HIDE: metadata.dry_run is true ────────────────────────────────────
+  // ── 5. SHOW DISABLED: metadata.dry_run is true ───────────────────────────
 
-  it('hides the resume button when metadata.dry_run is true', async () => {
+  it('shows a disabled resume button when metadata.dry_run is true', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -1002,12 +1023,14 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  // ── 6. HIDE: metadata.result is SUCCESS ──────────────────────────────────
+  // ── 6. SHOW DISABLED: metadata.result is SUCCESS ─────────────────────────
 
-  it('hides the resume button when metadata.result is SUCCESS', async () => {
+  it('shows a disabled resume button when metadata.result is SUCCESS', async () => {
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -1018,13 +1041,15 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 
-  // ── 7. HIDE: an active run exists (queue has entry) ───────────────────────
+  // ── 7. SHOW DISABLED: an active run exists ────────────────────────────────
 
-  it('hides the resume button when an active run exists', async () => {
-    // With an active run, the code takes the polling path (not the resume-button path).
+  it('shows a disabled resume button when an active run exists', async () => {
+    // With an active run, renderOrchToolbar disables the resume button.
     const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: true }];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
@@ -1036,6 +1061,8 @@ describe('Resume Run button', () => {
 
     await flushResume();
 
-    expect(app.querySelector('#orch-resume-btn')).toBeNull();
+    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(true);
   });
 });
