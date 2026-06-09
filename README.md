@@ -4,7 +4,7 @@ A toolkit for structured, multi-agent AI development workflows. It gives AI codi
 
 ---
 
-## 🧩 Tools
+## 🧩 What's Inside
 
 ### Agent Personas
 
@@ -17,7 +17,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 
 ### Project Ledger MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes 25 tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
+A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
 
 → [mcp-server/README.md](mcp-server/README.md)
 
@@ -34,28 +34,45 @@ A headless, IDE-free alternative to the ledger workflow. Built on **LangGraph** 
 - **Node.js** >= 18
 - **Python 3.11+** (only for the orchestrator component)
 
+---
+
 ## 🚀 Quick Start
 
+Everything is driven through a single interactive menu:
+
 ```bash
-node scripts/cli.js
+./menu.sh          # macOS / Linux
+menu.cmd           # Windows
 ```
 
-This opens an interactive menu where you can set up the workspace, sync personas, launch the GUI, run the orchestrator, and more — all from one place.
+On **first launch**, the menu detects that nothing is configured yet and automatically enters the setup wizard — installing all dependencies, building the MCP server, syncing personas to your IDE, and registering the MCP server globally. No manual `npm install` or `npm run build` required.
 
-Or run the full setup non-interactively:
+Every time the menu opens, it displays a **live health dashboard** showing whether the MCP server dist is built and up to date, the orchestrator venv exists, git hooks are installed, and sibling libraries are compiled. If anything is stale, the status line tells you exactly what to fix — or you can re-run setup to repair it.
+
+When you launch an orchestrator run, the menu **automatically rebuilds** the MCP server if its source has changed since the last build. You never need to remember to rebuild manually.
+
+### What You Can Do
+
+| Menu Item | What It Does |
+|-----------|-------------|
+| **First-time setup** | Installs everything: MCP server, personas, orchestrator venv, global MCP registration, git hooks |
+| **Sync personas** | Build + deploy persona files to your IDE |
+| **Install MCP (Global)** | Register the MCP server in VS Code / Claude Code user config |
+| **Launch GUI** | Open the MCP dashboard — monitor projects, start orchestrator runs, browse dialogues |
+| **Pre-flight checks** | Verify orchestrator readiness (venv, API keys, dist freshness) |
+| **Doctor** | Full environment health check across all tiers |
+| **Build & Maintain** | Sync versions, build personas, generate context docs |
+
+### Direct Commands (Non-Interactive)
+
+You can also invoke any menu action directly without entering the interactive mode:
 
 ```bash
-node scripts/cli.js setup --all
-```
-
-Common commands:
-
-```bash
-node scripts/cli.js sync-personas          # build + deploy personas to IDE
-node scripts/cli.js gui                    # launch MCP GUI dashboard
-node scripts/cli.js orchestrator plan.md  # run orchestrator pipeline
-node scripts/cli.js doctor                 # run all health checks
-node scripts/cli.js help                  # list all commands
+./menu.sh sync-personas          # build + deploy personas to IDE
+./menu.sh gui                    # launch MCP GUI dashboard
+./menu.sh orchestrator plan.md   # run orchestrator pipeline
+./menu.sh doctor                 # run all health checks
+./menu.sh help                   # list all available commands
 ```
 
 ---
@@ -64,11 +81,9 @@ node scripts/cli.js help                  # list all commands
 
 | Resource | Description |
 |----------|-------------|
-| [docs/development.md](docs/development.md) | Workspace layout, CI, pre-commit hooks, key scripts, changelog workflow |
+| [docs/development.md](docs/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
 | [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
-| [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, development |
+| [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, troubleshooting |
 | [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
 | [discussions/](discussions/) | LLM discussion archive and design notes |
 | [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
-| [AGENTS.md](AGENTS.md) | Agent operating instructions (for AI agents entering this workspace) |
-| `.context/` | Auto-generated codebase snapshots via [CTX Generator](https://github.com/context-hub/generator) — run `node scripts/cli.js ctx-generate` |
