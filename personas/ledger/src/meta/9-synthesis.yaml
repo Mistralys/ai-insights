@@ -19,7 +19,7 @@ tools:
   - central_pm/*
 
 subagents:
-  - standalone-knowledge-archiver
+  - ledger-knowledge-archiver
 
 has_mcp: true
 has_detect_project: true
