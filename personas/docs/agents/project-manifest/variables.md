@@ -142,6 +142,22 @@ Populated by the `@mistraljs/persona-builder` library's pre-scan phase. For **ev
 - Reference another persona by display name in prose: `Delegate to {{agent_wp_decomposer}}`
 - Invoke a sub-agent in Deep Agents target: `task(subagent={{agent_slug_wp_decomposer}})`
 
+### Subagents Cross-Reference Validation
+
+When a persona declares a `subagents` list in its YAML metadata, the build script (`scripts/build-personas.js`) validates that every `{{agent_slug_<suffix>}}` reference in the content file maps to a slug present in that list. Mismatches produce a **blocking error** (exit code 1), not a warning.
+
+To fix: ensure the suffix (underscores → hyphens) matches an entry in the persona's `subagents` field, and that the entry matches a real persona slug declared in `personas/*/src/meta/*.yaml`.
+
+### Finding Available Slugs
+
+Agent map variables are generated from the `slug` field (or filename stem) of every persona across all suites. To find the correct variable name for a target persona:
+
+1. Locate its metadata: `personas/<suite>/src/meta/<file>.yaml`
+2. Read the `slug` field (or use the filename without `.yaml`)
+3. Replace hyphens with underscores → that is the variable suffix
+
+Example: `personas/standalone/src/meta/ledger-knowledge-archiver.yaml` with `slug: ledger-knowledge-archiver` → `{{agent_ledger_knowledge_archiver}}` and `{{agent_slug_ledger_knowledge_archiver}}`.
+
 ---
 
 ## Platform Feature Flags
