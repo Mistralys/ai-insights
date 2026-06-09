@@ -4,7 +4,7 @@ description: "Audit knowledge base entries for value, accuracy, and relevance â€
 vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
-version: "1.1.0"
+version: "1.2.0"
 last_updated: "2026-06-09"
 mcp_server_name: central_pm
 
