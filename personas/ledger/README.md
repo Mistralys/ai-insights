@@ -4,6 +4,9 @@
 
 This is a structured multi-agent workflow for systematic software development. It uses a **centralized ledger** managed by an MCP server to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
 
+For a diagram-first overview, see the [Ledger Workflow Visual Guide](../../docs/agents/references/ledger-workflow-visual-guide.md).
+For all agent reference documents, see the [References Index](../../docs/agents/references/README.md).
+
 ### Why Use This Workflow?
 
 - **State Persistence**: The centralized ledger preserves project state between chat sessions
