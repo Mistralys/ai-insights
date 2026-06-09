@@ -33,6 +33,7 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── plan-architect-reviewer.yaml
                 └── plan-auditor.yaml
                 └── plan-refiner.yaml
+                └── planner.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── standalone-knowledge-archiver.yaml
@@ -566,6 +567,29 @@ tools:
 subagents:
   - plan-architect-reviewer
   - plan-auditor
+
+```
+###  Path: `/personas/standalone/src/meta/planner.yaml`
+
+```yaml
+slug: planner
+name: "Planner"
+description: "Produce clear, actionable, technically sound plans from feature requests or task descriptions."
+vs_file_name: planner.agent.md
+id: standalone-planner
+cc_file_name: planner.md
+version: "1.0.0"
+last_updated: "2026-06-08"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`

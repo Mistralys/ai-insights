@@ -401,8 +401,6 @@ _SOURCE: Top-level directory tree_
     │   │   └── docs-operational-protocol.md
     │   │   └── docs-output-format.md
     │   │   └── incident-logging.md
-    │   │   └── planner-core-rules.md
-    │   │   └── planner-output-template.md
     │   │   └── pm-output-format.md
     │   │   └── pm-subagent-roster.md
     │   │   └── qa-operational-protocol.md
@@ -440,6 +438,7 @@ _SOURCE: Top-level directory tree_
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── plan-refiner.md
+    │       ├── planner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -465,6 +464,7 @@ _SOURCE: Top-level directory tree_
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── plan-refiner.md
+    │       ├── planner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── standalone-knowledge-archiver.md
@@ -492,6 +492,7 @@ _SOURCE: Top-level directory tree_
     │       └── plan-architect-reviewer.agent.md
     │       └── plan-auditor.agent.md
     │       └── plan-refiner.agent.md
+    │       └── planner.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md

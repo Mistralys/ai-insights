@@ -36,8 +36,8 @@ vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
-version: "1.6.0"
-last_updated: "2026-06-05"
+version: "1.6.3"
+last_updated: "2026-06-08"
 tools:
   - vscode
   - execute
@@ -56,7 +56,7 @@ has_incident_logging: false
 
 mcp_tools:
   - tool: ledger_get_repository_context
-    purpose: "Retrieve prior project history and outcome summaries for the current repository to inform planning decisions."
+    purpose: "Retrieve the repository's strategic vision (short/mid/long-term goals) and prior project history (timeline, outcome summaries) to align planning with declared strategy."
   - tool: ledger_search_insights
     purpose: "Search the knowledge base for reusable insights and patterns relevant to the current planning request."
 
