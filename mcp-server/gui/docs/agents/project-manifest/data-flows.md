@@ -226,7 +226,53 @@ Server side (handleGetRunLog):
 
 ---
 
-## 9. Project Name Cache Flow
+## 9. Project Detail In-Place DOM Patching
+
+`renderProjectDetail` uses targeted DOM patching to avoid full-page flicker during poll cycles. Two strategies are applied depending on which data changed:
+
+```
+pollQueue() fires (every ~3 s while project detail is visible)
+  │
+  ├── Compute _orchRunsStructureKey(sorted, activeFilename)
+  │   → JSON string of sorted run filenames + activeFilename
+  │
+  ├── If key === lastRunsStructureKey (data-only change):
+  │   │   Same run list structure, same active run — only the status
+  │   │   card content may have changed (elapsed time, PID, progress).
+  │   │
+  │   └── _patchOrchStatusCard(matchingQueueEntry)
+  │       ├── Re-render OrchestratorWidgets.renderStatusCard()
+  │       ├── Replace innerHTML of #orch-status-card-container only
+  │       │   → Log preview widget (#orch-project-log-preview) is a
+  │       │     sibling — it is NOT touched
+  │       └── _pdLogPreviewCleanups array is NOT drained
+  │           → Existing log preview widget stays alive
+  │
+  └── If key !== lastRunsStructureKey (structural change):
+          Run appeared / run became inactive / first tick (key is null).
+          │
+          └── renderRunsList(matchingQueueEntry)
+              ├── Drain _pdLogPreviewCleanups (destroy existing widgets)
+              ├── Walk DOM from runsEl to find nearest scrollable ancestor
+              │   (window.getComputedStyle overflowY === 'auto'|'scroll')
+              │   → Falls back to document.documentElement if none found
+              ├── Save scrollTop of scroll anchor
+              ├── Rebuild runsEl.innerHTML (full structural re-render)
+              │   └── Active run section wraps status card in
+              │       <div id="orch-status-card-container">
+              ├── Restore scrollTop to saved value
+              └── Start new log preview widget (renderLogPreview)
+                  → Cleanup fn pushed into _pdLogPreviewCleanups
+```
+
+**Key invariants:**
+- `lastRunsStructureKey` is initialised to `null` so the first poll tick always takes the structural path and performs a full `renderRunsList`.
+- `_pdLogPreviewCleanups` is only drained on structural rebuilds — the log preview widget survives data-only status card updates.
+- `renderOrchToolbar` is called on every tick (both paths) to keep Kill/Resume button state current.
+
+---
+
+## 10. Project Name Cache Flow
 
 ```
 View fetches project detail

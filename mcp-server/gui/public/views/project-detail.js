@@ -5,6 +5,63 @@
                statusBadge, showLoading, showError,
                OrchestratorWidgets (js/orchestrator-widgets.js),
                UI (components.js)
+
+   DOM Contract (patch functions — see §4c-i):
+   The following element IDs and data attributes are written by
+   renderProjectDetail() and read by the _patch* helpers on every
+   poll cycle.  Any change to these anchors must be coordinated
+   between both sites:
+
+     #project-status-badge   — <span> wrapping the project status badge
+                               in the page header (inner HTML is replaced
+                               by _patchProjectStatus).
+     #health-badge           — <span> for the project health badge
+                               (textContent + className patched by
+                               _patchHealthBadge).
+     #synthesis-link-row     — <div> row containing the synthesis link;
+                               always pre-rendered (display:none when not
+                               ready) and toggled by _patchSynthesisLink.
+     #timing-info            — Wrapper <span> for the three timing fields
+                               below; _patchTimingInfo checks for its
+                               presence before patching children.
+       #timing-duration      — <span> showing elapsed project duration.
+       #timing-active        — <span> showing total active pipeline time.
+       #timing-runs          — <span> showing total pipeline-run count.
+     tr[data-wp-id="WP-###"] — One <tr> per work package row; the
+                               data-wp-id attribute is the stable lookup
+                               key used by _patchWpRow.
+       .wp-status-cell       — <td> inside the WP row holding the status
+                               badge; replaced by _patchWpRow.
+       .wp-pipeline-track-cell — <td> inside the WP row holding the
+                               pipeline-track display; replaced by
+                               _patchWpRow.
+     #orch-status-card-container — <div> inside .orch-active-run-section
+                               that wraps the OrchestratorWidgets status
+                               card for the active run.  Its innerHTML is
+                               replaced by _patchOrchStatusCard on every
+                               data-only poll tick (WP-004).  The log
+                               preview widget (#orch-project-log-preview)
+                               is a sibling, not a child, so it survives
+                               in-place status card updates intact.
+
+   Scroll-anchor detection (renderRunsList):
+   Before rebuilding runsEl.innerHTML, renderRunsList walks up the DOM
+   from runsEl to find the nearest scrollable ancestor using
+   window.getComputedStyle — specifically, the first ancestor whose
+   computed overflowY is 'auto' or 'scroll'.  If no such ancestor is
+   found, it falls back to document.documentElement.  The saved
+   scrollTop is restored immediately after the innerHTML rebuild.
+
+   jsdom limitation (test environment):
+   window.getComputedStyle in jsdom always returns empty objects, so
+   overflowY is always '' and the walk falls back to
+   document.documentElement on every call.  Tests in
+   project-detail-scroll.test.ts work around this by overriding
+   Object.defineProperty on the orchContainer element to stub its
+   scrollTop getter/setter via a data attribute
+   (dataset['scrollTop']), allowing scroll-restore assertions to pass
+   without a real CSS overflowY.  The walk logic itself is correct for
+   browser environments where getComputedStyle returns real values.
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -64,7 +121,21 @@ async function renderSynthesis(app, repo, slug) {
    4c. View: Project Detail
    ---------------------------------------------------------- */
 
-// Abbreviations for pipeline stage types
+/**
+ * Display abbreviations for pipeline stage type strings.
+ *
+ * Maps each ledger pipeline type to the two- or three-character label shown
+ * in the pipeline-track badge column of the project-detail table.
+ * `buildPipelineTrack` falls back to `stage.type.slice(0, 3).toUpperCase()`
+ * for any type that is absent from this map, so unknown types render
+ * gracefully but without a meaningful abbreviation.
+ *
+ * **Maintenance contract:** whenever a new pipeline type is added to the
+ * ledger (e.g., in `PIPELINE_TYPES` on the server), add a corresponding
+ * entry here.  Omitting a new type will not cause a runtime error, but the
+ * badge label in the GUI will be a raw three-character slice of the type
+ * string instead of a human-readable abbreviation.
+ */
 var STAGE_ABBREV = {
   'implementation':     'DEV',
   'qa':                 'QA',
@@ -115,30 +186,32 @@ function buildRunBadges(item, isActive) {
    tooltips) when the corresponding action is unavailable.
 
    opts: {
-     loading:      bool,           — show "Loading…" disabled state
-     hasActiveRun: bool,           — is there an active run?
-     queueEntry:   object|null,    — matching queue entry (kill)
-     runMeta:      object|null,    — run metadata (resume)
-     meta:         object,         — project meta (plan_path, status)
-     repo:         string,
-     slug:         string,
-     app:          Element,        — root element (re-render after resume)
-     onKillDone:   Function,       — called after a successful kill
+     loading:        bool,           — show "Loading…" disabled state
+     hasActiveRun:   bool,           — is there an active run?
+     queueEntry:     object|null,    — matching queue entry (kill)
+     runMeta:        object|null,    — run metadata (resume)
+     meta:           object,         — project meta (plan_path, status)
+     repo:           string,
+     slug:           string,
+     app:            Element,        — root element (re-render after resume)
+     onKillDone:     Function,       — called after a successful kill
+     pollController: object|null,    — owning pollController from renderProjectDetail
    }
    ---------------------------------------------------------- */
 function renderOrchToolbar(toolbarEl, opts) {
   if (!toolbarEl) return;
   toolbarEl.innerHTML = '';
 
-  var loading      = !!opts.loading;
-  var hasActiveRun = !!opts.hasActiveRun;
-  var queueEntry   = opts.queueEntry  || null;
-  var runMeta      = opts.runMeta     || null;
-  var meta         = opts.meta        || {};
-  var repo         = opts.repo        || '';
-  var slug         = opts.slug        || '';
-  var app          = opts.app         || null;
-  var onKillDone   = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
+  var loading         = !!opts.loading;
+  var hasActiveRun    = !!opts.hasActiveRun;
+  var queueEntry      = opts.queueEntry      || null;
+  var runMeta         = opts.runMeta         || null;
+  var meta            = opts.meta            || {};
+  var repo            = opts.repo            || '';
+  var slug            = opts.slug            || '';
+  var app             = opts.app             || null;
+  var onKillDone      = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
+  var pollController  = opts.pollController  || null;
 
   // ── Kill button ─────────────────────────────────────────────────────
   var killDisabled = true;
@@ -223,12 +296,24 @@ function renderOrchToolbar(toolbarEl, opts) {
                                  entry.effectiveStatus === 'started');
               });
               if (hasActiveEntry) {
-                Router._clearPolling();
-                if (app) renderProjectDetail(app, repo, slug);
+                // Settle the resume poll: the run is now active, so hand back
+                // to the combined poll (or trigger a full re-render if no
+                // pollController is present — legacy fallback).
+                if (pollController) {
+                  pollController.settleResumePolling({ app: app, repo: repo, slug: slug });
+                } else {
+                  Router._clearPolling();
+                  if (app) renderProjectDetail(app, repo, slug);
+                }
               }
             }).catch(function () { /* keep polling */ });
           };
-          Router._setPolling(pollResume, 3000);
+          // Switch to resume mode: clears combined interval, starts 3s resume poll.
+          if (pollController) {
+            pollController.startResumePolling({ pollFn: pollResume });
+          } else {
+            Router._setPolling(pollResume, 3000);
+          }
         } else {
           resumeBtn.disabled = false;
           resumeBtn.textContent = 'Resume';
@@ -259,10 +344,531 @@ function renderOrchToolbar(toolbarEl, opts) {
   toolbarEl.appendChild(resumeBtn);
 }
 
+/* ----------------------------------------------------------
+   4c-i. DOM Patch Functions
+   Targeted compare-and-swap helpers for in-place DOM updates.
+   Each function performs fresh DOM queries on every invocation —
+   no element references are cached across poll cycles.
+   All functions are no-ops when the target element is not found.
+   ---------------------------------------------------------- */
+
+/**
+ * Update the project status badge in the page header.
+ * @param {string} newStatus - New WP status string (e.g. 'IN_PROGRESS', 'COMPLETE').
+ */
+function _patchProjectStatus(newStatus) {
+  var container = document.getElementById('project-status-badge');
+  if (!container) return;
+  var newHtml = statusBadge(newStatus);
+  if (container.innerHTML !== newHtml) {
+    container.innerHTML = newHtml;
+  }
+}
+
+/**
+ * Update a single WP row's status badge and pipeline track cells in-place.
+ * Leaves the WP ID and assigned-to cells untouched.
+ * @param {string} wpId             - Work package ID (e.g. 'WP-001').
+ * @param {string} newStatus        - New WP status string.
+ * @param {string} newPipelineTrack - New pipeline track HTML (from buildPipelineTrack).
+ */
+function _patchWpRow(wpId, newStatus, newPipelineTrack) {
+  var row = document.querySelector('tr[data-wp-id="' + escapeHtml(wpId) + '"]');
+  if (!row) return;
+
+  var statusCell = row.querySelector('.wp-status-cell');
+  if (statusCell) {
+    var newStatusHtml = statusBadge(newStatus);
+    if (statusCell.innerHTML !== newStatusHtml) {
+      statusCell.innerHTML = newStatusHtml;
+    }
+  }
+
+  var pipelineCell = row.querySelector('.wp-pipeline-track-cell');
+  if (pipelineCell) {
+    if (pipelineCell.innerHTML !== newPipelineTrack) {
+      pipelineCell.innerHTML = newPipelineTrack;
+    }
+  }
+}
+
+/**
+ * Show or hide the synthesis link row.
+ * When visible=true and the row exists but is hidden, it is shown.
+ * When visible=true and the row is absent, it is injected before the WP table.
+ * When visible=false, the row is hidden.
+ * @param {boolean} visible         - Whether the synthesis link should be visible.
+ * @param {string}  [repo]          - Repository name (required when injecting).
+ * @param {string}  [slug]          - Project slug (required when injecting).
+ */
+function _patchSynthesisLink(visible, repo, slug) {
+  var row = document.getElementById('synthesis-link-row');
+  if (visible) {
+    if (row) {
+      // Ensure the link href is populated if the row was pre-rendered empty.
+      if (!row.querySelector('.synthesis-link') && repo && slug) {
+        row.className = 'synthesis-link-row';
+        row.innerHTML = '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>';
+      }
+      row.style.display = '';
+    } else if (repo && slug) {
+      // Inject before the WP table section (card-title "Work Packages").
+      var wpTitle = document.querySelector('.card-title');
+      if (wpTitle) {
+        var newRow = document.createElement('div');
+        newRow.id = 'synthesis-link-row';
+        newRow.className = 'synthesis-link-row';
+        newRow.innerHTML = '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>';
+        wpTitle.parentNode.insertBefore(newRow, wpTitle);
+      }
+    }
+  } else {
+    if (row) {
+      row.style.display = 'none';
+    }
+  }
+}
+
+/**
+ * Update the health badge text and CSS class.
+ * @param {{ work_packages_needing_reset: number }} health - Health data object.
+ */
+function _patchHealthBadge(health) {
+  var badge = document.getElementById('health-badge');
+  if (!badge) return;
+  if (health.work_packages_needing_reset === 0) {
+    var newText = '\u2713 All pipelines complete';
+    var newClass = 'health-badge healthy';
+    if (badge.textContent !== newText) badge.textContent = newText;
+    if (badge.className !== newClass) badge.className = newClass;
+  } else {
+    var count = health.work_packages_needing_reset;
+    var newText2 = '\u26a0 ' + count + ' WP' + (count === 1 ? '' : 's') + ' need attention';
+    var newClass2 = 'health-badge attention';
+    if (badge.textContent !== newText2) badge.textContent = newText2;
+    if (badge.className !== newClass2) badge.className = newClass2;
+  }
+}
+
+/**
+ * Update the orchestrator active-run status card in-place.
+ *
+ * Replaces the innerHTML of `#orch-status-card-container` without touching
+ * the rest of the runs list or the log-preview widget.  This is the
+ * "data-only" update path for the active run — no DOM nodes outside the
+ * container are disturbed, so log preview widgets and all other run-event
+ * handlers survive intact.
+ *
+ * @param {object|null} matchingQueueEntry - Current queue entry for the active run
+ *   (or null when the run has left the queue).
+ */
+function _patchOrchStatusCard(matchingQueueEntry) {
+  var container = document.getElementById('orch-status-card-container');
+  if (!container) return;
+  var newHtml = matchingQueueEntry
+    ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
+    : '';
+  if (container.innerHTML !== newHtml) {
+    container.innerHTML = newHtml;
+  }
+}
+
+/**
+ * Compute a stable structure key for the orchestrator runs list.
+ *
+ * The key encodes the set of run filenames and which filename (if any) is
+ * currently active.  Two consecutive poll results that produce the same key
+ * have the same list structure and can be updated via in-place DOM patching
+ * rather than a full innerHTML rebuild.
+ *
+ * @param {Array}  sorted        - Sorted run-log items (most-recent first).
+ * @param {string|null} activeFilename - Filename of the active run, or null.
+ * @returns {string} Opaque structure key.
+ */
+function _orchRunsStructureKey(sorted, activeFilename) {
+  var names = (Array.isArray(sorted) ? sorted : []).map(function (item) {
+    return (item && item.filename) ? item.filename : String(item);
+  });
+  return JSON.stringify({ names: names, active: activeFilename || null });
+}
+
+/**
+ * Update the timing info display in-place.
+ * @param {{ project_elapsed_ms: number, total_active_ms: number, pipeline_runs: number }} timing
+ */
+function _patchTimingInfo(timing) {
+  var container = document.getElementById('timing-info');
+  if (!container) return;
+  if (!timing) return;
+
+  var durationEl = document.getElementById('timing-duration');
+  if (durationEl) {
+    var newDuration = formatDuration(timing.project_elapsed_ms);
+    if (durationEl.textContent !== newDuration) durationEl.textContent = newDuration;
+  }
+
+  var activeEl = document.getElementById('timing-active');
+  if (activeEl) {
+    var newActive = formatDuration(timing.total_active_ms);
+    if (activeEl.textContent !== newActive) activeEl.textContent = newActive;
+  }
+
+  var runsEl = document.getElementById('timing-runs');
+  if (runsEl) {
+    var newRuns = String(timing.pipeline_runs);
+    if (runsEl.textContent !== newRuns) runsEl.textContent = newRuns;
+  }
+}
+
+/* ----------------------------------------------------------
+   4c-iii. State Snapshot & Diff Helpers
+   Pure functions — no DOM access, JSON-serializable outputs.
+   Used by WP-003 polling to decide patch vs. full re-render.
+   ---------------------------------------------------------- */
+
+/**
+ * Extract a comparable state snapshot from API response objects.
+ *
+ * @param {object} project      - Response from API.getProject()
+ * @param {Array|null} overviewResult - Response from API.getWorkPackageOverview() (may be null)
+ * @returns {{
+ *   status: string,
+ *   last_updated: string,
+ *   synthesis_generated: boolean,
+ *   wpStatuses: Object.<string, { status: string, pipelineStages: Array }>,
+ *   health: null | { work_packages_needing_reset: number }
+ * }}
+ */
+function _snapshotProjectState(project, overviewResult) {
+  var meta = (project && project.meta) || {};
+  var wps  = (project && project.work_packages) || [];
+
+  // Build per-WP status map
+  var wpStatuses = {};
+  wps.forEach(function (wp) {
+    if (!wp || !wp.work_package_id) return;
+    wpStatuses[wp.work_package_id] = {
+      status: wp.status || '',
+      pipelineStages: [],
+    };
+  });
+
+  // Enrich with pipeline stage data from overview
+  if (Array.isArray(overviewResult)) {
+    overviewResult.forEach(function (entry) {
+      if (!entry || !entry.work_package_id) return;
+      var id = entry.work_package_id;
+      var stages = Array.isArray(entry.pipeline_stages)
+        ? entry.pipeline_stages.map(function (s) {
+            return {
+              type:         s.type        || '',
+              status:       s.status      || '',
+              agent:        s.agent       || '',
+              rework_count: s.rework_count || 0,
+            };
+          })
+        : [];
+      if (wpStatuses[id]) {
+        wpStatuses[id].pipelineStages = stages;
+      } else {
+        // Overview entry present without a matching WP in the main list.
+        wpStatuses[id] = { status: '', pipelineStages: stages };
+      }
+    });
+  }
+
+  return {
+    status:               meta.status              || '',
+    last_updated:         meta.last_updated         || '',
+    synthesis_generated:  !!(project && project.synthesis_generated),
+    wpStatuses:           wpStatuses,
+    health:               null,  // populated asynchronously via getProjectHealth()
+  };
+}
+
+/**
+ * Compare two project-state snapshots and classify the difference.
+ *
+ * Structural changes (require full re-render):
+ *   - The number of work packages differs between snapshots.
+ *   - The project transitioned to COMPLETE or ARCHIVED status.
+ *
+ * Data-only changes (patchable in-place):
+ *   - Status badge changed but is not a structural transition.
+ *   - Any per-WP status or pipeline-stage changed.
+ *   - synthesis_generated flipped.
+ *   - health changed (including null → value transitions).
+ *   - last_updated changed.
+ *
+ * NOTE — per-WP iteration order: per-WP status/pipeline changes are detected by
+ * iterating over `next.wpStatuses` keys only. A WP present in `prev` but absent
+ * from `next` is therefore not tracked per-field; the structural `wpCount` check
+ * handles that case before per-WP diffing is reached. In practice, a missing WP
+ * always triggers a structural re-render, so the per-field gap is intentional.
+ *
+ * @param {object} prev - Previous snapshot from _snapshotProjectState().
+ *   Must be non-null; passing null will throw on Object.keys(prev.wpStatuses).
+ *   Callers must initialise pollStateRef[0] with a real snapshot before
+ *   registering the poll interval — the 5s setInterval delay ensures the
+ *   first tick cannot fire before that assignment completes.
+ * @param {object} next - Current  snapshot from _snapshotProjectState().
+ * @returns {{ type: 'none'|'data'|'structural', changes: object }}
+ */
+function _diffProjectState(prev, next) {
+  var changes = {};
+  var changeType = 'none';
+
+  function markData(key, from, to) {
+    changes[key] = { from: from, to: to };
+    if (changeType === 'none') changeType = 'data';
+  }
+
+  function markStructural(key, from, to) {
+    changes[key] = { from: from, to: to };
+    changeType = 'structural';
+  }
+
+  // ── WP count ────────────────────────────────────────────────────────
+  var prevIds = Object.keys(prev.wpStatuses || {});
+  var nextIds = Object.keys(next.wpStatuses || {});
+  if (prevIds.length !== nextIds.length) {
+    markStructural('wpCount', prevIds.length, nextIds.length);
+  }
+
+  // ── Project status ──────────────────────────────────────────────────
+  if (prev.status !== next.status) {
+    var isStructuralStatus = next.status === 'COMPLETE' || next.status === 'ARCHIVED';
+    if (isStructuralStatus) {
+      markStructural('status', prev.status, next.status);
+    } else {
+      markData('status', prev.status, next.status);
+    }
+  }
+
+  // ── Per-WP statuses and pipeline stages ─────────────────────────────
+  nextIds.forEach(function (id) {
+    var prevWp = (prev.wpStatuses || {})[id] || { status: '', pipelineStages: [] };
+    var nextWp = (next.wpStatuses || {})[id] || { status: '', pipelineStages: [] };
+
+    if (prevWp.status !== nextWp.status) {
+      markData('wp.' + id + '.status', prevWp.status, nextWp.status);
+    }
+
+    // Compare pipeline stages as JSON strings (simple deep-equal for flat objects)
+    var prevStagesStr = JSON.stringify(prevWp.pipelineStages || []);
+    var nextStagesStr = JSON.stringify(nextWp.pipelineStages || []);
+    if (prevStagesStr !== nextStagesStr) {
+      markData('wp.' + id + '.pipelineStages', prevWp.pipelineStages, nextWp.pipelineStages);
+    }
+  });
+
+  // ── synthesis_generated ─────────────────────────────────────────────
+  if (!!prev.synthesis_generated !== !!next.synthesis_generated) {
+    markData('synthesis_generated', prev.synthesis_generated, next.synthesis_generated);
+  }
+
+  // ── health ──────────────────────────────────────────────────────────
+  // null-to-value (or any value change) is data-only
+  var prevHealthStr = JSON.stringify(prev.health || null);
+  var nextHealthStr = JSON.stringify(next.health || null);
+  if (prevHealthStr !== nextHealthStr) {
+    markData('health', prev.health, next.health);
+  }
+
+  // ── last_updated ────────────────────────────────────────────────────
+  if (prev.last_updated !== next.last_updated) {
+    markData('last_updated', prev.last_updated, next.last_updated);
+  }
+
+  return { type: changeType, changes: changes };
+}
+
+/* ----------------------------------------------------------
+   4c-iv. Combined Poll Function
+   Fetches project data and work-package overview each cycle,
+   compares against the previous snapshot, and either patches
+   the DOM in-place (data-only changes) or triggers a full
+   re-render (structural changes).
+
+   Parameters:
+     app           — root element passed to renderProjectDetail
+     repo          — repository name
+     slug          — project slug
+     pollStateRef  — single-element array [snapshot] so the poll
+                     function can read and write the last state
+                     without a module-scoped variable
+     pollController — the owning pollController object; used to
+                     call stopPolling() before a structural
+                     re-render so no competing interval remains
+   ---------------------------------------------------------- */
+/**
+ * @param {Element}  app
+ * @param {string}   repo
+ * @param {string}   slug
+ * @param {Array}    pollStateRef  — [lastSnapshot]; mutated in place
+ * @param {object}   pollController
+ */
+function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
+  // Guard: skip DOM patching when a modal is open or inline edit is active.
+  var modalOpen  = !!document.getElementById('reset-modal-overlay');
+  var editActive = !!(document.querySelector('.title-edit-input') ||
+                      document.querySelector('.slug-edit-input'));
+
+  Promise.all([
+    API.getProject(repo, slug),
+    API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
+    API.getProjectHealth(repo, slug).catch(function () { return null; }),
+  ]).then(function (results) {
+    var project        = results[0];
+    var overviewResult = results[1];
+    var health         = results[2];
+
+    // Build next snapshot; populate health field from parallel fetch.
+    var nextSnapshot = _snapshotProjectState(project, overviewResult);
+    nextSnapshot.health = health;
+
+    var lastSnapshot = pollStateRef[0];
+    var diff = _diffProjectState(lastSnapshot, nextSnapshot);
+
+    // Always update the stored snapshot so the next cycle diffs correctly.
+    pollStateRef[0] = nextSnapshot;
+
+    if (diff.type === 'none') return;
+
+    if (diff.type === 'structural') {
+      // Stop the combined poll before triggering a full re-render so that
+      // the new renderProjectDetail call can register a fresh combined interval.
+      // Log-preview cleanups are drained inside renderProjectDetail itself.
+      pollController.stopPolling();
+      renderProjectDetail(app, repo, slug);
+      return;
+    }
+
+    // data-only — apply targeted patches; skip if interactive state is active.
+    if (modalOpen || editActive) return;
+
+    var changes = diff.changes || {};
+
+    // Project status badge
+    if (changes.status) {
+      _patchProjectStatus(nextSnapshot.status);
+    }
+
+    // Per-WP status and pipeline stages
+    var wpIds = Object.keys(nextSnapshot.wpStatuses || {});
+    wpIds.forEach(function (id) {
+      var statusChanged   = !!changes['wp.' + id + '.status'];
+      var pipelineChanged = !!changes['wp.' + id + '.pipelineStages'];
+      if (statusChanged || pipelineChanged) {
+        var wpEntry = nextSnapshot.wpStatuses[id];
+        // Re-build the pipeline track HTML from the new stages array.
+        var fakeOverviewEntry = { pipeline_stages: wpEntry.pipelineStages };
+        var newTrackHtml = buildPipelineTrack(fakeOverviewEntry);
+        _patchWpRow(id, wpEntry.status, newTrackHtml);
+      }
+    });
+
+    // Synthesis link
+    if (changes.synthesis_generated) {
+      _patchSynthesisLink(nextSnapshot.synthesis_generated, repo, slug);
+    }
+
+    // Health badge
+    if (changes.health && nextSnapshot.health) {
+      _patchHealthBadge(nextSnapshot.health);
+    }
+
+    // Timing (last_updated changed — fetch fresh timing via project object)
+    if (changes.last_updated && project && project.timing) {
+      _patchTimingInfo(project.timing);
+    }
+  }).catch(function () {
+    // Silent failure — keep polling with the existing snapshot.
+  });
+}
+
 function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
   _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
   _pdLogPreviewCleanups = [];
+
+  // ── pollController ─────────────────────────────────────────────────────
+  // Render-scoped polling state machine.  Two modes:
+  //   'combined'  — 5s cadence, polls project data + orchestrator queue.
+  //   'resume'    — 3s cadence, polls orchestrator queue until a new active
+  //                 entry appears after a Resume button click.
+  //
+  // Only one interval is ever active at a time (Router._setPolling
+  // supports a single interval per view).  Ownership: renderProjectDetail
+  // creates pollController; renderOrchToolbar receives it as an argument
+  // and emits lifecycle signals via startResumePolling / settleResumePolling
+  // instead of calling Router._setPolling directly.
+  //
+  // pollStateRef is a single-element array so that _pollProjectDetail can
+  // read and overwrite the last snapshot without a module-scoped variable.
+  var detailPollState = { ref: [null] }; // ref[0] = last snapshot or null
+  var _mode = 'combined';
+
+  var pollController = {
+    getMode: function () { return _mode; },
+
+    /**
+     * Register the combined 5s project-data poll.
+     * Clears any existing interval before registering the new one.
+     *
+     * @param {object} [opts]
+     * @param {Function} [opts.orchPollFn] — optional extra function called on
+     *   each tick to refresh the orchestrator queue / toolbar when an active
+     *   run is present.  When absent, only project data is polled.
+     */
+    startCombinedPolling: function (opts) {
+      _mode = 'combined';
+      var orchPollFn = opts && typeof opts.orchPollFn === 'function' ? opts.orchPollFn : null;
+      var self = this;
+      Router._setPolling(function () {
+        _pollProjectDetail(app, repo, slug, detailPollState.ref, self);
+        if (orchPollFn) orchPollFn();
+      }, 5000);
+    },
+
+    /**
+     * Switch to resume mode: clear the combined interval and register a
+     * 3s poll using the provided resume function.
+     * @param {{ pollFn: Function }} ctx
+     */
+    startResumePolling: function (ctx) {
+      _mode = 'resume';
+      Router._setPolling(ctx.pollFn, 3000);
+    },
+
+    /**
+     * Settle the resume poll: the active run has been detected.
+     * Stop resume polling and trigger a full re-render so the page
+     * reflects the newly active run (this also re-registers combined polling).
+     *
+     * NOTE — calling this method triggers a full renderProjectDetail re-render,
+     * which creates a brand-new pollController closure. The calling context's
+     * reference to this pollController object is effectively invalidated after
+     * settleResumePolling returns; do not call any other pollController methods
+     * on it afterward.
+     *
+     * @param {{ app: Element, repo: string, slug: string }} ctx
+     */
+    settleResumePolling: function (ctx) {
+      _mode = 'combined';
+      Router._clearPolling();
+      if (ctx && ctx.app) renderProjectDetail(ctx.app, ctx.repo, ctx.slug);
+    },
+
+    /**
+     * Stop all polling (called before a structural re-render triggered
+     * from within the poll function, so the new renderProjectDetail call
+     * can register a fresh combined interval).
+     */
+    stopPolling: function () {
+      Router._clearPolling();
+    },
+  };
 
   showLoading(app);
 
@@ -291,11 +897,11 @@ function renderProjectDetail(app, repo, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
-      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
+      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '" data-wp-id="' + escapeHtml(wp.work_package_id) + '">' +
         '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
-        '<td>' + pipelineCell + '</td>' +
+        '<td class="wp-pipeline-track-cell">' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
-        '<td>' + statusBadge(wp.status) + '</td>' +
+        '<td class="wp-status-cell">' + statusBadge(wp.status) + '</td>' +
       '</tr>';
     }).join('');
 
@@ -343,7 +949,7 @@ function renderProjectDetail(app, repo, slug) {
           '<h1 id="project-title-heading">' + escapeHtml(displayTitle) + '</h1>' +
           '<button class="edit-title-btn" id="edit-title-btn" title="Rename project">\u270e</button>' +
         '</div>' +
-        statusBadge(meta.status) +
+        '<span id="project-status-badge">' + statusBadge(meta.status) + '</span>' +
         '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
         '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
@@ -354,12 +960,14 @@ function renderProjectDetail(app, repo, slug) {
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
+          '<span id="timing-info">' +
           (project.timing
-            ? '<br><strong>Duration:</strong> ' + escapeHtml(formatDuration(project.timing.project_elapsed_ms)) +
+            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + escapeHtml(formatDuration(project.timing.project_elapsed_ms)) + '</span>' +
                 (project.timing.pipeline_runs > 0
-                  ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> ' + escapeHtml(formatDuration(project.timing.total_active_ms)) + ' across ' + project.timing.pipeline_runs + ' pipeline runs'
+                  ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> <span id="timing-active">' + escapeHtml(formatDuration(project.timing.total_active_ms)) + '</span> across <span id="timing-runs">' + project.timing.pipeline_runs + '</span> pipeline runs'
                   : '')
             : '') +
+          '</span>' +
           (project.server_version ? '<br><strong>Server version:</strong> <span class="monospace">v' + escapeHtml(project.server_version) + '</span>' : '') +
           (project.ledger_version ? ' &nbsp; <strong>Spec version:</strong> <span class="monospace">v' + escapeHtml(project.ledger_version) + '</span>' : '') +
         '</div>'
@@ -381,8 +989,8 @@ function renderProjectDetail(app, repo, slug) {
       })() +
 
       (function () {
-        if (!project.synthesis_generated) return '';
-        return '<div class="synthesis-link-row">' +
+        if (!project.synthesis_generated) return '<div id="synthesis-link-row" style="display:none"></div>';
+        return '<div id="synthesis-link-row" class="synthesis-link-row">' +
           '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
       })() +
@@ -403,6 +1011,18 @@ function renderProjectDetail(app, repo, slug) {
         '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
+
+    // ── Initial poll state snapshot ─────────────────────────────────────
+    // Build the baseline state from the data already fetched above.
+    // health starts as null and is populated asynchronously; the combined
+    // poll will capture it on the first tick after the health request settles.
+    var initialSnapshot = _snapshotProjectState(project, overviewResult);
+    detailPollState.ref[0] = initialSnapshot;
+
+    // Register the combined 5s poll now that the page is rendered.
+    // This replaces the previous per-section pollQueue registration so
+    // that exactly one interval is active for the duration of this view.
+    pollController.startCombinedPolling();
 
     // Unarchive banner button handler
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
@@ -639,6 +1259,7 @@ function renderProjectDetail(app, repo, slug) {
     // always visible while the async data loads.
     renderOrchToolbar(document.getElementById('orch-toolbar'), {
       loading: true, meta: meta, repo: repo, slug: slug, app: app,
+      pollController: pollController,
     });
 
     // Orchestrator Runs — async, non-blocking
@@ -659,11 +1280,13 @@ function renderProjectDetail(app, repo, slug) {
           renderOrchToolbar(toolbarEl, {
             hasActiveRun: false, queueEntry: null, runMeta: runMeta,
             meta: meta, repo: repo, slug: slug, app: app,
+            pollController: pollController,
           });
         }).catch(function () {
           renderOrchToolbar(toolbarEl, {
             hasActiveRun: false, queueEntry: null, runMeta: null,
             meta: meta, repo: repo, slug: slug, app: app,
+            pollController: pollController,
           });
         });
         return;
@@ -690,6 +1313,22 @@ function renderProjectDetail(app, repo, slug) {
         // Drain any existing log preview cleanups before rebuilding the DOM.
         _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
         _pdLogPreviewCleanups = [];
+
+        // Save scroll position before rebuilding so it can be restored after.
+        // runsEl itself may not be scrollable; walk up to the nearest scrollable
+        // ancestor (or fall back to document.documentElement).
+        var scrollAnchor = (function () {
+          var el = runsEl;
+          while (el && el !== document.documentElement) {
+            var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+            if (style && (style.overflowY === 'auto' || style.overflowY === 'scroll')) {
+              return el;
+            }
+            el = el.parentElement;
+          }
+          return document.documentElement;
+        }());
+        var savedScrollTop = scrollAnchor ? scrollAnchor.scrollTop : 0;
 
         runsEl.innerHTML = sorted.map(function (item, index) {
           var filename = (item && item.filename) ? item.filename : String(item);
@@ -719,13 +1358,16 @@ function renderProjectDetail(app, repo, slug) {
               : '';
             rowHtml +=
               '<div class="orch-active-run-section">' +
-                statusCardHtml +
+                '<div id="orch-status-card-container">' + statusCardHtml + '</div>' +
                 '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
               '</div>';
           }
 
           return rowHtml;
         }).join('');
+
+        // Restore scroll position after the innerHTML rebuild.
+        if (scrollAnchor) scrollAnchor.scrollTop = savedScrollTop;
 
         // Start inline log preview for the active run.
         if (activeFilename) {
@@ -743,11 +1385,15 @@ function renderProjectDetail(app, repo, slug) {
         // Run metadata is fetched once — resume is always disabled while active anyway.
         var runMetaForToolbar = API.getRunMetadata(repo, slug).catch(function () { return null; });
 
-        var pollQueue = function () {
-          // Drain existing log previews before re-fetching.
-          _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-          _pdLogPreviewCleanups = [];
+        // Stable structure key for the last rendered runs list.
+        // Initialised to null so the first pollQueue tick always falls through
+        // to the full renderRunsList path (the DOM doesn't exist yet at that
+        // point — no #orch-status-card-container is present to patch).
+        // After the first full render the key is set to the rendered structure,
+        // so subsequent ticks with the same structure use the in-place patch path.
+        var lastRunsStructureKey = null;
 
+        var pollQueue = function () {
           API.orchestratorGetQueue().then(function (queue) {
             var match = null;
             if (Array.isArray(queue)) {
@@ -758,7 +1404,29 @@ function renderProjectDetail(app, repo, slug) {
                 }
               }
             }
-            renderRunsList(match);
+
+            // Determine the current structure key.
+            // When the queue entry is gone (match is null), treat the run as
+            // inactive — the active badge and status card should disappear.
+            // This covers both normal completion and kill scenarios.
+            var currentStructureKey = _orchRunsStructureKey(
+              sorted,
+              match !== null ? activeFilename : null
+            );
+
+            if (currentStructureKey === lastRunsStructureKey) {
+              // ── Data-only update: patch the status card in-place ──────────────
+              // Log preview widgets are NOT drained here — they survive intact.
+              _patchOrchStatusCard(match);
+            } else {
+              // ── Structural change: full rebuild with scroll preservation ──────
+              // Drain log previews before the DOM rebuild.
+              _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+              _pdLogPreviewCleanups = [];
+              renderRunsList(match);
+              lastRunsStructureKey = currentStructureKey;
+            }
+
             // Update toolbar; runMetaForToolbar is cached after the first resolution.
             runMetaForToolbar.then(function (runMeta) {
               renderOrchToolbar(toolbarEl, {
@@ -769,6 +1437,7 @@ function renderProjectDetail(app, repo, slug) {
                 repo:         repo,
                 slug:         slug,
                 app:          app,
+                pollController: pollController,
                 onKillDone:   function () {
                   // Re-poll after kill so both the runs list and toolbar reflect
                   // the new state immediately (without waiting for the next tick).
@@ -779,42 +1448,65 @@ function renderProjectDetail(app, repo, slug) {
                         if (q[i] && q[i].logFilename === activeFilename) { newMatch = q[i]; break; }
                       }
                     }
+                    // After a kill the run leaves the queue — treat as structural.
+                    _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+                    _pdLogPreviewCleanups = [];
                     renderRunsList(newMatch);
+                    lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
                     runMetaForToolbar.then(function (rm) {
                       renderOrchToolbar(toolbarEl, {
                         hasActiveRun: true, queueEntry: newMatch, runMeta: rm,
                         meta: meta, repo: repo, slug: slug, app: app,
+                        pollController: pollController,
                         onKillDone: function () {},
                       });
                     });
-                  }).catch(function () { renderRunsList(null); });
+                  }).catch(function () {
+                    _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+                    _pdLogPreviewCleanups = [];
+                    renderRunsList(null);
+                    lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
+                  });
                 },
               });
             });
           }).catch(function () {
+            // On error fall back to a full rebuild (clears stale state).
+            _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+            _pdLogPreviewCleanups = [];
             renderRunsList(null);
+            lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
             renderOrchToolbar(toolbarEl, {
               hasActiveRun: true, queueEntry: null, runMeta: null,
               meta: meta, repo: repo, slug: slug, app: app,
+              pollController: pollController,
             });
           });
         };
 
+        // Initial poll tick.
         pollQueue();
-        Router._setPolling(pollQueue, 5000);
+        // Upgrade the combined poll to also refresh the orchestrator queue each tick.
+        // This replaces the plain _pollProjectDetail-only interval registered after
+        // the initial render, adding the orchestrator queue refresh to the same 5s cadence.
+        pollController.startCombinedPolling({ orchPollFn: pollQueue });
       } else {
         // No active run — render without queue interaction.
+        // The combined poll (project data only) was already registered after the
+        // initial render; no additional interval needed here.
         renderRunsList(null);
 
         API.getRunMetadata(repo, slug).then(function (runMeta) {
           renderOrchToolbar(toolbarEl, {
             hasActiveRun: false, queueEntry: null, runMeta: runMeta,
             meta: meta, repo: repo, slug: slug, app: app,
+            pollController: pollController,
           });
         }).catch(function () {
           renderOrchToolbar(toolbarEl, {
             hasActiveRun: false, queueEntry: null, runMeta: null,
             meta: meta, repo: repo, slug: slug, app: app,
+            pollController: pollController,
           });
         });
       }
@@ -823,6 +1515,7 @@ function renderProjectDetail(app, repo, slug) {
       renderOrchToolbar(document.getElementById('orch-toolbar'), {
         hasActiveRun: false, queueEntry: null, runMeta: null,
         meta: meta, repo: repo, slug: slug, app: app,
+        pollController: pollController,
       });
     });
 

@@ -108,9 +108,94 @@ declarations + `beforeAll` setup + jsdom helpers):
 | `project-list.test.ts` | `views/project-list.js` |
 | `orchestrator-view.test.ts` | `views/orchestrator.js` |
 | `project-detail-runs.test.ts` | `views/project-detail.js` |
+| `project-detail-auto-update.test.ts` | `views/project-detail.js` (DOM identity + polling invariants) |
+| `project-detail-snapshot.test.ts` | `views/project-detail.js` (`_snapshotProjectState`) |
+| `project-detail-diff.test.ts` | `views/project-detail.js` (`_diffProjectState`) |
 | `dialogue-qa.test.ts` | `views/project-detail.js`, `views/work-package.js` |
 | `orchestrator-widgets.test.ts` | `js/orchestrator-widgets.js` |
 | `run-log.test.ts` | `views/run-log.js` |
+
+### Shared Test Helpers — Per-File vs. Shared Fixture
+
+Some view scripts are exercised by more than one test file. When two or more test
+files need an identical (or nearly-identical) factory helper, the options are:
+
+**Option A — inline helper per file (current practice)**
+Both `project-detail-snapshot.test.ts` and `project-detail-diff.test.ts` define
+their own `makeProject` factory. This avoids a shared-module dependency and keeps
+each test file self-contained, at the cost of duplicated boilerplate that can drift.
+
+**Option B — shared fixture file**
+Extract the helper into `tests/gui/helpers/` (the `helpers/` subdirectory already
+exists) and import it from each test file. Example:
+
+```typescript
+// tests/gui/helpers/project-detail-fixtures.ts
+export function makeProject(overrides: Record<string, unknown> = {}) { … }
+export function makeSnapshot(overrides: Partial<Snapshot> = {}) { … }
+```
+
+```typescript
+// project-detail-snapshot.test.ts
+import { makeProject } from './helpers/project-detail-fixtures';
+```
+
+**Guidance:** prefer **Option B** (shared fixture) when the same helper is used in
+three or more test files, or when the helper is complex enough that keeping it in
+sync manually is error-prone. For simple two-file duplication (like the current
+`makeProject` case), either approach is acceptable — choose consistency with the
+surrounding test file's style.
+
+#### `makeProject()` shape divergence across the project-detail test files
+
+Several `project-detail-*.test.ts` files define a local `makeProject()` helper, but
+the helpers are **not identical**. The two main patterns are:
+
+**Escape-hatch pattern** (`project-detail-auto-update.test.ts`):
+```typescript
+function makeProject(overrides: Record<string, unknown> = {}) {
+  return {
+    meta: {
+      // base fields …
+      ...(overrides._metaOverrides as Record<string, unknown> ?? {}),
+      ...overrides,                    // ← spreads ALL overrides into meta
+    },
+    work_packages: (overrides.work_packages as unknown[] | undefined) ?? [],
+    synthesis_generated: !!(overrides.synthesis_generated),
+    ...(overrides._rootOverrides as Record<string, unknown> ?? {}),
+  };
+}
+```
+This helper merges the full `overrides` bag into `meta`, which means top-level
+sentinel keys (`_metaOverrides`, `_rootOverrides`, `work_packages`,
+`synthesis_generated`) also appear as `meta` keys when those overrides are passed.
+The runtime is unaffected because `project-detail.js` reads only known keys from
+`meta`, but the resulting fixture object does not accurately represent the API shape.
+The `_metaOverrides` / `_rootOverrides` escape hatches go unused by any current test.
+
+**Flat spread pattern** (`project-detail-runs.test.ts`):
+```typescript
+function makeProject(overrides: Record<string, unknown> = {}) {
+  return {
+    meta: {
+      // base fields …
+      ...overrides,                    // ← flat merge directly into meta
+    },
+    work_packages: [],
+    synthesis_generated: false,
+  };
+}
+```
+This is simpler but equally has no separation between meta-level and root-level
+overrides.
+
+**What this means for contributors:** when writing new tests across these files,
+do not rely on the fixture shape for inference about the real API response structure.
+If you need to set a root-level field (e.g. `synthesis_generated: true`), pass it
+as an override and verify the fixture builds what you expect. If this helper is
+extracted to a shared fixture file in the future, the intent should be to use
+separate `metaOverrides` and `rootOverrides` parameters to make the two levels
+explicit and eliminate the leakage.
 
 ---
 

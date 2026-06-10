@@ -149,6 +149,7 @@ Legacy non-namespaced routes (e.g., `/api/projects/:slug`) are retained for back
 - The router **automatically clears** any active interval on route change.
 - The `OrchestratorWidgets.renderLogPreview()` returns a cleanup function for component-level polling.
 - Default intervals: 3–5 seconds for active data, 30 seconds for stale checks.
+- **In-place patch pattern (project-detail):** `renderProjectDetail` avoids full-page rebuilds on poll ticks by comparing a stable structure key (`_orchRunsStructureKey`) against the previous tick. If the structure is unchanged, only the status card's `innerHTML` is replaced (`_patchOrchStatusCard`). If the structure changed (new run, run completed, or first tick), a full `renderRunsList` is performed with scroll-position save/restore. See `data-flows.md §9` for details.
 
 ---
 
