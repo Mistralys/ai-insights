@@ -22,6 +22,50 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
+# _derive_repo_name() tests
+# ---------------------------------------------------------------------------
+
+class TestDeriveRepoName:
+    def _call(self, plan_dir: Path, fallback: str = "unknown") -> str:
+        from src.cli import _derive_repo_name
+        return _derive_repo_name(plan_dir, fallback)
+
+    def test_typical_path_returns_repo_name(self):
+        """Standard four-level-deep plan path returns the correct repo name."""
+        p = Path("/workspace/myrepo/docs/agents/plans/2026-01-01-slug")
+        assert self._call(p) == "myrepo"
+
+    def test_lowercases_mixed_case_repo(self):
+        """Mixed-case repo directory name is lowercased."""
+        p = Path("/a/b/c/MyRepo/docs/agents/plans/2026-01-01-slug")
+        assert self._call(p) == "myrepo"
+
+    def test_already_lowercase_unchanged(self):
+        p = Path("/workspace/lowerrepo/docs/agents/plans/2026-01-01-slug")
+        assert self._call(p) == "lowerrepo"
+
+    def test_all_uppercase_lowercased(self):
+        p = Path("/workspace/ACME/docs/agents/plans/2026-01-01-slug")
+        assert self._call(p) == "acme"
+
+    def test_shallow_path_returns_fallback(self):
+        """Path with fewer than four ancestors returns the fallback value."""
+        p = Path("/only/two/levels/plan-slug")
+        assert self._call(p, "unknown") == "unknown"
+
+    def test_empty_name_returns_fallback(self):
+        """If parents[3].name is empty the fallback is returned."""
+        # Simulate an edge-case where a root-level path gives an empty name.
+        p = Path("plan-slug")
+        assert self._call(p, "fallback") == "fallback"
+
+    def test_custom_fallback_value(self):
+        """Caller-supplied fallback is honoured when path is too shallow."""
+        p = Path("/a/b")
+        assert self._call(p, "myfallback") == "myfallback"
+
+
+# ---------------------------------------------------------------------------
 # Argument parser tests
 # ---------------------------------------------------------------------------
 

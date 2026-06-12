@@ -49,16 +49,16 @@ function buildWpDetailBar(wp) {
     '</span>';
   }).join('');
 
-  return '<div class="card">' +
-    '<div class="card-title" style="margin-bottom:8px">Pipeline Progression</div>' +
-    '<div class="pipeline-track">' + badges + '</div>' +
-  '</div>';
+  return UI.card('Pipeline Progression',
+    '<div class="pipeline-track">' + badges + '</div>',
+    { titleStyle: 'margin-bottom:8px' }
+  );
 }
 
-function renderWorkPackageDetail(app, slug, wpId) {
+function renderWorkPackageDetail(app, repo, slug, wpId) {
   showLoading(app);
 
-  API.getWorkPackage(slug, wpId).then(function (wp) {
+  API.getWorkPackage(repo, slug, wpId).then(function (wp) {
     // Acceptance criteria
     var acHtml = (wp.acceptance_criteria || []).map(function (ac) {
       var met = ac.met === true;
@@ -126,31 +126,31 @@ function renderWorkPackageDetail(app, slug, wpId) {
       return acc.concat(p.handoff_notes || []);
     }, []);
     var handoffHtml = handoffNotes.length
-      ? '<div class="card"><div class="card-title">Handoff Notes</div><ul class="pipeline-summary">' +
-          handoffNotes.map(function (n) { return '<li>' + escapeHtml(n) + '</li>'; }).join('') +
-        '</ul></div>'
+      ? UI.card('Handoff Notes',
+          '<ul class="pipeline-summary">' +
+            handoffNotes.map(function (n) { return '<li>' + escapeHtml(n) + '</li>'; }).join('') +
+          '</ul>'
+        )
       : '';
 
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf(wpId).html() +
+      breadcrumb().projects().project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
       '</div>' +
-      '<div class="card">' +
+      UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '—') + ' &nbsp; ' +
           '<strong>Dependencies:</strong> ' + escapeHtml((wp.dependencies || []).join(', ') || 'none') +
-        '</div>' +
-      '</div>' +
+        '</div>'
+      ) +
       (acHtml
-        ? '<div class="card"><div class="card-title">Acceptance Criteria</div>' +
-            '<ul class="ac-list">' + acHtml + '</ul>' +
-          '</div>'
+        ? UI.card('Acceptance Criteria', '<ul class="ac-list">' + acHtml + '</ul>')
         : '') +
       buildWpDetailBar(wp) +
       (pipelinesHtml
-        ? '<div class="card"><div class="card-title">Pipelines</div>' + wpTimingHtml + pipelinesHtml + '</div>'
+        ? UI.card('Pipelines', wpTimingHtml + pipelinesHtml)
         : '') +
       handoffHtml +
       '<div id="wp-dialogues-section"></div>';
@@ -163,8 +163,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
     Promise.all([
       // getChunks errors are silently swallowed — absent chunks directory is
       // expected for older runs that predate streaming capture.
-      API.getChunks(slug, wpId).catch(function () { return []; }),
-      API.getDialogues(slug, wpId),
+      API.getChunks(repo, slug, wpId).catch(function () { return []; }),
+      API.getDialogues(repo, slug, wpId),
     ]).then(function (results) {
       var chunks = results[0] || [];
       var dialogues = results[1] || [];
@@ -175,11 +175,9 @@ function renderWorkPackageDetail(app, slug, wpId) {
       var entries = useChunks ? chunks : dialogues;
 
       if (!entries || entries.length === 0) {
-        dialoguesEl.innerHTML =
-          '<div class="card">' +
-            '<div class="card-title">Dialogues</div>' +
-            '<p class="text-muted">No dialogues available for this work package.</p>' +
-          '</div>';
+        dialoguesEl.innerHTML = UI.card('Dialogues',
+          '<p class="text-muted">No dialogues available for this work package.</p>'
+        );
         return;
       }
 
@@ -203,6 +201,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
           var label = escapeHtml(stage + '-r' + idx);
           return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
             'aria-expanded="false" ' +
+            'data-repo="' + escapeHtml(repo) + '" ' +
             'data-slug="' + escapeHtml(slug) + '" ' +
             'data-filename="' + escapeHtml(d.filename) + '" ' +
             'data-use-chunks="' + (useChunks ? '1' : '0') + '">' +
@@ -216,11 +215,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
         '</div>';
       }).join('');
 
-      dialoguesEl.innerHTML =
-        '<div class="card" id="wp-dialogues-card">' +
-          '<div class="card-title">Dialogues</div>' +
-          stagesHtml +
-        '</div>';
+      dialoguesEl.innerHTML = UI.card('Dialogues', stagesHtml, { id: 'wp-dialogues-card' });
 
       // Track the currently expanded button
       var activeBtn = null;
@@ -257,6 +252,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
         btn.classList.add('dialogue-btn-active');
         btn.setAttribute('aria-expanded', 'true');
 
+        var dlgRepo = btn.getAttribute('data-repo');
         var dlgSlug = btn.getAttribute('data-slug');
         var dlgFilename = btn.getAttribute('data-filename');
         var dlgUseChunks = btn.getAttribute('data-use-chunks') === '1';
@@ -270,8 +266,8 @@ function renderWorkPackageDetail(app, slug, wpId) {
         // Fetch rendered Markdown: use the /rendered chunk endpoint for chunk
         // files, or the plain dialogue content endpoint for Markdown files.
         var fetchPromise = dlgUseChunks
-          ? API.getChunkRendered(dlgSlug, dlgFilename)
-          : API.getDialogueContent(dlgSlug, dlgFilename);
+          ? API.getChunkRendered(dlgRepo, dlgSlug, dlgFilename)
+          : API.getDialogueContent(dlgRepo, dlgSlug, dlgFilename);
 
         fetchPromise.then(function (md) {
           var rendered = (typeof marked !== 'undefined' && marked.parse)
@@ -284,11 +280,9 @@ function renderWorkPackageDetail(app, slug, wpId) {
       });
     }).catch(function (err) {
       if (!dialoguesEl) return;
-      dialoguesEl.innerHTML =
-        '<div class="card">' +
-          '<div class="card-title">Dialogues</div>' +
-          '<p class="text-danger">Failed to load dialogues: ' + escapeHtml(err.message || String(err)) + '</p>' +
-        '</div>';
+      dialoguesEl.innerHTML = UI.card('Dialogues',
+        '<p class="text-danger">Failed to load dialogues: ' + escapeHtml(err.message || String(err)) + '</p>'
+      );
     });
   }).catch(function (err) {
     showError(app, 'Failed to load work package: ' + (err.message || String(err)));

@@ -2,7 +2,7 @@
    views/project-list.js — Project List view
    Section 4a of the MCP Server Dashboard SPA
    Depends on: API, Router, escapeHtml, formatDate, statusBadge,
-               showLoading, showError
+               showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderProjectList(app) {
@@ -28,6 +28,10 @@ function renderProjectList(app) {
 
   var lastTotalPages = 1;
   var searchDebounceTimer = null;
+
+  // ── Repository label lookup (populated on first load, refreshed each load) ──
+  // Maps folder_name → { label: string, id: string } for label resolution in buildTable.
+  var repoFolderMap = {};
 
   // ── Action menu (kebab dropdown) state ──
   var openMenuWrapper = null;
@@ -71,7 +75,7 @@ function renderProjectList(app) {
   function runnerBadge(runner) {
     var safeRunner = runner && runner !== 'unknown' ? runner : 'unknown';
     var label = RUNNER_LABELS[safeRunner] || (runner ? runner : 'Unknown');
-    return '<span class="badge badge-runner badge-runner-' + escapeHtml(safeRunner) + '">' + escapeHtml(label) + '</span>';
+    return UI.badge('runner-' + safeRunner, label);
   }
 
   // ── Build runner filter dropdown options ──
@@ -122,7 +126,7 @@ function renderProjectList(app) {
 
   function buildTable(projects) {
     if (!projects.length) {
-      return '<p class="text-muted mt-16">No projects found.</p>';
+      return UI.emptyState('No projects found.');
     }
 
     function thSort(label, key) {
@@ -134,7 +138,9 @@ function renderProjectList(app) {
 
     var rows = projects.map(function (p) {
       var projectName = (p.project_name != null && p.project_name !== '') ? escapeHtml(p.project_name) : escapeHtml(p.slug);
-      ProjectNameCache.set(p.slug, p.project_name || p.slug);
+      if (p.repository_name) {
+        ProjectNameCache.set(makeProjectCacheKey(p.repository_name, p.slug), p.project_name || p.slug);
+      }
       var doneCellHtml;
       if (p.total_work_packages > 0) {
         var pct = p.progress_pct != null ? p.progress_pct : 0;
@@ -143,9 +149,28 @@ function renderProjectList(app) {
         doneCellHtml = '\u2014';
       }
       var wpCount = p.total_work_packages != null ? String(p.total_work_packages) : '\u2014';
+      var repo = p.repository_name;
+      var nameCell;
+      if (repo) {
+        nameCell = '<td><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>';
+      } else {
+        console.warn('[project-list] project "' + p.slug + '" has no repository_name — rendering as read-only row');
+        nameCell = '<td title="' + escapeHtml(p.slug) + '">' + projectName + '</td>';
+      }
+
+      // Resolve raw folder name to a declared repository label (if registered).
+      // Falls back to the raw folder name when no match is found in the registry.
+      var repoEntry = repo ? repoFolderMap[repo] : null;
+      var repoCell;
+      if (repoEntry) {
+        repoCell = '<td class="repo-col"><a href="#/strategy/' + encodeURIComponent(repoEntry.id) + '" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
+      } else {
+        repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
+      }
+
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
-        '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>' +
-        '<td class="repo-col">' + escapeHtml(p.repository_name || '\u2014') + '</td>' +
+        nameCell +
+        repoCell +
         '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
@@ -153,7 +178,7 @@ function renderProjectList(app) {
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +
-          '<div class="action-menu-wrapper" data-slug="' + escapeHtml(p.slug) + '" data-status="' + escapeHtml(p.status) + '">' +
+          '<div class="action-menu-wrapper" data-slug="' + escapeHtml(p.slug) + '" data-repo="' + escapeHtml(repo || '') + '" data-status="' + escapeHtml(p.status) + '">' +
             '<button class="action-menu-btn" aria-haspopup="menu" aria-expanded="false" title="Actions">&#8942;</button>' +
           '</div>' +
         '</td>' +
@@ -266,6 +291,12 @@ function renderProjectList(app) {
       searchSelEnd = prevSearchEl.selectionEnd || 0;
     }
 
+    var plFb = UI.filterBar('pl-filter-bar', [
+      { type: 'text',   id: 'project-search', placeholder: 'Search projects\u2026', value: currentSearch },
+      { type: 'select', id: 'status-filter',  label: 'Status:', optionsHtml: buildStatusOptions(statusCounts) },
+      { type: 'select', id: 'runner-filter',  label: 'Runner:', optionsHtml: buildRunnerOptions(runnerCounts) }
+    ]);
+
     app.innerHTML =
       '<div class="page-header">' +
         '<h1>Projects</h1>' +
@@ -273,13 +304,7 @@ function renderProjectList(app) {
           '<button class="btn btn-secondary btn-sm" id="refresh-btn">\u21bb Refresh</button>' +
         '</div>' +
       '</div>' +
-      '<div class="filter-bar">' +
-        '<input type="text" id="project-search" placeholder="Search projects\u2026" value="' + escapeHtml(currentSearch) + '">' +
-        '<label for="status-filter">Status:</label>' +
-        '<select id="status-filter">' + buildStatusOptions(statusCounts) + '</select>' +
-        '<label for="runner-filter">Runner:</label>' +
-        '<select id="runner-filter">' + buildRunnerOptions(runnerCounts) + '</select>' +
-      '</div>' +
+      plFb.html +
       buildTable(projects) +
       buildPagination(envelope.page, envelope.total_pages, envelope.total, envelope.limit);
 
@@ -315,43 +340,36 @@ function renderProjectList(app) {
       });
     }
 
-    // Status filter
-    var filterEl = document.getElementById('status-filter');
-    if (filterEl) {
-      filterEl.addEventListener('change', function () {
-        currentStatus = this.value;
-        localStorage.setItem(STATUS_STORAGE, currentStatus);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Runner filter
-    var runnerFilterEl = document.getElementById('runner-filter');
-    if (runnerFilterEl) {
-      runnerFilterEl.addEventListener('change', function () {
-        currentRunner = this.value;
-        localStorage.setItem(RUNNER_STORAGE, currentRunner);
-        currentPage = 1;
-        load();
-      });
-    }
-
-    // Search with 300ms debounce
-    var searchEl = document.getElementById('project-search');
-    if (searchEl) {
-      searchEl.addEventListener('input', function () {
-        var val = this.value;
+    // Filter bar events
+    plFb.bind(function (state) {
+      var newSearch = state['project-search'];
+      if (newSearch !== currentSearch) {
+        // Search changed — debounce the reload
         clearTimeout(searchDebounceTimer);
+        currentSearch = newSearch;
         searchDebounceTimer = setTimeout(function () {
-          currentSearch = val;
           currentPage = 1;
           load();
         }, 300);
-      });
+        return;
+      }
+      // Status or runner changed — update localStorage and reload immediately
+      if (state['status-filter'] !== currentStatus) {
+        currentStatus = state['status-filter'];
+        localStorage.setItem(STATUS_STORAGE, currentStatus);
+      }
+      if (state['runner-filter'] !== currentRunner) {
+        currentRunner = state['runner-filter'];
+        localStorage.setItem(RUNNER_STORAGE, currentRunner);
+      }
+      currentPage = 1;
+      load();
+    });
 
-      // Restore focus and cursor position if search was active before re-render
-      if (searchHadFocus) {
+    // Restore focus and cursor position if search was active before re-render
+    if (searchHadFocus) {
+      var searchEl = document.getElementById('project-search');
+      if (searchEl) {
         searchEl.focus();
         searchEl.setSelectionRange(searchSelStart, searchSelEnd);
       }
@@ -397,19 +415,23 @@ function renderProjectList(app) {
         if (openMenuWrapper) closeOpenMenu();
 
         var slug = wrapper.getAttribute('data-slug');
+        var repo = wrapper.getAttribute('data-repo');
         var status = wrapper.getAttribute('data-status');
+        var viewHtml = repo
+          ? '<a class="action-menu-item" role="menuitem" href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '">View</a>'
+          : '';
         var archiveHtml = status !== 'ARCHIVED'
-          ? '<button class="action-menu-item" role="menuitem" data-portal-action="archive" data-slug="' + escapeHtml(slug) + '">Archive</button>'
+          ? '<button class="action-menu-item" role="menuitem" data-portal-action="archive" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Archive</button>'
           : '';
         var unarchiveHtml = status === 'ARCHIVED'
-          ? '<button class="action-menu-item" role="menuitem" data-portal-action="unarchive" data-slug="' + escapeHtml(slug) + '">Unarchive</button>'
+          ? '<button class="action-menu-item" role="menuitem" data-portal-action="unarchive" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Unarchive</button>'
           : '';
 
         menuPortal.innerHTML =
-          '<a class="action-menu-item" role="menuitem" href="#/projects/' + encodeURIComponent(slug) + '">View</a>' +
+          viewHtml +
           archiveHtml +
           unarchiveHtml +
-          '<button class="action-menu-item danger" role="menuitem" data-portal-action="delete" data-slug="' + escapeHtml(slug) + '">Delete</button>';
+          '<button class="action-menu-item danger" role="menuitem" data-portal-action="delete" data-slug="' + escapeHtml(slug) + '" data-repo="' + escapeHtml(repo || '') + '">Delete</button>';
 
         menuPortal.style.display = 'block';
         var btnRect = btn.getBoundingClientRect();
@@ -453,17 +475,24 @@ function renderProjectList(app) {
         if (!item) return;
         var action = item.getAttribute('data-portal-action');
         var slug = item.getAttribute('data-slug');
+        var repo = item.getAttribute('data-repo');
         closeOpenMenu();
+        if (!repo) {
+          // Null-repo projects should not reach action handlers (no View link, action buttons
+          // still render for archive/delete). Log silently rather than disrupting the operator.
+          console.error('[project-list] action "' + action + '" skipped: project "' + slug + '" has no repository_name.');
+          return;
+        }
         if (action === 'delete') {
           if (!confirm('Permanently delete project "' + slug + '"? This cannot be undone.')) return;
-          API.deleteProject(slug).then(function () { currentPage = 1; load(); })
+          API.deleteProject(repo, slug).then(function () { currentPage = 1; load(); })
             .catch(function (err) { alert('Delete failed: ' + (err.message || String(err))); });
         } else if (action === 'archive') {
           if (!confirm('Archive project "' + slug + '"? It will be hidden from the active list but remain accessible.')) return;
-          API.archiveProject(slug).then(function () { load(); })
+          API.archiveProject(repo, slug).then(function () { load(); })
             .catch(function (err) { alert('Archive failed: ' + (err.message || String(err))); });
         } else if (action === 'unarchive') {
-          API.unarchiveProject(slug).then(function () { load(); })
+          API.unarchiveProject(repo, slug).then(function () { load(); })
             .catch(function (err) { alert('Unarchive failed: ' + (err.message || String(err))); });
         }
       });
@@ -480,15 +509,31 @@ function renderProjectList(app) {
   }
 
   function load() {
-    API.getProjects({
-      page: currentPage,
-      limit: pageLimit,
-      status: currentStatus,
-      search: currentSearch,
-      sort: currentSort,
-      dir: currentDir,
-      runner: currentRunner || undefined,
-    }).then(function (envelope) {
+    Promise.all([
+      API.getProjects({
+        page: currentPage,
+        limit: pageLimit,
+        status: currentStatus,
+        search: currentSearch,
+        sort: currentSort,
+        dir: currentDir,
+        runner: currentRunner || undefined,
+      }),
+      API.listRepos().catch(function () { return []; }),
+    ]).then(function (results) {
+      var envelope = results[0];
+      var repos = results[1] || [];
+
+      // Build a folder_name → { label, id } lookup map from the registry.
+      // A single repository can have multiple folder_names; all map to the same label.
+      repoFolderMap = {};
+      repos.forEach(function (r) {
+        var label = r.label || r.id;
+        (r.folder_names || []).forEach(function (fn) {
+          repoFolderMap[fn] = { label: label, id: r.id };
+        });
+      });
+
       render(envelope);
     }).catch(function (err) {
       showError(app, 'Failed to load projects: ' + (err.message || String(err)));

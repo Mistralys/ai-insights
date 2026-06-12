@@ -29,7 +29,7 @@ orchestrator/
 │
 ├── src/
 │   ├── __init__.py
-│   ├── cli.py                  # CLI entry point (orchestrate command)
+│   ├── cli.py                  # CLI entry point (orchestrate command); _write_run_metadata() writes .orchestrator-run.json atomically at run start (result=null) and updates it at run end
 │   ├── config.py               # .env loading, provider detection, constants
 │   ├── graph.py                # StateGraph assembly and compilation
 │   ├── state.py                # WorkflowState TypedDict with reducers
@@ -83,6 +83,7 @@ orchestrator/
     ├── test_post_completion_guard.py # Post-completion guard logic
     ├── test_prompt_renderer.py      # load_template / render_prompt / load_partial
     ├── test_revision.py             # next_revision() revision-numbering helper
+    ├── test_run_metadata.py         # _write_run_metadata() contract: fields, atomic write (.tmp→os.replace), initial result=null, run-end update (SUCCESS/INTERRUPTED/ERROR), ERROR result with message
     ├── test_run_queue.py            # run_queue register/unregister, QUEUE_FILE, file-lock, atomic write
     ├── test_state.py                # WorkflowState schema and reducer semantics
     ├── test_stream_retry.py         # Stream retry / exponential backoff
@@ -93,3 +94,16 @@ orchestrator/
     ├── test_tool_wrappers.py        # inject_project_path, restrict_to_wp, log_tool_calls
     └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```
+
+---
+
+## Runtime-Generated Plan-Directory Artefacts
+
+These files are written by `src/cli.py` into the plan directory
+(`docs/agents/plans/{slug}/`) at runtime. They are **not** part of the source
+tree but are tracked in Git when committed alongside the plan.
+
+| File | Written by | Purpose |
+|------|-----------|---------|
+| `.orchestrator-run.json` | `_write_run_metadata()` in `cli.py` | Run provenance sidecar: thread ID, plan path, slug, started_at, is_resume, dry_run, log_filename, pid, result (null while in progress → SUCCESS/INTERRUPTED/ERROR), error, duration_s. Written atomically (tmp + os.replace). Read by the GUI via `GET /api/projects/:slug/run-metadata` to populate the Resume Run button. Overwritten on every new run of the same plan. |
+| `.orchestrator.lock` | `lock_exclusive()` in `cli.py` | Process lock file — prevents concurrent orchestrator runs against the same plan. Created on startup, deleted on exit. |

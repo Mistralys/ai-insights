@@ -101,6 +101,7 @@ _SOURCE: Directory tree_
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
         └── test_revision.py
+        └── test_run_metadata.py
         └── test_run_queue.py
         └── test_slug_dir.py
         └── test_state.py

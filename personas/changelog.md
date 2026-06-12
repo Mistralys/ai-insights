@@ -1,21 +1,37 @@
 # Personas Changelog
 
-## v3.22.0 - Knowledge Collection System and Persona Improvements
-- Standalone: Plan Refiner wording improvements to remove overly imperative instructions.
-- Standalone: Plan Refiner handoff improvements to give subagents more agency.
-- Standalone: CTX Architect variable examples escaped so persona-builder no longer treats them as
-  unresolved template variables; requires `@mistralys/persona-builder` ≥ 2.5.1.
-- Build: Upgraded `@mistralys/persona-builder` dependency to v2.5.1 (variable escape syntax).
-- Ledger: Synthesis gains Knowledge Collection phase — 5-step gold-nugget commit protocol.
-- Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
-- Ledger: Synthesis delegates knowledge extraction to the Knowledge Archiver.
-- Ledger: Developer, QA, Security Auditor, and Reviewer gain `ledger_search_insights` for lookups.
-- Ledger: Developer, QA, and Security Auditor gain `browser` tool for UI and security verification.
+## v3.24.0 - **WIP - UNRELEASED**
+- Standalone: Added the Ledger Knowledge Curator persona.
+- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver (ledger-prefixed).
+- Standalone: Knowledge Curator: Deletions now require user confirmation before execution.
+
+## v3.23.0 - Planner Repository History and Standalone Planner
+- Ledger: Planner gains repository history access via `ledger_get_repository_context`.
+- Ledger: Planner content restructured; shared partials inlined.
+- Standalone: Added Planner — ledger-independent variant for non-ledger workflows.
+- Ledger: Synthesis gains deferred items collection to the operational protocol.
+- Standalone: Plan Architect Reviewer: Improved review philosophy.
+- Standalone: Knowledge Archiver gains local archiving task marker file support.
+
+## v3.22.0 - Persona Improvements
+- Standalone: Ledger Doctor: Added holistic repair philosophy and routing verification.
+- Standalone: Ledger Doctor: Refreshed workflow knowledge.
+- Standalone: Ledger Doctor: Added project recovery tool, improved repair procedure.
+- Standalone: Plan Refiner: Wording improvements to remove overly imperative instructions.
+- Standalone: Plan Refiner: Handoff improvements to give subagents more agency.
+- Standalone: Plan Auditor: No longer nags about navigational aids like line positions.
+- Standalone: CTX Architect Variable examples escaped to fix warnings.
+- Standalone: CTX Architect: Updated integrated knowledge.
+- Standalone: WP Decomposer: Integrated some live usage insights.
+- Standalone: WP Decomposer: Added the test-bundling rule within the same WPs.
 - Standalone: Added Knowledge Archiver persona for retrospective extraction from archived projects.
 - Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
-- Standalone: CTX Architect integrates CTX Generator brief findings with expanded modifiers guide.
-- Standalone: Git Committer excludes CTX files from commits on feature branches.
-- Shared: Knowledge Collection partial updated with non-obviousness filter and brevity guidelines.
+- Standalone: Git Committer: Excludes CTX files from commits on feature branches.
+- Standalone: Git Committer: Checks for upstream and default-branch divergence before committing.
+- Ledger: Synthesis: Knowledge extraction now delegated to the Knowledge Archiver.
+- Ledger: Developer, QA, Security Auditor, and Reviewer gain `ledger_search_insights` for lookups.
+- Ledger: Developer, QA, and Security Auditor gain `browser` tool for UI and security verification.
+- Build: Upgraded Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
 
 ## v3.21.0 - Plan Refiner and Persona Improvements
 - Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.

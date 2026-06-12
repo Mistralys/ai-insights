@@ -47,50 +47,349 @@ var API = (function () {
   }
 
   return {
+    /**
+     * List all projects, optionally filtered by query parameters.
+     *
+     * @param {Record<string, any>|null|undefined} params - Query parameters
+     *   (e.g. `{ status, repo }`). `undefined`/empty-string values are omitted.
+     * @returns {Promise<object[]>} Parsed JSON response from `GET /api/projects`.
+     */
     getProjects: function (params) {
       return request('GET', '/projects' + buildQueryString(params));
     },
-    getProject:               function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug)); },
-    getWorkPackages:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages'); },
-    getWorkPackage:           function (slug, wpId)   { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages/' + encodeURIComponent(wpId)); },
-    deleteProject:            function (slug)         { return request('DELETE', '/projects/' + encodeURIComponent(slug)); },
-    archiveProject:           function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/archive'); },
-    unarchiveProject:         function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/unarchive'); },
+
+    /**
+     * Fetch a single project by repository and slug.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Project detail from `GET /api/projects/{repo}/{slug}`.
+     */
+    getProject: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
+
+    /**
+     * List all work packages for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object[]>} Work package list from `GET /api/projects/{repo}/{slug}/work-packages`.
+     */
+    getWorkPackages: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages'); },
+
+    /**
+     * Fetch a single work package by ID.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} wpId - Work package ID (e.g. `'WP-001'`; URI-encoded automatically).
+     * @returns {Promise<object>} Work package detail from `GET /api/projects/{repo}/{slug}/work-packages/{wpId}`.
+     */
+    getWorkPackage: function (repo, slug, wpId) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/' + encodeURIComponent(wpId)); },
+
+    /**
+     * Permanently delete a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteProject: function (repo, slug) { return request('DELETE', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
+
+    /**
+     * Archive a project (moves it to archived status).
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/archive`.
+     */
+    archiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/archive'); },
+
+    /**
+     * Restore an archived project to active status.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/unarchive`.
+     */
+    unarchiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/unarchive'); },
+
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
     getInsights:              function ()             { return request('GET',    '/insights'); },
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
-    getPlanDocument:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/plan'); },
-    getSynthesisDocument:     function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/synthesis'); },
-    analyzeProjectReset:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
-    applyProjectReset:        function (slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
-    getProjectHealth:         function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/health'); },
-    getWorkPackageOverview:   function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/work-packages/overview'); },
-    renameProject:            function (slug, title)  { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { title: title }); },
-    renameSlug:               function (slug, newSlug) { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { slug: newSlug }); },
-    markProjectComplete:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/complete'); },
-    getRunLogs:               function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/runs'); },
-    getRunLogEntries:         function (slug, filename, afterLine) {
+
+    /**
+     * Fetch the plan document (Markdown) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Plan document from `GET /api/projects/{repo}/{slug}/plan`.
+     */
+    getPlanDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan'); },
+
+    /**
+     * Fetch the synthesis document (Markdown) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Synthesis document from `GET /api/projects/{repo}/{slug}/synthesis`.
+     */
+    getSynthesisDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis'); },
+
+    /**
+     * Perform a dry-run reset analysis for a project.
+     *
+     * Returns what would change if a reset were applied, without making any
+     * modifications. Use `applyProjectReset` to apply the reset with decisions.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Reset analysis from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: true`).
+     */
+    analyzeProjectReset: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
+
+    /**
+     * Apply a project reset with caller-supplied decisions.
+     *
+     * @param {string}   repo      - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}   slug      - Unique project slug within the repository (URI-encoded automatically).
+     * @param {object[]} decisions - Array of decision objects returned by `analyzeProjectReset`.
+     * @returns {Promise<object>} Reset result from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: false`).
+     */
+    applyProjectReset: function (repo, slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
+
+    /**
+     * Fetch the health summary for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Health report from `GET /api/projects/{repo}/{slug}/health`.
+     */
+    getProjectHealth: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/health'); },
+
+    /**
+     * Fetch the work package overview (aggregate status summary) for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Overview from `GET /api/projects/{repo}/{slug}/work-packages/overview`.
+     */
+    getWorkPackageOverview: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/overview'); },
+
+    /**
+     * Rename a project's display title.
+     *
+     * @param {string} repo  - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug  - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} title - New display title for the project.
+     * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     */
+    renameProject: function (repo, slug, title) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { title: title }); },
+
+    /**
+     * Change a project's slug identifier.
+     *
+     * @param {string} repo    - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug    - Current project slug (URI-encoded automatically).
+     * @param {string} newSlug - New slug to assign to the project.
+     * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     */
+    renameSlug: function (repo, slug, newSlug) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { slug: newSlug }); },
+
+    /**
+     * Mark a project as complete.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/complete`.
+     */
+    markProjectComplete: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/complete'); },
+
+    /**
+     * List all run log files for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object[]>} Run log file list from `GET /api/projects/{repo}/{slug}/runs`.
+     */
+    getRunLogs: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs'); },
+
+    /**
+     * Fetch log entries from a specific run log file, optionally starting after
+     * a given line number.
+     *
+     * `afterLine` uses an inline ternary rather than `buildQueryString` because
+     * `0` is a valid boundary value that must be included in the query string —
+     * `buildQueryString` omits falsy values such as `0`, which would cause
+     * the server to return entries from the beginning of the file instead of
+     * line 1.
+     *
+     * @param {string}         repo      - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}         slug      - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string}         filename  - Run log filename (URI-encoded automatically).
+     * @param {number|null}    afterLine - Return only entries after this line number.
+     *   Pass `null` or `undefined` to retrieve all entries from the start.
+     *   `0` is a valid value and correctly produces `?after=0`.
+     * @returns {Promise<object>} Log entries from `GET /api/projects/{repo}/{slug}/runs/{filename}`.
+     */
+    getRunLogEntries: function (repo, slug, filename, afterLine) {
       var qs = (afterLine !== undefined && afterLine !== null) ? ('?after=' + encodeURIComponent(afterLine)) : '';
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
     },
-    getDialogues: function (slug, wpId) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
+
+    /**
+     * Fetch run metadata for a project.
+     *
+     * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
+     * @returns {Promise<object>} Run metadata from `GET /api/projects/{repo}/{slug}/run-metadata`.
+     */
+    getRunMetadata: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/run-metadata'); },
+
+    /**
+     * List dialogues for a project, optionally filtered by work package ID.
+     *
+     * @param {string}          repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}          slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
+     *   Pass `undefined` to retrieve dialogues for all work packages.
+     * @returns {Promise<object[]>} Dialogue list from `GET /api/projects/{repo}/{slug}/dialogues`.
+     */
+    getDialogues: function (repo, slug, wpId) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
     },
-    getDialogueContent: function (slug, filename) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
-        .then(function (data) { return data.content; });
-    },
-    getChunks: function (slug, wpId) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
-    },
-    getChunkRendered: function (slug, filename) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
+
+    /**
+     * Fetch the content of a single dialogue file.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Dialogue filename (URI-encoded automatically).
+     * @returns {Promise<string>} Raw dialogue content string from
+     *   `GET /api/projects/{repo}/{slug}/dialogues/{filename}`.
+     */
+    getDialogueContent: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
         .then(function (data) { return data.content; });
     },
 
+    /**
+     * List context chunks for a project, optionally filtered by work package ID.
+     *
+     * @param {string}           repo - Repository name that owns the project (URI-encoded automatically).
+     * @param {string}           slug - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
+     *   Pass `undefined` to retrieve chunks for all work packages.
+     * @returns {Promise<object[]>} Chunk list from `GET /api/projects/{repo}/{slug}/chunks`.
+     */
+    getChunks: function (repo, slug, wpId) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
+    },
+
+    /**
+     * Fetch the rendered content of a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<string>} Rendered chunk content string from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered`.
+     */
+    getChunkRendered: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
+        .then(function (data) { return data.content; });
+    },
+
+    // -- Repositories (Strategy) ---------------------------------------
+
+    /**
+     * List repositories from the registry, optionally including filesystem-
+     * discovered undeclared namespaces.
+     *
+     * @param {boolean} [includeUndeclared=false] - When true, appends
+     *   `?include_undeclared=true` to the request, causing the server to also
+     *   return namespace directories not covered by any declared repo's
+     *   `folder_names`. Undeclared entries carry `declared: false`.
+     *
+     * Undeclared entry shape (returned only when `includeUndeclared=true`):
+     *   - `declared`     — always `false`
+     *   - `id`           — the filesystem namespace directory name
+     *   - `label`        — same value as `id` (no user-defined label exists)
+     *   - `folder_names` — single-element array: `[id]`
+     *
+     * This identity contract (`id === label === folder_names[0]`) is relied upon
+     * by `wireRegisterButtons()` in strategy.js, which pre-fills the Add
+     * Repository form fields using `r.id`. Specifically:
+     *   - `#new-repo-id`      receives `sanitiseSlug(r.id)` — a SLUG_REGEX-safe
+     *                          lowercase slug (dots, spaces, and special chars
+     *                          replaced; leading non-alphanumeric chars stripped;
+     *                          consecutive hyphens collapsed; trailing hyphens
+     *                          stripped; falls back to 'repo' for empty results).
+     *   - `#new-repo-label`   receives the raw `r.id` (unchanged).
+     *   - `#new-repo-folders` receives the raw `r.id` (unchanged).
+     *
+     * `sanitiseSlug` is a local function scoped inside `renderStrategyList` and
+     * is not accessible from `renderStrategyDetail` or other view functions. If
+     * slug sanitisation is ever needed elsewhere, the function must be duplicated
+     * or elevated to module scope. If the backend undeclared entry shape ever
+     * changes, the pre-fill logic in `wireRegisterButtons` must be updated
+     * accordingly.
+     *
+     * @returns {Promise<object[]>} Parsed JSON response from `GET /api/repos`.
+     */
+    listRepos: function (includeUndeclared) {
+      var qs = includeUndeclared ? '?include_undeclared=true' : '';
+      return request('GET', '/repos' + qs);
+    },
+
+    /**
+     * Fetch a single repository entry by ID.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<object>} Repository detail from `GET /api/repos/{repoId}`.
+     */
+    getRepo: function (repoId) {
+      return request('GET', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    /**
+     * Create a new repository entry in the registry.
+     *
+     * @param {object} data - Repository fields: id, label, folder_names, vision.
+     * @returns {Promise<object>} Created repository from `POST /api/repos`.
+     */
+    createRepo: function (data) {
+      return request('POST', '/repos', data);
+    },
+
+    /**
+     * Update an existing repository entry.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @param {object} data   - Fields to update: label, folder_names, vision.
+     * @returns {Promise<object>} Updated repository from `PUT /api/repos/{repoId}`.
+     */
+    updateRepo: function (repoId, data) {
+      return request('PUT', '/repos/' + encodeURIComponent(repoId), data);
+    },
+
+    /**
+     * Delete a repository entry from the registry.
+     * Does NOT delete any project data or storage.
+     *
+     * @param {string} repoId - Repository ID (URI-encoded automatically).
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteRepo: function (repoId) {
+      return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
     // -- Orchestrator --------------------------------------------------
-    orchestratorStart:       function (planPath, dryRun) { return request('POST',   '/orchestrator/start',                                         { planPath: planPath, dryRun: dryRun }); },
+    orchestratorStart: function (planPath, dryRun, resumeThreadId) {
+      var body = { planPath: planPath, dryRun: dryRun };
+      if (resumeThreadId !== undefined) body.resumeThreadId = resumeThreadId;
+      return request('POST', '/orchestrator/start', body);
+    },
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },

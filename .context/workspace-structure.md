@@ -66,12 +66,14 @@ _SOURCE: Top-level directory tree_
     │   ├── sorter.js
     ├── gui/
     │   ├── api-knowledge.ts
+    │   ├── api-repos.ts
     │   ├── api.ts
     │   ├── chunk-renderer.ts
     │   ├── orchestrator-manager.ts
     │   ├── public/
     │   │   ├── api-client.js
     │   │   ├── app.js
+    │   │   ├── components.js
     │   │   ├── index.html
     │   │   ├── router.js
     │   │   ├── stale-check.js
@@ -98,6 +100,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── enums.ts
     │   │   ├── knowledge.ts
     │   │   ├── project-meta.ts
+    │   │   ├── repository-registry.ts
     │   │   ├── root-index.ts
     │   │   ├── validators.ts
     │   │   ├── work-package.ts
@@ -108,6 +111,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── knowledge-store.ts
     │   │   ├── ledger-store.ts
     │   │   ├── migrate-namespaced.ts
+    │   │   ├── repository-registry.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
     │   │   ├── help-content.ts
@@ -116,6 +120,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── observations.ts
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
+    │   │   ├── repository-context.ts
     │   │   ├── work-package.ts
     │   │   ├── workflow-handoff.ts
     │   │   ├── workflow-next-action-batch.ts
@@ -130,6 +135,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── path-validator.ts
     │   │   └── pipeline-maps.ts
     │   │   └── project-reset.ts
+    │   │   └── project-resolver.ts
     │   │   └── read-project-name.ts
     │   │   └── runner.ts
     │   │   └── server-version.ts
@@ -143,10 +149,13 @@ _SOURCE: Top-level directory tree_
     ├── tests/
     │   ├── gui-server.test.ts
     │   ├── gui/
+    │   │   ├── README.md
     │   │   ├── api-client.test.ts
     │   │   ├── api-knowledge.test.ts
     │   │   ├── api-orchestrator.test.ts
+    │   │   ├── api-repos.test.ts
     │   │   ├── api-reset.test.ts
+    │   │   ├── api-run-metadata.test.ts
     │   │   ├── api-wp-overview.test.ts
     │   │   ├── api.test.ts
     │   │   ├── auto-archive.test.ts
@@ -155,6 +164,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── handoff-config-integration.test.ts
+    │   │   ├── insights-knowledge-links.test.ts
     │   │   ├── knowledge-api.test.ts
     │   │   ├── knowledge-repository-scope.test.ts
     │   │   ├── log-resolver.test.ts
@@ -162,6 +172,9 @@ _SOURCE: Top-level directory tree_
     │   │   ├── orchestrator-view.test.ts
     │   │   ├── orchestrator-widgets.test.ts
     │   │   ├── project-detail-runs.test.ts
+    │   │   ├── project-list.test.ts
+    │   │   ├── queue-ledger-status.test.ts
+    │   │   ├── router-utils.test.ts
     │   │   ├── run-log-handlers.test.ts
     │   │   ├── run-log-server.test.ts
     │   │   ├── run-log.test.ts
@@ -171,6 +184,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── server-info.test.ts
     │   │   ├── server-knowledge-routes.test.ts
     │   │   ├── server-queue.test.ts
+    │   │   ├── setup-gui-globals.ts
     │   │   ├── stale-check.test.ts
     │   ├── helpers/
     │   │   ├── create-temp-store.ts
@@ -183,6 +197,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── knowledge.test.ts
     │   │   ├── project-archiving-schema.test.ts
     │   │   ├── project-meta-runner.test.ts
+    │   │   ├── project-meta.test.ts
+    │   │   ├── repository-registry.test.ts
     │   │   ├── root-index.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
@@ -193,6 +209,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── list-all-projects.test.ts
     │   │   ├── migrate-namespaced.test.ts
     │   │   ├── project-meta.test.ts
+    │   │   ├── repository-registry.test.ts
     │   │   ├── slug-resolution.test.ts
     │   ├── tools/
     │   │   ├── begin-work.test.ts
@@ -209,6 +226,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── pipeline-duration.test.ts
     │   │   ├── pipeline.test.ts
     │   │   ├── project-lifecycle.test.ts
+    │   │   ├── reopen-cancelled-wp.test.ts
+    │   │   ├── repository-context.test.ts
     │   │   ├── rework-circuit-breaker.test.ts
     │   │   ├── runner-integration.test.ts
     │   │   ├── schema-integrity.test.ts
@@ -229,6 +248,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── pipeline-maps.test.ts
     │   │   └── progress.test.ts
     │   │   └── project-reset.test.ts
+    │   │   └── project-resolver.test.ts
     │   │   └── runner.test.ts
     │   │   └── timestamp.test.ts
     │   │   └── workflow-helpers.test.ts
@@ -310,6 +330,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
     │   └── test_revision.py
+    │   └── test_run_metadata.py
     │   └── test_run_queue.py
     │   └── test_slug_dir.py
     │   └── test_state.py
@@ -380,8 +401,6 @@ _SOURCE: Top-level directory tree_
     │   │   └── docs-operational-protocol.md
     │   │   └── docs-output-format.md
     │   │   └── incident-logging.md
-    │   │   └── planner-core-rules.md
-    │   │   └── planner-output-template.md
     │   │   └── pm-output-format.md
     │   │   └── pm-subagent-roster.md
     │   │   └── qa-operational-protocol.md
@@ -419,6 +438,7 @@ _SOURCE: Top-level directory tree_
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── plan-refiner.md
+    │       ├── planner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -444,6 +464,7 @@ _SOURCE: Top-level directory tree_
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── plan-refiner.md
+    │       ├── planner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── standalone-knowledge-archiver.md
@@ -471,6 +492,7 @@ _SOURCE: Top-level directory tree_
     │       └── plan-architect-reviewer.agent.md
     │       └── plan-auditor.agent.md
     │       └── plan-refiner.agent.md
+    │       └── planner.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md

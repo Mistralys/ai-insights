@@ -588,6 +588,49 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ─── handleGetInsights — repository_name ────────────────────────────────
+
+  describe('handleGetInsights — repository_name', () => {
+    it('populates repository_name from the last segment of the inferred project root', async () => {
+      // planPath = {tmpdir}/my-repo/docs/agents/plans/2026-01-01-insight-repo
+      // inferProjectRootFromPlanPath walks 4 levels up to {tmpdir}/my-repo
+      const planPath = join(tmpdir(), 'my-repo', 'docs', 'agents', 'plans', '2026-01-01-insight-repo');
+      const store = new LedgerStore(planPath, ledgerRoot);
+      await store.writeRootIndex(makeRoot({
+        project_comments: [
+          { type: 'note', priority: 'low', timestamp: '2026-01-01T10:00:00', agent: 'Developer', note: 'repo note' },
+        ],
+      }));
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.repository_name).toBe('my-repo');
+    });
+
+    it('sets repository_name to null (not undefined) when path is too shallow to infer a repository', async () => {
+      // Use a planPath only 3 levels deep from the filesystem root so that
+      // inferProjectRootFromPlanPath (which walks exactly 4 levels up) lands on '/'
+      // or a single-segment path, causing split(/[\\/]/).filter(Boolean).pop() to
+      // return undefined, which the ?? null coercion converts to null.
+      // e.g. '/docs/agents/plans/2026-01-01-shallow' → walk 4 up → '/'
+      // → split → [] → pop() === undefined → ?? null → null
+      const planPath = join('/', 'docs', 'agents', 'plans', '2026-01-01-shallow-path');
+      const store = new LedgerStore(planPath, ledgerRoot);
+      await store.writeRootIndex(makeRoot({
+        project_comments: [
+          { type: 'note', priority: 'low', timestamp: '2026-01-01T11:00:00', agent: 'Developer', note: 'shallow note' },
+        ],
+      }));
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(1);
+      // Must be exactly null (not undefined, not a string) per AC-3
+      expect(result[0]!.repository_name).toBe(null);
+    });
+  });
+
   // ─── handleGetPlanDocument ───────────────────────────────────────────────
 
   describe('handleGetPlanDocument', () => {

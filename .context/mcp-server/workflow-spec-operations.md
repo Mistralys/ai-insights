@@ -985,7 +985,7 @@ function canStartPipeline(wp, pipelineType):
   if prerequisite is null:
     return true
   
-  prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)
+  prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite AND NOT p.auto_cancelled)
   if prereqPipelines is empty:
     return false
   
@@ -993,6 +993,8 @@ function canStartPipeline(wp, pipelineType):
   return mostRecent.status == "PASS"
 ```
 
+> **Note:** Auto-cancelled pipelines are excluded from the prerequisite lookup. Consistent with §21.27, a pipeline cancelled by system automation (e.g., crash recovery or cascade reblock) is not a quality signal and MUST NOT block downstream stages. Only genuine pipeline runs (where `auto_cancelled` is `false` or absent) are considered.
+>
 > **Note:** This check validates that the prerequisite is PASS but does not verify temporal ordering. The full re-validation guard (ensuring the prerequisite PASSed *after* the most recent run of the current pipeline type) is enforced in `startPipeline` (see [§11.1](operations.md#111-algorithm)).
 >
 > **Implementation note:** `startPipeline` (§11.1) implements the prerequisite check inline rather than delegating to `canStartPipeline`, because it extends the check with additional guards (re-validation, duplicate prevention, active-stage validation) in a single pass. This function is provided as a conceptual reference for the ordering rule; implementations are not required to expose it as a separate callable.

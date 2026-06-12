@@ -420,7 +420,7 @@ function wpClaimedDuration(wp):
 
 ### 14.13 `hasDownstreamReengagedSince` Algorithm
 
-Determines whether the downstream agent (whose FAIL triggered Developer rework) has started a new pipeline since the Developer's most recent implementation PASS. Used by the Developer recommendation engine (§14.2, priority 5) to prevent redundant rework cycles.
+Determines whether the downstream agent (whose FAIL routes to Developer) has started a new pipeline that resulted in FAIL since the Developer's most recent implementation PASS. A PASS re-engagement signals that the downstream agent verified the fix successfully — only FAIL re-engagements trigger Developer rework. Used by the Developer recommendation engine (§14.2, priority 5) to prevent redundant rework cycles.
 
 ```pseudocode
 function hasDownstreamReengagedSince(pipelines, upstreamType):
@@ -438,7 +438,8 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
     if dsPipelines is not empty:
       mostRecent = dsPipelines.last()
       if mostRecent.started_at is not null
-         AND mostRecent.started_at >= upstreamPass.completed_at:
+         AND mostRecent.started_at >= upstreamPass.completed_at
+         AND mostRecent.status == "FAIL":
         return true
   
   return false
@@ -448,8 +449,9 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
 |----------|--------|
 | impl-1 PASS → qa-1 FAIL (no further activity) | `true` — QA validated the current implementation and FAILed; priority 5 routes to REWORK |
 | impl-1 PASS → qa-1 FAIL → impl-2 PASS (no QA re-engagement) | `false` — Developer's fix delivered but downstream hasn't re-engaged; priority 5 negated guard fires → WAIT_FOR_DOWNSTREAM |
-| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 started | `true` — QA re-engaged after the fix (if qa-2 is still IN_PROGRESS, priority 5's outer `isMostRecentPipelineFail` check is false → priority 5 does not fire) |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 IN_PROGRESS | `false` — QA re-engaged but has not yet FAILed; only FAIL re-engagements trigger rework. P5's outer `hasDownstreamFail` guard (`isMostRecentPipelineFail`) already prevents priority 5 from firing when the most recent downstream pipeline is IN_PROGRESS. |
 | impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL | `true` — QA re-engaged and failed again; priority 5 routes to REWORK |
+| impl-1 PASS → code-review FAIL → impl-2 PASS → qa-2 PASS | `false` — QA verified the fix successfully; a PASS re-engagement is not a quality failure. Priority 5 does not fire and the WP advances normally. |
 
 > **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). The negated guard in priority 5 evaluates `NOT true` → does not fire, so the code falls through to REWORK — correctly routing the Developer to fix the code again. After a new implementation PASS (impl-3), `hasDownstreamReengagedSince` returns `false` (no downstream pipeline started since impl-3 PASS), and the negated guard fires, routing the Developer to WAIT_FOR_DOWNSTREAM until QA re-engages. The net effect: REWORK fires immediately when the downstream agent validates and FAILs, WAIT_FOR_DOWNSTREAM fires when the Developer has delivered a fix that hasn't been validated yet. This prevents the pathological loop identified in §21.52 while preserving immediate rework signaling after repeated failures.
 

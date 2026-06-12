@@ -7,5 +7,6 @@ export default defineConfig({
   test: {
     globals: true,
     testTimeout: 10000,
+    setupFiles: ['./tests/gui/setup-gui-globals.ts'],
   },
 });

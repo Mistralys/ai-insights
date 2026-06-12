@@ -47,6 +47,26 @@ class TestRegisterCreatesFile:
         assert entry["expectedSlug"] == "my-slug"
         assert entry["startedAt"] == "2026-01-01T00:00:00Z"
         assert entry["status"] == "pending"
+        # expectedRepo defaults to None when repo_name is not supplied.
+        assert "expectedRepo" in entry
+        assert entry["expectedRepo"] is None
+
+    def test_entry_shape_with_repo_name(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            entry_id = rq.register(
+                pid=7, plan_path="/ws/repo/docs/agents/plans/2026-01-01-feat/plan.md",
+                slug="2026-01-01-feat", started_at="2026-01-01T00:00:00Z",
+                repo_name="my-repo",
+            )
+
+        data = json.loads((tmp_path / ".run-queue.json").read_text())
+        entry = data[0]
+        assert entry["id"] == entry_id
+        assert entry["expectedSlug"] == "2026-01-01-feat"
+        assert entry["expectedRepo"] == "my-repo"
 
     def test_returns_uuid_string(self, tmp_path: Path) -> None:
         with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
@@ -257,3 +277,80 @@ class TestAtomicWrite:
         # Must parse as valid JSON and be a list
         parsed = json.loads(queue_file.read_text(encoding="utf-8"))
         assert isinstance(parsed, list)
+
+
+# ---------------------------------------------------------------------------
+# register() — expectedRepo field
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterExpectedRepo:
+    """Tests for the expectedRepo field introduced by WP-002."""
+
+    def test_expected_repo_written_when_supplied(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(
+                pid=1, plan_path="/p", slug="s", started_at="t",
+                repo_name="ai-insights",
+            )
+
+        entry = json.loads((tmp_path / ".run-queue.json").read_text())[0]
+        assert entry["expectedRepo"] == "ai-insights"
+
+    def test_expected_repo_is_null_when_omitted(self, tmp_path: Path) -> None:
+        """Omitting repo_name must still write the key with a null value."""
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(pid=1, plan_path="/p", slug="s", started_at="t")
+
+        entry = json.loads((tmp_path / ".run-queue.json").read_text())[0]
+        assert "expectedRepo" in entry
+        assert entry["expectedRepo"] is None
+
+    def test_expected_repo_null_when_passed_none_explicitly(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(pid=1, plan_path="/p", slug="s", started_at="t", repo_name=None)
+
+        entry = json.loads((tmp_path / ".run-queue.json").read_text())[0]
+        assert entry["expectedRepo"] is None
+
+    def test_slug_field_retains_bare_slug_semantics(self, tmp_path: Path) -> None:
+        """The slug field must equal the bare plan-directory name, unchanged."""
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(
+                pid=1, plan_path="/ws/repo/docs/agents/plans/2026-05-01-feat/plan.md",
+                slug="2026-05-01-feat", started_at="t",
+                repo_name="my-repo",
+            )
+
+        entry = json.loads((tmp_path / ".run-queue.json").read_text())[0]
+        # slug (stored as expectedSlug) must be the bare directory name.
+        assert entry["expectedSlug"] == "2026-05-01-feat"
+        # Repo is separate.
+        assert entry["expectedRepo"] == "my-repo"
+
+    def test_both_slug_and_repo_present_in_entry(self, tmp_path: Path) -> None:
+        """Queue entry must contain both expectedSlug and expectedRepo keys."""
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(
+                pid=2, plan_path="/p/plan.md", slug="my-plan", started_at="t",
+                repo_name="my-repo",
+            )
+
+        entry = json.loads((tmp_path / ".run-queue.json").read_text())[0]
+        assert "expectedSlug" in entry
+        assert "expectedRepo" in entry

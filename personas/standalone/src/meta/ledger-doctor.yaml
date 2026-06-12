@@ -4,8 +4,8 @@ description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix
 vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
-version: "1.0.0"
-last_updated: "2026-03-28"
+version: "1.3.0"
+last_updated: "2026-06-04"
 mcp_server_name: central_pm
 
 tools:

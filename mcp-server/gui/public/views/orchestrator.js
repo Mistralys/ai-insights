@@ -36,7 +36,7 @@
 
    Depends on: API (api-client.js), Router (router.js),
                OrchestratorWidgets (js/orchestrator-widgets.js),
-               escapeHtml (utils.js)
+               escapeHtml (utils.js), UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -143,8 +143,7 @@ function renderOrchestrator(app) {
     API.orchestratorStart(planPath, true).then(function (result) {
       renderPreflightResults((result && result.checks) ? result.checks : []);
     }).catch(function (err) {
-      resultsEl.innerHTML = '<p class="error-banner">Preflight error: ' +
-        escapeHtml((err && err.message) ? err.message : String(err)) + '</p>';
+      resultsEl.innerHTML = UI.banner('error', 'Preflight error: ' + ((err && err.message) ? err.message : String(err)));
     }).then(function () {
       preflightBtn.disabled = false;
       preflightBtn.textContent = 'Run Preflight';
@@ -187,10 +186,7 @@ function renderOrchestrator(app) {
       if (result && result.started) {
         var runStatusFilename = result.runStatusFilename || null;
         planInput.value = '';
-        resultsEl.innerHTML =
-          '<p class="success-banner">✓ Orchestrator launched' +
-          (result.pid ? ' (PID\u00a0' + result.pid + ')' : '') +
-          '. Waiting for the run to appear in the queue below…</p>';
+        resultsEl.innerHTML = UI.banner('success', '\u2713 Orchestrator launched' + (result.pid ? ' (PID\u00a0' + String(result.pid) + ')' : '') + '. Waiting for the run to appear in the queue below\u2026');
         allChecksPassed = false;
         startBtn.disabled = true;
         refreshQueue();
@@ -207,9 +203,7 @@ function renderOrchestrator(app) {
               if (!status) return; // file not yet written — run still in progress
               clearInterval(statusPollTimer);
               if (status.result === 'ERROR' && status.error) {
-                resultsEl.innerHTML =
-                  '<p class="error-banner">Run failed: ' +
-                  escapeHtml(status.error) + '</p>';
+                resultsEl.innerHTML = UI.banner('error', 'Run failed: ' + status.error);
               }
               // SUCCESS: queue will reflect the project; leave the banner.
             }).catch(function () {
@@ -271,7 +265,20 @@ function renderOrchestrator(app) {
 
   /** Builds the queue table HTML string from the entries array.
    *  Returns the complete <table>…</table> markup ready to be assigned to
-   *  container.innerHTML. */
+   *  container.innerHTML.
+   *
+   *  Log-link rendering rules (progress cell):
+   *    - A "View Log →" anchor using the namespaced `#/projects/{repo}/{slug}/runs/{filename}`
+   *      form is rendered only when `entry.logFilename`, `entry.expectedRepo`, AND
+   *      `entry.expectedSlug` are all non-null/non-empty.
+   *    - Legacy entries that have `entry.logFilename` but a null `entry.expectedRepo`
+   *      do NOT render a log link — falling through to the "Waiting for log…" span
+   *      (when no progress text is present) or simply omitting the link entirely.
+   *      This prevents broken bare-slug URLs for queue entries predating the
+   *      namespace migration introduced in WP-011.
+   *
+   *  Both `entry.expectedRepo` and `entry.expectedSlug` are passed through
+   *  `encodeURIComponent` before being embedded in any URL. */
   function _buildQueueHtml(entries) {
     var html = '<table class="table orch-queue-table"><thead>' +
       '<tr><th></th><th>Plan</th><th>Status</th><th>Elapsed</th><th>Progress</th><th>Actions</th></tr>' +
@@ -282,15 +289,15 @@ function renderOrchestrator(app) {
       var planName   = _orchBasename(entry.planPath || '');
       var elapsed    = _orchElapsed(entry.startedAt);
       var isExpanded = !!expandedIds[id];
-      var statusBadgeHtml = '<span class="badge badge-' + escapeHtml(status) + '">' +
-        escapeHtml(_orchStatusLabel(status)) + '</span>';
+      var statusBadgeHtml = UI.badge(status, _orchStatusLabel(status));
       // Progress cell: badge + text summary + optional log link.
       var progressHtml = OrchestratorWidgets.renderProgressBadge(entry.lastAction || null);
       if (entry.progress) {
         progressHtml += ' <span class="orch-progress-text">' + escapeHtml(entry.progress) + '</span>';
       }
-      if (entry.logFilename && entry.expectedSlug) {
+      if (entry.logFilename && entry.expectedRepo && entry.expectedSlug) {
         progressHtml += ' <a href="#/projects/' +
+          encodeURIComponent(entry.expectedRepo) + '/' +
           encodeURIComponent(entry.expectedSlug) + '/runs/' +
           encodeURIComponent(entry.logFilename) + '" class="orch-log-link">View Log →</a>';
       } else if (!entry.progress) {
@@ -325,9 +332,15 @@ function renderOrchestrator(app) {
    *  Branch priority (dismissibility-first):
    *    1. pending  → Kill button   (process is still running)
    *    2. dead     → Dismiss button (process has exited without completing)
-   *    3. projectExists → View Project link (project ledger is on disk)
+   *    3. projectExists + expectedRepo + expectedSlug → "View Project" link using
+   *       the namespaced `#/projects/{repo}/{slug}` form (WP-011)
+   *    4. projectExists + expectedSlug, but expectedRepo is null → no link rendered
+   *       (legacy queue entry; omitted to avoid constructing a broken bare-slug URL)
    *  The dead branch precedes the projectExists branch so that a dead entry
    *  that also has a known project slug always renders Dismiss, not View Project.
+   *  Case 4 is an explicit empty branch retained for clarity — it documents the
+   *  intentional omission so future contributors understand why no link appears for
+   *  entries that were enqueued before the namespace migration (WP-011).
    *
    *  Closure dependencies (from renderOrchestrator() scope):
    *    `expandedIds`            — tracks which queue rows are expanded; mutated
@@ -351,12 +364,18 @@ function renderOrchestrator(app) {
           delete expandedIds[id];
           refreshQueue();
         }));
-      } else if (entry.projectExists === true && entry.expectedSlug) {
+      } else if (entry.projectExists === true && entry.expectedRepo && entry.expectedSlug) {
         var link = document.createElement('a');
-        link.href = '#/projects/' + encodeURIComponent(entry.expectedSlug);
+        link.href = '#/projects/' +
+          encodeURIComponent(entry.expectedRepo) + '/' +
+          encodeURIComponent(entry.expectedSlug);
         link.className = 'btn btn-sm btn-secondary orch-queue-action-btn';
         link.textContent = 'View Project';
         cell.appendChild(link);
+      } else if (entry.projectExists === true && entry.expectedSlug && !entry.expectedRepo) {
+        // Legacy queue entry without expectedRepo — omit the project link to
+        // avoid constructing a broken bare-slug URL. The entry is still shown
+        // in the queue but no navigation link is rendered.
       }
     });
 
@@ -388,11 +407,12 @@ function renderOrchestrator(app) {
   function _mountLogPreviews(container, entries) {
     entries.forEach(function (entry) {
       var id = entry.id || '';
-      if (!expandedIds[id] || !entry.logFilename || !entry.expectedSlug) return;
+      if (!expandedIds[id] || !entry.logFilename || !entry.expectedRepo || !entry.expectedSlug) return;
       var previewEl = document.getElementById('orch-log-' + id);
       if (!previewEl) return;
       var cleanup = OrchestratorWidgets.renderLogPreview(
         previewEl,
+        entry.expectedRepo,
         entry.expectedSlug,
         entry.logFilename
       );

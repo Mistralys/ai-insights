@@ -23,6 +23,7 @@ _SOURCE: Directory tree_
         │   │   ├── data-flows.md
         │   │   ├── file-tree.md
         │   │   ├── tech-stack.md
+        │   │   ├── variables.md
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
         ├── persona-build-system.md
@@ -115,8 +116,6 @@ _SOURCE: Directory tree_
         │   └── docs-operational-protocol.md
         │   └── docs-output-format.md
         │   └── incident-logging.md
-        │   └── planner-core-rules.md
-        │   └── planner-output-template.md
         │   └── pm-output-format.md
         │   └── pm-subagent-roster.md
         │   └── qa-operational-protocol.md
@@ -154,6 +153,7 @@ _SOURCE: Directory tree_
             ├── plan-architect-reviewer.md
             ├── plan-auditor.md
             ├── plan-refiner.md
+            ├── planner.md
             ├── readme-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
@@ -179,6 +179,7 @@ _SOURCE: Directory tree_
             ├── plan-architect-reviewer.md
             ├── plan-auditor.md
             ├── plan-refiner.md
+            ├── planner.md
             ├── readme-curator.md
             ├── researcher.md
             ├── standalone-knowledge-archiver.md
@@ -206,6 +207,7 @@ _SOURCE: Directory tree_
             │   ├── plan-architect-reviewer.md
             │   ├── plan-auditor.md
             │   ├── plan-refiner.md
+            │   ├── planner.md
             │   ├── readme-curator.md
             │   ├── researcher.md
             │   ├── standalone-knowledge-archiver.md
@@ -233,6 +235,7 @@ _SOURCE: Directory tree_
             │   └── plan-architect-reviewer.yaml
             │   └── plan-auditor.yaml
             │   └── plan-refiner.yaml
+            │   └── planner.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
             │   └── standalone-knowledge-archiver.yaml
@@ -260,6 +263,7 @@ _SOURCE: Directory tree_
             └── plan-architect-reviewer.agent.md
             └── plan-auditor.agent.md
             └── plan-refiner.agent.md
+            └── planner.agent.md
             └── readme-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md

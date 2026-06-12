@@ -33,8 +33,7 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 
-const utilsJs   = readFileSync(join(publicDir, 'utils.js'),    'utf-8');
-const widgetsJs = readFileSync(
+const widgetsJs    = readFileSync(
   join(publicDir, 'js', 'orchestrator-widgets.js'),
   'utf-8',
 );
@@ -50,12 +49,14 @@ declare global {
     renderStatusCard:    (entry: Record<string, unknown>) => string;
     renderKillButton:    (entryId: string, onDone: () => void) => HTMLButtonElement;
     renderDismissButton: (entryId: string, onDone: () => void) => HTMLButtonElement;
-    renderLogPreview:    (container: HTMLElement, slug: string, filename: string) => () => void;
+    renderLogPreview:    (container: HTMLElement, repo: string, slug: string, filename: string) => () => void;
     renderProgressBadge: (lastAction: string | null | undefined) => string;
     renderCliReference:  () => string;
   };
   // eslint-disable-next-line no-var
   var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +64,6 @@ declare global {
 // ---------------------------------------------------------------------------
 
 beforeAll(() => {
-  // Install utils.js globals (escapeHtml etc.)
-  vm.runInThisContext(utilsJs);
   // Stub API with placeholder methods; individual tests override as needed.
   (globalThis as Record<string, unknown>)['API'] = {
     orchestratorKill:    vi.fn().mockResolvedValue(null),
@@ -400,7 +399,7 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
   it('returns a cleanup function', () => {
     const container = document.createElement('div');
     const cleanup = globalThis.OrchestratorWidgets.renderLogPreview(
-      container, 'my-slug', 'run.jsonl',
+      container, 'my-repo', 'my-slug', 'run.jsonl',
     );
     expect(typeof cleanup).toBe('function');
     cleanup();
@@ -408,10 +407,10 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
 
   it('calls API.getRunLogEntries immediately on invocation', () => {
     const container = document.createElement('div');
-    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-slug', 'run.jsonl');
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-repo', 'my-slug', 'run.jsonl');
 
     expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledOnce();
-    expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledWith('my-slug', 'run.jsonl', 0);
+    expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledWith('my-repo', 'my-slug', 'run.jsonl', 0);
   });
 
   it('prepends new event entries to the container with human-friendly labels (most-recent-first)', async () => {
@@ -422,7 +421,7 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
         totalLines: 2,
       });
 
-    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-repo', 'slug', 'run.jsonl');
 
     // Flush the initial fetch promise
     await flushPromises();
@@ -447,7 +446,7 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
         return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
       });
 
-    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-repo', 'slug', 'run.jsonl');
     await flushPromises();
 
     vi.advanceTimersByTime(3001);
@@ -472,7 +471,7 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
         return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
       });
 
-    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-repo', 'slug', 'run.jsonl');
     await flushPromises();
     expect(container.children).toHaveLength(1);
 
@@ -482,8 +481,9 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
 
     expect(container.children).toHaveLength(2);
     // Second call uses afterLine = 1 (the totalLines from the first response)
+    // API.getRunLogEntries(repo, slug, filename, afterLine) — afterLine is index 3
     const secondCall = (globalThis.API['getRunLogEntries'] as Mock).mock.calls[1];
-    expect(secondCall![2]).toBe(1);
+    expect(secondCall![3]).toBe(1);
   });
 
   it('cleanup function stops polling', async () => {
@@ -492,7 +492,7 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
       vi.fn().mockResolvedValue({ entries: [], totalLines: 0 });
 
     const cleanup = globalThis.OrchestratorWidgets.renderLogPreview(
-      container, 'slug', 'run.jsonl',
+      container, 'my-repo', 'slug', 'run.jsonl',
     );
     await flushPromises();
 

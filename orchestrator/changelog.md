@@ -1,10 +1,11 @@
 # Orchestrator Changelog
 
-## v0.21.0 - Namespaced Ledger Path Derivation
-- Nodes: _derive_slug_dir() now constructs {ledgerRoot}/{repo_name}/{slug} namespaced paths.
-- Nodes: repo_name derived via Path(project_path).parents[3].name with 'unknown' fallback.
-- CLI: Ledger log copy path updated to {ledger_root}/{repo_name}/{slug}/orchestrator/logs.
-- Tests: Added test_slug_dir.py with 9 unit tests for namespaced path construction.
+## v1.0.0 - Run Metadata
+- CLI: Added `.orchestrator-run.json` sidecar with atomic writes; result field updated at run end.
+- Tests: Added run metadata tests covering initial write, atomic cleanup, result update, and schema.
+- Nodes: Slug directory now uses namespaced `{ledgerRoot}/{repo_name}/{slug}` paths.
+- CLI: Updated ledger log copy path to match namespaced slug directory layout.
+- Tests: Added 9 unit tests for namespaced path construction.
 
 ## v0.20.0 - API Key Liveness Validation
 - Preflight: Added `--check-api-key` flag to live-validate API keys (no tokens consumed).

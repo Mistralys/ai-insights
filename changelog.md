@@ -1,21 +1,30 @@
 # AI Insights Changelog
 
-## v1.27.0 - Knowledge Store, Repository Scope, and Developer Experience
-> mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
+## v2.1.0 - Repository History and Planner Expansion
+> mcp v2.1.0 · personas v3.23.0
+
+- MCP: Added `ledger_get_repository_context` tool for cross-project history and outcome access.
+- MCP: Added repository registry with CRUD operations and filesystem-discovery.
+- GUI: Added Strategy page for registering and managing repositories.
+- GUI: Introduced shared UI component library; dashboard views refactored.
+- GUI: Register form pre-fills ID with a sanitised slug derived from the folder name.
+- GUI: Fixed Orchestrator "Resume" button failing.
+- Personas: Planner gains repository history access via the new repository context tool.
+- Personas: Added standalone Planner persona for non-ledger workflows.
+- Personas: Synthesis gains deferred items collection; Plan Architect Reviewer improved.
+
+## v2.0.0 - Knowledge Storage
+> mcp v2.0.0 · orchestrator v1.0.0 · personas v3.22.0
 
 - MCP: Added the knowledge accumulation system.
 - MCP: Added dedicated knowledge search and registration tools.
 - MCP: Storage upgraded to folders namespaced by repository to eliminate collisions.
 - MCP: Existing storage folders are auto-migrated on server start.
-- MCP: Removed the local `.mcp.json` in favor of the global installation.
-- Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
-- Personas: CTX Architect variable examples escaped to avoid build warnings.
-- Personas: Added the Knowledge Archiver persona.
-- Personas: The Synthesis agent now delegates knowledge extraction to the archiver.
-- Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain insight lookups.
-- Personas: 7 personas gain the `browser` tool.
-- Personas: CTX Architect integrates updated CTX Generator guide information.
-- Scripts: Added a health-check registry.
+- MCP: Added run-metadata API endpoint.
+- Core: Removed the local `.mcp.json` in favor of the global installation.
+- Personas: Collected fixes and improvements across the board.
+- Scripts: Added a health-check registry shown in the CLI menu.
+- Scripts: The CLI menu now automatically refreshes stale dists.
 - Scripts: Added the global MCP installer for VS Code and Claude.
 - Scripts: Added doctor/bootstrap improvements.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
@@ -23,6 +32,10 @@
 - GUI: Fixed breadcrumbs in some pages.
 - GUI: Fixed the orchestrator run "Dismiss" button.
 - GUI: Fixed the main overview's filter input.
+- GUI: Added "Resume Run" button on project detail; re-launches the orchestrator with the saved thread ID.
+- Orchestrator: Added the `.orchestrator-run.json` sidecar metadata file.
+- Orchestrator: Namespaced ledger path derivation updated to match the new storage layout.
+- Tests: Added run-metadata endpoint and orchestrator sidecar write/update test coverage.
 - Dependencies: Updated Persona Builder to [v2.5.1](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.5.1).
 - Dependencies: Updated CLI Menu to [v1.1.0](https://github.com/Mistralys/cli-menu/releases/tag/v1.1.0).
 

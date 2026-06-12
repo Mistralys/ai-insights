@@ -1047,3 +1047,166 @@ describe('LedgerStore.renameSlug', () => {
     expect(result.last_updated).toBe(metaBefore.last_updated);
   });
 });
+
+// ==================== listProjectsByFolderNames ====================
+
+describe('LedgerStore.listProjectsByFolderNames', () => {
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'list-by-folder-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  /**
+   * Seeds a minimal .meta.json under `{ledgerRoot}/{folder}/{slug}/.meta.json`.
+   */
+  async function seedMeta(
+    folder: string,
+    slug: string,
+    overrides: Record<string, unknown> = {}
+  ): Promise<void> {
+    const { mkdir, writeFile } = await import('fs/promises');
+    const dir = join(tempLedgerRoot, folder, slug);
+    await mkdir(dir, { recursive: true });
+    const meta = {
+      slug,
+      plan_path: join(tmpdir(), folder, 'docs', 'agents', 'plans', slug),
+      status: 'READY',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: '2026-01-01T00:00:00Z',
+      ...overrides,
+    };
+    await writeFile(join(dir, '.meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+  }
+
+  it('returns an empty array for an empty folderNames input', async () => {
+    const result = await LedgerStore.listProjectsByFolderNames([], tempLedgerRoot);
+    expect(result).toEqual([]);
+  });
+
+  it('returns an empty array gracefully when the folder does not exist', async () => {
+    const result = await LedgerStore.listProjectsByFolderNames(['nonexistent-folder'], tempLedgerRoot);
+    expect(result).toEqual([]);
+  });
+
+  it('returns an empty array gracefully for multiple non-existent folders', async () => {
+    const result = await LedgerStore.listProjectsByFolderNames(
+      ['folder-a', 'folder-b', 'folder-c'],
+      tempLedgerRoot
+    );
+    expect(result).toEqual([]);
+  });
+
+  it('reads projects only from the specified folder name, not from the entire ledger root', async () => {
+    // Seed two folders — only "a" is requested
+    await seedMeta('a', '2026-01-01-project-in-a');
+    await seedMeta('b', '2026-01-02-project-in-b');
+
+    const result = await LedgerStore.listProjectsByFolderNames(['a'], tempLedgerRoot);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-01-project-in-a');
+  });
+
+  it('aggregates projects from multiple folder names', async () => {
+    await seedMeta('folder-x', '2026-01-10-project-x1');
+    await seedMeta('folder-x', '2026-01-11-project-x2');
+    await seedMeta('folder-y', '2026-01-12-project-y1');
+
+    const result = await LedgerStore.listProjectsByFolderNames(
+      ['folder-x', 'folder-y'],
+      tempLedgerRoot
+    );
+
+    expect(result).toHaveLength(3);
+    const slugs = result.map((m) => m.slug).sort();
+    expect(slugs).toEqual([
+      '2026-01-10-project-x1',
+      '2026-01-11-project-x2',
+      '2026-01-12-project-y1',
+    ]);
+  });
+
+  it('does not read from folders not listed in folderNames', async () => {
+    await seedMeta('listed', '2026-01-01-listed-project');
+    await seedMeta('unlisted', '2026-01-02-unlisted-project');
+
+    const result = await LedgerStore.listProjectsByFolderNames(['listed'], tempLedgerRoot);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-01-listed-project');
+  });
+
+  it('skips dot-prefix entries (control directories) within a folder', async () => {
+    const { mkdir, writeFile } = await import('fs/promises');
+    // Create a .hidden subdirectory that should be skipped
+    const hiddenDir = join(tempLedgerRoot, 'my-repo', '.hidden-entry');
+    await mkdir(hiddenDir, { recursive: true });
+    await writeFile(
+      join(hiddenDir, '.meta.json'),
+      JSON.stringify({
+        slug: '.hidden-entry',
+        plan_path: '/fake/path',
+        status: 'READY',
+        date_created: '2026-01-01T00:00:00Z',
+        last_updated: '2026-01-01T00:00:00Z',
+      }),
+      'utf-8'
+    );
+
+    // Also seed a valid project
+    await seedMeta('my-repo', '2026-01-01-valid-project');
+
+    const result = await LedgerStore.listProjectsByFolderNames(['my-repo'], tempLedgerRoot);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-01-valid-project');
+  });
+
+  it('skips invalid .meta.json files without throwing', async () => {
+    const { mkdir, writeFile } = await import('fs/promises');
+    // Create a project dir with malformed JSON
+    const badDir = join(tempLedgerRoot, 'repo', '2026-01-01-bad-project');
+    await mkdir(badDir, { recursive: true });
+    await writeFile(join(badDir, '.meta.json'), '{ invalid json !!!', 'utf-8');
+
+    // Also seed a valid project
+    await seedMeta('repo', '2026-01-02-valid-project');
+
+    const result = await LedgerStore.listProjectsByFolderNames(['repo'], tempLedgerRoot);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-02-valid-project');
+  });
+
+  it('skips non-directory entries inside a folder', async () => {
+    const { mkdir, writeFile } = await import('fs/promises');
+    // Create the namespace dir and place a plain file inside it (not a subdirectory)
+    await mkdir(join(tempLedgerRoot, 'repo2'), { recursive: true });
+    await writeFile(join(tempLedgerRoot, 'repo2', 'some-file.txt'), 'hello', 'utf-8');
+
+    // Also seed a valid project
+    await seedMeta('repo2', '2026-01-01-project');
+
+    const result = await LedgerStore.listProjectsByFolderNames(['repo2'], tempLedgerRoot);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-01-project');
+  });
+
+  it('returns projects from a mix of existing and non-existing folders', async () => {
+    await seedMeta('real-folder', '2026-01-01-real-project');
+
+    const result = await LedgerStore.listProjectsByFolderNames(
+      ['real-folder', 'ghost-folder'],
+      tempLedgerRoot
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.slug).toBe('2026-01-01-real-project');
+  });
+});

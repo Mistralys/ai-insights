@@ -1,6 +1,34 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.31.0 - Knowledge Store, Namespaced Storage, and Repository Scope
+## v2.2.0 - **WIP - UNRELEASED**
+- Tools: Added the new `ledger_delete_insight` tool.
+
+## v2.1.0 - Repository Context and Strategy View
+- Tools: Added `ledger_get_repository_context` for cross-project history and outcome access.
+- Storage: Added repository registry with CRUD operations and filesystem-discovery API.
+- Schema: Added `outcome_summary` to project metadata for cross-project result tracking.
+- GUI: Added Strategy page for registering and managing repositories.
+- GUI: Register form pre-fills the ID field with a sanitised slug derived from the folder name.
+- GUI: Introduced `components.js` UI component library; views refactored to shared patterns.
+- GUI: Fixed Orchestrator "Resume" button failing.
+- GUI: Improved plan folder validation in the orchestrator launch form.
+- Tests: Added shared GUI test setup module; hardened UI component and repository API coverage.
+
+## v2.0.0 - Knowledge Storage
+- Workflow: Fixed some cancellation edge cases.
+- Workflow: Fixed some rework cases despite completed stages.
+- GUI: Insights project links now use namespaced URLs; degrade to plain text when repository is absent.
+- GUI: Knowledge origin-plan links now use namespaced URLs; degrade to span or omit when data is absent.
+- GUI: Added `repository_name` to `InsightEntry`; derived from storage path, null when unresolvable.
+- GUI: Added run-metadata endpoint to read the orchestrator sidecar file for a project.
+- GUI: Orchestrator start now accepts an optional resume thread ID; validates UUID format.
+- GUI: Added "Resume Run" button to the project detail view for interrupted non-dry runs.
+- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side filtering.
+- GUI: Five knowledge REST endpoints wired: list, update, delete, promote, and move.
+- GUI: All five handlers validate `repository_name` against slug regex; unknown scope → HTTP 400.
+- GUI: Fixed null-guard patterns in `api-client.js` for knowledge mutation functions.
+- GUI: Fixed breadcrumb project name, Dismiss button for dead runs, and filter focus on refresh.
+- GUI: Fixed duplicate orchestrator run entries.
 - Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo collisions.
 - Storage: Auto-migrates on startup; `resolveProjectDir()` handles bare slugs and composites.
 - Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write.
@@ -13,14 +41,10 @@
 - Tools: `scope: 'repository'` requires `repository_name`; `'global'` is a reserved name.
 - Tools: QA, Reviewer, and Documentation WAIT reasons distinguish work-complete from blocked WPs.
 - Tools: Added INVOKE_AGENT action for auto-handoff, eliminating WAIT + auto_handoff conflicts.
-- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side filtering.
-- GUI: Five knowledge REST endpoints wired: list, update, delete, promote, and move.
-- GUI: All five handlers validate `repository_name` against slug regex; unknown scope → HTTP 400.
-- GUI: Fixed null-guard patterns in `api-client.js` for knowledge mutation functions.
-- GUI: Fixed breadcrumb project name, Dismiss button for dead runs, and filter focus on refresh.
 - Security: Inline theme-init script extracted; CSP `script-src` tightened to `'self'` only.
 - Security: `parseKnowledgeId()` rejects floats, zero, and non-numeric IDs with HTTP 400.
 - Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
+- Docs: Updated `InsightEntry` documentation with field semantics.
 
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.

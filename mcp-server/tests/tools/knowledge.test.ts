@@ -1,6 +1,7 @@
 /**
  * Integration tests for the 4 knowledge MCP tools:
- *   ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight
+ *   ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight,
+ *   ledger_delete_insight
  *
  * Tests drive the tool handler functions directly via _internal, using vi.mock to redirect
  * resolveLedgerRoot() to a temporary directory so the real ledger storage is never touched.
@@ -23,7 +24,7 @@ vi.mock('../../src/utils/ledger-root.js', () => ({
 
 import { _internal } from '../../src/tools/knowledge.js';
 
-const { addInsight, searchInsights, listInsights, updateInsight } = _internal;
+const { addInsight, searchInsights, listInsights, updateInsight, deleteInsight } = _internal;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -601,5 +602,109 @@ describe('ledger_update_insight — scope filter', () => {
 
     expect(isError(result as any)).toBe(true);
     expect((result as any).content[0].text).toContain('not found');
+  });
+});
+
+// ─── ledger_delete_insight ────────────────────────────────────────────────
+
+describe('ledger_delete_insight', () => {
+  it('deletes a global insight and returns a confirmation with id and formatted_id', async () => {
+    const added = await addInsight({
+      scope: 'global',
+      title: 'To be deleted',
+      content: 'This entry will be removed.',
+      category: 'testing',
+      tags: ['deletable'],
+    });
+    const addedId = parseResult(added as any).id;
+
+    const result = await deleteInsight({ id: addedId });
+
+    expect(isError(result as any)).toBe(false);
+    const data = parseResult(result as any);
+    expect(data.id).toBe(addedId);
+    expect(data.formatted_id).toBe(`KN-${String(addedId).padStart(4, '0')}`);
+    expect(data.deleted).toBe(true);
+
+    // Confirm the insight is gone from the store
+    const listResult = await listInsights({ scope: 'global' });
+    const remaining = parseResult(listResult as any);
+    expect(remaining.find((i: { id: number }) => i.id === addedId)).toBeUndefined();
+  });
+
+  it('deletes a repository-scoped insight', async () => {
+    const added = await addInsight({
+      scope: 'repository',
+      repository_name: 'delete-test-repo',
+      title: 'Repo insight to delete',
+      content: 'Scoped to delete-test-repo.',
+      category: 'workflow',
+      tags: [],
+    });
+    const addedId = parseResult(added as any).id;
+
+    const result = await deleteInsight({
+      id: addedId,
+      scope: 'repository',
+      repository_name: 'delete-test-repo',
+    });
+
+    expect(isError(result as any)).toBe(false);
+    const data = parseResult(result as any);
+    expect(data.id).toBe(addedId);
+    expect(data.deleted).toBe(true);
+
+    // Confirm removal
+    const listResult = await listInsights({ scope: 'repository', repository_name: 'delete-test-repo' });
+    const remaining = parseResult(listResult as any);
+    expect(remaining.find((i: { id: number }) => i.id === addedId)).toBeUndefined();
+  });
+
+  it('returns an error when the insight id does not exist', async () => {
+    const result = await deleteInsight({ id: 9999 });
+
+    expect(isError(result as any)).toBe(true);
+    expect((result as any).content[0].text).toContain('not found');
+  });
+
+  it('respects scope filter to prevent cross-store deletion', async () => {
+    // Add a global insight and a repository insight — both get id=1 in their respective stores
+    const global = await addInsight({
+      scope: 'global',
+      title: 'Global insight',
+      content: 'Global content.',
+      category: 'architecture',
+      tags: [],
+    });
+    const globalId = parseResult(global as any).id;
+
+    await addInsight({
+      scope: 'repository',
+      repository_name: 'scope-delete-repo',
+      title: 'Repository insight',
+      content: 'Repository content.',
+      category: 'workflow',
+      tags: [],
+    });
+
+    // Delete with scope:'repository' + repository_name — must NOT touch the global store
+    const result = await deleteInsight({
+      id: globalId,
+      scope: 'repository',
+      repository_name: 'scope-delete-repo',
+    });
+
+    // The delete targets 'scope-delete-repo'; the global insight with the same id must survive
+    if (!isError(result as any)) {
+      // Deletion succeeded in repo store — global must still exist
+      const listResult = await listInsights({ scope: 'global' });
+      const globals = parseResult(listResult as any);
+      expect(globals.find((i: { id: number }) => i.id === globalId)).toBeDefined();
+    } else {
+      // The repo store had no matching id — that's also valid; just confirm global is untouched
+      const listResult = await listInsights({ scope: 'global' });
+      const globals = parseResult(listResult as any);
+      expect(globals.find((i: { id: number }) => i.id === globalId)).toBeDefined();
+    }
   });
 });

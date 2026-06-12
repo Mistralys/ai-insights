@@ -217,6 +217,14 @@ All are private (prefixed `_`) but documented here for agent navigation.
 | `signal_shutdown` | `stage="cli"`, `result="INTERRUPTED"`, `level="WARNING"`, `thread_id` | Emitted when SIGTERM/SIGINT triggers the graceful shutdown race path in `_run()`. The graph task is cancelled, the run is **not** marked terminal (resumable via `--resume`), and the process exits with code `1`. Integration-tested by `TestSignalInterruptedRun` in `tests/test_cli.py` (Unix-only; skipped on Windows). |
 | `run_end` | `result`, `thread_id`, **`total_duration_s`** | Enriched: `total_duration_s` — wallclock seconds for the full run (float, 1 dp); omitted when `run_start_ts` unavailable. |
 
+#### CLI private helpers (`src/cli.py`)
+
+Module-level helper functions used by the CLI entry point. All are private (prefixed `_`) but documented here for agent navigation.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `_derive_repo_name` | `(plan_dir: Path, fallback: str) -> str` | Derives the repository name from a plan directory path. Takes `plan_dir.parents[3].name` (the fourth ancestor, counting from zero), lowercases it to align with TypeScript's `deriveRepoName()` convention in `ledger-root.ts`. Falls back to *fallback* when the path has fewer than four ancestor levels or when the ancestor name is empty. Example: `/workspace/MyRepo/docs/agents/plans/2026-01-01-slug` → `"myrepo"`. Used by `_derive_ledger_log_dir()` and by the queue registration call in `cli.py` to populate `expectedRepo`. |
+
 ### Duration field conventions
 
 | Field | Scope | Present on |
@@ -390,15 +398,21 @@ use an atomic tmp+rename write so no partial content is ever observable.
   "pid":          12345,
   "planPath":     "/abs/path/to/plan.md",
   "expectedSlug": "2026-05-05-feature",
+  "expectedRepo": "my-repo",
   "startedAt":    "2026-05-05T10:00:00.000000+00:00",
   "status":       "pending"
 }
 ```
 
+`expectedRepo` is the repository name derived from `plan_dir.parents[3].name`.
+The GUI uses it together with `expectedSlug` to build namespaced project links
+(`#/projects/{repo}/{slug}`). It is `null` for legacy entries produced by older
+orchestrator versions — consumers must handle `null` gracefully.
+
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `QUEUE_FILE` | `Path` | Public constant. Absolute path to `orchestrator/logs/.run-queue.json`. Read by GUI and external tools to enumerate active runs. |
-| `register` | `register(pid: int, plan_path: str, slug: str, started_at: str) -> str` | Appends a new entry to the queue file and returns its UUID v4. Creates the queue file (and `logs/` directory) if absent. Acquires an exclusive lock before every read/write. |
+| `register` | `register(pid: int, plan_path: str, slug: str, started_at: str, repo_name: str \| None = None) -> str` | Appends a new entry to the queue file and returns its UUID v4. Creates the queue file (and `logs/` directory) if absent. Acquires an exclusive lock before every read/write. `repo_name` is written as `expectedRepo`; pass `None` (or omit) when the repository cannot be determined — the field is always written, as `null` for legacy-detection. Any falsy string is normalised to `None` at the API boundary. |
 | `unregister` | `unregister(entry_id: str) -> None` | Removes the entry with *entry_id* from the queue. Silent no-op when the queue file is missing or *entry_id* is not found. Acquires an exclusive lock before every read/write. |
 
 **CLI integration pattern (best-effort)**
@@ -964,6 +978,131 @@ is the authoritative version-tracking source for the storage layout. Any change 
 must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
 See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
 
+---
+
+### 24. Run Metadata Sidecar: Atomic Write, Persistence Contract, and INTERRUPTED Detection
+
+**Rule:** `_write_run_metadata()` in `src/cli.py` must write `.orchestrator-run.json`
+atomically using a temporary file and `os.replace()`. The on-disk file must never be
+partially visible to readers. The function is best-effort — it swallows `OSError` and
+never raises.
+
+**INTERRUPTED detection:** The `result="INTERRUPTED"` outcome is determined via the
+module-level `_was_interrupted` boolean flag in `src/cli.py`, **not** by substring
+matching on error messages. All three interrupt paths set this flag:
+- Signal-triggered shutdown (SIGTERM / SIGINT via `shutdown_event`)
+- `KeyboardInterrupt` during graph execution
+- `KeyboardInterrupt` during MCP server startup
+
+This flag-based approach is robust to future changes in error message wording.
+
+**Write sequence:**
+1. Write JSON to `plan_dir / ".orchestrator-run.json.tmp"` via `write_text()`.
+2. Call `os.replace(str(tmp_path), str(meta_path))` — atomic on all supported platforms.
+3. Call `tmp_path.unlink(missing_ok=True)` (belt-and-suspenders: removes the `.tmp` file
+   if `os.replace()` left it behind due to a same-directory failure).
+
+**Persistence contract:** The file is **never deleted** between runs. Each new run of
+the same plan **overwrites** the previous file — first with `result=null` (run in
+progress), then with the final result (`SUCCESS`, `INTERRUPTED`, or `ERROR`) after
+the graph and lock cleanup complete. Consumers must treat it as "last-run metadata":
+the file existing does not imply a currently-running process.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — direct write; leaves partial file visible during write
+meta_path.write_text(json.dumps(metadata))
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — atomic write via tmp + os.replace()
+tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+try:
+    tmp_path.write_text(json.dumps(metadata, indent=2))
+    os.replace(str(tmp_path), str(meta_path))
+except OSError:
+    pass
+finally:
+    try:
+        tmp_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+```
+
+**Not written on:** lock-contention exit (thread ID not yet resolved) and plan-not-found
+exit (plan_dir may not exist). The terminal-resume guard writes the file once with
+`result="ERROR"` before returning.
+
+**Rationale:** Atomic write prevents the GUI from reading a half-written file when
+polling the resume-run endpoint. Overwrite-on-rerun keeps the plan directory clean —
+one metadata file per plan, always reflecting the most recent run. Best-effort swallow
+mirrors the run-queue and run-status tombstone patterns in `cli.py`.
+
+---
+
+## Queue Entry Schema
+
+### 25. Queue Entry `expectedRepo` Field — Repo-Namespace for Multi-Root Workspaces
+
+**Rule:** The orchestrator's `RunQueue.register()` method must always write an `expectedRepo` field in every queue entry JSON object. The field value is the repository name (workspace root basename) derived from `plan_dir.parents[3].name`. When the repository name cannot be determined (e.g. the directory depth is insufficient), `expectedRepo` must be written as `null` — not absent — so that the TypeScript GUI server can distinguish new-format entries (where `expectedRepo` is `string | null`) from corrupted entries.
+
+**Queue entry JSON shape:**
+
+```json
+{
+  "id": "uuid-v4",
+  "pid": 12345,
+  "planPath": "/path/to/docs/agents/plans/2026-05-05-feature",
+  "expectedSlug": "2026-05-05-feature",
+  "expectedRepo": "my-repo",
+  "startedAt": "2026-05-05T10:00:00.000Z"
+}
+```
+
+`expectedRepo` is the repository name derived from `plan_dir.parents[3].name` (the workspace root folder at 4 directory levels above the plan folder). The GUI uses this value together with `expectedSlug` to generate correct namespaced project links of the form `#/projects/my-repo/2026-05-05-feature`. Without `expectedRepo`, the GUI cannot construct namespaced URLs and must fall back to omitting project links.
+
+**Python implementation (`orchestrator/src/utils/run_queue.py`):**
+
+```python
+# ✅ CORRECT — always write expectedRepo; pass None when unavailable
+def register(self, pid: int, plan_path: str, slug: str, started_at: str,
+             repo_name: str | None = None) -> str:
+    # Any falsy string is normalised to None at the API boundary.
+    entry = {
+        "id": str(uuid.uuid4()),
+        "pid": pid,
+        "planPath": plan_path,
+        "expectedSlug": slug,
+        "expectedRepo": repo_name,   # written as null in JSON when None
+        "startedAt": started_at,
+    }
+    ...
+```
+
+**Anti-pattern:**
+
+```python
+# ❌ WRONG — omitting expectedRepo entirely; forces the GUI to treat all entries as legacy
+entry = {
+    "id": str(uuid.uuid4()),
+    "pid": pid,
+    "planPath": plan_path,
+    "expectedSlug": slug,
+    "startedAt": started_at,
+    # expectedRepo missing — legacy detection fails; GUI cannot generate links
+}
+```
+
+**TypeScript normalization (`mcp-server/src/gui/queue/validate-entry.ts`):** The `isRawQueueEntry()` type-guard normalizes missing `expectedRepo` values to `null` in-place when it processes queue entries (the field is not required by the guard, but the output is always typed as `string | null`). The `normalizeQueueEntry()` helper performs the same normalization for pre-validated entries. This normalization ensures all downstream TypeScript consumers — `getProjectLedgerStatus()`, `killQueueEntry()`, `dismissQueueEntry()`, `orchestrator.js` — can rely on `expectedRepo` being `string | null`, never `undefined`.
+
+**`getProjectLedgerStatus()` path resolution (`mcp-server/src/gui/queue/get-queue.ts`):**
+
+- `expectedRepo` non-null → namespaced path: `{ledgerRoot}/{expectedRepo}/{slug}/project-ledger.json`
+- `expectedRepo` null → flat/legacy path: `{ledgerRoot}/{slug}/project-ledger.json`
+
+**Rationale:** A dedicated `expectedRepo` field eliminates the need for runtime parsing at every queue consumer site. The alternative (embedding a composite `repo/slug` string in `expectedSlug`) would require every reader to detect, split, and fall back, multiplying fragile parsing logic across 4+ locations. A single nullable field on the 6-field interface is trivially additive and backward compatible — old queue entries written before this schema change have `expectedRepo` absent in JSON, which normalizes to `null` at the read boundary.
+
 
 
 
@@ -1089,6 +1228,69 @@ Return ChunkEntry[]   ([] when directory is absent — no error)
 | GUI priority | **Higher** (chunks override dialogues) | Fallback when no chunks (pre-streaming runs) |
 | Rendering | On-the-fly by GUI server | Pre-rendered at capture time |
 
+---
+
+## Flow 5: Run Metadata Sidecar Write (`.orchestrator-run.json`)
+
+**Entry Point:** `_run()` in `src/cli.py`, after lock acquisition and thread ID resolution
+
+**Write — initial (result=null, before graph execution):**
+
+```
+Lock acquired (.orchestrator.lock)
+  ↓
+Thread ID resolved:
+  args.resume provided  → thread_id = args.resume
+  fresh run             → thread_id = str(uuid.uuid4())
+  ↓
+_write_run_metadata(plan_dir, thread_id, plan_path, started_at,
+                    is_resume, dry_run, log_filename, pid)
+  ↓
+  Compose metadata dict:
+    { thread_id, plan_path, slug=plan_dir.name, started_at, is_resume,
+      dry_run, log_filename, pid, result=null, error=null, duration_s=null }
+  ↓
+  Write atomically:
+    tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+    tmp_path.write_text(json.dumps(metadata, indent=2))
+    os.replace(str(tmp_path), str(meta_path))  ← never partially visible
+    tmp_path.unlink(missing_ok=True)           ← belt-and-suspenders cleanup
+  ↓
+plan_dir/.orchestrator-run.json present; result field is null (run in progress)
+  ↓
+Graph execution starts (MCPToolkit.from_config → graph.ainvoke)
+```
+
+**Update — final (result set, after graph execution):**
+
+```
+Graph execution complete (success, interrupt, or error)
+  ↓
+Lock released + queue entry unregistered
+  ↓
+_write_run_metadata(plan_dir, ..., result=_meta_result, error=..., duration_s=...)
+  _meta_result one of:
+    "SUCCESS"     — graph ran to completion without outside_errors
+    "INTERRUPTED" — run was signal-interrupted or step-interrupted (--interrupt-on)
+    "ERROR"       — outside_errors present or fatal_error in final_state
+  ↓
+Atomic overwrite of plan_dir/.orchestrator-run.json
+result, error, and duration_s are now populated
+```
+
+**Not written on early-exit paths:**
+- Lock-contention: returns EXIT_ERROR before thread ID is resolved
+- Plan-not-found: returns EXIT_ERROR before plan_dir is known
+
+**Special case (terminal-resume guard):** when `--resume` is supplied but the thread
+is already terminal, `_write_run_metadata()` is called once with `result="ERROR"` and
+an explicit error message before returning EXIT_ERROR.
+
+**Result:** `plan_dir/.orchestrator-run.json` contains run provenance (thread ID, plan
+path, slug, timestamps, outcome). The file is overwritten on every new run of the same
+plan — it always reflects the most recent run. The GUI reads it via
+`GET /api/projects/:slug/run-metadata` to decide whether to show the Resume Run button.
+
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/file-tree.md`
 
@@ -1124,7 +1326,7 @@ orchestrator/
 │
 ├── src/
 │   ├── __init__.py
-│   ├── cli.py                  # CLI entry point (orchestrate command)
+│   ├── cli.py                  # CLI entry point (orchestrate command); _write_run_metadata() writes .orchestrator-run.json atomically at run start (result=null) and updates it at run end
 │   ├── config.py               # .env loading, provider detection, constants
 │   ├── graph.py                # StateGraph assembly and compilation
 │   ├── state.py                # WorkflowState TypedDict with reducers
@@ -1178,6 +1380,7 @@ orchestrator/
     ├── test_post_completion_guard.py # Post-completion guard logic
     ├── test_prompt_renderer.py      # load_template / render_prompt / load_partial
     ├── test_revision.py             # next_revision() revision-numbering helper
+    ├── test_run_metadata.py         # _write_run_metadata() contract: fields, atomic write (.tmp→os.replace), initial result=null, run-end update (SUCCESS/INTERRUPTED/ERROR), ERROR result with message
     ├── test_run_queue.py            # run_queue register/unregister, QUEUE_FILE, file-lock, atomic write
     ├── test_state.py                # WorkflowState schema and reducer semantics
     ├── test_stream_retry.py         # Stream retry / exponential backoff
@@ -1188,6 +1391,19 @@ orchestrator/
     ├── test_tool_wrappers.py        # inject_project_path, restrict_to_wp, log_tool_calls
     └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```
+
+---
+
+## Runtime-Generated Plan-Directory Artefacts
+
+These files are written by `src/cli.py` into the plan directory
+(`docs/agents/plans/{slug}/`) at runtime. They are **not** part of the source
+tree but are tracked in Git when committed alongside the plan.
+
+| File | Written by | Purpose |
+|------|-----------|---------|
+| `.orchestrator-run.json` | `_write_run_metadata()` in `cli.py` | Run provenance sidecar: thread ID, plan path, slug, started_at, is_resume, dry_run, log_filename, pid, result (null while in progress → SUCCESS/INTERRUPTED/ERROR), error, duration_s. Written atomically (tmp + os.replace). Read by the GUI via `GET /api/projects/:slug/run-metadata` to populate the Resume Run button. Overwritten on every new run of the same plan. |
+| `.orchestrator.lock` | `lock_exclusive()` in `cli.py` | Process lock file — prevents concurrent orchestrator runs against the same plan. Created on startup, deleted on exit. |
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/tech-stack.md`

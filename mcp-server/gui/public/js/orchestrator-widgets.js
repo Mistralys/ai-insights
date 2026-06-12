@@ -5,7 +5,7 @@
    Provides reusable UI components for the orchestrator views.
    Exposes a global OrchestratorWidgets namespace object.
 
-   Depends on: API (api-client.js), escapeHtml (utils.js)
+   Depends on: API (api-client.js), escapeHtml (utils.js), UI (components.js)
    ============================================================ */
 
 var OrchestratorWidgets = (function () {
@@ -34,9 +34,9 @@ var OrchestratorWidgets = (function () {
    * @returns {{ cls: string, label: string }}
    */
   function statusMeta(status) {
-    if (status === 'started') return { cls: 'started', label: 'Started'  };
-    if (status === 'dead')    return { cls: 'dead',    label: 'Dead'     };
-    return                           { cls: 'pending', label: 'Pending'  };
+    if (status === 'started') return { cls: 'started', label: 'Started', accentColor: 'var(--color-complete)'    };
+    if (status === 'dead')    return { cls: 'dead',    label: 'Dead',    accentColor: 'var(--color-blocked)'     };
+    return                           { cls: 'pending', label: 'Pending', accentColor: 'var(--color-in-progress)' };
   }
 
   // ------------------------------------------------------------------
@@ -66,30 +66,24 @@ var OrchestratorWidgets = (function () {
       } catch (_) {}
     }
 
-    var html = '<div class="orchestrator-status-card">';
+    var headerHtml =
+      '<div class="orchestrator-status-header">' +
+        UI.badge(meta.cls, meta.label) +
+        (elapsed
+          ? ' <span class="text-muted orchestrator-elapsed">Running ' + escapeHtml(elapsed) + '</span>'
+          : '') +
+      '</div>';
 
-    // Header: status badge + elapsed time
-    html += '<div class="orchestrator-status-header">';
-    html += '<span class="badge badge-' + escapeHtml(meta.cls) + '">' +
-      escapeHtml(meta.label) + '</span>';
-    if (elapsed) {
-      html += ' <span class="text-muted orchestrator-elapsed">Running ' +
-        escapeHtml(elapsed) + '</span>';
-    }
-    html += '</div>';
+    var bodyHtml =
+      '<div class="orchestrator-status-body">' +
+        '<span class="text-muted orchestrator-pid">PID: ' + escapeHtml(pid) + '</span>' +
+        (progress ? '<div class="orchestrator-progress-summary">' + escapeHtml(progress) + '</div>' : '') +
+      '</div>';
 
-    // Body: PID + progress summary
-    html += '<div class="orchestrator-status-body">';
-    html += '<span class="text-muted orchestrator-pid">PID: ' +
-      escapeHtml(pid) + '</span>';
-    if (progress) {
-      html += '<div class="orchestrator-progress-summary">' +
-        escapeHtml(progress) + '</div>';
-    }
-    html += '</div>';
-
-    html += '</div>';
-    return html;
+    return UI.card(null, headerHtml + bodyHtml, {
+      extraClass: 'orchestrator-status-card',
+      accentColor: meta.accentColor
+    });
   }
 
   // ------------------------------------------------------------------
@@ -252,7 +246,7 @@ var OrchestratorWidgets = (function () {
   }
 
   // ------------------------------------------------------------------
-  // renderLogPreview(container, slug, filename) → cleanup()
+  // renderLogPreview(container, repo, slug, filename) → cleanup()
   // ------------------------------------------------------------------
 
   /**
@@ -264,18 +258,19 @@ var OrchestratorWidgets = (function () {
    * 3 seconds.  Only events after the last seen line are prepended.
    *
    * @param {HTMLElement} container - The element to prepend log entries into.
-   * @param {string}      slug      - Project slug used for the API call.
+   * @param {string}      repo      - Repository name that owns the project (URI-encoded by API client).
+   * @param {string}      slug      - Project slug used for the API call (URI-encoded by API client).
    * @param {string}      filename  - JSONL log filename.
    * @returns {Function} cleanup — call to stop polling and clear the interval.
    */
-  function renderLogPreview(container, slug, filename) {
+  function renderLogPreview(container, repo, slug, filename) {
     var afterLine  = 0;
     var stopped    = false;
     var intervalId = null;
 
     function fetchEntries() {
       if (stopped) return;
-      API.getRunLogEntries(slug, filename, afterLine).then(function (data) {
+      API.getRunLogEntries(repo, slug, filename, afterLine).then(function (data) {
         if (stopped) return;
         var entries    = (data && Array.isArray(data.entries)) ? data.entries : [];
         var totalLines = (data && typeof data.totalLines === 'number')
@@ -339,9 +334,8 @@ var OrchestratorWidgets = (function () {
   function renderProgressBadge(lastAction) {
     var mapping = (lastAction && PROGRESS_BADGE_MAP[lastAction])
       || { icon: '•', color: 'neutral' };
-    var label = lastAction ? escapeHtml(String(lastAction)) : 'idle';
-    return '<span class="badge badge-' + escapeHtml(mapping.color) + '">' +
-      mapping.icon + ' ' + label + '</span>';
+    var rawLabel = lastAction ? String(lastAction) : 'idle';
+    return UI.badge(mapping.color, mapping.icon + ' ' + rawLabel);
   }
 
   // ------------------------------------------------------------------

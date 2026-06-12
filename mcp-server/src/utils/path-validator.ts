@@ -1,7 +1,20 @@
+/**
+ * Pure path-segment validation utilities (no I/O, no storage dependencies).
+ *
+ * - `assertSafeSegment()` — boolean predicate; validates a single path segment
+ *   against `SAFE_SLUG_REGEX` (`/^[a-z0-9][a-z0-9-]*$/`). Used as the canonical
+ *   slug-validation delegate by all `assertSafeSlug()` wrappers in the codebase
+ *   (storage layer, GUI handlers) and directly by any site that needs to produce
+ *   a layer-specific error on rejection.
+ * - `planFolderBasename()` — validates the `{YYYY-MM-DD}-{name}` plan-folder
+ *   naming convention and returns the folder basename; throws on mismatch.
+ * - `validatePlanPath()` — non-throwing wrapper around `planFolderBasename()`.
+ *
+ * Project-path resolution (`resolveProjectPath`, `formatCandidateList`) lives in
+ * `project-resolver.ts`, which owns the `LedgerStore` dependency.
+ */
+
 import { basename } from 'path';
-import { LedgerStore } from '../storage/ledger-store.js';
-import type { ProjectMeta } from '../schema/project-meta.js';
-import { formatRelativeTime } from './timestamp.js';
 import { SAFE_SLUG_REGEX } from './constants.js';
 
 // Pattern: YYYY-MM-DD followed by a hyphen and at least one character
@@ -9,8 +22,16 @@ import { SAFE_SLUG_REGEX } from './constants.js';
 const planFolderPattern = /^\d{4}-\d{2}-\d{2}-.+$/;
 
 /**
+ * Maximum allowed length (in characters) for a single path segment validated by
+ * {@link assertSafeSegment}. Segments exceeding this limit are rejected even when
+ * they otherwise satisfy {@link SAFE_SLUG_REGEX}.
+ */
+export const MAX_SEGMENT_LENGTH = 128;
+
+/**
  * Returns `true` when `segment` is a valid slug segment (lowercase alphanumeric
- * with hyphens, must start with an alphanumeric character), `false` otherwise.
+ * with hyphens, must start with an alphanumeric character, and at most
+ * {@link MAX_SEGMENT_LENGTH} characters long), `false` otherwise.
  *
  * Uses {@link SAFE_SLUG_REGEX} from `constants.ts` — callers are responsible for
  * constructing their own layer-specific errors when this returns `false`.
@@ -23,7 +44,7 @@ const planFolderPattern = /^\d{4}-\d{2}-\d{2}-.+$/;
  * @param segment - The string to validate.
  */
 export function assertSafeSegment(segment: string): boolean {
-  return Boolean(segment) && SAFE_SLUG_REGEX.test(segment);
+  return Boolean(segment) && segment.length <= MAX_SEGMENT_LENGTH && SAFE_SLUG_REGEX.test(segment);
 }
 
 /**
@@ -69,81 +90,3 @@ export function validatePlanPath(projectPath: string): { isValid: boolean; error
   }
 }
 
-/**
- * Resolves the project path from tool arguments that accept either
- * `project_path` (explicit) or `cwd_path` (auto-detect via ledger lookup).
- *
- * Resolution rules:
- * - `project_path` provided → validate format, return it (original behavior).
- * - Only `cwd_path` provided → call `LedgerStore.detectProjectByCwd`, return `meta.plan_path`.
- * - Both provided → `project_path` wins; `cwd_path` is ignored.
- * - Neither provided → throw with a clear error.
- *
- * @throws {Error} on validation failure, AMBIGUOUS match, or NOT_FOUND.
- * Callers should wrap in try/catch and return the error as an MCP error response.
- */
-export async function resolveProjectPath(args: {
-  project_path?: string;
-  cwd_path?: string;
-  [key: string]: unknown;
-}): Promise<string> {
-  // Precedence rule: project_path wins over cwd_path when both are supplied.
-  if (args.project_path) {
-    // Validate format. planFolderBasename throws on invalid pattern.
-    planFolderBasename(args.project_path);
-    return args.project_path;
-  }
-
-  if (args.cwd_path) {
-    const result = await LedgerStore.detectProjectByCwd(args.cwd_path);
-
-    if (result.status === 'FOUND') {
-      return result.meta.plan_path;
-    }
-
-    if (result.status === 'AMBIGUOUS') {
-      const candidates = formatCandidateList(result.best, result.unlikely);
-      throw new Error(
-        `Multiple projects match the provided cwd_path. Pass explicit project_path to disambiguate.\n\nCandidates:\n${candidates}`
-      );
-    }
-
-    // NOT_FOUND
-    throw new Error(
-      `No project found for cwd_path "${args.cwd_path}". ` +
-      `Ensure the project has been initialized with ledger_initialize_project ` +
-      `and that the provided path is inside the project root.`
-    );
-  }
-
-  throw new Error('Either project_path or cwd_path is required.');
-}
-
-/**
- * Formats an AMBIGUOUS candidate list into a human-readable string with
- * "Best matches" and (optionally) "Unlikely" sections.
- *
- * @param best     - Candidates within the recent activity window
- * @param unlikely - Candidates that were inactive for too long to be relevant
- * @param now      - Reference point for relative time labels; defaults to current wall clock
- */
-export function formatCandidateList(
-  best: ProjectMeta[],
-  unlikely: ProjectMeta[],
-  now: Date = new Date()
-): string {
-  const lines: string[] = [];
-  lines.push('Best matches:');
-  for (const c of best) {
-    const rel = formatRelativeTime(c.last_updated, now);
-    lines.push(`  - ${c.plan_path} (${c.slug}) — last active ${rel}`);
-  }
-  if (unlikely.length > 0) {
-    lines.push('');
-    lines.push('Unlikely (last active more than 6 hours before the best match):');
-    for (const c of unlikely) {
-      lines.push(`  - ${c.plan_path} (${c.slug})`);
-    }
-  }
-  return lines.join('\n');
-}

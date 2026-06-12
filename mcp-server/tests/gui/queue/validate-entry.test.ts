@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { isRawQueueEntry } from '../../../src/gui/queue/validate-entry.js';
+import { isRawQueueEntry, normalizeQueueEntry } from '../../../src/gui/queue/validate-entry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,5 +144,70 @@ describe('isRawQueueEntry — (e) expectedSlug and startedAt', () => {
 
   it('TC-17: returns false when startedAt is a number', () => {
     expect(isRawQueueEntry({ ...VALID_ENTRY, startedAt: 1234567890 })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// expectedRepo normalization — WP-004
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — expectedRepo normalization', () => {
+  it('TC-20: returns true and normalizes missing expectedRepo to null (legacy entry)', () => {
+    const entry = { ...VALID_ENTRY };
+    expect(isRawQueueEntry(entry)).toBe(true);
+    // After the guard runs, expectedRepo must be null (not undefined).
+    expect((entry as Record<string, unknown>)['expectedRepo']).toBe(null);
+  });
+
+  it('TC-21: returns true when expectedRepo is a string (new entry)', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: 'my-repo' };
+    expect(isRawQueueEntry(entry)).toBe(true);
+    expect(entry.expectedRepo).toBe('my-repo');
+  });
+
+  it('TC-22: returns true when expectedRepo is explicitly null', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: null };
+    expect(isRawQueueEntry(entry)).toBe(true);
+    expect(entry.expectedRepo).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// expectedRepo empty-string normalization — this plan AC-1
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — expectedRepo empty-string normalization (this plan AC-1)', () => {
+  it('TC-26: returns true and normalizes empty-string expectedRepo to null', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: '' } as Record<string, unknown>;
+    expect(isRawQueueEntry(entry)).toBe(true);
+    expect(entry['expectedRepo']).toBeNull();
+  });
+
+  it('TC-27: returns true and normalizes whitespace-only expectedRepo to null', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: '   ' } as Record<string, unknown>;
+    expect(isRawQueueEntry(entry)).toBe(true);
+    expect(entry['expectedRepo']).toBeNull();
+  });
+});
+
+describe('normalizeQueueEntry — expectedRepo', () => {
+  it('TC-23: leaves expectedRepo unchanged when it is a string', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: 'my-repo' };
+    const result = normalizeQueueEntry(entry);
+    expect(result.expectedRepo).toBe('my-repo');
+  });
+
+  it('TC-24: leaves expectedRepo unchanged when it is null', () => {
+    const entry = { ...VALID_ENTRY, expectedRepo: null };
+    const result = normalizeQueueEntry(entry);
+    expect(result.expectedRepo).toBeNull();
+  });
+
+  it('TC-25: normalizes undefined expectedRepo to null (legacy entry coercion)', () => {
+    // Force an entry that bypasses the type system to simulate a legacy JSON object.
+    const legacyEntry = { ...VALID_ENTRY, expectedRepo: undefined } as unknown as
+      import('../../../src/gui/queue/types.js').RawQueueEntry;
+    const result = normalizeQueueEntry(legacyEntry);
+    expect(result.expectedRepo).toBeNull();
   });
 });

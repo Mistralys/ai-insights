@@ -71,7 +71,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 8. **Knowledge Collection:** Invoke the Knowledge Archiver:
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
-   - `agentName`: `"{{agent_standalone_knowledge_archiver}}"`
+   - `agentName`: `"{{agent_ledger_knowledge_archiver}}"`
    - `description`: `"Extract and commit insights from completed project"`
    - `prompt`: Pass `cwd_path` (workspace root) and `project_storage_path`
      (= `dirname(plan_path)` from pre-flight). The Knowledge Archiver uses
@@ -79,17 +79,17 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
      `synthesis.md` on disk.
 {{else if target_claude_code}}
    Use the `Task` tool with `description: Use the custom agent
-   "{{agent_standalone_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
+   "{{agent_ledger_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
    root) and `project_storage_path` (= `dirname(plan_path)` from pre-flight).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
-   - `subagent_type`: `"{{agent_slug_standalone_knowledge_archiver}}"`
+   - `subagent_type`: `"{{agent_slug_ledger_knowledge_archiver}}"`
    - `task`: Pass `cwd_path` (workspace root) and `project_storage_path`
      (= `dirname(plan_path)` from pre-flight). The Knowledge Archiver uses
      `cwd_path` for live MCP reads and `project_storage_path` to locate
      `synthesis.md` on disk.
 {{else}}
-   Call the **{{agent_standalone_knowledge_archiver}}** subagent with:
+   Call the **{{agent_ledger_knowledge_archiver}}** subagent with:
    `cwd_path` (workspace root) and `project_storage_path`
    (= `dirname(plan_path)` from pre-flight).
 {{/if}}
@@ -99,7 +99,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
    Expected output: An extraction report summarizing insights committed to the
    knowledge base. Review it before proceeding to Step 9.
-9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"` and `synthesis_file: "synthesis.md"`. This archives the synthesis document, sets `synthesis_generated: true`, and transitions the project to `COMPLETE`.
+9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and `outcome_summary` set to a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
 10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
     ```
     CURRENT AGENT: {Current agent from response}

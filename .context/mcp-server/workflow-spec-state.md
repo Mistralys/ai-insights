@@ -342,6 +342,11 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │               │                │ No cascade reblock (CANCELLED satisfies deps)    │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ CANCELLED     → (none)         │ Terminal — no outward transitions                │
+│               │                │ ⚠ Administrative bypass available:               │
+│               │                │ `ledger_reopen_cancelled_wp` (PM-only) can       │
+│               │                │ recover a CANCELLED WP to READY/BLOCKED without  │
+│               │                │ modifying this state machine. See §16.3d and     │
+│               │                │ §21.1a in edge-cases.md.                         │
 └───────────────┴────────────────┴──────────────────────────────────────────────────┘
 ```
 

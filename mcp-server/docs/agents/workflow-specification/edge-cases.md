@@ -8,10 +8,34 @@
 
 ### 21.1 Terminal Status Invariants
 
-- `CANCELLED` is strictly terminal — no outward transitions allowed
+- `CANCELLED` is strictly terminal — no outward transitions allowed in the normal state machine
 - `COMPLETE` is *normally terminal* but may be reopened to `IN_PROGRESS` by PM or Documentation (see [§6.2](state-machines.md#62-transition-table))
 - Both `COMPLETE` and `CANCELLED` satisfy dependency requirements
 - `isTerminalStatus()` returns `true` for both `COMPLETE` and `CANCELLED` for dependency checks and counter calculations
+
+#### §21.1a Administrative Reopen of CANCELLED WPs
+
+The `ledger_reopen_cancelled_wp` tool provides a PM-only administrative escape hatch that bypasses the normal terminal state machine without modifying it. This is the same pattern used by `ledger_reset_rework_count` (§16.3b), which bypasses the rework limit without modifying the limit rule.
+
+**Behavior:**
+
+- Only callable by `agent_role: "Project Manager"` — all other callers are rejected with `isError: true` before any disk I/O
+- Target WP must be in `CANCELLED` status — non-CANCELLED targets return an error without modifying state
+- A mandatory `reason` string is required; the tool writes an audit comment of type `reopen_cancelled` to `root.project_comments`
+- **Dep-aware initial status:** Inside the atomic write, `canStartWorkPackage` is evaluated against the current root. If all upstream dependencies are `COMPLETE`, the WP transitions to `READY`; otherwise it transitions to `BLOCKED` with a `dependency` blocker describing the unmet deps. This matches `createWorkPackage` L306–316 semantics (single-write, no post-write second call needed).
+- **Side effects (all applied atomically inside `updateWorkPackageWithSync`):**
+  - `status` set to `READY` or `BLOCKED` (dep-aware)
+  - `status_changed_at` stamped
+  - `assigned_to` cleared (set to `null`)
+  - `rework_counts` cleared (deleted)
+  - Root summary entry (`root.work_packages[]`) synced: `status` and `assigned_to` updated
+  - `root.pending_work_packages` incremented by 1 (CANCELLED was terminal; WP is now non-terminal)
+  - `synthesis_generated` set to `false` via `clearSynthesisState()`
+  - Audit comment of type `reopen_cancelled` appended to `root.project_comments`
+- **Post-write:** `propagateDependencyReblock` is called to cascade-block any downstream READY/IN_PROGRESS WPs that were relying on the CANCELLED WP being terminal
+- **State machine invariant preserved:** `isValidStatusTransition('CANCELLED', *)` continues to return `false` for all transitions. The tool operates as an explicit bypass, not a state machine extension.
+- **Revision unchanged:** CANCELLED WPs never delivered output; revision tracks rework of delivered work, not recovery of unstarted intent.
+- **Pipeline history preserved:** Existing pipelines are retained for audit trail purposes; freshness guards in the normal flow handle staleness organically.
 
 ### 21.2 Empty Project
 
@@ -207,13 +231,13 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.27 Auto-Cancelled Pipelines
 
 - When a pipeline is cancelled by system automation (cascade reblock via §15.5, or manual IN_PROGRESS → BLOCKED transition via §6.2), the `auto_cancelled` flag is set to `true`
-- Auto-cancelled pipelines are **excluded** from rework detection and circuit breaker calculations:
+- Auto-cancelled pipelines are **excluded** from rework detection, circuit breaker calculations, and prerequisite checks:
   - `hasDownstreamFail` (§11.3): filters out auto-cancelled pipelines
   - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
   - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
   - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
   - Re-validation guard in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` for the temporal baseline, ensuring auto-cancelled pipelines do not shift the comparison timestamp
-- Auto-cancelled pipelines are **not** excluded from prerequisite checks — an auto-cancelled prerequisite still blocks the next stage (but the WP will typically be BLOCKED anyway after cascade reblock)
+  - Prerequisite check in `startPipeline` (§11.1, §8.2): filters out auto-cancelled pipelines; a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start — the auto-cancelled FAIL does not mask the genuine PASS
 - This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
 - The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
 

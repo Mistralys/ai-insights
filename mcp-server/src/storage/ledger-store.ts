@@ -26,6 +26,7 @@ export interface MetaCacheUpdates {
   progress_pct?: number;
   project_name?: string | null;
   repository_name?: string | null;
+  outcome_summary?: string | null;
   runner?: string;
   runner_client?: string;
   runner_version?: string;
@@ -228,7 +229,7 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
-    // Auto-sync .meta.json after every root index write — include WP counters, progress, and runner metadata
+    // Auto-sync .meta.json after every root index write — include WP counters, progress, runner metadata, and outcome_summary
     await this.writeProjectMeta('', validated.status, {
       total_work_packages: validated.total_work_packages,
       pending_work_packages: validated.pending_work_packages,
@@ -236,6 +237,7 @@ export class LedgerStore {
       ...(validated.runner !== undefined ? { runner: validated.runner } : {}),
       ...(validated.runner_client !== undefined ? { runner_client: validated.runner_client } : {}),
       ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
+      ...('outcome_summary' in validated ? { outcome_summary: validated.outcome_summary } : {}),
     }, options);
   }
 
@@ -462,7 +464,12 @@ export class LedgerStore {
    *
    * @param planFile     - Plan file name (used only on first write; ignored on updates)
    * @param status       - Optional status override; defaults to existing status or IN_PROGRESS
-   * @param cacheUpdates - Optional WP counter / enrichment fields to write into the cache
+   * @param cacheUpdates - Optional enrichment fields to write into the cache. Supported keys:
+   *                       `total_work_packages`, `pending_work_packages`, `progress_pct` (numeric counters);
+   *                       `project_name`, `repository_name`, `outcome_summary` (nullable strings — use
+   *                       key-presence semantics: `'key' in cacheUpdates` distinguishes an explicit
+   *                       `null` clear from an absent field that should be left unchanged);
+   *                       `runner`, `runner_client`, `runner_version` (runner metadata).
    * @param options      - Set `preserveLastUpdated: true` to retain the existing timestamp
    *                       (use for admin operations: archive, unarchive, cache refresh).
    */
@@ -502,12 +509,14 @@ export class LedgerStore {
       ...(existing.progress_pct !== undefined ? { progress_pct: existing.progress_pct } : {}),
       ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
       ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
+      ...(existing.outcome_summary !== undefined ? { outcome_summary: existing.outcome_summary } : {}),
       // Apply overrides from cacheUpdates (undefined values skip the field)
       ...(cacheUpdates?.total_work_packages !== undefined ? { total_work_packages: cacheUpdates.total_work_packages } : {}),
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
       ...(cacheUpdates?.progress_pct !== undefined ? { progress_pct: cacheUpdates.progress_pct } : {}),
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
+      ...(cacheUpdates !== undefined && 'outcome_summary' in cacheUpdates ? { outcome_summary: cacheUpdates.outcome_summary } : {}),
       // Runner metadata: preserve existing values (backward compat), then apply overrides
       ...(existing.runner !== undefined ? { runner: existing.runner } : {}),
       ...(existing.runner_client !== undefined ? { runner_client: existing.runner_client } : {}),
@@ -732,6 +741,69 @@ export class LedgerStore {
               `[LedgerStore.listAllProjects] Skipping "${entry}/${subEntry}": ${(err as Error).message}\n`
             );
           }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Scans only the specified namespace directories under the ledger root and
+   * returns metadata for all projects found within them.
+   *
+   * This is a targeted alternative to `listAllProjects()` that avoids a full
+   * ledger-root scan. It reads only `{ledgerRoot}/{folderName}/**\/.meta.json`
+   * for each folder name in the provided array — O(declared folders × projects-per-folder)
+   * instead of O(all repos × all projects).
+   *
+   * Behaviour:
+   *   - Non-existent folder names are silently skipped (returns empty for that folder).
+   *   - Invalid or unreadable `.meta.json` files within a folder are also skipped
+   *     with a stderr warning, consistent with `listAllProjects()`.
+   *   - An empty `folderNames` array immediately returns `[]`.
+   *
+   * @param folderNames - Array of repo-namespace directory names to scan (e.g. ["ai-insights"])
+   * @param ledgerRoot  - Optional override; defaults to resolveLedgerRoot()
+   * @returns Flat array of ProjectMeta from all matching folders
+   */
+  static async listProjectsByFolderNames(
+    folderNames: string[],
+    ledgerRoot?: string
+  ): Promise<ProjectMeta[]> {
+    if (folderNames.length === 0) {
+      return [];
+    }
+
+    const root = ledgerRoot ?? resolveLedgerRoot();
+    const results: ProjectMeta[] = [];
+
+    for (const folderName of folderNames) {
+      const namespacedDir = join(root, folderName);
+
+      let subDirents: import('fs').Dirent[];
+      try {
+        subDirents = await readdir(namespacedDir, { withFileTypes: true });
+      } catch {
+        // Non-existent or unreadable directory — skip gracefully
+        continue;
+      }
+
+      for (const subDirent of subDirents) {
+        const subEntry = subDirent.name;
+        if (!subDirent.isDirectory()) continue;
+        if (subEntry.startsWith('.')) continue;
+
+        const metaFile = join(namespacedDir, subEntry, '.meta.json');
+        try {
+          const content = await readFile(metaFile, 'utf-8');
+          const data = JSON.parse(content);
+          const meta = ProjectMetaSchema.parse(data);
+          results.push(meta);
+        } catch (err) {
+          process.stderr.write(
+            `[LedgerStore.listProjectsByFolderNames] Skipping "${folderName}/${subEntry}": ${(err as Error).message}\n`
+          );
         }
       }
     }

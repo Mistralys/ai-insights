@@ -16,7 +16,7 @@ import {
   isTerminalStatus,
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 import {
   DEFAULT_PIPELINE_STAGES,
@@ -86,6 +86,7 @@ export const _internal = {
   updateWorkPackageStatus,
   claimWorkPackage,
   resetReworkCount,
+  reopenCancelledWp,
   updateAcceptanceCriteria,
 };
 
@@ -1281,6 +1282,165 @@ async function resetReworkCount(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tool: reopen_cancelled_wp (§16.3d)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ReopenCancelledWpSchema = z.object({
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
+  work_package_id: z
+    .string()
+    .regex(/^WP-\d{3,}$/)
+    .describe('ID of the work package to reopen'),
+  agent_role: z.string().describe('Must be "Project Manager"'),
+  reason: z.string().trim().min(1).describe('Mandatory reason for reopening the cancelled WP (audit trail)'),
+});
+
+async function reopenCancelledWp(
+  args: z.infer<typeof ReopenCancelledWpSchema>,
+  _ledgerRoot?: string
+) {
+  // PM-only guard — reject before any disk I/O
+  if (args.agent_role !== 'Project Manager') {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: ledger_reopen_cancelled_wp is a PM-only tool. You are: ${args.agent_role}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
+
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
+
+  try {
+    let notCancelledStatus: string | null = null;
+    let finalStatus: 'READY' | 'BLOCKED' = 'READY';
+
+    await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // Precondition: WP must be CANCELLED
+      if (wp.status !== 'CANCELLED') {
+        notCancelledStatus = wp.status;
+        return { wp, root };
+      }
+
+      const timestamp = now();
+
+      // Dependency-aware initial status (matches createWorkPackage L306–316 semantics — single-write)
+      const depCheck = canStartWorkPackage(wp, root.work_packages);
+      if (depCheck.allowed) {
+        wp.status = 'READY';
+        delete wp.blocked_by;
+        finalStatus = 'READY';
+      } else {
+        wp.status = 'BLOCKED';
+        finalStatus = 'BLOCKED';
+        const unmetDeps = wp.dependencies.filter(
+          (depId) =>
+            !root.work_packages.some(
+              (w) => w.work_package_id === depId && w.status === 'COMPLETE'
+            )
+        );
+        wp.blocked_by = {
+          type: 'dependency',
+          description: `Blocked: unmet dependencies: ${unmetDeps.join(', ')}`,
+          ...(unmetDeps.length === 1 ? { blocking_work_package: unmetDeps[0] } : {}),
+        };
+      }
+
+      // Standard bookkeeping for all status transitions
+      wp.status_changed_at = timestamp;
+
+      // Clear assignment and rework history
+      wp.assigned_to = null;
+      delete wp.rework_counts;
+
+      // Sync root summary (mirrors updateWorkPackageStatus L873–L877 pattern)
+      const summary = root.work_packages.find(
+        (s) => s.work_package_id === args.work_package_id
+      );
+      if (summary) {
+        summary.status = wp.status;
+        summary.assigned_to = null;
+      }
+
+      // Increment pending counter (CANCELLED was terminal; WP is now non-terminal)
+      root.pending_work_packages += 1;
+
+      // Invalidate synthesis
+      clearSynthesisState(root);
+
+      // Audit comment
+      root.project_comments.push({
+        type: 'reopen_cancelled',
+        priority: 'high',
+        timestamp,
+        agent: 'Project Manager',
+        note: `Reopened CANCELLED work package ${args.work_package_id} to ${wp.status}. Reason: ${args.reason}`,
+      });
+      root.last_updated = timestamp;
+
+      return { wp, root };
+    });
+
+    // Precondition violation — return error without further action
+    if (notCancelledStatus !== null) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Error: ledger_reopen_cancelled_wp requires a CANCELLED work package. ${args.work_package_id} is currently ${notCancelledStatus}.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Post-write: cascade reblock downstream dependents that may have been relying on
+    // the CANCELLED WP being terminal (same pattern as COMPLETE → IN_PROGRESS reopen)
+    await propagateDependencyReblock(projectPath, args.work_package_id, { store });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              message: `Work package ${args.work_package_id} reopened from CANCELLED to ${finalStatus}.`,
+              work_package_id: args.work_package_id,
+              final_status: finalStatus,
+              reason: args.reason,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error reopening cancelled work package: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tool: update_acceptance_criteria (§12.3b)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1470,6 +1630,15 @@ export function register(server: McpServer): void {
       inputSchema: ResetReworkCountSchema,
     },
     (args) => resetReworkCount(args)
+  );
+
+  server.registerTool(
+    'ledger_reopen_cancelled_wp',
+    {
+      description: 'PM-only administrative override: reopens an incorrectly cancelled work package back to READY (or BLOCKED if deps unsatisfied). Clears assignment, resets rework counts, adjusts pending counter, invalidates synthesis, and fires cascade reblock on downstream dependents. Requires a mandatory reason for the audit trail.',
+      inputSchema: ReopenCancelledWpSchema,
+    },
+    (args) => reopenCancelledWp(args)
   );
 
   server.registerTool(

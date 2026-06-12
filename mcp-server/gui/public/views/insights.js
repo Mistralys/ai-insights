@@ -2,7 +2,7 @@
    views/insights.js — Insights view
    Section 4e of the MCP Server Dashboard SPA
    Depends on: API, Router, escapeHtml, formatDate,
-               showLoading, showError
+               showLoading, showError, UI (components.js)
    ============================================================ */
 
 function renderInsights(app) {
@@ -22,7 +22,7 @@ function renderInsights(app) {
     });
 
     if (!filtered.length) {
-      return '<p class="text-muted mt-16">No insights found.</p>';
+      return UI.emptyState('No insights found.');
     }
 
     return filtered.map(function (e) {
@@ -37,9 +37,16 @@ function renderInsights(app) {
             ctxItems +
           '</div>';
       }
+      /* Namespaced link: #/projects/{repo}/{slug} — requires repository_name so
+         the router can scope the project view to the correct repository. Entries
+         where repository_name is null (e.g. from a shallow plan path) fall back
+         to plain escaped text — no anchor, no broken link. */
+      var projectLink = e.repository_name
+        ? '<a href="#/projects/' + encodeURIComponent(e.repository_name) + '/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>'
+        : escapeHtml(e.project_slug);
       return '<div class="comment-card' + priorityClass + '">' +
         '<div class="comment-meta">' +
-          '<a href="#/projects/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>' +
+          projectLink +
           ' &mdash; ' +
           escapeHtml(e.agent || '\u2014') +
           ' <span class="comment-type">' + escapeHtml(e.type || '') + '</span>' +
@@ -71,45 +78,45 @@ function renderInsights(app) {
     types.sort();
     projects.sort();
 
-    var typeOptions = types.map(function (t) {
-      return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
-    }).join('');
-    var projectOptions = projects.map(function (p) {
-      return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
-    }).join('');
+    var fb = UI.filterBar('insights-filter-bar', [
+      { type: 'select', id: 'insights-type', label: 'Type:', options:
+        [{ value: 'ALL', label: 'All types' }].concat(types.map(function (t) {
+          return { value: t, label: t };
+        }))
+      },
+      { type: 'select', id: 'insights-priority', label: 'Priority:', options: [
+        { value: 'ALL', label: 'All priorities' },
+        { value: 'high',   label: 'high'   },
+        { value: 'medium', label: 'medium' },
+        { value: 'low',    label: 'low'    }
+      ]},
+      { type: 'select', id: 'insights-project', label: 'Project:', options:
+        [{ value: 'ALL', label: 'All projects' }].concat(projects.map(function (p) {
+          return { value: p, label: p };
+        }))
+      }
+    ]);
 
     app.innerHTML =
       '<div class="page-header"><h1>Insights</h1></div>' +
-      '<div class="insights-filters">' +
-        '<label for="insights-type">Type:</label>' +
-        '<select id="insights-type"><option value="ALL">All types</option>' + typeOptions + '</select>' +
-        '<label for="insights-priority">Priority:</label>' +
-        '<select id="insights-priority"><option value="ALL">All priorities</option>' +
-          '<option value="high">high</option>' +
-          '<option value="medium">medium</option>' +
-          '<option value="low">low</option>' +
-        '</select>' +
-        '<label for="insights-project">Project:</label>' +
-        '<select id="insights-project"><option value="ALL">All projects</option>' + projectOptions + '</select>' +
-      '</div>' +
+      fb.html +
       '<div id="insights-list">' + buildCards() + '</div>';
 
-    // Restore saved filter values and wire change listeners
-    var typeEl = document.getElementById('insights-type');
+    // Restore saved filter values
+    var typeEl  = document.getElementById('insights-type');
     var priorEl = document.getElementById('insights-priority');
-    var projEl = document.getElementById('insights-project');
-    if (typeEl) {
-      typeEl.value = filterType;
-      typeEl.addEventListener('change', function () { filterType = this.value; renderCards(); });
-    }
-    if (priorEl) {
-      priorEl.value = filterPriority;
-      priorEl.addEventListener('change', function () { filterPriority = this.value; renderCards(); });
-    }
-    if (projEl) {
-      projEl.value = filterProject;
-      projEl.addEventListener('change', function () { filterProject = this.value; renderCards(); });
-    }
+    var projEl  = document.getElementById('insights-project');
+    if (typeEl)  typeEl.value  = filterType;
+    if (priorEl) priorEl.value = filterPriority;
+    if (projEl)  projEl.value  = filterProject;
+
+    // Wire filter change events
+    fb.bind(function (state) {
+      filterType     = state['insights-type'];
+      filterPriority = state['insights-priority'];
+      filterProject  = state['insights-project'];
+      renderCards();
+    });
   }
 
   function load() {

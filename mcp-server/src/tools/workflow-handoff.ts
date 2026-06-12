@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import { AGENT_ROLES, READY_STATUS_FOR_ROLE, HANDOFF_STATUS_ROLE, AGENT_NAMES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';

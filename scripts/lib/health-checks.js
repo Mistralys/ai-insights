@@ -28,7 +28,8 @@ import { spawn } from 'child_process';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '../..');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
+const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
 
@@ -152,7 +153,7 @@ export const HEALTH_CHECKS = [
     /** @returns {boolean} */
     detect() {
       if (!fs.existsSync(MCP_DIST_SENTINEL)) return false;
-      const distMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
+      const distMtime = latestMtime(MCP_DIST_DIR);
       return latestMtime(MCP_SRC_DIR) <= distMtime;
     },
     fix: 'cd mcp-server && npm run build',

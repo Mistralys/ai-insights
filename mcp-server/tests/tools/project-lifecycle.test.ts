@@ -9,7 +9,7 @@ import {
 } from '../helpers/create-temp-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
-import { computeHealedStatus, _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
+import { computeHealedStatus, _internal, InitializeProjectSchema, CompleteSynthesisSchema } from '../../src/tools/project-lifecycle.js';
 import { SPEC_VERSION } from '../../src/utils/constants.js';
 
 const { completeSynthesis, initializeProject, getProjectStatus } = _internal;
@@ -1935,5 +1935,124 @@ describe('initializeProject — sets ledger_version to SPEC_VERSION (WP-008)', (
     const store = new LedgerStore(planDir, tempLedgerRoot);
     const root = await store.readRootIndex();
     expect(root.ledger_version).toBe(SPEC_VERSION);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-004 — completeSynthesis persists outcome_summary
+// ---------------------------------------------------------------------------
+describe('completeSynthesis — outcome_summary persistence (WP-004)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeAllDoneRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  const SAMPLE_SUMMARY =
+    'Implemented the outcome_summary parameter. The field is now required by the schema and is persisted to both the root index and .meta.json enrichment cache. No notable limitations.';
+
+  it('CompleteSynthesisSchema rejects input when outcome_summary is missing', () => {
+    // Test Zod schema validation directly — outcome_summary is required
+    const result = CompleteSynthesisSchema.safeParse({
+      project_path: PLAN_PATH,
+      agent_role: 'Synthesis',
+      // outcome_summary intentionally omitted
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const outcomeSummaryError = result.error.issues.find((i) => i.path.includes('outcome_summary'));
+      expect(outcomeSummaryError).toBeDefined();
+    }
+  });
+
+  it('CompleteSynthesisSchema rejects outcome_summary shorter than 10 characters', () => {
+    const result = CompleteSynthesisSchema.safeParse({
+      project_path: PLAN_PATH,
+      agent_role: 'Synthesis',
+      outcome_summary: 'short',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes('outcome_summary'));
+      expect(issue).toBeDefined();
+    }
+  });
+
+  it('CompleteSynthesisSchema accepts outcome_summary of at least 10 characters', () => {
+    const result = CompleteSynthesisSchema.safeParse({
+      project_path: PLAN_PATH,
+      agent_role: 'Synthesis',
+      outcome_summary: 'A valid summary of at least ten characters.',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('persists outcome_summary to root index on disk after completeSynthesis', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+
+    expect(result.isError).toBeUndefined();
+    const root = await handle.store.readRootIndex();
+    expect(root.outcome_summary).toBe(SAMPLE_SUMMARY);
+  });
+
+  it('persists outcome_summary to .meta.json after completeSynthesis', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+
+    const meta = await handle.store.readProjectMeta();
+    expect(meta.outcome_summary).toBe(SAMPLE_SUMMARY);
+  });
+
+  it('existing completeSynthesis functionality still works with outcome_summary present', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.synthesis_generated).toBe(true);
+    expect(data.project_status).toBe('COMPLETE');
+    expect(data.synthesis_generated_at).toBeDefined();
+
+    const root = await handle.store.readRootIndex();
+    expect(root.synthesis_generated).toBe(true);
+    expect(root.status).toBe('COMPLETE');
   });
 });

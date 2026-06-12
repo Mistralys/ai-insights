@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline, HandoffNote } from '../schema/work-package.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
@@ -189,7 +189,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       // 4. Enforce pipeline ordering: compute prerequisite dynamically from active stages (§8.2)
       const prerequisite = resolvePrerequisite(args.type, activeStages);
       if (prerequisite !== null) {
-        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
+        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled);
         const mostRecentPrereq = prereqPipelines.at(-1);
         if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
           const orderedActive = (activeStages as readonly string[]).join(' \u2192 ');

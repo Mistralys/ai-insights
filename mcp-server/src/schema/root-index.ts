@@ -44,6 +44,7 @@ export const RootIndexSchema = z.object({
   auto_handoff_depth: z.number().int().nonnegative().optional(),
   synthesis_generated: z.boolean().optional(),
   synthesis_generated_at: z.string().nullable().optional(),
+  outcome_summary: z.string().nullable().optional(),
   ledger_version: z.string().optional(),
   server_version: z.string().optional(),
   // Runner metadata - optional for backward compatibility

@@ -60,11 +60,16 @@ const MODULES = [
 
 /**
  * Extract the first semver version from a changelog's `## v{X.Y.Z}` heading.
+ * Returns 'UNRELEASED' if the first heading is an UNRELEASED entry.
  * @param {string} filePath - Absolute path to the changelog file.
- * @returns {string|null} The version string (without the "v" prefix), or null.
+ * @returns {string|null} The version string (without the "v" prefix), 'UNRELEASED', or null.
  */
 function readChangelogVersion(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
+  const firstHeading = content.match(/^##\s+(.+)/m);
+  if (firstHeading && /unreleased/i.test(firstHeading[1])) {
+    return 'UNRELEASED';
+  }
   const m = content.match(/^##\s+v(\d+\.\d+\.\d+)/m);
   return m ? m[1] : null;
 }
@@ -88,6 +93,11 @@ for (const mod of MODULES) {
   } catch (err) {
     console.error(`[check-version-sync] ERROR: Cannot read ${mod.name}/${mod.manifestFmt}: ${err.message}`);
     process.exit(1);
+  }
+
+  if (changelogVer === 'UNRELEASED') {
+    console.log(`[check-version-sync] Skipping ${mod.name}: changelog has an UNRELEASED entry.`);
+    continue;
   }
 
   if (!changelogVer) {

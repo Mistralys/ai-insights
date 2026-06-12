@@ -1,5 +1,5 @@
 /**
- * Tests for src/gui/queue/get-queue.ts — WP-005 + WP-001 (rework)
+ * Tests for src/gui/queue/get-queue.ts — WP-005 + WP-001 (rework) + this plan AC-2
  *
  * Verifies:
  *   AC-1 (WP-005): getQueue() returns entries with projectExists: true when the
@@ -9,6 +9,8 @@
  *   AC-3 (WP-001 rework — validator): isRawQueueEntry() rejects entries whose
  *         expectedSlug is an empty string or a whitespace-only string (e.g. '   ').
  *         getQueue() returns an empty array for such malformed entries.
+ *   AC-2 (this plan): getProjectLedgerStatus() returns { exists: false, synthesisGenerated: false }
+ *         when slug or expectedRepo fails assertSafeSegment() (path-traversal or empty).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -16,7 +18,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { getQueue } from '../../../src/gui/queue/get-queue.js';
+import { getQueue, getProjectLedgerStatus } from '../../../src/gui/queue/get-queue.js';
 import { QUEUE_FILENAME } from '../../../src/gui/queue/types.js';
 
 // ---------------------------------------------------------------------------
@@ -184,5 +186,151 @@ describe('getQueue — validator: rejects entry with empty expectedSlug', () => 
     const entries = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
 
     expect(entries).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getProjectLedgerStatus — path-segment guard (this plan AC-2)
+// ---------------------------------------------------------------------------
+
+describe('getProjectLedgerStatus — path-segment guard (this plan AC-2)', () => {
+  let tempDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    tempDir    = await mkdtemp(join(tmpdir(), 'gpl-guard-test-'));
+    ledgerRoot = join(tempDir, 'ledger');
+    await mkdir(ledgerRoot, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns { exists: false } for a traversal slug (..)', async () => {
+    const result = await getProjectLedgerStatus(ledgerRoot, '..');
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+
+  it('returns { exists: false } for a traversal slug with path separators', async () => {
+    const result = await getProjectLedgerStatus(ledgerRoot, '../etc');
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+
+  it('returns { exists: false } for an empty-string slug', async () => {
+    const result = await getProjectLedgerStatus(ledgerRoot, '');
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+
+  it('returns { exists: false } for a traversal expectedRepo (..)', async () => {
+    const result = await getProjectLedgerStatus(ledgerRoot, '2026-05-20-my-feature', '..');
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+
+  it('returns { exists: false } for an uppercase expectedRepo (fails assertSafeSegment)', async () => {
+    const result = await getProjectLedgerStatus(ledgerRoot, '2026-05-20-my-feature', 'MyRepo');
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+
+  it('passes through to disk when slug and expectedRepo are safe', async () => {
+    // Confirm a safe slug still resolves (returns false because file doesn't exist).
+    const result = await getProjectLedgerStatus(ledgerRoot, '2026-05-20-my-feature', null);
+    expect(result).toEqual({ exists: false, synthesisGenerated: false });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deduplication: when multiple entries share the same (expectedRepo, expectedSlug)
+// pair, only the most recently started entry is returned.
+// ---------------------------------------------------------------------------
+
+describe('getQueue — deduplication: keeps only the most recent entry per slug', () => {
+  let env: TestEnv;
+
+  beforeEach(async () => {
+    env = await setup();
+  });
+
+  afterEach(async () => {
+    await teardown(env.tempDir);
+  });
+
+  it('returns only the most recent entry when two entries share the same slug', async () => {
+    const slug = '2026-06-01-wizard-preselection-api';
+    // Both PIDs are unreachable. Project ledger exists → both entries resolve to
+    // effectiveStatus: 'started' (dead process + project exists → 'started').
+    const entries = [
+      {
+        id:           'old-run',
+        pid:          999_999_998,
+        planPath:     `/fake/plans/${slug}/plan.md`,
+        expectedSlug: slug,
+        startedAt:    '2026-05-01T00:00:00Z',
+        status:       'pending',
+      },
+      {
+        id:           'new-run',
+        pid:          999_999_999,
+        planPath:     `/fake/plans/${slug}/plan.md`,
+        expectedSlug: slug,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+    ];
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify(entries), 'utf-8');
+    await createProjectLedger(env.ledgerRoot, slug);
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe('new-run');
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+
+  it('keeps a single entry unchanged when there is no duplicate', async () => {
+    const slug = '2026-06-01-no-duplicate';
+    const entry = {
+      id:           'only-run',
+      pid:          999_999_998,
+      planPath:     `/fake/plans/${slug}/plan.md`,
+      expectedSlug: slug,
+      startedAt:    '2026-05-01T00:00:00Z',
+      status:       'pending',
+    };
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify([entry]), 'utf-8');
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe('only-run');
+  });
+
+  it('keeps entries with different slugs independently', async () => {
+    const slug1 = '2026-06-01-project-alpha';
+    const slug2 = '2026-06-01-project-beta';
+    const entries = [
+      {
+        id:           'alpha-run',
+        pid:          999_999_998,
+        planPath:     `/fake/plans/${slug1}/plan.md`,
+        expectedSlug: slug1,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+      {
+        id:           'beta-run',
+        pid:          999_999_997,
+        planPath:     `/fake/plans/${slug2}/plan.md`,
+        expectedSlug: slug2,
+        startedAt:    '2026-06-01T00:00:00Z',
+        status:       'pending',
+      },
+    ];
+    await writeFile(join(env.logsDir, QUEUE_FILENAME), JSON.stringify(entries), 'utf-8');
+
+    const result = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id).sort()).toEqual(['alpha-run', 'beta-run']);
   });
 });

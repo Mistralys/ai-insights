@@ -12,13 +12,12 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const apiClientJs     = readFileSync(join(publicDir, 'api-client.js'), 'utf-8');
-const utilsJs         = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
 const wpViewJs        = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
 
 declare global {
   var API: { [k: string]: (...a: any[]) => Promise<any> };
-  var renderWorkPackageDetail: (app: HTMLElement, slug: string, wpId: string) => void;
+  var renderWorkPackageDetail: (app: HTMLElement, repo: string, slug: string, wpId: string) => void;
   var escapeHtml: (s: any) => string;
   var marked: { parse: (s: string) => string };
   var showLoading: (el: HTMLElement) => void;
@@ -28,6 +27,8 @@ declare global {
   var formatDuration: (ms: number) => string;
   var buildWpDetailBar: (wp: any) => string;
   var STAGE_ABBREV: Record<string, string>;
+  // eslint-disable-next-line no-var
+  var UI: { badge: (type: string, label: string) => string; banner: (type: string, message: string) => string; emptyState: (message: string) => string };
 }
 
 beforeAll(() => {
@@ -38,7 +39,6 @@ beforeAll(() => {
   (globalThis as any).formatDuration = (ms: number) => ms + 'ms';
   (globalThis as any).marked         = { parse: (s: string) => '<p>' + s + '</p>' };
 
-  vm.runInThisContext(utilsJs);
   vm.runInThisContext(apiClientJs);
   vm.runInThisContext(projectDetailJs);
   vm.runInThisContext(wpViewJs);
@@ -109,32 +109,32 @@ const WAIT = 80; // ms to let async promises resolve in jsdom
 // ============================================================
 
 describe('AC1 — API.getDialogues URL', () => {
-  it('makes GET /api/projects/{slug}/dialogues?wp={wpId}', async () => {
+  it('makes GET /api/projects/{repo}/{slug}/dialogues?wp={wpId}', async () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => [] };
     });
-    await globalThis.API.getDialogues('my-project', 'WP-016');
+    await globalThis.API.getDialogues('my-repo', 'my-project', 'WP-016');
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toBe('/api/projects/my-project/dialogues?wp=WP-016');
+    expect(calls[0]).toBe('/api/projects/my-repo/my-project/dialogues?wp=WP-016');
   });
 
-  it('URI-encodes slug and wpId', async () => {
+  it('URI-encodes repo, slug and wpId', async () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => [] };
     });
-    await globalThis.API.getDialogues('slug with spaces', 'WP 016');
-    expect(calls[0]).toBe('/api/projects/slug%20with%20spaces/dialogues?wp=WP%20016');
+    await globalThis.API.getDialogues('my repo', 'slug with spaces', 'WP 016');
+    expect(calls[0]).toBe('/api/projects/my%20repo/slug%20with%20spaces/dialogues?wp=WP%20016');
   });
 
   it('returns parsed JSON array', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: true, status: 200, json: async () => [{ filename: 'f.md', stage: 'qa' }],
     }));
-    const result = await globalThis.API.getDialogues('p', 'WP-001') as any[];
+    const result = await globalThis.API.getDialogues('my-repo', 'p', 'WP-001') as any[];
     expect(Array.isArray(result)).toBe(true);
     expect(result[0].stage).toBe('qa');
   });
@@ -151,22 +151,22 @@ describe('AC2 — API.getDialogueContent URL', () => {
   // request() helper for other endpoints that calls json(), and omitting either
   // method causes "res.json is not a function" / "res.text is not a function" errors
   // depending on which code path executes first.
-  it('makes GET /api/projects/{slug}/dialogues/{filename}', async () => {
+  it('makes GET /api/projects/{repo}/{slug}/dialogues/{filename}', async () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => ({ content: '# Hello' }), text: async () => '# Hello' };
     });
-    await globalThis.API.getDialogueContent('my-project', 'file.md');
+    await globalThis.API.getDialogueContent('my-repo', 'my-project', 'file.md');
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toBe('/api/projects/my-project/dialogues/file.md');
+    expect(calls[0]).toBe('/api/projects/my-repo/my-project/dialogues/file.md');
   });
 
   it('returns raw text (not parsed JSON)', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: true, status: 200, json: async () => ({ content: '# Markdown content' }), text: async () => '# Markdown content',
     }));
-    const result = await globalThis.API.getDialogueContent('p', 'f.md');
+    const result = await globalThis.API.getDialogueContent('my-repo', 'p', 'f.md');
     expect(typeof result).toBe('string');
     expect(result).toBe('# Markdown content');
   });
@@ -175,7 +175,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: false, status: 404, json: async () => null,
     }));
-    await expect(globalThis.API.getDialogueContent('p', 'f.md')).rejects.toMatchObject({
+    await expect(globalThis.API.getDialogueContent('my-repo', 'p', 'f.md')).rejects.toMatchObject({
       code: 'ERROR',
       message: 'HTTP 404',
     });
@@ -194,7 +194,7 @@ describe('AC3 — Dialogues card rendered after Handoff Notes card', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const html = app.innerHTML;
@@ -220,7 +220,7 @@ describe('AC4 — Empty dialogues array', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section');
@@ -252,7 +252,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
         ],
       },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section  = app.querySelector('#wp-dialogues-section');
@@ -281,7 +281,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
         ],
       },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section    = app.querySelector('#wp-dialogues-section');
@@ -312,7 +312,7 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
       { match: /\/dialogues\//,      body: { content: markdownBody } },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;    expect(section).not.toBeNull();    const btn     = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
@@ -358,7 +358,7 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
       { match: /\/dialogues\//, body: { content: '# Content' } },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -398,7 +398,7 @@ describe('AC8 — Fetch error handling', () => {
       { match: '/dialogues', body: { error: { message: 'Server error', code: 'ERR' } }, status: 500 },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     expect(app.querySelector('.ac-list')).not.toBeNull();
@@ -421,7 +421,7 @@ describe('AC8 — Fetch error handling', () => {
       { match: /\/dialogues\//,    body: null, status: 403 },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -450,7 +450,7 @@ describe('AC9 — Dialogues card not above Pipelines card in DOM', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const html         = app.innerHTML;
@@ -482,7 +482,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     expect(app.querySelector('.ac-list')).not.toBeNull();
@@ -499,7 +499,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     expect(app.querySelector('.pipeline-track')).not.toBeNull();
@@ -513,7 +513,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     expect(app.innerHTML).toContain('Pipelines');
@@ -536,7 +536,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     expect(app.innerHTML).toContain('Handoff Notes');
@@ -560,7 +560,7 @@ describe('Edge cases', () => {
       { match: /\/dialogues\//,    body: { content: '# Hello' } },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section    = app.querySelector('#wp-dialogues-section')!;
@@ -587,7 +587,7 @@ describe('Edge cases', () => {
       { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: null },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -603,8 +603,8 @@ describe('Edge cases', () => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => [] };
     });
-    await globalThis.API.getDialogues('proj/sub', 'WP-001');
-    expect(calls[0]).toBe('/api/projects/proj%2Fsub/dialogues?wp=WP-001');
+    await globalThis.API.getDialogues('my-repo', 'proj/sub', 'WP-001');
+    expect(calls[0]).toBe('/api/projects/my-repo/proj%2Fsub/dialogues?wp=WP-001');
   });
 });
 
@@ -627,7 +627,7 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
       { match: /\/dialogues\//, body: { content: '# Hello' } },
     ]);
     document.body.appendChild(app);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
   }
 
@@ -721,7 +721,7 @@ describe('Chunk-priority path (useChunks=true)', () => {
       { match: /\/dialogues\?wp=/, body: [{ filename: 'developer-r0.md', stage: 'developer' }] },
       { match: /\/chunks\/.*\/rendered/, body: { content: '# Rendered from chunks' } },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -749,7 +749,7 @@ describe('Chunk-priority path (useChunks=true)', () => {
       { match: /\/chunks\/.*\/rendered/, body: { content: renderedMd } },
     ]);
 
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -790,7 +790,7 @@ describe('Chunk-priority path (useChunks=true)', () => {
       },
       { match: /\/chunks\/.*\/rendered/, body: { content: '# Chunk content' } },
     ]);
-    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    globalThis.renderWorkPackageDetail(app, 'test-repo', 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
     const section = app.querySelector('#wp-dialogues-section')!;
@@ -817,7 +817,7 @@ describe('wpId=undefined guard', () => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => [] };
     });
-    await globalThis.API.getDialogues('my-project', undefined);
+    await globalThis.API.getDialogues('my-repo', 'my-project', undefined);
     expect(calls).toHaveLength(1);
     expect(calls[0]).not.toContain('wp=undefined');
   });
@@ -828,7 +828,7 @@ describe('wpId=undefined guard', () => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => [] };
     });
-    await globalThis.API.getChunks('my-project', undefined);
+    await globalThis.API.getChunks('my-repo', 'my-project', undefined);
     expect(calls).toHaveLength(1);
     expect(calls[0]).not.toContain('wp=undefined');
   });

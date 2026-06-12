@@ -2,7 +2,7 @@
    views/run-log.js — Orchestrator Run Log Viewer
    Section 4e of the MCP Server Dashboard SPA
 
-   Depends on: API, Router, escapeHtml, formatDate, showLoading, showError
+   Depends on: API, Router, escapeHtml, formatDate, showLoading, showError, UI (components.js)
    ============================================================ */
 
 /* ----------------------------------------------------------
@@ -66,7 +66,7 @@ function buildRunEventContent(entry) {
       const plan = entry.plan ? String(entry.plan) : '';
       // Show just the plan filename, not the full path
       const planName = plan ? escapeHtml(plan.split('/').pop() || plan) : '';
-      const dryRunBadge = entry.dry_run ? ' <span class="badge badge-dry-run">Dry Run</span>' : '';
+      const dryRunBadge = entry.dry_run ? ' ' + UI.badge('dry-run', 'Dry Run') : '';
       let html = '<strong>Run started</strong>' + dryRunBadge;
       if (planName) html += ' &mdash; ' + planName;
       if (threadId) html += '<br><span class="text-muted monospace" style="font-size:11px">Thread: ' + threadId + '</span>';
@@ -93,16 +93,15 @@ function buildRunEventContent(entry) {
     }
     case 'stage_complete': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      const result = entry.result ? escapeHtml(String(entry.result)) : '';
+      const result = entry.result ? String(entry.result) : '';
       const dur = formatDurationSec(entry.duration_s);
       const tok = formatTokens(entry.tokens_used);
       const details = [];
       if (dur) details.push(dur);
       if (tok) details.push(tok);
-      const resultClass = result === 'PASS' ? 'badge badge-pass' : (result === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
       return '<strong>Stage complete</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
-        (result ? ' <span class="' + resultClass + '">' + result + '</span>' : '') +
+        (result ? ' ' + UI.badge(result === 'PASS' ? 'pass' : (result === 'FAIL' ? 'fail' : 'neutral'), result) : '') +
         (details.length ? ' <span class="text-muted">(' + escapeHtml(details.join(', ')) + ')</span>' : '');
     }
     case 'stage_error': {
@@ -125,11 +124,10 @@ function buildRunEventContent(entry) {
       const summaryArr = Array.isArray(entry.summary) ? entry.summary : [];
       const dur = formatDurationSec(entry.duration_s);
 
-      const statusClass = pStatus === 'PASS' ? 'badge badge-pass' : (pStatus === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
       let html = '<strong>Pipeline result</strong>';
       if (pType) html += ' &mdash; <em>' + pType + '</em>';
       if (wpId) html += ' for <strong>' + wpId + '</strong>';
-      if (pStatus) html += ' <span class="' + statusClass + '">' + escapeHtml(pStatus) + '</span>';
+      if (pStatus) html += ' ' + UI.badge(pStatus === 'PASS' ? 'pass' : (pStatus === 'FAIL' ? 'fail' : 'neutral'), pStatus);
 
       // Details line
       const detailBits = [];
@@ -173,12 +171,12 @@ function buildRunEventContent(entry) {
     }
     case 'wp_status_change': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      const oldSt = entry.old_status ? escapeHtml(String(entry.old_status)) : '?';
-      const newSt = entry.new_status ? escapeHtml(String(entry.new_status)) : '?';
+      const oldSt = entry.old_status ? String(entry.old_status) : '?';
+      const newSt = entry.new_status ? String(entry.new_status) : '?';
       return '<strong>' + wpId + '</strong> status: ' +
-        '<span class="badge badge-neutral">' + oldSt + '</span>' +
+        UI.badge('neutral', oldSt) +
         ' \u2192 ' +
-        '<span class="badge badge-neutral">' + newSt + '</span>';
+        UI.badge('neutral', newSt);
     }
     case 'wp_complete': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
@@ -241,18 +239,18 @@ function buildRunEventContent(entry) {
     case 'dry_run': {
       const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
       const stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Stage skipped</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>Stage skipped</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         (stg ? ' &mdash; <em>' + stg + '</em>' : '');
     }
     case 'dry_run_no_ledger': {
       const detail = entry.detail ? escapeHtml(String(entry.detail)) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>No ledger</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>No ledger</strong>' +
         (detail ? ' &mdash; <span class="text-muted">' + detail + '</span>' : '');
     }
     case 'dry_run_complete': {
       const reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
-      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Dry run complete</strong>' +
+      return UI.badge('dry-run', 'Dry Run') + ' <strong>Dry run complete</strong>' +
         (reason ? ' &mdash; <span class="text-muted">' + reason + '</span>' : '');
     }
 
@@ -270,7 +268,7 @@ function buildRunEventContent(entry) {
       let html = '<span class="text-muted" style="font-size:11px;margin-right:4px">&#9881; tool</span>' +
         '<span class="monospace" style="font-size:12px">' + displayName + '</span>';
       if (isCrossWp) {
-        html += ' <span class="badge badge-fail" title="Tool targeted ' + escapeHtml(toolWpId) + ' but stage is running ' + escapeHtml(stageWpId) + '">&#9888; cross-WP: ' + escapeHtml(toolWpId) + '</span>';
+        html += ' ' + UI.badge('fail', '\u26a0 cross-WP: ' + toolWpId, { attrs: { title: 'Tool targeted ' + toolWpId + ' but stage is running ' + stageWpId } });
       } else if (toolWpId && toolWpId !== stageWpId) {
         // tool_wp_id present but stageWpId is empty (e.g. PM stage)
         html += ' <span class="text-muted" style="font-size:11px">WP: ' + escapeHtml(toolWpId) + '</span>';
@@ -351,11 +349,20 @@ function buildRunEventCard(entry) {
  * the incremental `?after=N` parameter. Polling stops automatically when a
  * `run_end` or `run_error` entry is encountered.
  *
- * @param {HTMLElement} app    - The main content container.
- * @param {string}      slug   - Project slug.
+ * Both `repo` and `slug` are required for multi-root workspace support: they
+ * are passed through to every `API.getRunLogEntries(repo, slug, filename,
+ * afterLine)` call so the server can resolve the correct namespaced project
+ * store. In a single-root workspace `repo` is typically an empty string, but
+ * must still be supplied — this is why the signature changed from the legacy
+ * two-argument `(app, filename)` form.
+ *
+ * @param {HTMLElement} app      - The main content container.
+ * @param {string}      repo     - Repository namespace (may be empty string for
+ *                                 single-root workspaces; must not be omitted).
+ * @param {string}      slug     - Project slug.
  * @param {string}      filename - Log filename (e.g. "20260225T113355-my-project.jsonl").
  */
-function renderRunLog(app, slug, filename) {
+function renderRunLog(app, repo, slug, filename) {
   showLoading(app);
 
   // Track how many lines we have seen (used as `afterLine` for incremental fetches)
@@ -370,7 +377,7 @@ function renderRunLog(app, slug, filename) {
    */
   function buildPageShell() {
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Run Log').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +
@@ -435,7 +442,7 @@ function renderRunLog(app, slug, filename) {
    * @param {number} afterLine - Number of lines already seen.
    */
   function fetchAndAppend(afterLine) {
-    API.getRunLogEntries(slug, filename, afterLine).then(function (result) {
+    API.getRunLogEntries(repo, slug, filename, afterLine).then(function (result) {
       if (!result) return;
       var entries = Array.isArray(result.entries) ? result.entries : [];
       var newTotal = typeof result.totalLines === 'number' ? result.totalLines : totalLinesSeen;
@@ -458,15 +465,13 @@ function renderRunLog(app, slug, filename) {
       // Non-fatal: log to stderr equivalent and continue polling
       var statusEl = document.getElementById('run-status-message');
       if (statusEl) {
-        statusEl.innerHTML =
-          '<p class="error-banner" style="margin-top:8px">Failed to fetch new entries: ' +
-          escapeHtml((err && err.message) || String(err)) + '</p>';
+        showError(statusEl, 'Failed to fetch new entries: ' + ((err && err.message) || String(err)));
       }
     });
   }
 
   // Initial load — fetch all entries
-  API.getRunLogEntries(slug, filename).then(function (result) {
+  API.getRunLogEntries(repo, slug, filename).then(function (result) {
     if (!result) {
       showError(app, 'Failed to load run log: empty response');
       return;

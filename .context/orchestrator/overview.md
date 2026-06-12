@@ -30,6 +30,7 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 - [Usage](#usage)
   - [Developer utilities](#developer-utilities)
   - [Signal handling and resumable interrupts](#signal-handling-and-resumable-interrupts)
+  - [Run metadata file](#run-metadata-file-orchestrator-runjson)
 - [Architecture](#architecture)
 - [Folder Overview](#folder-overview)
 - [Documentation Index](#documentation-index)
@@ -259,6 +260,53 @@ orchestrate plan.md --resume <thread-id>
 ```
 
 On **Windows**, `loop.add_signal_handler()` is unavailable. The handler falls back to `signal.signal()` for SIGTERM (a no-op on Windows but harmless), and SIGINT continues to be handled by the existing `KeyboardInterrupt` path.
+
+### Run metadata file (`.orchestrator-run.json`)
+
+Each time `orchestrate` runs against a plan directory, it writes a
+`.orchestrator-run.json` file **inside the plan directory** (next to `plan.md`).
+The file is created immediately after the thread ID is resolved — before graph
+execution begins — so external tools (e.g., the GUI sidecar) can detect an
+in-progress run without parsing the JSONL log. All writes are atomic (temp file
++ `os.replace()`) so the file is never left partially written. It is listed in
+`.gitignore`.
+
+#### Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `thread_id` | `string` | LangGraph thread ID (UUID) for this run. |
+| `plan_path` | `string` | Absolute resolved path to the `plan.md` file. |
+| `slug` | `string` | Plan directory name (basename of the plan directory). |
+| `started_at` | `string` | ISO-8601 UTC timestamp of run start. |
+| `is_resume` | `boolean` | `true` when the run was launched with `--resume`. |
+| `dry_run` | `boolean` | `true` when the run was launched with `--dry-run`. |
+| `log_filename` | `string` | Basename of the JSONL log file for this run. |
+| `pid` | `integer` | OS process ID of the orchestrator process. |
+| `result` | `string \| null` | Run outcome once complete; `null` while in progress. Valid values: `"SUCCESS"`, `"INTERRUPTED"`, `"ERROR"`. |
+| `error` | `string \| null` | Error message when `result` is `"ERROR"`; `null` otherwise. |
+| `duration_s` | `number \| null` | Wall-clock duration in seconds; `null` while in progress. |
+
+#### Lifecycle
+
+```
+Run starts
+  → result: null, error: null, duration_s: null
+
+Completes successfully
+  → result: "SUCCESS", duration_s: <seconds>
+
+Paused at --interrupt-on breakpoint, or SIGTERM/SIGINT received
+  → result: "INTERRUPTED", duration_s: <seconds>
+
+Error during execution
+  → result: "ERROR", error: "<message>", duration_s: <seconds>
+
+--resume called on a terminal (already-completed) thread ID
+  → result: "ERROR", error: "<message>", duration_s: 0.0  (written before exit)
+```
+
+Starting a new run against the same plan directory overwrites the file with fresh data.
 
 ---
 

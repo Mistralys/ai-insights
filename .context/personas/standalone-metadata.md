@@ -33,6 +33,7 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── plan-architect-reviewer.yaml
                 └── plan-auditor.yaml
                 └── plan-refiner.yaml
+                └── planner.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── standalone-knowledge-archiver.yaml
@@ -226,8 +227,8 @@ description: "Analyze uncommitted changes and organize them into comprehensive, 
 vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
-version: "1.0.4"
-last_updated: "2026-05-22"
+version: "1.0.5"
+last_updated: "2026-06-03"
 
 tools:
   - vscode
@@ -319,8 +320,8 @@ description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix
 vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
-version: "1.0.0"
-last_updated: "2026-03-28"
+version: "1.3.0"
+last_updated: "2026-06-04"
 mcp_server_name: central_pm
 
 tools:
@@ -403,8 +404,8 @@ description: "Analyze a plan document and decompose it into atomic, actionable W
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
-version: "1.0.5"
-last_updated: "2026-05-19"
+version: "1.0.7"
+last_updated: "2026-06-04"
 
 tools:
   - read
@@ -502,8 +503,8 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.5.0"
-last_updated: "2026-05-29"
+version: "1.6.0"
+last_updated: "2026-06-05"
 
 tools:
   - vscode
@@ -526,8 +527,8 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.4.0"
-last_updated: "2026-05-29"
+version: "1.5.0"
+last_updated: "2026-06-03"
 
 tools:
   - vscode
@@ -550,8 +551,8 @@ description: "Orchestrate iterative plan refinement: architectural review, findi
 vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
-version: "1.0.0"
-last_updated: "2026-05-20"
+version: "1.0.4"
+last_updated: "2026-05-31"
 
 tools:
   - vscode
@@ -566,6 +567,29 @@ tools:
 subagents:
   - plan-architect-reviewer
   - plan-auditor
+
+```
+###  Path: `/personas/standalone/src/meta/planner.yaml`
+
+```yaml
+slug: planner
+name: "Planner"
+description: "Produce clear, actionable, technically sound plans from feature requests or task descriptions."
+vs_file_name: planner.agent.md
+id: standalone-planner
+cc_file_name: planner.md
+version: "1.0.0"
+last_updated: "2026-06-08"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`
@@ -624,13 +648,14 @@ description: "Extract and commit reusable knowledge from completed ledger projec
 vs_file_name: knowledge-archiver.agent.md
 id: standalone-knowledge-archiver
 cc_file_name: knowledge-archiver.md
-version: "1.4.0"
-last_updated: "2026-05-30"
+version: "1.5.1"
+last_updated: "2026-06-04"
 mcp_server_name: central_pm
 
 tools:
   - vscode
   - read
+  - edit
   - search
   - central_pm/*
 

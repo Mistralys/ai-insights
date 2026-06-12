@@ -138,6 +138,8 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Find a file in mcp-server | [MCP server file-tree.md](../../../mcp-server/docs/agents/project-manifest/file-tree.md) |
 | Understand workflow state machines | [Workflow Specification](../../../mcp-server/docs/agents/workflow-specification/README.md) |
 | Understand orchestrator routing | [Supervisor Routing](../../../orchestrator/docs/supervisor-routing.md) |
+| Browse agent reference docs | [References Index](../references/README.md) |
 | Understand the 9-agent pipeline | [Ledger Suite Guide](../../../personas/ledger/README.md) |
+| See an end-to-end visual workflow map | [Ledger Workflow Visual Guide](../references/ledger-workflow-visual-guide.md) |
 | Review deferred implementation decisions | [Deferred Topics](../deferred-topics.md) |
 | Get a full codebase snapshot | `.context/` (run `node scripts/cli.js ctx-generate`) |

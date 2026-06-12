@@ -539,6 +539,37 @@ describe('Developer action logic', () => {
     expect(result.work_package_id).toBe('WP-001');
   });
 
+  // Case 5b: Bug 1 regression guard — code-review FAIL but QA re-engaged with PASS → no rework
+  it('returns WAIT_FOR_DOWNSTREAM (not REWORK) when code-review is FAIL but QA re-engaged with PASS after impl PASS', async () => {
+    /**
+     * Reproduces the Bug 1 scenario:
+     *  T1 — impl-1 PASS
+     *  T2 — qa-1 PASS  (QA passed on first run)
+     *  T3 — code-review FAIL  (Reviewer found issues, routed back to Developer)
+     *  T4 — impl-2 PASS  (Developer rework, completed AFTER code-review FAIL)
+     *  T5 — qa-2 PASS  (QA re-ran after impl-2 and passed again)
+     *
+     * With the old bug: hasDownstreamReengagedSince returned true for qa-2 IN_PROGRESS
+     * or PASS, causing a false REWORK signal.
+     * With the fix: only FAIL re-engagements count — qa-2 PASS → false → P5b fires.
+     */
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'PASS',        '2026-01-01T08:00:00', '2026-01-01T09:00:00'), // impl-1
+      makePipeline('qa',             'PASS',        '2026-01-01T09:30:00', '2026-01-01T10:00:00'), // qa-1 PASS
+      makePipeline('code-review',    'FAIL',        '2026-01-01T10:00:00', '2026-01-01T10:30:00'), // code-review FAIL (before impl-2)
+      makePipeline('implementation', 'PASS',        '2026-01-01T10:30:00', '2026-01-01T11:00:00'), // impl-2 rework
+      makePipeline('qa',             'PASS',        '2026-01-01T11:30:00', '2026-01-01T12:00:00'), // qa-2 PASS (after impl-2)
+    ] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
+
+    // Must NOT be REWORK — QA passed, so no rework signal should fire
+    expect(result.action).not.toBe('REWORK');
+    // P5b fires: downstream FAIL (code-review) exists but no FAIL re-engagement after impl-2
+    expect(result.action).toBe('WAIT_FOR_DOWNSTREAM');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
   // Case 6: No implementation pipeline at all (IN_PROGRESS) → IMPLEMENT
   it('returns IMPLEMENT for an IN_PROGRESS WP with no implementation pipeline', async () => {
     const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [] });

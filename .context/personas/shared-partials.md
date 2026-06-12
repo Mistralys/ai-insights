@@ -19,8 +19,6 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── docs-operational-protocol.md
             └── docs-output-format.md
             └── incident-logging.md
-            └── planner-core-rules.md
-            └── planner-output-template.md
             └── pm-output-format.md
             └── pm-subagent-roster.md
             └── qa-operational-protocol.md
@@ -106,113 +104,6 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 
 ```md
 If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), note it clearly in your response and describe any workaround you found. Do not investigate root causes beyond what is needed to continue.
-```
-###  Path: `/personas/shared/partials/planner-core-rules.md`
-
-```md
-## Core Rules
-
-### Clarifying Questions
-You are encouraged to ask clarifying questions for architectural or high‑level design decisions. No need to ask about implementation details, naming, or coding style: those can be inferred from the codebase.
-
-### Scope & Boundaries
-- Focus on architecture, sequencing, and structure.
-- Avoid including Git write commands (add, commit, or creating a feature branch), the user will handle this aspect.
-
-### Proportionality
-- For every new abstraction, interface, base class, plugin hook, configuration knob, or dependency the plan introduces, name a current consumer or a concrete near-term use case. If neither exists, mark the item as speculative in the Rationale or remove it.
-- Prefer the smallest shape that achieves the acceptance criteria. Reach for an existing utility, helper, or module before proposing a new one — and cite the existing artefact by file path when you do.
-
-### Pattern Alignment
-- State which existing codebase patterns the plan follows (directory layout, abstraction layers, module conventions, naming) and which it deliberately departs from. Justify every departure in the `Pattern Alignment` section of the plan output.
-- Cross-reference the project manifest (or `AGENTS.md`) before introducing a new pattern. New patterns are acceptable; unjustified ones are not.
-
-### Strict Grounding & Verification
-- Never reference files, modules, APIs, or services unless they exist in the codebase.
-- Always verify existence using filesystem tools before including them in the plan.
-- When proposing new components, explicitly label them as new and specify where they should be added.
-- If required information is missing from the codebase, do not infer or invent it — instead, propose a new component or request clarification.
-- When referencing existing files, always provide the full relative path from the project root to ensure the TPM and Engineer can locate the asset immediately.
-
-```
-###  Path: `/personas/shared/partials/planner-output-template.md`
-
-```md
-## Plan Output Template
-
-```markdown
-# Plan
-
-## Plan Audit Cycles
-- Audits: none — {{agent_plan_auditor}}
-- Architectural Reviews: none — {{agent_plan_architect_reviewer}}
-
-## Summary
-{One-paragraph summary of the overall goal}
-
-## Architectural Context
-{Document the existing architecture relevant to this change: key modules, patterns, conventions, and integration points; reference specific files and directories}
-
-## Approach / Architecture
-{High-level explanation of how the solution should be structured, showing how it integrates with the existing architecture described above}
-
-## Rationale
-{Why this approach was chosen; key trade-offs}
-
-## Considered Alternatives
-{For each significant architectural decision, name the alternatives weighed and the trade-off summary; protects the design from being re-litigated downstream}
-
-| Decision | Chosen Shape | Alternatives Considered | Trade-Off Summary |
-|----------|--------------|-------------------------|-------------------|
-| {Decision name} | {Shape chosen} | {Other shapes evaluated} | {1–2 sentences on why the chosen shape wins} |
-
-## Pattern Alignment
-{One line per existing codebase pattern this plan follows or deliberately departs from; cite the pattern by file path; justify any departure}
-
-## Detailed Steps
-1. {Step}
-2. {Step}
-3. {Step}
-
-## Dependencies
-- {Dependency}
-
-## Required Components
-- {File or module}
-- {Optional: external services}
-- {Optional: infrastructure}
-
-## Assumptions
-- {Assumption}
-
-## Constraints
-- {Constraint}
-
-## Out of Scope
-- {What this plan intentionally ignores}
-
-## Acceptance Criteria
-- {Criterion}
-
-## Testing Strategy
-{How the solution will be tested at a high level}
-
-## Test Plan
-{Enumerate every new or modified test as a concrete step — test file path or test name, what it asserts, which acceptance criterion it covers; every new code path introduced by the plan must have at least one test obligation here}
-
-- {Test file or name} — {What it asserts} — {Acceptance criterion covered}
-
-## Documentation Updates
-{Enumerate every documentation artefact that must change as a concrete step; consult the project's `AGENTS.md` (or equivalent contributor guide) for any maintenance rules tying code changes to specific doc updates — manifest files, READMEs, changelogs, generated context, API references}
-
-- {Doc artefact path} — {What changes}
-
-## Risks & Mitigations
-| Risk | Mitigation |
-|------|------------|
-| **{Risk}** | {Mitigation} |
-```
-
 ```
 ###  Path: `/personas/shared/partials/pm-output-format.md`
 
@@ -561,7 +452,8 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 
 1. **Aggregator:** Collect all `PASS`/`FAIL` metrics, test coverage data, and completed artifacts. Aggregate failed metrics (blockers, failures and security concerns) in a dedicated section for better visibility.
 2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** comments from the ledger (added by Reviewers/Validators).
-3. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
+3. **Deferred & Follow-Up Items:** Scan all WP comments, project comments, and pipeline comments for items explicitly marked as deferred, out-of-scope, or flagged for follow-up by any agent. Collect these into a dedicated list so they are not lost between cycles. Include: the source WP (if applicable), the originating agent, a brief description, and any stated priority or rationale.
+4. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
 
 ```
 ###  Path: `/personas/shared/partials/synthesis-output-format.md`
@@ -573,8 +465,9 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     * **Executive Summary:** What was built.
     * **Metrics:** Tests passed, coverage, clean code scores.
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
+    * **Deferred & Follow-Up Items:** Items explicitly deferred, marked out-of-scope, or flagged for follow-up during the project. For each item list: source (WP ID or project-level), originating agent, description, and priority/rationale if stated. Mark items clearly as either **deferred** (intentionally postponed) or **out-of-scope** (beyond this plan's boundaries). The Planner uses this section to seed the next cycle's plan.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
-2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call.
+2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call. You must supply the **`outcome_summary`** parameter — a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. This value is persisted to both `project-ledger.json` and the `.meta.json` enrichment cache, and is echoed back in the response for confirmation.
 
 ```

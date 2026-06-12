@@ -4,8 +4,8 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-version: "3.6.0"
-last_updated: "2026-05-30"
+version: "3.7.0"
+last_updated: "2026-06-05"
 
 tools:
   - vscode
@@ -19,7 +19,7 @@ tools:
   - central_pm/*
 
 subagents:
-  - standalone-knowledge-archiver
+  - ledger-knowledge-archiver
 
 has_mcp: true
 has_detect_project: true
@@ -38,7 +38,7 @@ mcp_tools:
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
   - tool: ledger_complete_synthesis
-    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
+    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. Pass `outcome_summary` — a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. Write this summary before calling the tool."
   - tool: ledger_get_handoff_status
     purpose: Compute the final AGENT/STATUS handoff block.
   - tool: ledger_help

@@ -274,8 +274,8 @@ export function checkRevalidationGuard(
 
 /**
  * Returns true when a downstream agent (whose FAIL routes to Developer) has
- * started a pipeline since the most recent upstream PASS. Excludes auto-cancelled
- * pipelines from both upstream and downstream lookups (§21.27).
+ * started a pipeline that resulted in FAIL since the most recent upstream PASS.
+ * Excludes auto-cancelled pipelines from both upstream and downstream lookups (§21.27).
  *
  * Used by Developer recommendation engine (§14.2 priority 5) to prevent
  * redundant rework cycles (§21.52).
@@ -311,7 +311,7 @@ export function hasDownstreamReengagedSince(
     );
     if (dsPipelines.length > 0) {
       const mostRecent = dsPipelines.at(-1)!;
-      if (mostRecent.started_at) {
+      if (mostRecent.status === 'FAIL' && mostRecent.started_at) {
         const dsStartedAt = parseTimestamp(mostRecent.started_at).getTime();
         if (dsStartedAt >= upstreamCompletedAt) {
           return true;

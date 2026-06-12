@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline } from '../schema/work-package.js';
-import { resolveProjectPath } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/project-resolver.js';
 import {
   PIPELINE_AGENT_MAP,
   PipelineTypeEnum,

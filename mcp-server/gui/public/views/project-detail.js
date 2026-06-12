@@ -3,7 +3,8 @@
    Sections 4b–4d of the MCP Server Dashboard SPA
    Depends on: API, Router, marked, escapeHtml, formatDate,
                statusBadge, showLoading, showError,
-               OrchestratorWidgets (js/orchestrator-widgets.js)
+               OrchestratorWidgets (js/orchestrator-widgets.js),
+               UI (components.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
@@ -18,21 +19,21 @@ function extractSynopsis(markdown) {
   return match ? match[1].trim() : null;
 }
 
-async function renderPlan(app, slug) {
+async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
   try {
-    var result = await API.getPlanDocument(slug);
+    var result = await API.getPlanDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Plan').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Plan').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load plan document.');
     }
   }
 }
@@ -40,21 +41,21 @@ async function renderPlan(app, slug) {
 /* ----------------------------------------------------------
    4b-ii. View: Synthesis Document
    ---------------------------------------------------------- */
-async function renderSynthesis(app, slug) {
+async function renderSynthesis(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
   try {
-    var result = await API.getSynthesisDocument(slug);
+    var result = await API.getSynthesisDocument(repo, slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+      breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(slug).leaf('Synthesis').html() +
+        breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
-      app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
+      app.innerHTML = UI.banner('error', 'Failed to load synthesis document.');
     }
   }
 }
@@ -107,7 +108,158 @@ function buildRunBadges(item, isActive) {
   return badges;
 }
 
-function renderProjectDetail(app, slug) {
+/* ----------------------------------------------------------
+   Orchestrator Toolbar
+   Renders Kill + Resume buttons into toolbarEl.
+   Always visible; buttons are disabled (with explanatory
+   tooltips) when the corresponding action is unavailable.
+
+   opts: {
+     loading:      bool,           — show "Loading…" disabled state
+     hasActiveRun: bool,           — is there an active run?
+     queueEntry:   object|null,    — matching queue entry (kill)
+     runMeta:      object|null,    — run metadata (resume)
+     meta:         object,         — project meta (plan_path, status)
+     repo:         string,
+     slug:         string,
+     app:          Element,        — root element (re-render after resume)
+     onKillDone:   Function,       — called after a successful kill
+   }
+   ---------------------------------------------------------- */
+function renderOrchToolbar(toolbarEl, opts) {
+  if (!toolbarEl) return;
+  toolbarEl.innerHTML = '';
+
+  var loading      = !!opts.loading;
+  var hasActiveRun = !!opts.hasActiveRun;
+  var queueEntry   = opts.queueEntry  || null;
+  var runMeta      = opts.runMeta     || null;
+  var meta         = opts.meta        || {};
+  var repo         = opts.repo        || '';
+  var slug         = opts.slug        || '';
+  var app          = opts.app         || null;
+  var onKillDone   = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
+
+  // ── Kill button ─────────────────────────────────────────────────────
+  var killDisabled = true;
+  var killTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (!hasActiveRun) {
+      killTitle = 'No active run to kill';
+    } else if (!queueEntry) {
+      killTitle = 'Run is active but not found in the queue \u2014 use: node scripts/kill-orchestrator.js --force';
+    } else {
+      killDisabled = false;
+      killTitle    = '';
+    }
+  }
+
+  if (killDisabled) {
+    var killBtn = document.createElement('button');
+    killBtn.type = 'button';
+    killBtn.className = 'btn btn-danger btn-sm orchestrator-kill-btn';
+    killBtn.textContent = 'Kill';
+    killBtn.disabled = true;
+    if (killTitle) killBtn.title = killTitle;
+    toolbarEl.appendChild(killBtn);
+  } else {
+    toolbarEl.appendChild(
+      OrchestratorWidgets.renderKillButton(queueEntry.id, function () {
+        if (onKillDone) onKillDone();
+      })
+    );
+  }
+
+  // ── Resume button ────────────────────────────────────────────────────
+  var resumeDisabled = true;
+  var resumeTitle    = 'Loading\u2026';
+  if (!loading) {
+    if (hasActiveRun) {
+      resumeTitle = 'Cannot resume while a run is active';
+    } else if (!meta.plan_path) {
+      resumeTitle = 'No plan path configured for this project';
+    } else if (meta.status === 'COMPLETE') {
+      resumeTitle = 'Project is already complete \u2014 nothing to resume';
+    } else if (meta.status === 'ARCHIVED') {
+      resumeTitle = 'Project is archived';
+    } else if (!runMeta || !runMeta.thread_id) {
+      resumeTitle = 'No interrupted run found';
+    } else if (runMeta.dry_run === true) {
+      resumeTitle = 'Dry runs cannot be resumed';
+    } else if (runMeta.result === 'SUCCESS') {
+      resumeTitle = 'Last run completed successfully \u2014 nothing to resume';
+    } else {
+      resumeDisabled = false;
+      resumeTitle    = '';
+    }
+  }
+
+  var resumeBtn = document.createElement('button');
+  resumeBtn.id   = 'orch-resume-btn';
+  resumeBtn.type = 'button';
+  resumeBtn.className = 'btn btn-resume btn-sm';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.disabled = resumeDisabled;
+  if (resumeTitle) resumeBtn.title = resumeTitle;
+
+  if (!resumeDisabled) {
+    var threadId = runMeta.thread_id;
+    var planPath = meta.plan_path;
+
+    resumeBtn.addEventListener('click', function () {
+      resumeBtn.disabled = true;
+      resumeBtn.textContent = 'Resuming\u2026';
+      // Remove any stale error banner.
+      var prevErr = document.getElementById('orch-resume-error');
+      if (prevErr) prevErr.remove();
+
+      API.orchestratorStart(planPath, false, threadId).then(function (result) {
+        if (result && result.started) {
+          resumeBtn.textContent = 'Launching\u2026';
+          var pollResume = function () {
+            API.orchestratorGetQueue().then(function (queue) {
+              var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
+                return entry && (entry.effectiveStatus === 'pending' ||
+                                 entry.effectiveStatus === 'started');
+              });
+              if (hasActiveEntry) {
+                Router._clearPolling();
+                if (app) renderProjectDetail(app, repo, slug);
+              }
+            }).catch(function () { /* keep polling */ });
+          };
+          Router._setPolling(pollResume, 3000);
+        } else {
+          resumeBtn.disabled = false;
+          resumeBtn.textContent = 'Resume';
+          var errEl = document.getElementById('orch-resume-error');
+          if (!errEl) {
+            errEl = document.createElement('p');
+            errEl.id = 'orch-resume-error';
+            errEl.className = 'error-banner';
+            toolbarEl.insertAdjacentElement('afterend', errEl);
+          }
+          errEl.textContent = 'Resume could not be started.';
+        }
+      }).catch(function (err) {
+        resumeBtn.disabled = false;
+        resumeBtn.textContent = 'Resume';
+        var errEl = document.getElementById('orch-resume-error');
+        if (!errEl) {
+          errEl = document.createElement('p');
+          errEl.id = 'orch-resume-error';
+          errEl.className = 'error-banner';
+          toolbarEl.insertAdjacentElement('afterend', errEl);
+        }
+        errEl.textContent = 'Resume failed: ' + (err.message || String(err));
+      });
+    });
+  }
+
+  toolbarEl.appendChild(resumeBtn);
+}
+
+function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
   _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
   _pdLogPreviewCleanups = [];
@@ -115,9 +267,9 @@ function renderProjectDetail(app, slug) {
   showLoading(app);
 
   Promise.all([
-    API.getProject(slug),
-    API.getPlanDocument(slug).catch(function () { return null; }),
-    API.getWorkPackageOverview(slug).catch(function () { return null; }),
+    API.getProject(repo, slug),
+    API.getPlanDocument(repo, slug).catch(function () { return null; }),
+    API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
@@ -139,8 +291,8 @@ function renderProjectDetail(app, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
-      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
-        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
+      return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
         '<td>' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td>' + statusBadge(wp.status) + '</td>' +
@@ -178,7 +330,7 @@ function renderProjectDetail(app, slug) {
       : '<p class="text-muted">No comments yet.</p>';
 
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
-    ProjectNameCache.set(slug, displayTitle);
+    ProjectNameCache.set(makeProjectCacheKey(repo, slug), displayTitle);
     app.innerHTML =
       breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
@@ -195,7 +347,7 @@ function renderProjectDetail(app, slug) {
         '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
         '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
-      '<div class="card">' +
+      UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
@@ -210,8 +362,8 @@ function renderProjectDetail(app, slug) {
             : '') +
           (project.server_version ? '<br><strong>Server version:</strong> <span class="monospace">v' + escapeHtml(project.server_version) + '</span>' : '') +
           (project.ledger_version ? ' &nbsp; <strong>Spec version:</strong> <span class="monospace">v' + escapeHtml(project.ledger_version) + '</span>' : '') +
-        '</div>' +
-      '</div>' +
+        '</div>'
+      ) +
 
       (function () {
         var synopsisHtml = '';
@@ -221,7 +373,7 @@ function renderProjectDetail(app, slug) {
             synopsisHtml =
               '<div class="plan-synopsis">' +
               '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
-              '<a href="#/projects/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+              '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
               '</div>';
           }
         }
@@ -231,7 +383,7 @@ function renderProjectDetail(app, slug) {
       (function () {
         if (!project.synthesis_generated) return '';
         return '<div class="synthesis-link-row">' +
-          '<a href="#/projects/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
+          '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
       })() +
 
@@ -245,9 +397,10 @@ function renderProjectDetail(app, slug) {
       '<div class="card-title" style="margin-top:24px">Project Comments</div>' +
       commentCards +
 
-      // Orchestrator Runs section — rendered for any project; shown only when logs exist
-      '<div id="orchestrator-runs-wrapper" style="display:none">' +
+      // Orchestrator Runs section — toolbar always visible; runs list shown when logs exist
+      '<div id="orchestrator-runs-wrapper">' +
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
+        '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
       '</div>';
 
@@ -255,8 +408,8 @@ function renderProjectDetail(app, slug) {
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
     if (unarchiveBannerBtn) {
       unarchiveBannerBtn.addEventListener('click', function () {
-        API.unarchiveProject(slug).then(function () {
-          renderProjectDetail(app, slug);
+        API.unarchiveProject(repo, slug).then(function () {
+          renderProjectDetail(app, repo, slug);
         }).catch(function (err) {
           alert('Unarchive failed: ' + (err.message || String(err)));
         });
@@ -277,18 +430,18 @@ function renderProjectDetail(app, slug) {
       resetBtn.addEventListener('click', function () {
         resetBtn.disabled = true;
         resetBtn.textContent = 'Analyzing…';
-        API.analyzeProjectReset(slug).then(function (diagnosis) {
+        API.analyzeProjectReset(repo, slug).then(function (diagnosis) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
           if (diagnosis.work_packages_needing_reset === 0) {
             if (meta.status === 'IN_PROGRESS') {
-              showResetModal(slug, diagnosis, { markComplete: true });
+              showResetModal(repo, slug, diagnosis, { markComplete: true });
             } else {
               alert('All work packages are healthy — no reset needed.');
             }
             return;
           }
-          showResetModal(slug, diagnosis);
+          showResetModal(repo, slug, diagnosis);
         }).catch(function (err) {
           resetBtn.disabled = false;
           resetBtn.textContent = 'Reset Project';
@@ -334,7 +487,7 @@ function renderProjectDetail(app, slug) {
             return;
           }
           input.disabled = true;
-          API.renameProject(slug, newTitle).then(function () {
+          API.renameProject(repo, slug, newTitle).then(function () {
             currentTitle = newTitle;
             headingEl.textContent = newTitle;
             if (breadcrumbEl) breadcrumbEl.textContent = newTitle;
@@ -434,8 +587,8 @@ function renderProjectDetail(app, slug) {
           }
           input.disabled = true;
           clearSlugError();
-          API.renameSlug(currentSlug, newSlug).then(function () {
-            window.location.hash = '#/projects/' + encodeURIComponent(newSlug);
+          API.renameSlug(repo, currentSlug, newSlug).then(function () {
+            window.location.hash = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(newSlug);
           }).catch(function (err) {
             input.disabled = false;
             inputDone = false;
@@ -468,7 +621,7 @@ function renderProjectDetail(app, slug) {
     // Health badge — async, non-blocking
     var healthBadge = document.getElementById('health-badge');
     if (healthBadge) {
-      API.getProjectHealth(slug).then(function (health) {
+      API.getProjectHealth(repo, slug).then(function (health) {
         if (health.work_packages_needing_reset === 0) {
           healthBadge.textContent = '\u2713 All pipelines complete';
           healthBadge.className = 'health-badge healthy';
@@ -481,13 +634,40 @@ function renderProjectDetail(app, slug) {
         if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
       });
     }
-    // Orchestrator Runs — async, non-blocking; section becomes visible only when logs exist
-    API.getRunLogs(slug).then(function (logs) {
+
+    // Render the toolbar in its initial loading state immediately so buttons are
+    // always visible while the async data loads.
+    renderOrchToolbar(document.getElementById('orch-toolbar'), {
+      loading: true, meta: meta, repo: repo, slug: slug, app: app,
+    });
+
+    // Orchestrator Runs — async, non-blocking
+    // The toolbar is always visible; the runs list section is populated when logs exist.
+    API.getRunLogs(repo, slug).then(function (logs) {
       var wrapperEl = document.getElementById('orchestrator-runs-wrapper');
-      var runsEl = document.getElementById('orchestrator-runs-section');
+      var runsEl    = document.getElementById('orchestrator-runs-section');
+      var toolbarEl = document.getElementById('orch-toolbar');
       if (!wrapperEl || !runsEl) return;
-      if (!Array.isArray(logs) || logs.length === 0) return;
-      wrapperEl.style.display = '';
+
+      var hasLogs = Array.isArray(logs) && logs.length > 0;
+
+      if (!hasLogs) {
+        runsEl.innerHTML = '';
+        // No runs yet — fetch runMeta anyway so the Resume button reflects
+        // the correct disabled reason (e.g. "No interrupted run found").
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
+        return;
+      }
 
       // Sort most recent first — filename prefix (YYYYMMDDTHHmmss) is lexicographically
       // sortable, so a descending filename sort is equivalent to a descending date sort.
@@ -498,13 +678,13 @@ function renderProjectDetail(app, slug) {
       });
 
       // Only the most recent run can be truly active.
-      var activeItem = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
+      var activeItem     = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
       var activeFilename = activeItem ? (activeItem.filename || '') : null;
 
       // Render the full runs list; called with the matched queue entry (or null).
       // NOTE (refactor candidate): renderRunsList is a nested closure inside the getRunLogs().then()
-      // callback to close over sorted, slug, and activeFilename. A future pass could extract this as
-      // a module-level helper accepting (sorted, slug, activeFilename, matchingQueueEntry) to improve
+      // callback to close over sorted, repo, slug, and activeFilename. A future pass could extract this as
+      // a module-level helper accepting (sorted, repo, slug, activeFilename, matchingQueueEntry) to improve
       // testability and reduce closure depth.
       function renderRunsList(matchingQueueEntry) {
         // Drain any existing log preview cleanups before rebuilding the DOM.
@@ -514,7 +694,7 @@ function renderProjectDetail(app, slug) {
         runsEl.innerHTML = sorted.map(function (item, index) {
           var filename = (item && item.filename) ? item.filename : String(item);
           var isActive = index === 0 && !!(item && item.is_active);
-          var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+          var href = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
           var runNumber = sorted.length - index;
 
           var dateStr = (function () {
@@ -537,15 +717,9 @@ function renderProjectDetail(app, slug) {
             var statusCardHtml = matchingQueueEntry
               ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
               : '';
-            var cliKillHint = !matchingQueueEntry
-              ? '<p class="orch-cli-kill-hint text-muted">To kill this run: ' +
-                  '<code>node scripts/kill-orchestrator.js --force</code></p>'
-              : '';
             rowHtml +=
               '<div class="orch-active-run-section">' +
                 statusCardHtml +
-                '<div id="orch-active-kill-cell"></div>' +
-                cliKillHint +
                 '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
               '</div>';
           }
@@ -553,36 +727,11 @@ function renderProjectDetail(app, slug) {
           return rowHtml;
         }).join('');
 
-        // Inject DOM-based kill button when a matching queue entry exists.
-        if (matchingQueueEntry) {
-          var killCell = document.getElementById('orch-active-kill-cell');
-          if (killCell) {
-            killCell.appendChild(OrchestratorWidgets.renderKillButton(
-              matchingQueueEntry.id,
-              function () {
-                // Re-poll the queue and re-render after kill.
-                API.orchestratorGetQueue().then(function (q) {
-                  var newMatch = null;
-                  if (Array.isArray(q)) {
-                    for (var i = 0; i < q.length; i++) {
-                      if (q[i] && q[i].logFilename === activeFilename) {
-                        newMatch = q[i];
-                        break;
-                      }
-                    }
-                  }
-                  renderRunsList(newMatch);
-                }).catch(function () { renderRunsList(null); });
-              }
-            ));
-          }
-        }
-
         // Start inline log preview for the active run.
         if (activeFilename) {
           var previewEl = document.getElementById('orch-project-log-preview');
           if (previewEl) {
-            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, slug, activeFilename);
+            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, repo, slug, activeFilename);
             _pdLogPreviewCleanups.push(cleanup);
           }
         }
@@ -590,7 +739,10 @@ function renderProjectDetail(app, slug) {
 
       if (activeFilename) {
         // Active run: fetch the queue to find the matching entry, then render.
-        // Polling refreshes the status card and log preview every 5 s.
+        // Polling refreshes the status card, log preview, and toolbar every 5 s.
+        // Run metadata is fetched once — resume is always disabled while active anyway.
+        var runMetaForToolbar = API.getRunMetadata(repo, slug).catch(function () { return null; });
+
         var pollQueue = function () {
           // Drain existing log previews before re-fetching.
           _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
@@ -607,8 +759,44 @@ function renderProjectDetail(app, slug) {
               }
             }
             renderRunsList(match);
+            // Update toolbar; runMetaForToolbar is cached after the first resolution.
+            runMetaForToolbar.then(function (runMeta) {
+              renderOrchToolbar(toolbarEl, {
+                hasActiveRun: true,
+                queueEntry:   match,
+                runMeta:      runMeta,
+                meta:         meta,
+                repo:         repo,
+                slug:         slug,
+                app:          app,
+                onKillDone:   function () {
+                  // Re-poll after kill so both the runs list and toolbar reflect
+                  // the new state immediately (without waiting for the next tick).
+                  API.orchestratorGetQueue().then(function (q) {
+                    var newMatch = null;
+                    if (Array.isArray(q)) {
+                      for (var i = 0; i < q.length; i++) {
+                        if (q[i] && q[i].logFilename === activeFilename) { newMatch = q[i]; break; }
+                      }
+                    }
+                    renderRunsList(newMatch);
+                    runMetaForToolbar.then(function (rm) {
+                      renderOrchToolbar(toolbarEl, {
+                        hasActiveRun: true, queueEntry: newMatch, runMeta: rm,
+                        meta: meta, repo: repo, slug: slug, app: app,
+                        onKillDone: function () {},
+                      });
+                    });
+                  }).catch(function () { renderRunsList(null); });
+                },
+              });
+            });
           }).catch(function () {
             renderRunsList(null);
+            renderOrchToolbar(toolbarEl, {
+              hasActiveRun: true, queueEntry: null, runMeta: null,
+              meta: meta, repo: repo, slug: slug, app: app,
+            });
           });
         };
 
@@ -617,9 +805,25 @@ function renderProjectDetail(app, slug) {
       } else {
         // No active run — render without queue interaction.
         renderRunsList(null);
+
+        API.getRunMetadata(repo, slug).then(function (runMeta) {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: runMeta,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        }).catch(function () {
+          renderOrchToolbar(toolbarEl, {
+            hasActiveRun: false, queueEntry: null, runMeta: null,
+            meta: meta, repo: repo, slug: slug, app: app,
+          });
+        });
       }
     }).catch(function () {
-      // Silent failure — don't show error for projects without logs
+      // Silent failure — update toolbar to show correct disabled state.
+      renderOrchToolbar(document.getElementById('orch-toolbar'), {
+        hasActiveRun: false, queueEntry: null, runMeta: null,
+        meta: meta, repo: repo, slug: slug, app: app,
+      });
     });
 
   }).catch(function (err) {
@@ -632,7 +836,7 @@ function renderProjectDetail(app, slug) {
    ---------------------------------------------------------- */
 var PIPELINE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
-function showResetModal(slug, diagnosis, options) {
+function showResetModal(repo, slug, diagnosis, options) {
   // Remove any existing modal
   var existing = document.getElementById('reset-modal-overlay');
   if (existing) existing.remove();
@@ -909,7 +1113,7 @@ function showResetModal(slug, diagnosis, options) {
 
     if (markCompleteMode) {
       applyBtn.textContent = 'Marking…';
-      API.markProjectComplete(slug).then(function () {
+      API.markProjectComplete(repo, slug).then(function () {
         closeModal();
         var toast = document.createElement('div');
         toast.className = 'success-banner';
@@ -918,7 +1122,7 @@ function showResetModal(slug, diagnosis, options) {
         document.body.appendChild(toast);
         setTimeout(function () { toast.remove(); }, 4000);
         var app = document.getElementById('app');
-        if (app) renderProjectDetail(app, slug);
+        if (app) renderProjectDetail(app, repo, slug);
       }).catch(function (err) {
         applyBtn.disabled = false;
         applyBtn.textContent = 'Mark as Complete';
@@ -944,7 +1148,7 @@ function showResetModal(slug, diagnosis, options) {
       }
     });
 
-    API.applyProjectReset(slug, decisions).then(function (result) {
+    API.applyProjectReset(repo, slug, decisions).then(function (result) {
       closeModal();
       // Show brief success toast
       var toast = document.createElement('div');
@@ -955,7 +1159,7 @@ function showResetModal(slug, diagnosis, options) {
       setTimeout(function () { toast.remove(); }, 4000);
       // Refresh the project view
       var app = document.getElementById('app');
-      if (app) renderProjectDetail(app, slug);
+      if (app) renderProjectDetail(app, repo, slug);
     }).catch(function (err) {
       applyBtn.disabled = false;
       applyBtn.textContent = 'Apply Reset';

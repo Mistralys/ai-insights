@@ -322,6 +322,38 @@ describe('Handoff logic: incomplete project detection', () => {
       const result = await parseResult(getDeveloperHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_QA');
     });
+
+    // Bug 1 regression guard: QA re-engaged with PASS → handoff must NOT report rework
+    it('Developer handoff does NOT report rework-needed when downstream re-engaged with PASS after impl PASS', async () => {
+      /**
+       * Reproduces the Bug 1 scenario in the handoff path:
+       *   T+0h  — impl-1 PASS
+       *   T+1h  — qa-1 PASS  (QA accepted impl-1)
+       *   T+2h  — code-review FAIL  (Reviewer sent back to Developer; starts BEFORE impl-2)
+       *   T+3h  — impl-2 PASS  (Developer rework)
+       *   T+4h  — qa-2 PASS  (QA re-ran and accepted impl-2)
+       *
+       * isMostRecentPipelineFail('qa') = false → temporal guard short-circuits for qa (AC3)
+       * isMostRecentPipelineFail('code-review') = true, but hasDownstreamReengagedSince = false
+       *   because code-review started at T+2h < T+3.5h (impl-2 completed) and qa-2 is PASS not FAIL
+       * → getDeveloperHandoff must NOT return IN_PROGRESS (the rework-needed signal)
+       */
+      const wpDetails = [
+        makeWpTimed('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },  // impl-1 (T+0h)
+          { type: 'qa',             status: 'PASS' },  // qa-1 PASS (T+1h)
+          { type: 'code-review',    status: 'FAIL' },  // code-review FAIL before impl-2 (T+2h)
+          { type: 'implementation', status: 'PASS' },  // impl-2 rework (T+3h)
+          { type: 'qa',             status: 'PASS' },  // qa-2 PASS after impl-2 (T+4h)
+        ]),
+      ];
+
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
+      // Must NOT be IN_PROGRESS (which is the rework-needed signal in getDeveloperHandoff)
+      expect(result.status).not.toBe('IN_PROGRESS');
+      // allImplemented = true (impl-2 PASS) → READY_FOR_QA
+      expect(result.status).toBe('READY_FOR_QA');
+    });
   });
 });
 

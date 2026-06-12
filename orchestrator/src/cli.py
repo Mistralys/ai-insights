@@ -77,6 +77,15 @@ EXIT_ERROR = 1
 EXIT_SAFETY_LIMIT = 2
 
 # ---------------------------------------------------------------------------
+# Interrupt detection flag
+# ---------------------------------------------------------------------------
+
+# Set to True by each interrupt path (signal, KeyboardInterrupt, MCP startup).
+# Used in result determination instead of substring-matching outside_errors.
+# Python's GIL guarantees atomic boolean assignment, so no locking is needed.
+_was_interrupted: bool = False
+
+# ---------------------------------------------------------------------------
 # Interrupt-on stage mapping
 # Stage names that can be specified in --interrupt-on map to graph node names.
 # "fail" is a meta-stage meaning: interrupt before developer when handling rework.
@@ -93,6 +102,31 @@ _INTERRUPT_STAGE_MAP: dict[str, str] = {
 # Path helpers
 # ---------------------------------------------------------------------------
 
+def _derive_repo_name(plan_dir: Path, fallback: str) -> str:
+    """Derive the repository name from a plan directory path.
+
+    The repository name is taken from ``plan_dir.parents[3].name``
+    (the fourth ancestor, counting from zero), lowercased to align with
+    TypeScript's ``deriveRepoName()`` convention in ``ledger-root.ts``.
+
+    Falls back to *fallback* when the path has fewer than four ancestor
+    levels or when the ancestor name is empty.
+
+    Parameters
+    ----------
+    plan_dir:
+        Path to the plan directory (e.g.
+        ``/workspace/MyRepo/docs/agents/plans/2026-01-01-slug``).
+    fallback:
+        Value returned when the ancestor cannot be resolved.
+    """
+    try:
+        name = plan_dir.parents[3].name
+        return name.lower() if name else fallback
+    except IndexError:
+        return fallback
+
+
 def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
     """Derive the ledger storage log directory for a given plan.
 
@@ -101,15 +135,12 @@ def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
 
-    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is
-    ``plan_dir.parents[3].name``, falling back to ``"unknown"`` when the path
+    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is derived via
+    :func:`_derive_repo_name`, falling back to ``"unknown"`` when the path
     has fewer than four ancestor levels or the ancestor name is empty.
     """
     slug = plan_dir.name
-    try:
-        repo_name = plan_dir.parents[3].name or "unknown"
-    except IndexError:
-        repo_name = "unknown"
+    repo_name = _derive_repo_name(plan_dir, "unknown")
     return (
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
@@ -474,6 +505,81 @@ def _is_run_terminal(checkpoint_dir: Path, thread_id: str) -> bool:
     return (checkpoint_dir / f"{thread_id}.terminal").exists()
 
 
+def _write_run_metadata(
+    plan_dir: Path,
+    *,
+    thread_id: str,
+    plan_path: Path,
+    started_at: str,
+    is_resume: bool,
+    dry_run: bool,
+    log_filename: str,
+    pid: int,
+    result: str | None = None,
+    error: str | None = None,
+    duration_s: float | None = None,
+) -> None:
+    """Atomically write the run metadata file to ``plan_dir/.orchestrator-run.json``.
+
+    Uses a temporary file and ``os.replace()`` so the on-disk file is never
+    partially written.  Best-effort — never raises.
+
+    Parameters
+    ----------
+    plan_dir:
+        The plan directory (parent of ``plan.md``).
+    thread_id:
+        LangGraph thread ID for this run.
+    plan_path:
+        Absolute resolved path to the plan file.
+    started_at:
+        ISO-8601 timestamp of run start.
+    is_resume:
+        ``True`` when the run was launched with ``--resume``.
+    dry_run:
+        ``True`` when the run was launched with ``--dry-run``.
+    log_filename:
+        Basename of the JSONL log file for this run.
+    pid:
+        OS process ID of the orchestrator process.
+    result:
+        Run outcome (``"SUCCESS"``, ``"INTERRUPTED"``, or ``"ERROR"``), or
+        ``None`` while the run is in progress.
+    error:
+        Error message when *result* is ``"ERROR"``, otherwise ``None``.
+    duration_s:
+        Wall-clock duration in seconds, or ``None`` while in progress.
+    """
+    metadata: dict = {
+        "thread_id": thread_id,
+        "plan_path": str(plan_path),
+        "slug": plan_dir.name,
+        "started_at": started_at,
+        "is_resume": is_resume,
+        "dry_run": dry_run,
+        "log_filename": log_filename,
+        "pid": pid,
+        "result": result,
+        "error": error,
+        "duration_s": duration_s,
+    }
+    meta_path = plan_dir / ".orchestrator-run.json"
+    tmp_path = plan_dir / ".orchestrator-run.json.tmp"
+    try:
+        tmp_path.write_text(json.dumps(metadata, indent=2))
+        os.replace(str(tmp_path), str(meta_path))
+    except OSError:
+        pass
+    finally:
+        # Belt-and-suspenders: remove the .tmp file if os.replace() left it
+        # behind (e.g. same-directory replace failure). No-op on success
+        # because os.replace() already consumed the file.
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Main async entry point
 # ---------------------------------------------------------------------------
@@ -511,8 +617,29 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     cancelled, and the run exits with code ``1`` (COMPLETED WITH ERRORS).
     Because no terminal marker is written, the same thread ID can be passed
     to ``--resume`` to restart from the last LangGraph checkpoint.
+
+    Side-effects on module state
+    ----------------------------
+    This function mutates the module-level ``_was_interrupted`` flag:
+
+    * **Reset to** ``False`` at the top of every invocation (before any
+      async work begins) so that repeated calls do not inherit state from
+      a previous run.
+    * **Set to** ``True`` by any of the three interrupt paths:
+
+      1. Signal-triggered shutdown (SIGTERM / SIGINT via ``shutdown_event``).
+      2. ``KeyboardInterrupt`` raised during graph execution.
+      3. ``KeyboardInterrupt`` raised during MCP server startup.
+
+    The flag is read in the result-determination block at the bottom of
+    ``_run()`` to decide whether ``_meta_result`` should be
+    ``"INTERRUPTED"``, replacing the previous fragile substring match on
+    ``outside_errors``.
     """
     from src.mcp_client import MCPToolkit
+
+    global _was_interrupted
+    _was_interrupted = False  # Reset per-run in case _run() is called more than once.
 
     # ── Resolve paths ───────────────────────────────────────────────────────
     plan_path = Path(args.plan).resolve()
@@ -614,6 +741,19 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 _write_error_status(
                     f"Thread {thread_id!r} is a completed run (nothing left to execute)"
                 )
+                _write_run_metadata(
+                    plan_dir,
+                    thread_id=thread_id,
+                    plan_path=plan_path,
+                    started_at=datetime.now(UTC).isoformat(),
+                    is_resume=True,
+                    dry_run=args.dry_run,
+                    log_filename=run_logger._path.name,
+                    pid=os.getpid(),
+                    result="ERROR",
+                    error=f"Thread {thread_id} is a completed run",
+                    duration_s=0.0,
+                )
                 return EXIT_ERROR
         else:
             thread_id = str(uuid.uuid4())
@@ -646,14 +786,30 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             run_start_ts=run_start_ts,
             stage_models=dict(config.stage_models),
         )
+        # ── Write initial run metadata (result=null while in progress) ────
+        _write_run_metadata(
+            plan_dir,
+            thread_id=thread_id,
+            plan_path=plan_path,
+            started_at=run_start_ts,
+            is_resume=bool(args.resume),
+            dry_run=args.dry_run,
+            log_filename=run_logger._path.name,
+            pid=os.getpid(),
+        )
         # ── Register in shared run queue ─────────────────────────────────
         try:
             from src.utils import run_queue
+            # Empty-string fallback → None means "untracked" (run_queue treats
+            # repo_name=None as an unassociated entry; 'unknown' is reserved for
+            # ledger log-dir paths where a concrete slug is always needed).
+            _repo_name: str | None = _derive_repo_name(plan_dir, "") or None
             entry_id = run_queue.register(
                 pid=os.getpid(),
                 plan_path=str(plan_path),
                 slug=plan_dir.name,
                 started_at=run_start_ts,
+                repo_name=_repo_name,
             )
         except Exception:
             log.warning("Could not register in run queue; continuing without tracking.")
@@ -767,6 +923,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                                 f"\n[signal] Graceful shutdown. "
                                 f"Resume with: orchestrate --resume {thread_id}"
                             )
+                            _was_interrupted = True
                             outside_errors.append("Interrupted by signal.")
                             # Retrieve any partial state from the graph task.
                             if graph_task in done:
@@ -790,6 +947,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                             thread_id,
                         )
                         print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
+                        _was_interrupted = True
                         outside_errors.append("Interrupted by user.")
                     except Exception as exc:
                         log.error("Graph execution failed: %s", exc, exc_info=True)
@@ -798,6 +956,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                     await db_conn.close()
 
         except KeyboardInterrupt:
+            _was_interrupted = True
             outside_errors.append("Interrupted during MCP server startup.")
         except Exception as exc:
             log.error("MCP server startup failed: %s", exc, exc_info=True)
@@ -862,6 +1021,38 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 lock_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    # ── Write final run metadata file ───────────────────────────────────────
+    try:
+        _meta_fatal = (
+            outside_errors[0]
+            if outside_errors
+            else (final_state.get("fatal_error") if final_state else None)
+        )
+        _is_interrupted = _was_interrupted or (
+            bool(interrupt_before) and not outside_errors and not _meta_fatal
+        )
+        if _is_interrupted:
+            _meta_result = "INTERRUPTED"
+        elif _meta_fatal or outside_errors:
+            _meta_result = "ERROR"
+        else:
+            _meta_result = "SUCCESS"
+        _write_run_metadata(
+            plan_dir,
+            thread_id=thread_id,
+            plan_path=plan_path,
+            started_at=run_start_ts,
+            is_resume=bool(args.resume),
+            dry_run=args.dry_run,
+            log_filename=run_logger._path.name,
+            pid=os.getpid(),
+            result=_meta_result,
+            error=_meta_fatal,
+            duration_s=total_duration_s,
+        )
+    except Exception:
+        pass
 
     # ── Write run-status tombstone for GUI polling ─────────────────────────────
     # A small JSON file named {slug}.run-status.json is written to the logs

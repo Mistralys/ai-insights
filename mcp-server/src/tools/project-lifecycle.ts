@@ -9,7 +9,8 @@ import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
-import { validatePlanPath, resolveProjectPath, formatCandidateList } from '../utils/path-validator.js';
+import { validatePlanPath } from '../utils/path-validator.js';
+import { resolveProjectPath, formatCandidateList } from '../utils/project-resolver.js';
 import { withLock } from '../storage/file-lock.js';
 import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
@@ -688,7 +689,7 @@ async function listProjects(args: z.infer<typeof ListProjectsSchema>, _ledgerRoo
  * Marks synthesis as generated on the root index. Sets `synthesis_generated = true`
  * and transitions the project to COMPLETE if all work packages are done.
  */
-const CompleteSynthesisSchema = z.object({
+export const CompleteSynthesisSchema = z.object({
   project_path: z
     .string()
     .optional()
@@ -705,6 +706,10 @@ const CompleteSynthesisSchema = z.object({
     .optional()
     .default(SYNTHESIS_ARCHIVE_FILENAME)
     .describe(`Filename of the synthesis document (default: "${SYNTHESIS_ARCHIVE_FILENAME}")`),
+  outcome_summary: z
+    .string()
+    .min(10, { message: 'outcome_summary must be at least 10 characters.' })
+    .describe('A 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations.'),
 });
 
 async function completeSynthesis(
@@ -781,6 +786,7 @@ async function completeSynthesis(
       rootIndex.synthesis_generated = true;
       rootIndex.synthesis_generated_at = now();
       rootIndex.auto_handoff_depth = 0; // §18.4: depth counter resets only on synthesis completion
+      rootIndex.outcome_summary = args.outcome_summary;
       rootIndex.last_updated = now();
 
       // All WPs are terminal (pendingWps === 0 && totalWps > 0) — transition project to COMPLETE
@@ -799,6 +805,7 @@ async function completeSynthesis(
               {
                 synthesis_generated: true,
                 synthesis_generated_at: rootIndex.synthesis_generated_at,
+                outcome_summary: rootIndex.outcome_summary,
                 project_status: rootIndex.status,
                 message: 'Synthesis marked as generated.',
                 archived_documents: archiveResult.archived,
