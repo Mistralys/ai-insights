@@ -6,6 +6,9 @@ id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 version: "1.1.0"
 last_updated: "2026-04-30"
+changelog: |
+  1.1.0 (2026-04-30): Audited and improved; rewritten to imperative voice
+  1.0.0 (2026-02-23): Initial release — unit test coverage auditing for specific modules
 
 tools:
   - vscode

@@ -6,6 +6,8 @@ id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 version: "1.0.0"
 last_updated: "2026-04-30"
+changelog: |
+  1.0.0 (2026-04-30): Initial release — documentation analysis, gap-filling, and updating
 
 tools:
   - vscode

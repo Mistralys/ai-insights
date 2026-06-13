@@ -6,6 +6,10 @@ id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
 version: "1.0.4"
 last_updated: "2026-05-18"
+changelog: |
+  1.0.4 (2026-05-18): Gains missing write step; subagent handoff precision improved
+  1.0.3 (2026-04-30): Overall improvements
+  1.0.0 (2026-04-11): Initial release — Work Package dependency mapping and ordering
 
 tools:
   - read

@@ -6,6 +6,10 @@ id: standalone-researcher
 cc_file_name: researcher.md
 version: "1.2.0"
 last_updated: "2026-05-29"
+changelog: |
+  1.2.0 (2026-05-29): Gained browser tool for research verification
+  1.1.0 (2026-04-30): Audited and improved
+  1.0.0 (2026-02-23): Initial release — complex problem research via known patterns
 
 tools:
   - vscode

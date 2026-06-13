@@ -6,6 +6,10 @@ id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 version: "1.0.3"
 last_updated: "2026-03-04"
+changelog: |
+  1.0.3 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.2 (2026-02-24): Improved documentation generation guidance
+  1.0.1 (2026-02-23): Initial pre-changelog version
 
 tools:
   - vscode

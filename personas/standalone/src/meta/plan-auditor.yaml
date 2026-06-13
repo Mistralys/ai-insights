@@ -6,6 +6,13 @@ id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 version: "1.5.0"
 last_updated: "2026-06-03"
+changelog: |
+  1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
+  1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings
+  1.3.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters
+  1.2.0 (2026-05-12): Narrowed to technical defects; gained Test Plan and Docs section checks
+  1.1.0 (2026-04-29): Initial improvements
+  1.0.0 (2026-04-29): Initial release — technical plan defect detection
 
 tools:
   - vscode

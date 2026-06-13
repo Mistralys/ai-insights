@@ -6,6 +6,14 @@ cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 version: "3.6.1"
 last_updated: "2026-04-08"
+changelog: |
+  3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
+  3.5.5 (2026-04-08): Three-tier feedback (Blocking, Fix-Forward, Documentation-Forward)
+  3.5.4 (2026-04-08): Documentation-forward convention with named spec and priority field
+  3.5.3 (2026-02-22): Removed phantom REWORK_REVIEW action; added acceptance criteria field
+  3.5.2 (2026-02-22): Added incident logging block
+  3.5.1 (2026-02-22): Enabled incident logging
+  3.5.0 (2026-02-22): Initial changelogged version; security review delegated to Security Auditor
 
 tools:
   - vscode

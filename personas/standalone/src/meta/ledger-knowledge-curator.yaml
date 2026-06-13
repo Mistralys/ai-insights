@@ -6,6 +6,9 @@ id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 version: "1.2.0"
 last_updated: "2026-06-09"
+changelog: |
+  1.2.0 (2026-06-09): Deletions now require user confirmation before execution
+  1.0.0 (2026-06-09): Initial release — knowledge base auditing and curation
 mcp_server_name: central_pm
 
 tools:

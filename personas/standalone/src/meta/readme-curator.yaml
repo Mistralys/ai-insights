@@ -6,6 +6,11 @@ id: standalone-readme-curator
 cc_file_name: readme-curator.md
 version: "1.3.0"
 last_updated: "2026-04-12"
+changelog: |
+  1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
+  1.2.1 (2026-03-01): Added helper section for rewriting entire READMEs
+  1.2.0 (2026-02-24): Rewritten to produce better human-oriented output
+  1.1.0 (2026-02-23): Initial pre-changelog version
 
 tools:
   - vscode

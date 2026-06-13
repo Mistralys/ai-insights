@@ -6,6 +6,10 @@ cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 version: "3.7.2"
 last_updated: "2026-04-08"
+changelog: |
+  3.7.2 (2026-04-08): Updated release protocol and output format documentation
+  3.7.0 (2026-04-08): Delegates changelog curation to Changelog Curator; delegates CTX updates
+  3.6.1 (2026-02-23): Initial release — release curation at pipeline position 7
 
 tools:
   - vscode
