@@ -4,6 +4,14 @@
 - Standalone: Added the Ledger Knowledge Curator persona.
 - Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver (ledger-prefixed).
 - Standalone: Knowledge Curator: Deletions now require user confirmation before execution.
+- Standalone: Added Recipe Curator persona for household recipe curation and meal planning.
+- Standalone: Recipe Curator: Weekly plan defaults to dinner-only; asks chef whether to include lunch.
+- Standalone: Recipe Curator: Weekly plan now includes full individual recipes below the overview table.
+- Standalone: Recipe Curator: No fresh fish; canned fish encouraged as pantry staple.
+- Standalone: Recipe Curator: Mediterranean is home base, not a boundary — all traditions welcome.
+- Standalone: Recipe Curator: Canned and refrigerated goods added as first-class ingredient sources.
+- Standalone: Recipe Curator: Fiber Target added — 30 g/person/day with daily tracking.
+- Standalone: Recipe Curator: Calorie Ceiling added — 2,500 kcal/person/day upper limit.
 
 ## v3.23.0 - Planner Repository History and Standalone Planner
 - Ledger: Planner gains repository history access via `ledger_get_repository_context`.
