@@ -29,6 +29,60 @@ _SOURCE: Directory tree_
         ├── persona-anchoring.md
         ├── persona-build-system.md
         ├── persona-design-guide.md
+    └── ledger-support/
+        ├── README.md
+        ├── claude-code/
+        │   ├── ledger-bootstrapper.md
+        │   ├── ledger-claude-coordinator.md
+        │   ├── ledger-dependency-sequencer.md
+        │   ├── ledger-doctor.md
+        │   ├── ledger-knowledge-archiver.md
+        │   ├── ledger-knowledge-curator.md
+        │   ├── ledger-orchestrator-runner.md
+        │   ├── ledger-pipeline-configurator.md
+        │   ├── ledger-wp-decomposer.md
+        ├── deep-agents/
+        │   ├── ledger-bootstrapper.md
+        │   ├── ledger-claude-coordinator.md
+        │   ├── ledger-dependency-sequencer.md
+        │   ├── ledger-doctor.md
+        │   ├── ledger-knowledge-archiver.md
+        │   ├── ledger-knowledge-curator.md
+        │   ├── ledger-orchestrator-runner.md
+        │   ├── ledger-pipeline-configurator.md
+        │   ├── ledger-wp-decomposer.md
+        ├── src/
+        │   ├── content/
+        │   │   ├── ledger-bootstrapper.md
+        │   │   ├── ledger-claude-coordinator.md
+        │   │   ├── ledger-dependency-sequencer.md
+        │   │   ├── ledger-doctor.md
+        │   │   ├── ledger-knowledge-archiver.md
+        │   │   ├── ledger-knowledge-curator.md
+        │   │   ├── ledger-orchestrator-runner.md
+        │   │   ├── ledger-pipeline-configurator.md
+        │   │   ├── ledger-wp-decomposer.md
+        │   ├── meta/
+        │   │   └── _shared.yaml
+        │   │   └── ledger-bootstrapper.yaml
+        │   │   └── ledger-claude-coordinator.yaml
+        │   │   └── ledger-dependency-sequencer.yaml
+        │   │   └── ledger-doctor.yaml
+        │   │   └── ledger-knowledge-archiver.yaml
+        │   │   └── ledger-knowledge-curator.yaml
+        │   │   └── ledger-orchestrator-runner.yaml
+        │   │   └── ledger-pipeline-configurator.yaml
+        │   │   └── ledger-wp-decomposer.yaml
+        ├── vs-code/
+        │   └── ledger-bootstrapper.agent.md
+        │   └── ledger-claude-coordinator.agent.md
+        │   └── ledger-dependency-sequencer.agent.md
+        │   └── ledger-doctor.agent.md
+        │   └── ledger-knowledge-archiver.agent.md
+        │   └── ledger-knowledge-curator.agent.md
+        │   └── ledger-orchestrator-runner.agent.md
+        │   └── ledger-pipeline-configurator.agent.md
+        │   └── ledger-wp-decomposer.agent.md
     └── ledger/
         ├── README.md
         ├── claude-code/
@@ -140,15 +194,6 @@ _SOURCE: Directory tree_
             ├── developer-standalone.md
             ├── documentation-curator.md
             ├── git-committer.md
-            ├── ledger-bootstrapper.md
-            ├── ledger-claude-coordinator.md
-            ├── ledger-dependency-sequencer.md
-            ├── ledger-doctor.md
-            ├── ledger-knowledge-archiver.md
-            ├── ledger-knowledge-curator.md
-            ├── ledger-orchestrator-runner.md
-            ├── ledger-pipeline-configurator.md
-            ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
@@ -169,15 +214,6 @@ _SOURCE: Directory tree_
             ├── developer.md
             ├── documentation-curator.md
             ├── git-committer.md
-            ├── ledger-bootstrapper.md
-            ├── ledger-claude-coordinator.md
-            ├── ledger-dependency-sequencer.md
-            ├── ledger-doctor.md
-            ├── ledger-knowledge-archiver.md
-            ├── ledger-knowledge-curator.md
-            ├── ledger-orchestrator-runner.md
-            ├── ledger-pipeline-configurator.md
-            ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
@@ -199,15 +235,6 @@ _SOURCE: Directory tree_
             │   ├── developer.md
             │   ├── documentation-curator.md
             │   ├── git-committer.md
-            │   ├── ledger-bootstrapper.md
-            │   ├── ledger-claude-coordinator.md
-            │   ├── ledger-dependency-sequencer.md
-            │   ├── ledger-doctor.md
-            │   ├── ledger-knowledge-archiver.md
-            │   ├── ledger-knowledge-curator.md
-            │   ├── ledger-orchestrator-runner.md
-            │   ├── ledger-pipeline-configurator.md
-            │   ├── ledger-wp-decomposer.md
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
             │   ├── persona-curator.md
@@ -229,15 +256,6 @@ _SOURCE: Directory tree_
             │   └── developer.yaml
             │   └── documentation-curator.yaml
             │   └── git-committer.yaml
-            │   └── ledger-bootstrapper.yaml
-            │   └── ledger-claude-coordinator.yaml
-            │   └── ledger-dependency-sequencer.yaml
-            │   └── ledger-doctor.yaml
-            │   └── ledger-knowledge-archiver.yaml
-            │   └── ledger-knowledge-curator.yaml
-            │   └── ledger-orchestrator-runner.yaml
-            │   └── ledger-pipeline-configurator.yaml
-            │   └── ledger-wp-decomposer.yaml
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
             │   └── persona-curator.yaml
@@ -258,15 +276,6 @@ _SOURCE: Directory tree_
             └── developer-standalone.agent.md
             └── documentation-curator.agent.md
             └── git-committer.agent.md
-            └── ledger-bootstrapper.agent.md
-            └── ledger-claude-coordinator.agent.md
-            └── ledger-dependency-sequencer.agent.md
-            └── ledger-doctor.agent.md
-            └── ledger-knowledge-archiver.agent.md
-            └── ledger-knowledge-curator.agent.md
-            └── ledger-orchestrator-runner.agent.md
-            └── ledger-pipeline-configurator.agent.md
-            └── ledger-wp-decomposer.agent.md
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
             └── persona-curator.agent.md

@@ -32,6 +32,8 @@ Key differences from ledger workflow personas:
 | `mcp_server_name` | In `_shared.yaml` | **Not allowed** ([constraint 19](../docs/agents/project-manifest/constraints.md#c19)) |
 | File prefix | `N-name.md` (numbered) | Slug-based (e.g., `researcher.agent.md`) |
 
+> **Note:** Ledger workflow utility agents (e.g., `ledger-bootstrapper`, `ledger-doctor`) have moved to `personas/ledger-support/`. Those personas share the `central_pm` MCP server dependency and are now in their own dedicated suite. See [personas/ledger-support/README.md](../ledger-support/README.md).
+
 Standalone personas are built from sources in `personas/standalone/src/` and output to:
 - `personas/standalone/vs-code/` — VS Code target (`.agent.md` extension)
 - `personas/standalone/claude-code/` — Claude Code target (plain `.md` extension)
@@ -76,16 +78,9 @@ Each step is a separate agent invocation. The PM passes structured output from o
 
 ## Persona Catalog
 
-All 16 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
+All 19 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 
-### PM Sub-Agent Cluster
-
-| Slug | Name | Description | VS Code file | Claude Code file |
-|------|------|-------------|-------------|-----------------|
-| `wp-decomposer` | WP Decomposer | Analyze a plan document and decompose it into atomic, actionable Work Package definitions. | `wp-decomposer.agent.md` | `wp-decomposer.md` |
-| `dependency-sequencer` | Dependency Sequencer | Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering. | `dependency-sequencer.agent.md` | `dependency-sequencer.md` |
-| `pipeline-configurator` | Pipeline Configurator | Determine which pipeline stages should be active for each Work Package based on the nature of the work. | `pipeline-configurator.agent.md` | `pipeline-configurator.md` |
-| `ledger-bootstrapper` | Ledger Bootstrapper | Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete. | `ledger-bootstrapper.agent.md` | `ledger-bootstrapper.md` |
+> **Note:** Ledger workflow utility agents previously listed here (PM sub-agent cluster, ledger-doctor, etc.) have moved to `personas/ledger-support/`. See [ledger-support/README.md](../ledger-support/README.md).
 
 ### General-Purpose Personas
 
@@ -97,22 +92,11 @@ All 16 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 | `ctx-architect` | CTX Architect | Design, generate, and maintain CTX Generator context documentation configurations — from root project setup to per-module configs. | `ctx-architect.agent.md` | `ctx-architect.md` |
 | `manifest-curator` | Manifest Curator | Create, update, and audit project manifests — the source of truth for AI agent sessions. | `manifest-curator.agent.md` | `manifest-curator.md` |
 | `module-intent-architect` | Module Intent Architect | Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source. | `module-intent-architect.agent.md` | `module-intent-architect.md` |
-| `orchestrator-runner` | Orchestrator Runner | Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document. | `orchestrator-runner.agent.md` | `orchestrator-runner.md` |
 | `readme-curator` | README Curator | Produces a human-optimized README.md that follows a landing-page funnel: Hook → Features → Requirements → Quick Start → Learn More. | `readme-curator.agent.md` | `readme-curator.md` |
 | `researcher` | Researcher | Research solutions to complex problems through known patterns or creative thinking. | `researcher.agent.md` | `researcher.md` |
 | `standalone-developer` | Standalone Developer | Implement scoped plan documents without ledger workflow, including code insights and a `synthesis.md` output in the plan folder. | `standalone-developer.agent.md` | `standalone-developer.md` |
 | `unit-test-auditor` | Unit Test Auditor | Audit specific codebase parts. | `unit-test-auditor.agent.md` | `unit-test-auditor.md` |
 | `whatsnew-curator` | WHATSNEW Curator | Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only. | `whatsnew-curator.agent.md` | `whatsnew-curator.md` |
-
----
-
-## Claude Code — MCP Server Injection
-
-### Conditional `mcpServers` in standalone CC output
-
-`FRONTMATTER_STANDALONE_CC` conditionally injects a `mcpServers` block via `{{#if mcp_server_name}}`. Personas that set `mcp_server_name: central_pm` in their per-persona YAML receive the block; personas that omit the field produce no `mcpServers` entry.
-
-**Result:** `ledger-bootstrapper.md` declares `mcpServers:\n  - central_pm` in its frontmatter. All other standalone CC personas with no `mcp_server_name` field produce no `mcpServers` block.
 
 ---
 

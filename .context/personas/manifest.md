@@ -138,12 +138,12 @@ The config file is loaded by the library CLI. It exports an object with the foll
 | `sharedPartialsDir` | `string` | Absolute path to `personas/shared/partials/` — base partial layer shared across all suites |
 | `targets` | `string[]` | Ordered list of build target names — e.g. `['vscode', 'claude-code', 'deep-agents']`. Each target triggers a separate render pass per persona. The three built-in targets (`vscode`, `claude-code`, `deep-agents`) are registered by the `@mistralys/persona-builder` library; per-suite output paths are configured via `outVscode`, `outClaudeCode`, and `outputDirs` respectively. |
 | `frontmatter` | `Object.<string, string>` | Config-level frontmatter template map keyed by target name. Used as the default for suites or targets the ledger plugin does not override. The ledger plugin overrides `vscode` and `claude-code` for the ledger suite via its `onSuiteInit` hook; the `deep-agents` template applies to both suites unchanged. |
-| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`) |
+| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`, `ledger-support`) |
 | `plugins` | `Array` | Plugin instances — currently `[ledgerPlugin({...})]` for role validation |
 
 **Suite Configuration**
 
-Each suite entry (`suites.ledger`, `suites.standalone`) has this shape:
+Each suite entry (`suites.ledger`, `suites.standalone`, `suites['ledger-support']`) has this shape:
 
 | Property | Value | Description |
 |----------|-------|-------------|
@@ -310,7 +310,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
-| `subagents` | `string[]` | no | Flat dash-prefixed list of standalone persona slugs that this ledger persona may delegate to as sub-agents. Each slug resolves to `personas/standalone/src/meta/{slug}.yaml`. Currently only carried by the Project Manager (Agent 2), where it lists the four PM planning sub-agents (`ledger-wp-decomposer`, `ledger-dependency-sequencer`, `ledger-pipeline-configurator`, `ledger-bootstrapper`). Consumed by the orchestrator's `load_subagents()` loader at pipeline startup to load the matching standalone persona YAML and make the sub-agent available for invocation. The template engine silently ignores unknown YAML keys, so this field has no effect on persona build output. |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone, for legacy slugs) persona slugs that this ledger persona may delegate to as sub-agents. Each slug is resolved by the orchestrator against `personas/ledger-support/src/meta/{slug}.yaml` first, then falls back to `personas/standalone/src/meta/{slug}.yaml`. Currently only carried by the Project Manager (Agent 2), where it lists the four PM planning sub-agents (`ledger-wp-decomposer`, `ledger-dependency-sequencer`, `ledger-pipeline-configurator`, `ledger-bootstrapper`) — all four now live in the `ledger-support` suite. Consumed by the orchestrator's `load_subagents()` loader at pipeline startup. The template engine silently ignores unknown YAML keys, so this field has no effect on persona build output. |
 | `has_mcp` | `bool` | yes | Inject MCP pre-flight check and tools table |
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
@@ -406,7 +406,7 @@ Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Sour
 
 ### Deep-Agents — All Suites (`FRONTMATTER_DA`)
 
-Written to `personas/ledger/deep-agents/` and `personas/standalone/deep-agents/`. Applies to both suites unchanged — the ledger plugin does not override this template.
+Written to `personas/ledger/deep-agents/`, `personas/standalone/deep-agents/`, and `personas/ledger-support/deep-agents/`. Applies to all three suites unchanged — the ledger plugin does not override this template.
 
 ```yaml
 ---
@@ -435,7 +435,17 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `cc_memory` | `string` | Claude Code memory scope |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter |
 
-> **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas have no shared MCP dependency. However, individual personas **can** set `mcp_server_name` in their own YAML file to opt into MCP support (e.g. `workflow-orchestrator.yaml` sets `mcp_server_name: central_pm`). When present, this triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and includes an `mcpServers` block in the Claude Code output. `roster` is also absent — standalone personas are not part of the 7-stage workflow.
+> **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas are fully independent tools with no shared MCP dependency. MCP-dependent utility personas that support the ledger workflow live in the `ledger-support` suite instead, where `mcp_server_name: central_pm` is declared in `_shared.yaml`. `roster` is also absent — standalone personas are not part of the 9-stage workflow.
+
+### Ledger Support Suite (`ledger-support`)
+
+The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-based schema as the standalone suite but with a shared `mcp_server_name: central_pm` in `_shared.yaml`. These personas are ledger workflow utility agents (e.g., PM sub-agents, ledger doctor) that require the `central_pm` MCP server.
+
+**`_shared.yaml`:** Identical structure to standalone `_shared.yaml` plus `mcp_server_name: central_pm`.
+
+**Per-persona YAML:** Same schema as standalone per-persona YAML. `id` values for the 9 personas migrated from `standalone/` retain their `standalone-*` prefix permanently (stability rule — see [constraint C24](constraints.md#c24)). New personas added to this suite use the `ledger-support-{slug}` prefix.
+
+> **Note:** `role` is intentionally absent — ledger-support personas are not part of the 9-stage workflow roster. They are utility agents invoked as sub-agents or directly by users.
 
 ### Standalone Per-Persona YAML (`<slug>.yaml`)
 
@@ -781,14 +791,14 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c39"></a>
 <a name="x4"></a>
-4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of standalone personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
-   - **`description`** — from `personas/standalone/src/meta/{slug}.yaml`
-   - **`system_prompt`** — from `personas/standalone/deep-agents/{slug}.md`
+4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of ledger-support (or standalone, for legacy slugs) personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
+   - **`description`** — from `personas/ledger-support/src/meta/{slug}.yaml` (falls back to `personas/standalone/src/meta/{slug}.yaml`)
+   - **`system_prompt`** — from `personas/ledger-support/deep-agents/{slug}.md` (falls back to `personas/standalone/deep-agents/{slug}.md`)
    - **`name`** — the kebab-case slug itself
 
    The template engine silently ignores unknown YAML keys, so the `subagents` field has no effect on persona build output. It is not used by `scripts/build-personas.js` for rendering — only for the `{{agent_slug_*}}` cross-reference validation (see [Build System Constraint 9](constraints-build-system.md#b9)).
 
-   **Sync contract:** Every slug declared in the `subagents` field must have a corresponding `personas/standalone/src/meta/{slug}.yaml` (with a `description` field) and a `personas/standalone/deep-agents/{slug}.md` that are valid at orchestrator startup. Missing files raise `FileNotFoundError`; a missing `description` raises `ValueError`. Currently only Agent 2 (Project Manager) carries this field, listing four PM planning sub-agents.
+   **Sync contract:** Every slug declared in the `subagents` field must have a corresponding YAML file (with a `description` field) and a deep-agents file in either `personas/ledger-support/` or `personas/standalone/`. The resolver searches `ledger-support` first, then falls back to `standalone`. Missing files (in both suites) raise `FileNotFoundError`; a missing `description` raises `ValueError`. Currently only Agent 2 (Project Manager) carries this field, listing four PM planning sub-agents (all now in `ledger-support/`).
 
 ---
 
@@ -829,6 +839,7 @@ When the build system was introduced, the generated output differs from the orig
 1. **Never edit generated files directly.** All persona files in the following directories are auto-generated and must not be hand-edited:
    - `personas/ledger/vs-code/`, `personas/ledger/claude-code/`, and `personas/ledger/deep-agents/`
    - `personas/standalone/vs-code/`, `personas/standalone/claude-code/`, and `personas/standalone/deep-agents/`
+   - `personas/ledger-support/vs-code/`, `personas/ledger-support/claude-code/`, and `personas/ledger-support/deep-agents/`
 
    All changes must be made in the corresponding `src/` directory and rebuilt. Generated files carry an `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` header as a guard. The generated output directories are fully overwritten on every build.
 
@@ -846,15 +857,20 @@ When the build system was introduced, the generated output differs from the orig
    | `personas/standalone/vs-code/` | Yes | VS Code target output (standalone) |
    | `personas/standalone/claude-code/` | Yes | Claude Code target output (standalone) |
    | `personas/standalone/deep-agents/` | Yes | Deep-agents target output (standalone) |
+   | `personas/ledger-support/vs-code/` | Yes | VS Code target output (ledger-support) |
+   | `personas/ledger-support/claude-code/` | Yes | Claude Code target output (ledger-support) |
+   | `personas/ledger-support/deep-agents/` | Yes | Deep-agents target output (ledger-support) |
    | `personas/ledger/src/meta/` | No | YAML metadata: identity, feature flags, tool lists |
    | `personas/ledger/src/content/` | No | Per-persona body templates |
    | `personas/ledger/src/partials/` | No | Ledger-suite Markdown fragments (override layer; MCP-specific partials live here) |
    | `personas/standalone/src/meta/` | No | YAML metadata for standalone personas (slug-based, no `role`) |
    | `personas/standalone/src/content/` | No | Per-slug body templates |
+   | `personas/ledger-support/src/meta/` | No | YAML metadata for ledger-support personas (slug-based, MCP-dependent) |
+   | `personas/ledger-support/src/content/` | No | Per-slug body templates (ledger-support) |
    | `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments (base layer; no MCP content) |
 
 <a name="c3"></a>
-4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` / `--target deep-agents` for a single target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild both suites in one pass.
+4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` / `--target deep-agents` for a single target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild all three suites (ledger, standalone, ledger-support) in one pass.
 
 ---
 
@@ -899,7 +915,9 @@ When the build system was introduced, the generated output differs from the orig
   When building the standalone suite, a partial referenced by a shared partial but only defined in the ledger override layer (e.g., `{{> incident-logging}}`) will produce a `[WARN]` and be left as-is unless a stub is added to `shared/partials/`.
 
 <a name="c19"></a>
-14. **Standalone `_shared.yaml` must not contain `mcp_server_name` or `roster`.** Standalone personas are independent tools — they have no workflow roster and no MCP server dependency. Do not add these fields when extending the standalone suite.
+14. **The `standalone` suite's `_shared.yaml` must not contain `mcp_server_name` or `roster`.** Standalone personas are fully independent tools — they have no workflow roster and no MCP server dependency. Do not add these fields to `personas/standalone/src/meta/_shared.yaml`.
+
+   The `ledger-support` suite's `_shared.yaml` **does** contain `mcp_server_name: central_pm` by design — all ledger-support personas depend on the `central_pm` MCP server. This is intentional and correct for that suite.
 
 <a name="c20"></a>
 15. **Platform-specific partials use a `-vscode` / `-claude-code` suffix** (e.g., `handoff-block-vscode.md`, `handoff-block-claude-code.md`, `mcp-preflight-header-vscode.md`, `mcp-preflight-header-claude-code.md`). Content templates include them via a top-level `{{#if target_vscode}}…{{else}}…{{/if}}` conditional block — never inline platform-specific content directly in a content template.
@@ -935,9 +953,11 @@ When the build system was introduced, the generated output differs from the orig
 19. **`id` naming convention and stability rules:**
    - **Ledger personas**: `id` must follow `ledger-{vs_file_name stem}` — e.g. `vs_file_name: 3-dev.agent.md` → `id: ledger-3-dev`.
    - **Standalone personas**: `id` must follow `standalone-{vs_file_name stem}` — e.g. `vs_file_name: researcher.agent.md` → `id: standalone-researcher`.
+   - **New ledger-support personas**: `id` must follow `ledger-support-{slug}` — e.g. `slug: my-new-tool` → `id: ledger-support-my-new-tool`.
+   - **Migrated ledger-support personas**: The 9 personas moved from `standalone/` to `ledger-support/` retain their `standalone-*` id prefix permanently (e.g., `id: standalone-ledger-bootstrapper`). This is a historical artifact — changing these ids would break VS Code `@id` routing for all users who have these agents installed.
    - **Format constraints**: lowercase only, no spaces, no special characters except hyphens.
    - **Stability**: `id` values must never change once published — they are the routing key used by VS Code `@id` subagent routing. Version bumps, renames, or persona reordering must not alter the `id`.
-   - **Uniqueness**: `id` values must be globally unique across all custom agents in the user's VS Code instance. The `ledger-` and `standalone-` namespace prefixes isolate these personas from each other and from any third-party agents the user may have installed.
+   - **Uniqueness**: `id` values must be globally unique across all custom agents in the user's VS Code instance. The `ledger-`, `standalone-`, and `ledger-support-` namespace prefixes isolate these personas from each other and from any third-party agents the user may have installed.
    - **Claude Code output is unaffected**: `id:` is only added to `FRONTMATTER_LEDGER_VSCODE` and `FRONTMATTER_STANDALONE_VSCODE`. The Claude Code frontmatter templates (`FRONTMATTER_LEDGER_CC`, `FRONTMATTER_STANDALONE_CC`) do not include `id:` — Claude Code uses name-derivation routing, not `@id` routing.
 
 <a name="c25"></a>
@@ -970,7 +990,7 @@ When the build system was introduced, the generated output differs from the orig
 <a name="c48"></a>
 24. **`mcp_server_name` in `_shared.yaml` controls the MCP server reference** everywhere in generated output and must match the server key used by `scripts/install-mcp-global.js` (default: `central_pm`). If the server name changes, update this field, rebuild personas, and update `install-mcp-global.js` — see the Cross-System Dependencies table in `AGENTS.md`.
 
-   > **Shadowing risk for standalone personas:** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. Standalone personas in `personas/standalone/src/meta/` hardcode `mcp_server_name: central_pm` in their individual YAML files rather than inheriting from a shared source (standalone has no shared `mcp_server_name` — see [constraint 14](#c19)). If `mcp_server_name` changes globally, update both `personas/ledger/src/meta/_shared.yaml` **and** every standalone persona YAML file that hardcodes the old value.
+   > **Shadowing risk:** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. If `mcp_server_name` changes globally, update **both** `personas/ledger/src/meta/_shared.yaml` and `personas/ledger-support/src/meta/_shared.yaml`. The `standalone` suite has no `mcp_server_name` in its `_shared.yaml` (see [constraint 14](#c19)) and none of its personas should hardcode it.
 
 <a name="c49"></a>
 25. **Every persona change requires a version bump, date update, and changelog entry.** When any persona source file is modified (YAML metadata in `src/meta/`, content template in `src/content/`, or a partial in `src/partials/` that affects generated output), the agent performing the change **must** complete all three steps before finishing:
@@ -1068,6 +1088,12 @@ The primary data flow: transform source templates into final persona Markdown fi
   │    personas/standalone/claude-code/      │
   │  standalone + deep-agents:               │
   │    personas/standalone/deep-agents/      │
+  │  ledger-support + vscode:                │
+  │    personas/ledger-support/vs-code/      │
+  │  ledger-support + claude-code:           │
+  │    personas/ledger-support/claude-code/  │
+  │  ledger-support + deep-agents:           │
+  │    personas/ledger-support/deep-agents/  │
   └──────────────────────────────────────────┘
 ```
 
@@ -1184,8 +1210,8 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone [--target] [--dry-run]
-  │                          │  Always rebuilds both ledger and standalone output before syncing.
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--target] [--dry-run]
+  │                          │  Always rebuilds all three suites (ledger, standalone, ledger-support) before syncing.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐

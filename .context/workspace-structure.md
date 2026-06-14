@@ -41,7 +41,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
     │   │   └── 2026-06-13-persona-changelog-strategy.md
-    │   │   └── 2026-06-14-rainbow-eating.md
+    │   │   └── 2026-06-14-standalone-ledger-folder-separation.md
     ├── development.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
@@ -354,6 +354,38 @@ _SOURCE: Top-level directory tree_
     │   ├── persona-anchoring.md
     │   ├── persona-build-system.md
     │   ├── persona-design-guide.md
+    ├── ledger-support/
+    │   ├── README.md
+    │   ├── claude-code/
+    │   │   ├── ledger-bootstrapper.md
+    │   │   ├── ledger-claude-coordinator.md
+    │   │   ├── ledger-dependency-sequencer.md
+    │   │   ├── ledger-doctor.md
+    │   │   ├── ledger-knowledge-archiver.md
+    │   │   ├── ledger-knowledge-curator.md
+    │   │   ├── ledger-orchestrator-runner.md
+    │   │   ├── ledger-pipeline-configurator.md
+    │   │   ├── ledger-wp-decomposer.md
+    │   ├── deep-agents/
+    │   │   ├── ledger-bootstrapper.md
+    │   │   ├── ledger-claude-coordinator.md
+    │   │   ├── ledger-dependency-sequencer.md
+    │   │   ├── ledger-doctor.md
+    │   │   ├── ledger-knowledge-archiver.md
+    │   │   ├── ledger-knowledge-curator.md
+    │   │   ├── ledger-orchestrator-runner.md
+    │   │   ├── ledger-pipeline-configurator.md
+    │   │   ├── ledger-wp-decomposer.md
+    │   ├── vs-code/
+    │   │   └── ledger-bootstrapper.agent.md
+    │   │   └── ledger-claude-coordinator.agent.md
+    │   │   └── ledger-dependency-sequencer.agent.md
+    │   │   └── ledger-doctor.agent.md
+    │   │   └── ledger-knowledge-archiver.agent.md
+    │   │   └── ledger-knowledge-curator.agent.md
+    │   │   └── ledger-orchestrator-runner.agent.md
+    │   │   └── ledger-pipeline-configurator.agent.md
+    │   │   └── ledger-wp-decomposer.agent.md
     ├── ledger/
     │   ├── README.md
     │   ├── claude-code/
@@ -430,15 +462,6 @@ _SOURCE: Top-level directory tree_
     │       ├── developer-standalone.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
-    │       ├── ledger-bootstrapper.md
-    │       ├── ledger-claude-coordinator.md
-    │       ├── ledger-dependency-sequencer.md
-    │       ├── ledger-doctor.md
-    │       ├── ledger-knowledge-archiver.md
-    │       ├── ledger-knowledge-curator.md
-    │       ├── ledger-orchestrator-runner.md
-    │       ├── ledger-pipeline-configurator.md
-    │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
@@ -459,15 +482,6 @@ _SOURCE: Top-level directory tree_
     │       ├── developer.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
-    │       ├── ledger-bootstrapper.md
-    │       ├── ledger-claude-coordinator.md
-    │       ├── ledger-dependency-sequencer.md
-    │       ├── ledger-doctor.md
-    │       ├── ledger-knowledge-archiver.md
-    │       ├── ledger-knowledge-curator.md
-    │       ├── ledger-orchestrator-runner.md
-    │       ├── ledger-pipeline-configurator.md
-    │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
@@ -488,15 +502,6 @@ _SOURCE: Top-level directory tree_
     │       └── developer-standalone.agent.md
     │       └── documentation-curator.agent.md
     │       └── git-committer.agent.md
-    │       └── ledger-bootstrapper.agent.md
-    │       └── ledger-claude-coordinator.agent.md
-    │       └── ledger-dependency-sequencer.agent.md
-    │       └── ledger-doctor.agent.md
-    │       └── ledger-knowledge-archiver.agent.md
-    │       └── ledger-knowledge-curator.agent.md
-    │       └── ledger-orchestrator-runner.agent.md
-    │       └── ledger-pipeline-configurator.agent.md
-    │       └── ledger-wp-decomposer.agent.md
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
     │       └── persona-curator.agent.md
