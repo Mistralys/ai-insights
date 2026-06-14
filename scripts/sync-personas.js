@@ -203,24 +203,25 @@ function validateCCFrontmatter(dir) {
 }
 
 /**
- * Validate Claude Code frontmatter for standalone personas: requires name
+ * Validate Claude Code frontmatter for slug-mode personas: requires name
  * (kebab-case without numeric prefix), permissionMode, model, and memory.
- * Standalone personas do not require a 'role' field.
- * @param {string} dir - Absolute path to personas/standalone/claude-code/
+ * Slug-mode personas do not require a 'role' field.
+ * @param {string} dir - Absolute path to personas/{suite}/claude-code/
+ * @param {string} suiteLabel - Suite name for display (e.g. 'standalone', 'ledger-support')
  */
-function validateStandaloneCCFrontmatter(dir) {
+function validateSlugModeCCFrontmatter(dir, suiteLabel) {
   if (!fs.existsSync(dir)) return;
 
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
-  console.log(`\n${colors.bright}${colors.cyan}=== Standalone Claude Code Frontmatter Validation ===${colors.reset}`);
+  console.log(`\n${colors.bright}${colors.cyan}=== ${suiteLabel} Claude Code Frontmatter Validation ===${colors.reset}`);
 
-  const STANDALONE_NAME_RE = /^[a-z][a-z0-9-]*$/;
+  const SLUG_NAME_RE = /^[a-z][a-z0-9-]*$/;
   let warningCount = 0;
 
   for (const file of files) {
     const filePath = path.join(dir, file);
     const fields = parseFrontmatter(filePath);
-    const relPath = path.join('standalone', 'claude-code', file);
+    const relPath = path.join(suiteLabel, 'claude-code', file);
 
     if (!fields) {
       console.warn(`${colors.yellow}⚠ ${relPath}: could not parse frontmatter${colors.reset}`);
@@ -232,7 +233,7 @@ function validateStandaloneCCFrontmatter(dir) {
     if (!fields.name) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'name:' field${colors.reset}`);
       warningCount++;
-    } else if (!STANDALONE_NAME_RE.test(fields.name)) {
+    } else if (!SLUG_NAME_RE.test(fields.name)) {
       console.warn(`${colors.yellow}⚠ ${relPath}: 'name: ${fields.name}' does not match kebab-case pattern (e.g. "manifest-curator")${colors.reset}`);
       warningCount++;
     }
@@ -247,7 +248,7 @@ function validateStandaloneCCFrontmatter(dir) {
   }
 
   if (warningCount === 0) {
-    console.log(`${colors.green}✓ All ${files.length} standalone Claude Code persona file(s) passed frontmatter validation${colors.reset}`);
+    console.log(`${colors.green}✓ All ${files.length} ${suiteLabel} Claude Code persona file(s) passed frontmatter validation${colors.reset}`);
   } else {
     console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
   }
@@ -346,22 +347,23 @@ function syncVSCode(dryRun = false, customPath = null) {
 }
 
 /**
- * Validate VS Code frontmatter for standalone personas: requires name and
- * vs_file_name. Standalone personas do not require a 'role' field.
- * @param {string} dir - Absolute path to personas/standalone/vs-code/
+ * Validate VS Code frontmatter for slug-mode personas: requires name and
+ * vs_file_name. Slug-mode personas do not require a 'role' field.
+ * @param {string} dir - Absolute path to personas/{suite}/vs-code/
+ * @param {string} suiteLabel - Suite name for display (e.g. 'standalone', 'ledger-support')
  */
-function validateStandaloneVSCodeFrontmatter(dir) {
+function validateSlugModeVSCodeFrontmatter(dir, suiteLabel) {
   if (!fs.existsSync(dir)) return;
 
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
-  console.log(`\n${colors.bright}${colors.cyan}=== Standalone VS Code Frontmatter Validation ===${colors.reset}`);
+  console.log(`\n${colors.bright}${colors.cyan}=== ${suiteLabel} VS Code Frontmatter Validation ===${colors.reset}`);
 
   let warningCount = 0;
 
   for (const file of files) {
     const filePath = path.join(dir, file);
     const fields = parseFrontmatter(filePath);
-    const relPath = path.join('standalone', 'vs-code', file);
+    const relPath = path.join(suiteLabel, 'vs-code', file);
 
     if (!fields) {
       console.warn(`${colors.yellow}⚠ ${relPath}: could not parse frontmatter${colors.reset}`);
@@ -386,7 +388,7 @@ function validateStandaloneVSCodeFrontmatter(dir) {
   }
 
   if (warningCount === 0) {
-    console.log(`${colors.green}✓ All ${files.length} standalone VS Code persona file(s) passed frontmatter validation${colors.reset}`);
+    console.log(`${colors.green}✓ All ${files.length} ${suiteLabel} VS Code persona file(s) passed frontmatter validation${colors.reset}`);
   } else {
     console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
   }
@@ -401,7 +403,19 @@ function syncStandaloneVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'vs-code');
   const targetDir = customPath || getVSCodePromptsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
-  validateStandaloneVSCodeFrontmatter(sourceDir);
+  validateSlugModeVSCodeFrontmatter(sourceDir, 'standalone');
+}
+
+/**
+ * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code prompts directory.
+ * @param {boolean} dryRun
+ * @param {string|null} customPath - Override the default VS Code prompts directory
+ */
+function syncLedgerSupportVSCode(dryRun = false, customPath = null) {
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'vs-code');
+  const targetDir = customPath || getVSCodePromptsDir();
+  syncFromDir(sourceDir, targetDir, extractVSFileName, 'Ledger Support VS Code', dryRun);
+  validateSlugModeVSCodeFrontmatter(sourceDir, 'ledger-support');
 }
 
 /**
@@ -423,7 +437,18 @@ function syncStandaloneClaudeCode(dryRun = false) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'claude-code');
   const targetDir = getClaudeCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractCCFileName, 'Standalone Claude Code', dryRun);
-  validateStandaloneCCFrontmatter(sourceDir);
+  validateSlugModeCCFrontmatter(sourceDir, 'standalone');
+}
+
+/**
+ * Sync ledger-support Claude Code personas: personas/ledger-support/claude-code/ → ~/.claude/agents/.
+ * @param {boolean} dryRun
+ */
+function syncLedgerSupportClaudeCode(dryRun = false) {
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'claude-code');
+  const targetDir = getClaudeCodeAgentsDir();
+  syncFromDir(sourceDir, targetDir, extractCCFileName, 'Ledger Support Claude Code', dryRun);
+  validateSlugModeCCFrontmatter(sourceDir, 'ledger-support');
 }
 
 /**
@@ -546,7 +571,7 @@ ${colors.bright}Examples:${colors.reset}
   try {
     // Build personas from source templates, forwarding --target and --dry-run
     const buildScript = path.join(import.meta.dirname, 'build-personas.js');
-    const buildArgs = ['--suite', 'ledger,standalone'];
+    const buildArgs = ['--suite', 'ledger,standalone,ledger-support'];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the
     // existing output directories. On a clean checkout where output dirs
@@ -564,11 +589,15 @@ ${colors.bright}Examples:${colors.reset}
       console.log();
       syncStandaloneVSCode(dryRun, customPath);
       console.log();
+      syncLedgerSupportVSCode(dryRun, customPath);
+      console.log();
     }
     if (target === 'claude-code' || target === 'all') {
       syncClaudeCode(dryRun);
       console.log();
       syncStandaloneClaudeCode(dryRun);
+      console.log();
+      syncLedgerSupportClaudeCode(dryRun);
       console.log();
       syncSkills(dryRun);
     }

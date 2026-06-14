@@ -116,7 +116,33 @@ documents:
           # Personas - Standalone Persona Metadata
           YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
       - type: file
-        description: "YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)"
+        description: "YAML metadata for all 19 standalone personas (shared defaults + per-persona overrides)"
         sourcePaths:
           - standalone/src/meta
+        filePattern: "*.yaml"
+
+  - description: 'Personas - Ledger Support Suite Guide'
+    outputPath: 'personas/ledger-support-suite.md'
+    sources:
+      - type: text
+        content: |
+          # Personas - Ledger Support Suite Guide
+          Ledger support personas user guide: PM sub-agent cluster, ledger workflow utilities, and MCP server dependency.
+      - type: file
+        description: "Ledger support personas guide (PM sub-agent cluster, ledger utilities, MCP dependency)"
+        sourcePaths:
+          - ledger-support
+        filePattern: "README.md"
+
+  - description: 'Personas - Ledger Support Metadata'
+    outputPath: 'personas/ledger-support-metadata.md'
+    sources:
+      - type: text
+        content: |
+          # Personas - Ledger Support Persona Metadata
+          YAML metadata for all 9 ledger-support personas: shared defaults (_shared.yaml) and per-persona overrides - slugs, descriptions, MCP tools, and feature flags.
+      - type: file
+        description: "YAML metadata for all 9 ledger-support personas (shared defaults + per-persona overrides)"
+        sourcePaths:
+          - ledger-support/src/meta
         filePattern: "*.yaml"

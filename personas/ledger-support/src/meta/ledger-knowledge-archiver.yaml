@@ -12,7 +12,6 @@ changelog: |
   1.2.0 (2026-05-30): Knowledge collection delegation from Synthesis integrated
   1.1.0 (2026-05-30): Refined operational protocol
   1.0.0 (2026-05-29): Initial release — retrospective knowledge extraction from completed projects
-mcp_server_name: central_pm
 
 tools:
   - vscode

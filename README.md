@@ -13,6 +13,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 | Suite | Description | Docs |
 |-------|-------------|------|
 | **Ledger-Enabled** | 9-stage workflow (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger Support** | Utility agents for the ledger workflow (PM sub-agents, ledger doctor, orchestrator runner, etc.) — MCP-dependent | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
 | **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
 
 ### Project Ledger MCP Server

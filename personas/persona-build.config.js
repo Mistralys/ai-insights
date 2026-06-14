@@ -105,6 +105,15 @@ module.exports = {
       },
       personaMode:   'standalone',
     },
+    'ledger-support': {
+      srcDir:        path.join(ROOT, 'personas', 'ledger-support', 'src'),
+      outVscode:     path.join(ROOT, 'personas', 'ledger-support', 'vs-code'),
+      outClaudeCode: path.join(ROOT, 'personas', 'ledger-support', 'claude-code'),
+      outputDirs: {
+        'deep-agents': path.join(ROOT, 'personas', 'ledger-support', 'deep-agents'),
+      },
+      personaMode:   'standalone',
+    },
   },
 
   plugins: [

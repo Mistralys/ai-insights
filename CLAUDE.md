@@ -13,7 +13,7 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 | Sub-Project | Path | Language | Purpose |
 |-------------|------|----------|---------|
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
-| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Persona build system that assembles ledger and standalone persona files across 3 output targets (vs-code, claude-code, deep-agents) from YAML/Markdown sources via `@mistralys/persona-builder` |
+| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Persona build system that assembles ledger, standalone, and ledger-support persona files across 3 output targets (vs-code, claude-code, deep-agents) from YAML/Markdown sources via `@mistralys/persona-builder` |
 | **Orchestrator** | `orchestrator/` | Python (3.11+) | LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows |
 
 The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
@@ -139,8 +139,10 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
 | `personas/standalone/src/` | Personas manifest |
+| `personas/ledger-support/src/` | Personas manifest |
 | `personas/ledger/vs-code/*.agent.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `personas/standalone/vs-code/*.agent.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/ledger-support/vs-code/*.agent.md`, `personas/ledger-support/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 | `orchestrator/src/`, `orchestrator/tests/` | [Orchestrator manifest](orchestrator/docs/agents/project-manifest/README.md) |
 
@@ -187,9 +189,11 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/personas/manifest.md` | Personas project manifest |
 | `.context/personas/ledger-suite.md` | Ledger workflow user guide |
 | `.context/personas/standalone-suite.md` | Standalone personas guide |
+| `.context/personas/ledger-support-suite.md` | Ledger support personas guide |
 | `.context/personas/shared-partials.md` | Cross-suite Markdown partials |
 | `.context/personas/ledger-metadata.md` | Ledger persona YAML metadata |
 | `.context/personas/standalone-metadata.md` | Standalone persona YAML metadata |
+| `.context/personas/ledger-support-metadata.md` | Ledger support persona YAML metadata |
 | `.context/personas/file-structure.md` | Personas directory tree |
 
 > **Tip:** These files are ideal for feeding into LLMs or external tools (e.g. NotebookLM) that need a full codebase snapshot without cloning the repo.
@@ -206,7 +210,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | **Untested code path** | Proceed with caution. Add test recommendation. | SHOULD |
 | **Cross-project role mismatch** | Both `AGENT_ROLES` and `KNOWN_ROLES` derive from `shared/workflow-manifest.json` — run `node scripts/validate-workflow-manifest.js` to verify the manifest is self-consistent. Verify persona YAML `role` fields are valid manifest role names (validated automatically by `build-personas.js`). Flag any divergence. | MUST |
 | **Unclear which manifest applies** | If change touches both sub-projects, consult both. When in doubt, default to the MCP server manifest. | SHOULD |
-| **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/` or `personas/standalone/src/`) and change the template source. | MUST |
+| **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/`, `personas/standalone/src/`, or `personas/ledger-support/src/`) and change the template source. | MUST |
 | **Breaking change proposed** | Document in work package. Flag for review. Never implement silently. | MUST |
 | **Dependency not in tech stack** | Justify before adding. Update relevant `tech-stack.md`. | SHOULD |
 
@@ -246,7 +250,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
 | Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/deep-agents/` generated output filenames (via `persona_file_deep_agents` in `shared/workflow-manifest.json` roles) |
-| Orchestrator subagent files | Ledger persona YAML `subagents` field (e.g. `personas/ledger/src/meta/2-project-manager.yaml`) | `personas/standalone/src/meta/{slug}.yaml` (for `description`) and `personas/standalone/deep-agents/{slug}.md` (for `system_prompt`); derived at startup by `load_subagents()` in `orchestrator/src/utils/subagents.py` — no manual config needed |
+| Orchestrator subagent files | Ledger persona YAML `subagents` field (e.g. `personas/ledger/src/meta/2-project-manager.yaml`) | `personas/ledger-support/src/meta/{slug}.yaml` first, then `personas/standalone/src/meta/{slug}.yaml` (for `description`); similarly `personas/ledger-support/deep-agents/{slug}.md` first, then `personas/standalone/deep-agents/{slug}.md` (for `system_prompt`); derived at startup by `load_subagents()` in `orchestrator/src/utils/subagents.py` — no manual config needed |
 | Orchestrator model slugs | `personas/ledger/src/meta/_shared.yaml` → `default_model_slug`; per-persona `N-*.yaml` → `model_slug` | `orchestrator/src/utils/persona_models.py` → `extract_persona_model_slugs()` (reads YAML at startup); `orchestrator/src/config.py` → `Config.stage_models` (populated by loader); per-stage `model` field in `stage_start`, `stage_complete`, `stage_error` JSONL entries |
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 | `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
@@ -358,7 +362,7 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | `scripts/publish-locations.js` | Single source of truth for persona publish locations (label, path, target type). Consumed by `sync-personas.js` and `cli.js` |
 | `scripts/package-personas.js` | Builds and packages persona output into a compressed archive for distribution |
 | `scripts/preview-prompts.py` | Python utility to preview rendered prompt output for a persona |
-| `scripts/build-personas.js` | Assemble all persona files (3 output targets each: `vs-code`, `claude-code`, `deep-agents`) from `personas/ledger/src/` and `personas/standalone/src/` templates |
+| `scripts/build-personas.js` | Assemble all persona files (3 output targets each: `vs-code`, `claude-code`, `deep-agents`) from `personas/ledger/src/`, `personas/standalone/src/`, and `personas/ledger-support/src/` templates |
 | `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/check-version-sync.js` | Compares each module's changelog version against its package manifest version. Exits 1 on mismatch. Called by the pre-commit hook (blocking) and available via `node scripts/cli.js check-versions`. |
 | `scripts/extract-changelog-entry.js` | Parses the topmost root changelog entry for CI/GitHub Actions release automation |

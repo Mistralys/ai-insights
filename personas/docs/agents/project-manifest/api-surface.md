@@ -35,12 +35,12 @@ The config file is loaded by the library CLI. It exports an object with the foll
 | `sharedPartialsDir` | `string` | Absolute path to `personas/shared/partials/` — base partial layer shared across all suites |
 | `targets` | `string[]` | Ordered list of build target names — e.g. `['vscode', 'claude-code', 'deep-agents']`. Each target triggers a separate render pass per persona. The three built-in targets (`vscode`, `claude-code`, `deep-agents`) are registered by the `@mistralys/persona-builder` library; per-suite output paths are configured via `outVscode`, `outClaudeCode`, and `outputDirs` respectively. |
 | `frontmatter` | `Object.<string, string>` | Config-level frontmatter template map keyed by target name. Used as the default for suites or targets the ledger plugin does not override. The ledger plugin overrides `vscode` and `claude-code` for the ledger suite via its `onSuiteInit` hook; the `deep-agents` template applies to both suites unchanged. |
-| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`) |
+| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`, `ledger-support`) |
 | `plugins` | `Array` | Plugin instances — currently `[ledgerPlugin({...})]` for role validation |
 
 **Suite Configuration**
 
-Each suite entry (`suites.ledger`, `suites.standalone`) has this shape:
+Each suite entry (`suites.ledger`, `suites.standalone`, `suites['ledger-support']`) has this shape:
 
 | Property | Value | Description |
 |----------|-------|-------------|
@@ -207,7 +207,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
-| `subagents` | `string[]` | no | Flat dash-prefixed list of standalone persona slugs that this ledger persona may delegate to as sub-agents. Each slug resolves to `personas/standalone/src/meta/{slug}.yaml`. Currently only carried by the Project Manager (Agent 2), where it lists the four PM planning sub-agents (`ledger-wp-decomposer`, `ledger-dependency-sequencer`, `ledger-pipeline-configurator`, `ledger-bootstrapper`). Consumed by the orchestrator's `load_subagents()` loader at pipeline startup to load the matching standalone persona YAML and make the sub-agent available for invocation. The template engine silently ignores unknown YAML keys, so this field has no effect on persona build output. |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone, for legacy slugs) persona slugs that this ledger persona may delegate to as sub-agents. Each slug is resolved by the orchestrator against `personas/ledger-support/src/meta/{slug}.yaml` first, then falls back to `personas/standalone/src/meta/{slug}.yaml`. Currently only carried by the Project Manager (Agent 2), where it lists the four PM planning sub-agents (`ledger-wp-decomposer`, `ledger-dependency-sequencer`, `ledger-pipeline-configurator`, `ledger-bootstrapper`) — all four now live in the `ledger-support` suite. Consumed by the orchestrator's `load_subagents()` loader at pipeline startup. The template engine silently ignores unknown YAML keys, so this field has no effect on persona build output. |
 | `has_mcp` | `bool` | yes | Inject MCP pre-flight check and tools table |
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
@@ -303,7 +303,7 @@ Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Sour
 
 ### Deep-Agents — All Suites (`FRONTMATTER_DA`)
 
-Written to `personas/ledger/deep-agents/` and `personas/standalone/deep-agents/`. Applies to both suites unchanged — the ledger plugin does not override this template.
+Written to `personas/ledger/deep-agents/`, `personas/standalone/deep-agents/`, and `personas/ledger-support/deep-agents/`. Applies to all three suites unchanged — the ledger plugin does not override this template.
 
 ```yaml
 ---
@@ -332,7 +332,17 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `cc_memory` | `string` | Claude Code memory scope |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter |
 
-> **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas have no shared MCP dependency. However, individual personas **can** set `mcp_server_name` in their own YAML file to opt into MCP support (e.g. `workflow-orchestrator.yaml` sets `mcp_server_name: central_pm`). When present, this triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and includes an `mcpServers` block in the Claude Code output. `roster` is also absent — standalone personas are not part of the 7-stage workflow.
+> **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas are fully independent tools with no shared MCP dependency. MCP-dependent utility personas that support the ledger workflow live in the `ledger-support` suite instead, where `mcp_server_name: central_pm` is declared in `_shared.yaml`. `roster` is also absent — standalone personas are not part of the 9-stage workflow.
+
+### Ledger Support Suite (`ledger-support`)
+
+The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-based schema as the standalone suite but with a shared `mcp_server_name: central_pm` in `_shared.yaml`. These personas are ledger workflow utility agents (e.g., PM sub-agents, ledger doctor) that require the `central_pm` MCP server.
+
+**`_shared.yaml`:** Identical structure to standalone `_shared.yaml` plus `mcp_server_name: central_pm`.
+
+**Per-persona YAML:** Same schema as standalone per-persona YAML. `id` values for the 9 personas migrated from `standalone/` retain their `standalone-*` prefix permanently (stability rule — see [constraint C24](constraints.md#c24)). New personas added to this suite use the `ledger-support-{slug}` prefix.
+
+> **Note:** `role` is intentionally absent — ledger-support personas are not part of the 9-stage workflow roster. They are utility agents invoked as sub-agents or directly by users.
 
 ### Standalone Per-Persona YAML (`<slug>.yaml`)
 
