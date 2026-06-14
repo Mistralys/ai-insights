@@ -1,5 +1,15 @@
 # AI Insights Changelog
 
+## v2.2.0 - Insight Deletion and New Standalone Personas
+> mcp v2.2.0 · personas v3.24.0
+
+- MCP: Added `ledger_delete_insight` tool for removing individual stored insights.
+- MCP: Fixed namespace migration recovery for interrupted copy operations.
+- Personas: Added Recipe Curator and Ledger Knowledge Curator standalone personas.
+- Personas: All 37 persona YAML source files gain integrated `changelog:` blocks.
+- Scripts: Removed sibling repository environment tracking from the bootstrap preflight.
+- Dependencies: Updated Persona Builder to [v2.6.0](https://github.com/Mistralys/ai-persona-builder/releases/tag/v2.6.0).
+
 ## v2.1.0 - Repository History and Planner Expansion
 > mcp v2.1.0 · personas v3.23.0
 

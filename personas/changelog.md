@@ -1,17 +1,13 @@
 # Personas Changelog
 
-## v3.24.0 - **WIP - UNRELEASED**
-- Standalone: Added the Ledger Knowledge Curator persona.
-- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver (ledger-prefixed).
-- Standalone: Knowledge Curator: Deletions now require user confirmation before execution.
-- Standalone: Added Recipe Curator persona for household recipe curation and meal planning.
-- Standalone: Recipe Curator: Weekly plan defaults to dinner-only; asks chef whether to include lunch.
-- Standalone: Recipe Curator: Weekly plan now includes full individual recipes below the overview table.
-- Standalone: Recipe Curator: No fresh fish; canned fish encouraged as pantry staple.
-- Standalone: Recipe Curator: Mediterranean is home base, not a boundary — all traditions welcome.
-- Standalone: Recipe Curator: Canned and refrigerated goods added as first-class ingredient sources.
-- Standalone: Recipe Curator: Fiber Target added — 30 g/person/day with daily tracking.
-- Standalone: Recipe Curator: Calorie Ceiling added — 2,500 kcal/person/day upper limit.
+## v3.24.0 - Recipe Curator and Per-Persona Changelogs
+- Standalone: Added Recipe Curator for household meal planning with rainbow eating principles,
+  nutritional targets, world cuisine variety, and weekly recipe generation.
+- Standalone: Added Ledger Knowledge Curator for knowledge store management with deletion guard.
+- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver.
+- Standalone: Knowledge Curator: Deletions now require explicit user confirmation.
+- Standalone: Persona Curator: Create workflow updated to use `changelog:` block scalar.
+- All: All 37 persona YAML source files gain an integrated `changelog:` metadata field.
 
 ## v3.23.0 - Planner Repository History and Standalone Planner
 - Ledger: Planner gains repository history access via `ledger_get_repository_context`.
