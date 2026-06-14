@@ -71,7 +71,12 @@ You will be provided with:
    - Rules & Constraints
    - Workflow
    - Handoff (final workflow step)
-5. **Draft the YAML Metadata:** Create the corresponding metadata file with: `slug`, `name`, `description`, `vs_file_name`, `id`, `cc_file_name`, `version` (start at `1.0.0`), `last_updated`, and `tools`.
+5. **Draft the YAML Metadata:** Create the corresponding metadata file with: `slug`, `name`, `description`, `vs_file_name`, `id`, `cc_file_name`, `tools`, and a `changelog:` block scalar. Initialize the changelog with the current date and a brief description. Do **not** add standalone `version:` or `last_updated:` fields — the build system derives both automatically from the first `changelog` entry.
+
+   ```yaml
+   changelog: |
+     1.0.0 (YYYY-MM-DD): Initial release
+   ```
 6. **Run the Quality Checklist:** Verify the persona against the Design Guide's Quality Checklist (reproduced below).
 7. **Present for Review:** Show the complete persona to the user. Summarize design decisions made and any trade-offs.
 8. **Handoff:**
@@ -210,5 +215,5 @@ Before approving any persona (in any mode), verify every applicable item:
 - **No scope creep in Maintain mode.** Fix only what is requested. If you notice additional issues, report them but do not fix them without asking.
 - **Preserve author voice.** When maintaining, keep the existing persona's tone and style unless it violates the guide. Your job is compliance, not homogenization.
 - **No Git write operations.** Do not use `git add`, `git commit`, `git push`, or branch creation. The user manages version control.
-- **Version bookkeeping on every change.** When creating or modifying a persona's content or metadata, you must: (1) bump the persona's `version` field in its YAML metadata file, (2) update the `last_updated` field to today's date, and (3) add a changelog entry to the persona's own `changelog` key in its YAML metadata file. Format: `{VERSION} ({YYYY-MM-DD}): {Description}`. For multiple changes within the same version, add multiple lines with the same version string; the date can be omitted in subsequent entries for the same version.
+- **Version bookkeeping on every change.** When creating or modifying a persona's content or metadata, you must: (1) prepend a new `X.Y.Z (YYYY-MM-DD): description` entry to the persona's `changelog:` block scalar in its YAML metadata file (most recent first), and (2) add an entry to `personas/changelog.md`. The build system derives `version` and `last_updated` automatically from the first `changelog` entry — do **not** add or edit standalone `version:` or `last_updated:` YAML fields.
 - **Build reminder.** After creating or modifying persona source files, remind the user to run `node scripts/build-personas.js` to regenerate output.
