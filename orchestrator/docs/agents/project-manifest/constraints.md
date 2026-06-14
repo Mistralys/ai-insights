@@ -302,7 +302,7 @@ python3 -m ruff check .
 
 **Rule:** Subagent delegation is configured by declaring a `subagents` list in the ledger persona YAML for each stage (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). The orchestrator reads this list at startup via `load_subagents()` in `src/utils/subagents.py`. There is no longer a `STAGE_SUBAGENT_FILES` constant in `src/config.py` — it was removed in v0.17.0.
 
-**Source of truth:** The ledger persona YAML `subagents` field. Each slug in that list must have a corresponding `personas/standalone/src/meta/{slug}.yaml` (providing `description`) and `personas/standalone/deep-agents/{slug}.md` (providing `system_prompt`).
+**Source of truth:** The ledger persona YAML `subagents` field. Each slug in that list must have a corresponding YAML file (providing `description`) and deep-agents file (providing `system_prompt`) in either `personas/ledger-support/` or `personas/standalone/`. The resolver searches `ledger-support` first, then falls back to `standalone`.
 
 **To add a subagent to a stage:** Add the kebab-case slug to the `subagents` field in the stage's ledger persona YAML source (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). Rebuild the personas with `node scripts/build-personas.js` to regenerate the output files. No Python changes required — `load_subagents()` picks up the new slug automatically.
 

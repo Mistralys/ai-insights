@@ -50,8 +50,10 @@ def _make_workspace(
     tmp_path: Path,
     *,
     pm_subagents: list[str] | None = None,
-    standalone_yaml: dict[str, str] | None = None,   # slug → description (None = omit field)
-    deep_agents: dict[str, str] | None = None,         # slug → file content
+    standalone_yaml: dict[str, str] | None = None,       # slug → description (None = omit field)
+    deep_agents: dict[str, str] | None = None,             # slug → file content
+    ledger_support_yaml: dict[str, str] | None = None,    # slug → description (ledger-support suite)
+    ledger_support_deep_agents: dict[str, str] | None = None,  # slug → file content
     manifest: dict | None = None,
 ) -> Path:
     """Create a minimal workspace fixture under *tmp_path*.
@@ -67,6 +69,12 @@ def _make_workspace(
 
     *deep_agents* — mapping of slug → file content.  Each entry creates
     ``personas/standalone/deep-agents/{slug}.md``.
+
+    *ledger_support_yaml* — mapping of slug → description string for the
+    ledger-support suite (``personas/ledger-support/src/meta/{slug}.yaml``).
+
+    *ledger_support_deep_agents* — mapping of slug → file content for the
+    ledger-support suite (``personas/ledger-support/deep-agents/{slug}.md``).
 
     *manifest* — override the default minimal manifest.
     """
@@ -116,6 +124,24 @@ def _make_workspace(
 
     for slug, content in (deep_agents or {}).items():
         (deep_agents_dir / f"{slug}.md").write_text(content, encoding="utf-8")
+
+    # personas/ledger-support/src/meta/
+    ledger_support_meta_dir = tmp_path / "personas" / "ledger-support" / "src" / "meta"
+    ledger_support_meta_dir.mkdir(parents=True)
+
+    for slug, description in (ledger_support_yaml or {}).items():
+        if description:
+            content = f"slug: {slug}\ndescription: \"{description}\"\n"
+        else:
+            content = f"slug: {slug}\nname: \"Some Name\"\n"
+        (ledger_support_meta_dir / f"{slug}.yaml").write_text(content, encoding="utf-8")
+
+    # personas/ledger-support/deep-agents/
+    ledger_support_da_dir = tmp_path / "personas" / "ledger-support" / "deep-agents"
+    ledger_support_da_dir.mkdir(parents=True)
+
+    for slug, content in (ledger_support_deep_agents or {}).items():
+        (ledger_support_da_dir / f"{slug}.md").write_text(content, encoding="utf-8")
 
     return tmp_path
 
@@ -280,10 +306,10 @@ class TestCacheClear:
 # ---------------------------------------------------------------------------
 
 class TestMissingStandaloneYaml:
-    """Declared slug with no standalone YAML raises FileNotFoundError."""
+    """Declared slug with no YAML in either suite raises FileNotFoundError."""
 
     def test_raises_file_not_found_for_missing_yaml(self, tmp_path: Path):
-        # No standalone YAML created for "ghost-agent".
+        # No YAML created for "ghost-agent" in either suite.
         ws = _make_workspace(
             tmp_path,
             pm_subagents=["ghost-agent"],
@@ -293,10 +319,10 @@ class TestMissingStandaloneYaml:
 
 
 class TestMissingDeepAgentsFile:
-    """Declared slug where standalone YAML exists but deep-agents file is absent."""
+    """Declared slug where YAML exists but deep-agents file is absent in both suites."""
 
     def test_raises_file_not_found_for_missing_deep_agents(self, tmp_path: Path):
-        # Standalone YAML exists but no deep-agents file.
+        # Standalone YAML exists but no deep-agents file in either suite.
         ws = _make_workspace(
             tmp_path,
             pm_subagents=["half-agent"],
@@ -308,7 +334,7 @@ class TestMissingDeepAgentsFile:
 
 
 class TestMissingDescription:
-    """Standalone YAML that lacks a description field raises ValueError."""
+    """Persona YAML that lacks a description field raises ValueError."""
 
     def test_raises_value_error_when_description_missing(self, tmp_path: Path):
         # Pass empty string as description → the helper omits the description field.
@@ -320,6 +346,53 @@ class TestMissingDescription:
         )
         with pytest.raises(ValueError, match="description"):
             load_subagents("pm", workspace_root=ws)
+
+
+# ---------------------------------------------------------------------------
+# Ledger-support suite resolution
+# ---------------------------------------------------------------------------
+
+class TestLedgerSupportSuiteResolution:
+    """Subagent files in ledger-support suite are found before standalone."""
+
+    def test_ledger_support_yaml_takes_precedence_over_standalone(self, tmp_path: Path):
+        """When slug exists in both suites, ledger-support description wins."""
+        ws = _make_workspace(
+            tmp_path,
+            pm_subagents=["ledger-wp-decomposer"],
+            standalone_yaml={"ledger-wp-decomposer": "Standalone description."},
+            deep_agents={"ledger-wp-decomposer": "standalone prompt"},
+            ledger_support_yaml={"ledger-wp-decomposer": "Ledger-support description."},
+            ledger_support_deep_agents={"ledger-wp-decomposer": "ledger-support prompt"},
+        )
+        result = load_subagents("pm", workspace_root=ws)
+        assert result[0]["description"] == "Ledger-support description."
+        assert result[0]["system_prompt"] == "ledger-support prompt"
+
+    def test_falls_back_to_standalone_when_not_in_ledger_support(self, tmp_path: Path):
+        """When slug only exists in standalone, standalone files are used."""
+        ws = _make_workspace(
+            tmp_path,
+            pm_subagents=["standalone-only-agent"],
+            standalone_yaml={"standalone-only-agent": "Standalone only description."},
+            deep_agents={"standalone-only-agent": "standalone only prompt"},
+        )
+        result = load_subagents("pm", workspace_root=ws)
+        assert result[0]["description"] == "Standalone only description."
+        assert result[0]["system_prompt"] == "standalone only prompt"
+
+    def test_ledger_support_only_slug_resolves(self, tmp_path: Path):
+        """When slug only exists in ledger-support, it resolves correctly."""
+        ws = _make_workspace(
+            tmp_path,
+            pm_subagents=["ledger-support-only"],
+            ledger_support_yaml={"ledger-support-only": "Ledger-support only desc."},
+            ledger_support_deep_agents={"ledger-support-only": "ledger-support only prompt"},
+        )
+        result = load_subagents("pm", workspace_root=ws)
+        assert len(result) == 1
+        assert result[0]["description"] == "Ledger-support only desc."
+        assert result[0]["system_prompt"] == "ledger-support only prompt"
 
 
 # ---------------------------------------------------------------------------

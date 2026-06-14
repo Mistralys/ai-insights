@@ -11,8 +11,10 @@ The subagent slugs are declared in the ledger persona YAML for each stage
 this module resolves:
 
 - **name** — the kebab-case slug itself
-- **description** — from ``personas/standalone/src/meta/{slug}.yaml``
-- **system_prompt** — from ``personas/standalone/deep-agents/{slug}.md``
+- **description** — from ``personas/ledger-support/src/meta/{slug}.yaml``
+  (falls back to ``personas/standalone/src/meta/{slug}.yaml`` for legacy slugs)
+- **system_prompt** — from ``personas/ledger-support/deep-agents/{slug}.md``
+  (falls back to ``personas/standalone/deep-agents/{slug}.md`` for legacy slugs)
 
 Example::
 
@@ -42,6 +44,9 @@ from src.utils.persona_models import (
 log = logging.getLogger(__name__)
 
 # Paths relative to workspace root.
+# ledger-support is the primary suite for MCP-dependent personas; standalone is the fallback.
+_LEDGER_SUPPORT_META_RELATIVE = Path("personas") / "ledger-support" / "src" / "meta"
+_LEDGER_SUPPORT_DEEP_AGENTS_RELATIVE = Path("personas") / "ledger-support" / "deep-agents"
 _STANDALONE_META_RELATIVE = Path("personas") / "standalone" / "src" / "meta"
 _STANDALONE_DEEP_AGENTS_RELATIVE = Path("personas") / "standalone" / "deep-agents"
 
@@ -127,31 +132,43 @@ def load_subagents(
             description, system_prompt = _CACHE[cache_key]
             log.debug("Cache hit for subagent %r (stage %r).", slug, stage)
         else:
-            # 2. Load description from standalone YAML.
-            standalone_yaml_path = (
-                workspace_root / _STANDALONE_META_RELATIVE / f"{slug}.yaml"
-            )
-            if not standalone_yaml_path.exists():
+            # 2. Load description from ledger-support YAML (fall back to standalone).
+            yaml_path = None
+            for meta_rel in (
+                _LEDGER_SUPPORT_META_RELATIVE,
+                _STANDALONE_META_RELATIVE,
+            ):
+                candidate = workspace_root / meta_rel / f"{slug}.yaml"
+                if candidate.exists():
+                    yaml_path = candidate
+                    break
+            if yaml_path is None:
                 raise FileNotFoundError(
-                    f"Standalone persona YAML for subagent slug {slug!r} "
-                    f"(stage {stage!r}) not found at: {standalone_yaml_path}"
+                    f"Persona YAML for subagent slug {slug!r} "
+                    f"(stage {stage!r}) not found in ledger-support or standalone suites."
                 )
-            standalone_yaml_text = standalone_yaml_path.read_text(encoding="utf-8")
-            description = _extract_yaml_scalar(standalone_yaml_text, "description")
+            yaml_text = yaml_path.read_text(encoding="utf-8")
+            description = _extract_yaml_scalar(yaml_text, "description")
             if description is None:
                 raise ValueError(
-                    f"Standalone persona YAML for subagent slug {slug!r} at "
-                    f"{standalone_yaml_path} is missing the 'description' field."
+                    f"Persona YAML for subagent slug {slug!r} at "
+                    f"{yaml_path} is missing the 'description' field."
                 )
 
-            # 3. Load system_prompt from standalone deep-agents file.
-            deep_agents_path = (
-                workspace_root / _STANDALONE_DEEP_AGENTS_RELATIVE / f"{slug}.md"
-            )
-            if not deep_agents_path.exists():
+            # 3. Load system_prompt from ledger-support deep-agents (fall back to standalone).
+            deep_agents_path = None
+            for da_rel in (
+                _LEDGER_SUPPORT_DEEP_AGENTS_RELATIVE,
+                _STANDALONE_DEEP_AGENTS_RELATIVE,
+            ):
+                candidate = workspace_root / da_rel / f"{slug}.md"
+                if candidate.exists():
+                    deep_agents_path = candidate
+                    break
+            if deep_agents_path is None:
                 raise FileNotFoundError(
                     f"Deep-agents persona file for subagent slug {slug!r} "
-                    f"(stage {stage!r}) not found at: {deep_agents_path}"
+                    f"(stage {stage!r}) not found in ledger-support or standalone suites."
                 )
             system_prompt = deep_agents_path.read_text(encoding="utf-8")
 
