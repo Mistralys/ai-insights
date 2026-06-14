@@ -88,6 +88,7 @@ node scripts/sync-personas.js
 ## Further Reading
 
 - [Ledger Workflow Guide](ledger/README.md) — Step-by-step usage for the 9-agent pipeline
+- [Ledger Workflow Visual Guide](../docs/agents/references/ledger-workflow-visual-guide.md) — Diagram-first reference for stages, handoffs, sub-agents, and ledger knowledge flow
 - [Standalone Personas Guide](standalone/README.md) — Catalog and usage for all 16 standalone personas
 - [Project Manifest](docs/agents/project-manifest/README.md) — Authoritative technical reference (API surface, constraints, data flows)
 

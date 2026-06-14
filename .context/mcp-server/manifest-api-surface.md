@@ -23,7 +23,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (27 Total)
+## MCP Tools (28 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -712,6 +712,22 @@ Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()
 - **Scope filter:** Pass `scope` and/or `repository_name` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'repository'` + `repository_name` are set only `{repository_name}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
 - **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{repository_name}-insights.json`, so a global insight is updated before any repository insight with the same `id`. Use the scope filter when disambiguation is needed.
 - **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
+- **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
+
+#### `ledger_delete_insight`
+
+```typescript
+(args: {
+  id: number;                         // Numeric ID as returned in the id field of a previous response
+  scope?: 'global' | 'repository';   // Optional. Restrict deletion to stores of this scope.
+  repository_name?: string;          // Optional. Restrict deletion to the specified repository store.
+}) => Promise<MCPResult>
+```
+
+Permanently removes an insight from the knowledge base. Delegates to `KnowledgeStoreManager.deleteInsight()`. Returns a confirmation object with the deleted `id`, `formatted_id`, and `deleted: true`.
+
+- **Scope filter:** Same store-selection semantics as `ledger_update_insight`. Pass `scope` and/or `repository_name` to restrict which store is searched and prevent accidental cross-store deletion when the same numeric `id` exists in multiple stores.
+- **Hard-delete:** The insight is removed from the store and cannot be recovered. For non-destructive deprecation, use `ledger_update_insight` with `confidence: 0` and `superseded_by`.
 - **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
 
 ---

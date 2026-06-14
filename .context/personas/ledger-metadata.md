@@ -36,8 +36,14 @@ vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
-version: "1.6.3"
-last_updated: "2026-06-08"
+changelog: |
+  1.6.3 (2026-06-08): Content restructured; shared partials inlined; repository history access added
+  1.6.0 (2026-05-19): Added standalone Planner variant (ledger version refactored accordingly)
+  1.5.0 (2026-05-20): Gained Synthesis rework mode
+  1.4.2 (2026-05-18): Initializes Plan Audit Cycles; updates counters during rework
+  1.4.1 (2026-05-12): Gained Considered Alternatives, Pattern Alignment, Test Plan sections
+  1.3.1 (2026-02-22): Added clause for naming synthesis rework plans
+  1.3.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 tools:
   - vscode
   - execute
@@ -72,8 +78,11 @@ vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
-version: "3.7.3"
-last_updated: "2026-05-19"
+changelog: |
+  3.7.3 (2026-05-19): Verification gate enumerates all WP fields, catching stripped spec files
+  3.7.2 (2026-04-08): Improved subagent invocations; deep-agents handoffs declare all targets
+  3.5.1 (2026-02-22): Simplified preflight and verbose sections
+  3.5.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 
 tools:
   - vscode
@@ -117,8 +126,12 @@ vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
-version: "3.6.3"
-last_updated: "2026-05-29"
+changelog: |
+  3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
+  3.6.1 (2026-02-23): Compressed overly verbose operational protocol
+  3.5.2 (2026-02-22): Simplified preflight and verbose sections
+  3.5.1 (2026-02-22): Added capabilities and rework sections; added observation tool
+  3.5.0 (2026-02-22): Initial changelogged version — repeat-loop workflow; role scope constraints
 
 tools:
   - vscode
@@ -168,8 +181,12 @@ vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
-version: "3.6.2"
-last_updated: "2026-05-29"
+changelog: |
+  3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
+  3.5.3 (2026-02-22): Simplified preflight and verbose sections
+  3.5.2 (2026-02-22): Added incident logging block and REWORK_QA handling
+  3.5.1 (2026-02-22): Enabled incident logging
+  3.5.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 
 tools:
   - vscode
@@ -217,8 +234,9 @@ vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
-version: "3.6.3"
-last_updated: "2026-05-29"
+changelog: |
+  3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
+  3.6.1 (2026-02-23): Initial release — OWASP A01–A10 coverage at pipeline position 5
 
 tools:
   - vscode
@@ -266,8 +284,14 @@ vs_file_name: 6-reviewer.agent.md
 id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
-version: "3.6.1"
-last_updated: "2026-04-08"
+changelog: |
+  3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
+  3.5.5 (2026-04-08): Three-tier feedback (Blocking, Fix-Forward, Documentation-Forward)
+  3.5.4 (2026-04-08): Documentation-forward convention with named spec and priority field
+  3.5.3 (2026-02-22): Removed phantom REWORK_REVIEW action; added acceptance criteria field
+  3.5.2 (2026-02-22): Added incident logging block
+  3.5.1 (2026-02-22): Enabled incident logging
+  3.5.0 (2026-02-22): Initial changelogged version; security review delegated to Security Auditor
 
 tools:
   - vscode
@@ -314,8 +338,10 @@ vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
-version: "3.7.2"
-last_updated: "2026-04-08"
+changelog: |
+  3.7.2 (2026-04-08): Updated release protocol and output format documentation
+  3.7.0 (2026-04-08): Delegates changelog curation to Changelog Curator; delegates CTX updates
+  3.6.1 (2026-02-23): Initial release — release curation at pipeline position 7
 
 tools:
   - vscode
@@ -360,8 +386,12 @@ vs_file_name: 8-docs.agent.md
 id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
-version: "3.7.0"
-last_updated: "2026-04-30"
+changelog: |
+  3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent
+  3.5.4 (2026-02-22): Simplified preflight and verbose sections
+  3.5.3 (2026-02-22): Fixed REWORK action name; added rework handling and status tool
+  3.5.2 (2026-02-22): Removed unneeded handoff status tool
+  3.5.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 
 tools:
   - vscode
@@ -413,8 +443,12 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-version: "3.7.0"
-last_updated: "2026-06-05"
+changelog: |
+  3.7.0 (2026-06-05): Deferred items collection added to operational protocol
+  3.6.0 (2026-05-29): Knowledge extraction delegated to Knowledge Archiver sub-agent
+  3.5.4 (2026-02-22): Simplified preflight and verbose sections
+  3.5.1 (2026-02-22): Demoted ledger help tool to note-only
+  3.5.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 
 tools:
   - vscode
@@ -428,7 +462,7 @@ tools:
   - central_pm/*
 
 subagents:
-  - standalone-knowledge-archiver
+  - ledger-knowledge-archiver
 
 has_mcp: true
 has_detect_project: true
@@ -459,7 +493,6 @@ mcp_tools:
 
 ```yaml
 author: Sebastian Mordziol
-last_updated: "2026-03-01 12:00"
 default_version: "3.22.0"
 default_model: "Claude Sonnet 4.6"    # Human-readable model name; override per-persona via `model:` field
 default_model_slug: "claude-sonnet-4-6"  # API-compatible slug; override per-persona via `model_slug:` field

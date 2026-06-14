@@ -26,6 +26,7 @@ _SOURCE: Directory tree_
         │   │   ├── variables.md
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
+        ├── persona-anchoring.md
         ├── persona-build-system.md
         ├── persona-design-guide.md
     └── ledger/
@@ -139,11 +140,12 @@ _SOURCE: Directory tree_
             ├── developer-standalone.md
             ├── documentation-curator.md
             ├── git-committer.md
-            ├── knowledge-archiver.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
             ├── ledger-doctor.md
+            ├── ledger-knowledge-archiver.md
+            ├── ledger-knowledge-curator.md
             ├── ledger-orchestrator-runner.md
             ├── ledger-pipeline-configurator.md
             ├── ledger-wp-decomposer.md
@@ -155,6 +157,7 @@ _SOURCE: Directory tree_
             ├── plan-refiner.md
             ├── planner.md
             ├── readme-curator.md
+            ├── recipe-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
@@ -170,6 +173,8 @@ _SOURCE: Directory tree_
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
             ├── ledger-doctor.md
+            ├── ledger-knowledge-archiver.md
+            ├── ledger-knowledge-curator.md
             ├── ledger-orchestrator-runner.md
             ├── ledger-pipeline-configurator.md
             ├── ledger-wp-decomposer.md
@@ -181,8 +186,8 @@ _SOURCE: Directory tree_
             ├── plan-refiner.md
             ├── planner.md
             ├── readme-curator.md
+            ├── recipe-curator.md
             ├── researcher.md
-            ├── standalone-knowledge-archiver.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
         └── src/
@@ -198,6 +203,8 @@ _SOURCE: Directory tree_
             │   ├── ledger-claude-coordinator.md
             │   ├── ledger-dependency-sequencer.md
             │   ├── ledger-doctor.md
+            │   ├── ledger-knowledge-archiver.md
+            │   ├── ledger-knowledge-curator.md
             │   ├── ledger-orchestrator-runner.md
             │   ├── ledger-pipeline-configurator.md
             │   ├── ledger-wp-decomposer.md
@@ -209,8 +216,8 @@ _SOURCE: Directory tree_
             │   ├── plan-refiner.md
             │   ├── planner.md
             │   ├── readme-curator.md
+            │   ├── recipe-curator.md
             │   ├── researcher.md
-            │   ├── standalone-knowledge-archiver.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
             ├── meta/
@@ -226,6 +233,8 @@ _SOURCE: Directory tree_
             │   └── ledger-claude-coordinator.yaml
             │   └── ledger-dependency-sequencer.yaml
             │   └── ledger-doctor.yaml
+            │   └── ledger-knowledge-archiver.yaml
+            │   └── ledger-knowledge-curator.yaml
             │   └── ledger-orchestrator-runner.yaml
             │   └── ledger-pipeline-configurator.yaml
             │   └── ledger-wp-decomposer.yaml
@@ -237,8 +246,8 @@ _SOURCE: Directory tree_
             │   └── plan-refiner.yaml
             │   └── planner.yaml
             │   └── readme-curator.yaml
+            │   └── recipe-curator.yaml
             │   └── researcher.yaml
-            │   └── standalone-knowledge-archiver.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
         └── vs-code/
@@ -249,11 +258,12 @@ _SOURCE: Directory tree_
             └── developer-standalone.agent.md
             └── documentation-curator.agent.md
             └── git-committer.agent.md
-            └── knowledge-archiver.agent.md
             └── ledger-bootstrapper.agent.md
             └── ledger-claude-coordinator.agent.md
             └── ledger-dependency-sequencer.agent.md
             └── ledger-doctor.agent.md
+            └── ledger-knowledge-archiver.agent.md
+            └── ledger-knowledge-curator.agent.md
             └── ledger-orchestrator-runner.agent.md
             └── ledger-pipeline-configurator.agent.md
             └── ledger-wp-decomposer.agent.md
@@ -265,6 +275,7 @@ _SOURCE: Directory tree_
             └── plan-refiner.agent.md
             └── planner.agent.md
             └── readme-curator.agent.md
+            └── recipe-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
             └── whatsnew-curator.agent.md

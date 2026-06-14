@@ -125,7 +125,7 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 | `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
 | `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version`, and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`.
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
 
 **Unconditional (both real builds and `--check`):** A cross-reference validation step scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML. Errors accumulate across all personas before a single `[ERROR]` block is printed and `process.exit(1)` is called. Personas with no `{{agent_slug_*}}` references pass silently. The internal helper `extractSubagentsList(text, key)` parses flat dash-prefixed YAML block lists (strips inline comments and surrounding quotes); it is local to the validation block and is not exported.
 
@@ -707,6 +707,32 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
    **Shared-partial note:** The scan covers only `personas/ledger/src/content/*.md`. References in `personas/ledger/src/partials/` or `personas/shared/partials/` are not validated by this check.
 
+<a name="c37"></a>
+<a name="b10"></a>
+10. **Version in name-mapping is derived from the `changelog` block scalar.** `scripts/build-personas.js` uses an internal `resolveVersionFromChangelog(rawYamlText)` helper to extract version from each persona's `changelog:` YAML field before falling back to the explicit `version:` field and then to `DEFAULT_VERSION`. This mirrors the derivation logic in the persona-builder library's `resolveChangelogMeta()`. Supported formats:
+    - `X.Y.Z (YYYY-MM-DD): description` — version + date extracted
+    - `X.Y.Z: description` — version extracted, no date
+
+    The build script emits diagnostics via the `validateChangelogField()` helper:
+    - `[WARN]` when `changelog` is present but contains no parseable version line
+    - `[WARN]` when the first parseable version entry has no date component
+    - `[WARN]` when the same version number appears more than once with different dates (data-entry mistake that would cause `last_updated` to be ambiguous)
+    - `[INFO]` when explicit `version:` or `last_updated:` fields coexist with `changelog` (indicating stale redundant fields that should be removed)
+
+    The explicit `version:` field in per-persona YAML is **inert once a `changelog` field is present** — do not add or update `version:` manually.
+
+<a name="c38"></a>
+<a name="b11"></a>
+11. **Frontmatter templates must guard `last_updated:` with `{{#if last_updated}}`.** When `buildContext()` derives `last_updated` from a changelog entry with no date component, it resolves to `''` (empty string). An unguarded `last_updated: {{last_updated}}` line in a frontmatter template produces `last_updated: ` — a blank YAML value that may cause downstream parsing issues or confuse consumers.
+
+    All four frontmatter template locations use a conditional guard:
+    ```
+    {{#if last_updated}}
+    last_updated: {{last_updated}}
+    {{/if}}
+    ```
+    This applies to: VS Code and Claude Code templates in both `personas/persona-build.config.js` (standalone suite) and `personas/plugins/ledger/frontmatter-templates.js` (ledger suite). Any new frontmatter template that references `last_updated` **must** include this guard.
+
 ---
 
 ## Sync Script Conventions
@@ -915,7 +941,17 @@ When the build system was introduced, the generated output differs from the orig
    - **Claude Code output is unaffected**: `id:` is only added to `FRONTMATTER_LEDGER_VSCODE` and `FRONTMATTER_STANDALONE_VSCODE`. The Claude Code frontmatter templates (`FRONTMATTER_LEDGER_CC`, `FRONTMATTER_STANDALONE_CC`) do not include `id:` — Claude Code uses name-derivation routing, not `@id` routing.
 
 <a name="c25"></a>
-20. **`default_version` in `_shared.yaml` applies to all personas** unless overridden per-persona via the `version` field. This follows the standard `default_X` + per-persona override pattern used throughout the build system.
+20. **`default_version` in `_shared.yaml` is the suite-wide version fallback.** It applies to all personas that have no `changelog:` block scalar in their per-persona YAML. When a persona's `changelog:` field contains a parseable semver entry, the build system derives `version` from that entry and `default_version` is not used for that persona. This follows the standard `default_X` + per-persona override pattern used throughout the build system.
+
+<a name="c25a"></a>
+20a. **`changelog:` is the sole version source for per-persona metadata — never add standalone `version:` or `last_updated:` fields.** Each per-persona YAML uses a `changelog:` block scalar as its authoritative version record. The required format is one entry per line, most recent first, in `X.Y.Z (YYYY-MM-DD): description` form:
+
+   ```yaml
+   changelog: |
+     1.0.0 (2026-06-13): Initial release
+   ```
+
+   The build system automatically derives the `version` context variable from the first version token and `last_updated` from the first date token. **Never add standalone `version:` or `last_updated:` YAML fields to any persona** — they are not read by the build system and create misleading redundancy. Use `default_version` in `_shared.yaml` only as a fallback for personas that have no `changelog:` entry yet.
 
 <a name="c26"></a>
 21. **`default_model` in `_shared.yaml` applies to all personas** unless overridden per-persona via the `model` field. This follows the same `default_X` + per-persona override pattern as `default_version` / `version`.
@@ -938,11 +974,12 @@ When the build system was introduced, the generated output differs from the orig
 
 <a name="c49"></a>
 25. **Every persona change requires a version bump, date update, and changelog entry.** When any persona source file is modified (YAML metadata in `src/meta/`, content template in `src/content/`, or a partial in `src/partials/` that affects generated output), the agent performing the change **must** complete all three steps before finishing:
-   1. **Bump `version`** in the persona's YAML metadata file. Use the per-persona `version` field (or update `default_version` in `_shared.yaml` if the change applies to the entire suite). Follow SemVer: patch for wording/formatting fixes, minor for behavioral or structural changes, major for breaking changes.
-   2. **Update `last_updated`** in the same YAML file to the current date (`YYYY-MM-DD` format).
-   3. **Add an entry to `personas/changelog.md`** under a new or existing version heading, following the established house style (flat bullet list with category prefix, ≤ 100-char lines).
+   1. **Update the `changelog:` block scalar** in the persona's YAML metadata file. Prepend a new entry in `X.Y.Z (YYYY-MM-DD): description` format. The build system derives both `version` and `last_updated` from this field automatically — do **not** add or update standalone `version:` or `last_updated:` fields. Follow SemVer: patch for wording/formatting fixes, minor for behavioral or structural changes, major for breaking changes.
+   2. **Add an entry to `personas/changelog.md`** under a new or existing version heading, following the established house style (flat bullet list with category prefix, ≤ 100-char lines).
 
-   If a single change affects multiple personas (e.g., editing a shared partial), bump and date-stamp each affected persona individually and document all of them in one changelog entry. Omitting any of these three steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata.
+   > **Suite-wide changes:** If a single change affects multiple personas (e.g., editing a shared partial), update each affected persona's `changelog:` field individually and document all of them in one `personas/changelog.md` entry. For changes affecting every persona in a suite, prefer bumping `default_version` in `_shared.yaml` with a dated entry rather than updating every YAML file individually.
+
+   Omitting any of these steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata in the `changelog:` field.
 
 ---
 
@@ -1713,6 +1750,22 @@ Populated by the `@mistraljs/persona-builder` library's pre-scan phase. For **ev
 **Use cases:**
 - Reference another persona by display name in prose: `Delegate to {{agent_wp_decomposer}}`
 - Invoke a sub-agent in Deep Agents target: `task(subagent={{agent_slug_wp_decomposer}})`
+
+### Subagents Cross-Reference Validation
+
+When a persona declares a `subagents` list in its YAML metadata, the build script (`scripts/build-personas.js`) validates that every `{{agent_slug_<suffix>}}` reference in the content file maps to a slug present in that list. Mismatches produce a **blocking error** (exit code 1), not a warning.
+
+To fix: ensure the suffix (underscores → hyphens) matches an entry in the persona's `subagents` field, and that the entry matches a real persona slug declared in `personas/*/src/meta/*.yaml`.
+
+### Finding Available Slugs
+
+Agent map variables are generated from the `slug` field (or filename stem) of every persona across all suites. To find the correct variable name for a target persona:
+
+1. Locate its metadata: `personas/<suite>/src/meta/<file>.yaml`
+2. Read the `slug` field (or use the filename without `.yaml`)
+3. Replace hyphens with underscores → that is the variable suffix
+
+Example: `personas/standalone/src/meta/ledger-knowledge-archiver.yaml` with `slug: ledger-knowledge-archiver` → `{{agent_ledger_knowledge_archiver}}` and `{{agent_slug_ledger_knowledge_archiver}}`.
 
 ---
 
