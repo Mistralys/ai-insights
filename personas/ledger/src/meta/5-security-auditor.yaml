@@ -4,8 +4,6 @@ vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
-version: "3.6.3"
-last_updated: "2026-05-29"
 changelog: |
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Initial release — OWASP A01–A10 coverage at pipeline position 5

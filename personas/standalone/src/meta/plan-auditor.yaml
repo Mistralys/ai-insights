@@ -4,8 +4,6 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.5.0"
-last_updated: "2026-06-03"
 changelog: |
   1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
   1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings

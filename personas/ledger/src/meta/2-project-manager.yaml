@@ -6,8 +6,6 @@ vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
-version: "3.7.3"
-last_updated: "2026-05-19"
 changelog: |
   3.7.3 (2026-05-19): Verification gate enumerates all WP fields, catching stripped spec files
   3.7.2 (2026-04-08): Improved subagent invocations; deep-agents handoffs declare all targets

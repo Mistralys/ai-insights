@@ -4,8 +4,6 @@ vs_file_name: 8-docs.agent.md
 id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
-version: "3.7.0"
-last_updated: "2026-04-30"
 changelog: |
   3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent
   3.5.4 (2026-02-22): Simplified preflight and verbose sections

@@ -4,8 +4,6 @@ description: "Write bilingual WHATSNEW.xml release note entries from the develop
 vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
-version: "1.0.1"
-last_updated: "2026-03-04"
 changelog: |
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-25): Initial release — bilingual WHATSNEW.xml release note generation

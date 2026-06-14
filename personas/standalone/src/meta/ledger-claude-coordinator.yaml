@@ -4,8 +4,6 @@ description: "Coordinate the multi-stage agentic pipeline by consulting the cent
 vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
-version: "1.0.0"
-last_updated: "2026-03-19"
 changelog: |
   1.0.0 (2026-03-19): Initial release — coordinate multi-stage pipeline via central_pm ledger
 mcp_server_name: central_pm

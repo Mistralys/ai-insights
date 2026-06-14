@@ -45,7 +45,9 @@ model: '{{model}}'
 role: {{role}}
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 vs_file_name: {{vs_file_name}}
 tools: {{tools_json}}
 ---`;
@@ -64,7 +66,9 @@ description: '{{cc_description}}'
 role: {{role}}
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 tools: {{cc_tools_json}}
 ${CC_FRONTMATTER_FIELDS}
 {{#if has_mcp}}

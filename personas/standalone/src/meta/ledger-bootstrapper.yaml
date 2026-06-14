@@ -4,8 +4,6 @@ description: "Mechanically initialize the project ledger: create all Work Packag
 vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
-version: "1.1.0"
-last_updated: "2026-05-19"
 changelog: |
   1.1.0 (2026-05-19): WP spec template carries all draft fields verbatim; no summarization
   1.0.0 (2026-03-16): Initial release — ledger WP initialization via MCP tools

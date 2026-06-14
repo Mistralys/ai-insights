@@ -4,8 +4,6 @@ description: "Analyze a plan document and decompose it into atomic, actionable W
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
-version: "1.0.7"
-last_updated: "2026-06-04"
 changelog: |
   1.0.7 (2026-06-04): Minor output format tweaks
   1.0.6 (2026-06-03): Minor refinements

@@ -4,8 +4,6 @@ description: "Produces a human‑optimized README.md that follows a landing‑pa
 vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
-version: "1.3.0"
-last_updated: "2026-04-12"
 changelog: |
   1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
   1.2.1 (2026-03-01): Added helper section for rewriting entire READMEs

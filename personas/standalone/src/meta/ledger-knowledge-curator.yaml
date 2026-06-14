@@ -4,8 +4,6 @@ description: "Audit knowledge base entries for value, accuracy, and relevance â€
 vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
-version: "1.2.0"
-last_updated: "2026-06-09"
 changelog: |
   1.2.0 (2026-06-09): Deletions now require user confirmation before execution
   1.0.0 (2026-06-09): Initial release â€” knowledge base auditing and curation

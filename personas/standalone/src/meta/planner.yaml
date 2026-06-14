@@ -4,8 +4,6 @@ description: "Produce clear, actionable, technically sound plans from feature re
 vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
-version: "1.0.0"
-last_updated: "2026-06-08"
 changelog: |
   1.0.0 (2026-06-08): Initial release — ledger-independent planning for non-ledger workflows
 

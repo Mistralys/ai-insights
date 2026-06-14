@@ -125,7 +125,17 @@
    - **Claude Code output is unaffected**: `id:` is only added to `FRONTMATTER_LEDGER_VSCODE` and `FRONTMATTER_STANDALONE_VSCODE`. The Claude Code frontmatter templates (`FRONTMATTER_LEDGER_CC`, `FRONTMATTER_STANDALONE_CC`) do not include `id:` — Claude Code uses name-derivation routing, not `@id` routing.
 
 <a name="c25"></a>
-20. **`default_version` in `_shared.yaml` applies to all personas** unless overridden per-persona via the `version` field. This follows the standard `default_X` + per-persona override pattern used throughout the build system.
+20. **`default_version` in `_shared.yaml` is the suite-wide version fallback.** It applies to all personas that have no `changelog:` block scalar in their per-persona YAML. When a persona's `changelog:` field contains a parseable semver entry, the build system derives `version` from that entry and `default_version` is not used for that persona. This follows the standard `default_X` + per-persona override pattern used throughout the build system.
+
+<a name="c25a"></a>
+20a. **`changelog:` is the sole version source for per-persona metadata — never add standalone `version:` or `last_updated:` fields.** Each per-persona YAML uses a `changelog:` block scalar as its authoritative version record. The required format is one entry per line, most recent first, in `X.Y.Z (YYYY-MM-DD): description` form:
+
+   ```yaml
+   changelog: |
+     1.0.0 (2026-06-13): Initial release
+   ```
+
+   The build system automatically derives the `version` context variable from the first version token and `last_updated` from the first date token. **Never add standalone `version:` or `last_updated:` YAML fields to any persona** — they are not read by the build system and create misleading redundancy. Use `default_version` in `_shared.yaml` only as a fallback for personas that have no `changelog:` entry yet.
 
 <a name="c26"></a>
 21. **`default_model` in `_shared.yaml` applies to all personas** unless overridden per-persona via the `model` field. This follows the same `default_X` + per-persona override pattern as `default_version` / `version`.
@@ -148,11 +158,12 @@
 
 <a name="c49"></a>
 25. **Every persona change requires a version bump, date update, and changelog entry.** When any persona source file is modified (YAML metadata in `src/meta/`, content template in `src/content/`, or a partial in `src/partials/` that affects generated output), the agent performing the change **must** complete all three steps before finishing:
-   1. **Bump `version`** in the persona's YAML metadata file. Use the per-persona `version` field (or update `default_version` in `_shared.yaml` if the change applies to the entire suite). Follow SemVer: patch for wording/formatting fixes, minor for behavioral or structural changes, major for breaking changes.
-   2. **Update `last_updated`** in the same YAML file to the current date (`YYYY-MM-DD` format).
-   3. **Add an entry to `personas/changelog.md`** under a new or existing version heading, following the established house style (flat bullet list with category prefix, ≤ 100-char lines).
+   1. **Update the `changelog:` block scalar** in the persona's YAML metadata file. Prepend a new entry in `X.Y.Z (YYYY-MM-DD): description` format. The build system derives both `version` and `last_updated` from this field automatically — do **not** add or update standalone `version:` or `last_updated:` fields. Follow SemVer: patch for wording/formatting fixes, minor for behavioral or structural changes, major for breaking changes.
+   2. **Add an entry to `personas/changelog.md`** under a new or existing version heading, following the established house style (flat bullet list with category prefix, ≤ 100-char lines).
 
-   If a single change affects multiple personas (e.g., editing a shared partial), bump and date-stamp each affected persona individually and document all of them in one changelog entry. Omitting any of these three steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata.
+   > **Suite-wide changes:** If a single change affects multiple personas (e.g., editing a shared partial), update each affected persona's `changelog:` field individually and document all of them in one `personas/changelog.md` entry. For changes affecting every persona in a suite, prefer bumping `default_version` in `_shared.yaml` with a dated entry rather than updating every YAML file individually.
+
+   Omitting any of these steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata in the `changelog:` field.
 
 ---
 

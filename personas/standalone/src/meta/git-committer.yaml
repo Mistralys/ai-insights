@@ -4,8 +4,6 @@ description: "Analyze uncommitted changes and organize them into comprehensive, 
 vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
-version: "1.0.5"
-last_updated: "2026-06-03"
 changelog: |
   1.0.5 (2026-06-03): Added uncommitted-changes pre-check before commit sequence
   1.0.4 (2026-05-22): Excludes CTX files from commits on feature branches

@@ -4,8 +4,6 @@ vs_file_name: 6-reviewer.agent.md
 id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
-version: "3.6.1"
-last_updated: "2026-04-08"
 changelog: |
   3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
   3.5.5 (2026-04-08): Three-tier feedback (Blocking, Fix-Forward, Documentation-Forward)

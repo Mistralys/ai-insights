@@ -100,6 +100,32 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
    **Shared-partial note:** The scan covers only `personas/ledger/src/content/*.md`. References in `personas/ledger/src/partials/` or `personas/shared/partials/` are not validated by this check.
 
+<a name="c37"></a>
+<a name="b10"></a>
+10. **Version in name-mapping is derived from the `changelog` block scalar.** `scripts/build-personas.js` uses an internal `resolveVersionFromChangelog(rawYamlText)` helper to extract version from each persona's `changelog:` YAML field before falling back to the explicit `version:` field and then to `DEFAULT_VERSION`. This mirrors the derivation logic in the persona-builder library's `resolveChangelogMeta()`. Supported formats:
+    - `X.Y.Z (YYYY-MM-DD): description` — version + date extracted
+    - `X.Y.Z: description` — version extracted, no date
+
+    The build script emits diagnostics via the `validateChangelogField()` helper:
+    - `[WARN]` when `changelog` is present but contains no parseable version line
+    - `[WARN]` when the first parseable version entry has no date component
+    - `[WARN]` when the same version number appears more than once with different dates (data-entry mistake that would cause `last_updated` to be ambiguous)
+    - `[INFO]` when explicit `version:` or `last_updated:` fields coexist with `changelog` (indicating stale redundant fields that should be removed)
+
+    The explicit `version:` field in per-persona YAML is **inert once a `changelog` field is present** — do not add or update `version:` manually.
+
+<a name="c38"></a>
+<a name="b11"></a>
+11. **Frontmatter templates must guard `last_updated:` with `{{#if last_updated}}`.** When `buildContext()` derives `last_updated` from a changelog entry with no date component, it resolves to `''` (empty string). An unguarded `last_updated: {{last_updated}}` line in a frontmatter template produces `last_updated: ` — a blank YAML value that may cause downstream parsing issues or confuse consumers.
+
+    All four frontmatter template locations use a conditional guard:
+    ```
+    {{#if last_updated}}
+    last_updated: {{last_updated}}
+    {{/if}}
+    ```
+    This applies to: VS Code and Claude Code templates in both `personas/persona-build.config.js` (standalone suite) and `personas/plugins/ledger/frontmatter-templates.js` (ledger suite). Any new frontmatter template that references `last_updated` **must** include this guard.
+
 ---
 
 ## Sync Script Conventions

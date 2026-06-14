@@ -4,8 +4,6 @@ description: "Extract and commit reusable knowledge from completed ledger projec
 vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
-version: "1.6.0"
-last_updated: "2026-06-09"
 changelog: |
   1.6.0 (2026-06-09): Renamed to Ledger Knowledge Archiver; slug and name updated
   1.5.0 (2026-06-08): Gained local archiving task marker file support

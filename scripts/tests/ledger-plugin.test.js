@@ -549,6 +549,7 @@ describe('ledgerPlugin()', () => {
     expect(vsTemplate).toContain('{{id}}');
     expect(vsTemplate).toContain('{{role}}');
     expect(vsTemplate).toContain('{{version}}');
+    expect(vsTemplate).toContain('{{#if last_updated}}');
   });
 
   // frontmatterTemplates: claude-code template starts with frontmatter fence
@@ -560,6 +561,7 @@ describe('ledgerPlugin()', () => {
     expect(ccTemplate).toContain('{{role}}');
     expect(ccTemplate).toContain('{{version}}');
     expect(ccTemplate).toContain('{{#if has_mcp}}');
+    expect(ccTemplate).toContain('{{#if last_updated}}');
   });
 
   // Plugin satisfies PersonaBuildPlugin interface: has required hooks

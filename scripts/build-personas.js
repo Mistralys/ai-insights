@@ -110,6 +110,7 @@ if (!CHECK) {
    * YAML files must not use trailing inline comments on scalar fields.
    */
   function parseYamlScalars(text, fields) {
+
     const result = {};
     for (const line of text.split(/\r?\n/)) {
       const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
@@ -127,6 +128,112 @@ if (!CHECK) {
     return result;
   }
 
+  /**
+   * Extracts the string content of a YAML block scalar (`key: |` or `key: |-`)
+   * from raw YAML text without a full YAML parse.
+   * Returns the block content (newline-joined, trimmed) or undefined when the
+   * key is absent or does not use a block scalar indicator.
+   */
+  function extractYamlBlockScalar(text, key) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re    = new RegExp(`^${escaped}\\s*:\\s*\\|[-+]?\\s*$`, 'm');
+    const match = re.exec(text);
+    if (!match) return undefined;
+
+    const after   = text.slice(match.index + match[0].length);
+    const lines   = after.split(/\r?\n/);
+    let   indent  = -1;
+    const content = [];
+
+    for (const line of lines) {
+      if (line.trim() === '') {
+        if (indent !== -1) content.push('');
+        continue;
+      }
+      const m          = line.match(/^(\s+)/);
+      const lineIndent = m ? m[1].length : 0;
+      if (lineIndent === 0) break;            // outdented — end of block scalar
+      if (indent === -1) indent = lineIndent; // first content line determines indent
+      if (lineIndent < indent) break;
+      content.push(line.slice(indent));
+    }
+
+    const joined = content.join('\n').trimEnd();
+    return joined || undefined;
+  }
+
+  /**
+   * Extracts the version string from a `changelog: |` block scalar in raw YAML
+   * text. Returns the version string (e.g. "3.6.3") or undefined when absent.
+   *
+   * Regex patterns mirror resolveChangelogMeta() in @mistralys/persona-builder:
+   *   Primary:  "3.6.3 (2026-05-29): description"
+   *   Fallback: "3.6.3: description"            (no date)
+   */
+  function resolveVersionFromChangelog(text) {
+    if (typeof text !== 'string') return undefined;
+    const content = extractYamlBlockScalar(text, 'changelog');
+    if (!content) return undefined;
+    // Line-by-line first-wins, mirrors resolveChangelogMeta() in the library
+    for (const line of content.split(/\r?\n/)) {
+      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
+      if (withDate) return withDate[1];
+      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+      if (withoutDate) return withoutDate[1];
+    }
+    return undefined;
+  }
+
+  /**
+   * Validates the `changelog` field in a persona YAML.
+   * Warns when the field is present but unparseable, or when the first version
+   * entry has no date. Logs an info message when explicit `version` or
+   * `last_updated` scalar fields coexist with the changelog (indicating they
+   * can be removed).
+   */
+  function validateChangelogField(raw, filename) {
+    const content = extractYamlBlockScalar(raw, 'changelog');
+    if (content === undefined) return;
+
+    // Track first-entry date status and detect same-version/different-date duplicates.
+    let firstHasDate = null; // null = not yet seen, true/false = first entry result
+    let firstVersion = null;
+    const versionDates = {}; // version → date string (first occurrence)
+
+    for (const line of content.split(/\r?\n/)) {
+      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\((\d{4}-\d{2}-\d{2})\)\s*:/);
+      if (withDate) {
+        const [, ver, date] = withDate;
+        if (firstHasDate === null) { firstHasDate = true; firstVersion = ver; }
+        if (Object.prototype.hasOwnProperty.call(versionDates, ver)) {
+          if (versionDates[ver] !== date) {
+            console.warn(`[WARN] ${filename}: version "${ver}" appears with two different dates` +
+              ` (${versionDates[ver]} and ${date}).`);
+          }
+        } else {
+          versionDates[ver] = date;
+        }
+        continue;
+      }
+      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+      if (withoutDate && firstHasDate === null) { firstHasDate = false; firstVersion = withoutDate[1]; }
+    }
+
+    if (firstHasDate === null) {
+      console.warn(`[WARN] ${filename}: changelog present but no parseable version found.`);
+    } else if (!firstHasDate) {
+      console.warn(`[WARN] ${filename}: changelog first entry has no date (version "${firstVersion}").`);
+    }
+
+    const scalars = parseYamlScalars(raw, ['version', 'last_updated']);
+    if (scalars.version) {
+      console.info(`[INFO] ${filename}: explicit version "${scalars.version}" coexists with changelog.`);
+    }
+    if (scalars.last_updated) {
+      console.info(`[INFO] ${filename}: explicit last_updated "${scalars.last_updated}" coexists with changelog.`);
+    }
+  }
+
   /** Returns the filename stem (strips the last extension). */
   function stem(filename) {
     return filename.replace(/\.[^.]+$/, '');
@@ -141,12 +248,14 @@ if (!CHECK) {
     const raw  = fs.readFileSync(path.join(metaDir, file), 'utf8');
     const data = parseYamlScalars(raw, SCALAR_FIELDS);
 
+    validateChangelogField(raw, file);
+
     const ccFileName = data.cc_file_name;
     const daFileName = data.da_file_name || ccFileName;
     const ccStem     = stem(ccFileName);
     const daStem     = stem(daFileName);
     const number     = Number(data.number);
-    const version    = data.version || DEFAULT_VERSION;
+    const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
 
     return {
       number,

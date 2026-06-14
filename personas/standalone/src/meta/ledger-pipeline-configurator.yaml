@@ -4,8 +4,6 @@ description: "Determine which pipeline stages should be active for each Work Pac
 vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
-version: "1.0.2"
-last_updated: "2026-05-18"
 changelog: |
   1.0.2 (2026-05-18): Write step references Output Location; subagent handoff precision improved
   1.0.1 (2026-04-30): Overall improvements

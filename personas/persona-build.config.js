@@ -37,7 +37,9 @@ name: '{{name}} v{{version}}'
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 vs_file_name: {{vs_file_name}}
 tools: [{{tools_list}}]
 ---`;
@@ -47,7 +49,9 @@ name: {{cc_name}}
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 tools: [{{cc_tools_list}}]
 permissionMode: {{cc_permission_mode}}
 model: {{cc_model}}

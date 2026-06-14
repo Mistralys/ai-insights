@@ -4,8 +4,6 @@ description: "Create, update, and audit project manifests — the source of trut
 vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
-version: "1.0.6"
-last_updated: "2026-04-30"
 changelog: |
   1.0.6 (2026-04-30): Audited and improved content and workflow
   1.0.5 (2026-03-04): Added persona ID field for VS Code agent registry
