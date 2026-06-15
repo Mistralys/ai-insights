@@ -1,3 +1,7 @@
+---
+title: Project Overview
+---
+
 # AI Insights — Project Overview
 
 > **Purpose:** A high-level overview of the AI Insights project for strategic discussions about future development, enhancements, and overall philosophy. Not a technical reference — see the [project manifests](../agents/project-manifest/README.md) for implementation details.

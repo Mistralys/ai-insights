@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% if page.title %}{{ page.title }} — {{ site.title }}{% else %}{{ site.title }}{% endif %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-bg: #0f1117;
+      --color-surface: #1a1d27;
+      --color-border: #2a2d3a;
+      --color-text: #d1d5db;
+      --color-text-muted: #6b7280;
+      --color-heading: #f9fafb;
+      --color-accent: #4ade80;
+      --color-accent-dim: #166534;
+      --color-link: #60a5fa;
+      --color-link-hover: #93c5fd;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+
+    html, body {
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+
+    /* ── Header / Nav ─────────────────────────────────────── */
+    header {
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .header-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .site-title {
+      color: var(--color-heading);
+      font-weight: 700;
+      font-size: 1rem;
+      text-decoration: none;
+      letter-spacing: 0.02em;
+    }
+    .site-title span {
+      color: var(--color-accent);
+    }
+    nav a {
+      color: var(--color-text-muted);
+      text-decoration: none;
+      font-size: 0.875rem;
+      margin-left: 1.5rem;
+      transition: color 0.15s;
+    }
+    nav a:hover { color: var(--color-text); }
+
+    /* ── Main content ─────────────────────────────────────── */
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+
+    /* ── Typography ───────────────────────────────────────── */
+    h1, h2, h3, h4 {
+      color: var(--color-heading);
+      line-height: 1.3;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+    h1 { font-size: 2rem; margin-top: 0; }
+    h2 { font-size: 1.4rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem; }
+    h3 { font-size: 1.1rem; }
+    p { margin-bottom: 1rem; }
+    ul, ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+    li { margin-bottom: 0.25rem; }
+    a { color: var(--color-link); text-decoration: none; }
+    a:hover { color: var(--color-link-hover); text-decoration: underline; }
+    blockquote {
+      border-left: 3px solid var(--color-accent-dim);
+      padding: 0.5rem 1rem;
+      margin: 1rem 0;
+      color: var(--color-text-muted);
+      font-style: italic;
+    }
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+    pre code { background: none; border: none; padding: 0; font-size: 0.85em; }
+    hr { border: none; border-top: 1px solid var(--color-border); margin: 2rem 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+    th {
+      background: var(--color-surface);
+      color: var(--color-heading);
+      font-weight: 600;
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--color-border);
+    }
+    td {
+      padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--color-border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* ── Footer ───────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--color-border);
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--color-text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <a class="site-title" href="{{ '/' | relative_url }}">AI <span>Insights</span></a>
+      <nav>
+        <a href="{{ '/' | relative_url }}">Home</a>
+        <a href="{{ '/references/project-overview' | relative_url }}">Project Overview</a>
+        <a href="{{ '/presentation/dist/ai-insights-slides.html' | relative_url }}">Presentation</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    {{ content }}
+  </main>
+
+  <footer>
+    {{ site.title }} &mdash; {{ site.description }}
+  </footer>
+</body>
+</html>
