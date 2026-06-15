@@ -189,6 +189,22 @@
   .persona-structure .section .label { color: #fff; font-weight: 600; white-space: nowrap; }
   .persona-structure .section .desc { color: #90a4ae; }
 
+  /* Team grid */
+  .team-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.7em;
+    font-size: 0.65em; text-align: left;
+  }
+  .team-grid .team-card {
+    background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border); border-radius: 10px;
+    padding: 0.7em 0.9em; box-shadow: var(--glass-shadow);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }
+  .team-grid .team-card:hover { transform: translateY(-2px); border-color: rgba(100, 181, 246, 0.3); }
+  .team-grid .team-card .team-icon { font-size: 1.4em; margin-bottom: 0.2em; }
+  .team-grid .team-card .team-name { color: #64b5f6; font-weight: 600; font-size: 1.05em; }
+  .team-grid .team-card .team-desc { color: #90a4ae; font-size: 0.88em; margin-top: 0.15em; line-height: 1.35; }
+
   /* Fragment highlight override */
   .reveal .fragment.highlight-current-blue.current-fragment { color: #64b5f6; }
 
@@ -692,6 +708,62 @@
   </aside>
 </section>
 
+<!-- SLIDE — Meet the Team -->
+<section>
+  <p class="section-label">Beyond a single persona</p>
+  <h2>Meet the Team</h2>
+  <p class="lead">28 standalone personas &mdash; each a specialist you can invoke on demand.</p>
+  <div class="team-grid">
+    <div class="team-card">
+      <div class="team-icon">🍳</div>
+      <div class="team-name">Recipe Curator</div>
+      <div class="team-desc">Meal planning &amp; recipe curation with nutritional standards</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">📋</div>
+      <div class="team-name">Planner</div>
+      <div class="team-desc">Actionable implementation plans from feature requests</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">💻</div>
+      <div class="team-name">Developer</div>
+      <div class="team-desc">Plan execution with code insights and synthesis</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">🔍</div>
+      <div class="team-name">Researcher</div>
+      <div class="team-desc">Deep-dive analysis of complex problems</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">🧪</div>
+      <div class="team-name">Unit Test Auditor</div>
+      <div class="team-desc">Coverage gaps, weak assertions, missing edge cases</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">📝</div>
+      <div class="team-name">Changelog Curator</div>
+      <div class="team-desc">Git history to scannable changelogs in house style</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">🎭</div>
+      <div class="team-name">Persona Curator</div>
+      <div class="team-desc">Creates and audits other personas</div>
+    </div>
+    <div class="team-card">
+      <div class="team-icon">📦</div>
+      <div class="team-name">Git Committer</div>
+      <div class="team-desc">Structured commits with plan traceability</div>
+    </div>
+  </div>
+  <p style="font-size: 0.6em; color: #90a4ae; margin-top: 1em;">+ 20 more: Documentation, Manifest Curator, Readme Curator, Ledger specialists&hellip;</p>
+  <aside class="notes">
+    This is just a selection. Each persona is a full specialist with its own mission, constraints,
+    workflow, and quality standards. They range from coding agents to documentation curators to
+    personal-use personas like the Recipe Curator. The key point: the same persona-crafting discipline
+    applies whether you're building a code review agent or a meal planner.
+  </aside>
+</section>
+
 <!-- ============================================================ -->
 <!-- PART 2 — The Build System -->
 <!-- ============================================================ -->
@@ -1058,13 +1130,13 @@ Reveal.initialize({
   const sectionBreaks = {
     0: 0, 1: 0,       // Opening
     2: 1,              // Part 1 divider
-    3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1,
-    12: 2,             // Part 2 divider
-    13: 2, 14: 2, 15: 2,
-    16: 3,             // Part 3 divider
-    17: 3, 18: 3, 19: 3, 20: 3, 21: 3,
-    22: 4,             // Demo
-    23: 5, 24: 5,      // Closing
+    3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: 1,
+    13: 2,             // Part 2 divider
+    14: 2, 15: 2, 16: 2,
+    17: 3,             // Part 3 divider
+    18: 3, 19: 3, 20: 3, 21: 3, 22: 3,
+    23: 4,             // Demo
+    24: 5, 25: 5,      // Closing
   };
 
   document.querySelectorAll('.reveal .slides > section').forEach((sec, i) => {
