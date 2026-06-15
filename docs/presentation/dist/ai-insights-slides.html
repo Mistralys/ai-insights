@@ -418,7 +418,7 @@
   <h1>AI Insights</h1>
   <p class="subtitle" style="font-size: 0.9em; color: #64b5f6;">Persona Crafting &amp; Multi-Agent Workflow</p>
   <br>
-  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.0 &middot; 2026-06-15</p>
+  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.1 &middot; 2026-06-15</p>
   <p style="font-size: 0.7em; color: #90a4ae;">Sebastian Mordziol</p>
   <aside class="notes">
     Welcome everyone. Today I'll share how we brought engineering discipline to AI agent instructions —
@@ -451,11 +451,12 @@
 </section>
 
 <section>
+  <p class="section-label">Discovering personas</p>
   <h2>What is an Agent Persona?</h2>
   <p style="font-size: 0.85em;">A structured instruction document that tells an AI<br>
      <strong>who</strong> it is, <strong>what</strong> it does, and <strong>how</strong> it works.</p>
   <br>
-  <p style="font-size: 0.85em;">Not just a prompt — <span class="accent">an operating manual.</span></p>
+  <p style="font-size: 0.85em;">More than a prompt — <span class="accent">an operating manual.</span></p>
   <br>
   <p style="font-size: 0.75em; color: #90a4ae;">
     Our running example: the <strong>Recipe Curator</strong>
@@ -471,8 +472,9 @@
 </section>
 
 <section>
+  <p class="section-label">Discovering personas</p>
   <h2>The Persona Difference</h2>
-  <p style="font-size: 0.65em; color: #90a4ae; margin-bottom: 0.5em;">
+  <p class="lead">
     Same prompt: <em>"Please give me a pasta carbonara recipe."</em> &mdash; Gemini Web
   </p>
   <div class="compare">
@@ -533,6 +535,32 @@
 
 <section>
   <p class="section-label">The Craft of Persona Curation</p>
+  <h2>Models speak Markdown</h2>
+  <p class="lead">Natural language, but with structure.</p>
+  <div style="font-size: 0.85em; max-width: 740px; margin: 0 auto; text-align: left;">
+    <p><strong class="accent-green">Human-readable</strong> — authors and reviewers need no special tools</p>
+    <p><strong class="accent-green">AI-native</strong> — models parse Markdown natively</p>
+    <p><strong class="accent-green">Semantically structured</strong> — headings create structure</p>
+    <p><strong class="accent-green">Formatting as a tool</strong> — bold text for emphasis</p>
+    <p><strong class="accent-green">Version-controllable</strong> — Git diffs show exactly what changed</p>
+    <p><strong class="accent-green">Platform-portable</strong> — every AI tool accepts plain text</p>
+  </div>
+  <p style="font-size: 0.7em; margin-top: 2.2em; margin-bottom: 2em; color: #64b5f6; cursor: pointer;" onclick="document.getElementById('persona-modal').classList.add('open');">
+    📄 Click to view the full persona source &nbsp;→
+  </p>
+  <p class="sidenote">
+    The entire Recipe Curator persona is a single Markdown file.
+  </p>
+  <aside class="notes">
+    This is the actual Recipe Curator persona — 276 lines of Markdown. No JSON, no YAML config, no
+    proprietary format. The headings create semantic structure that the AI interprets naturally.
+    Markdown is the lingua franca of AI instructions. Click the document icon in the top right at
+    any time to see the full source.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">The Craft of Persona Curation</p>
   <h2>Persona Document Structure</h2>
   <p class="lead">Mission first, workflow last. The AI reads top-to-bottom — frontload what matters.</p>
   <div class="persona-structure" style="max-width: 756px; margin: 0 auto;">
@@ -555,31 +583,10 @@
 
 <section>
   <p class="section-label">The Craft of Persona Curation</p>
-  <h2>LLMs speak Markdown</h2>
-  <p class="lead">The entire Recipe Curator persona is a single Markdown file. No tooling required.</p>
-  <div style="font-size: 0.85em; max-width: 740px; margin: 0 auto; text-align: left;">
-    <p><strong class="accent-green">Human-readable</strong> — authors and reviewers need no special tools</p>
-    <p><strong class="accent-green">AI-native</strong> — models parse Markdown natively</p>
-    <p><strong class="accent-green">Semantically structured</strong> — headings create structure</p>
-    <p><strong class="accent-green">Formatting as a tool</strong> — bold text for emphasis</p>
-    <p><strong class="accent-green">Version-controllable</strong> — Git diffs show exactly what changed</p>
-    <p><strong class="accent-green">Platform-portable</strong> — every AI tool accepts plain text</p>
-  </div>
-  <p style="font-size: 0.7em; margin-top: 2.2em; color: #64b5f6; cursor: pointer;" onclick="document.getElementById('persona-modal').classList.add('open');">
-    📄 Click to view the full persona source &nbsp;→
-  </p>
-  <aside class="notes">
-    This is the actual Recipe Curator persona — 276 lines of Markdown. No JSON, no YAML config, no
-    proprietary format. The headings create semantic structure that the AI interprets naturally.
-    Markdown is the lingua franca of AI instructions. Click the document icon in the top right at
-    any time to see the full source.
-  </aside>
-</section>
-
-<section>
-  <p class="section-label">The Craft of Persona Curation</p>
   <h2>The Identity Anchor</h2>
-  <br>
+  <p class="lead">
+    Establishes identity firmly over longer sessions.
+  </p>
   <div class="compare">
     <div>
       <div class="label before">Unreliable</div>
@@ -593,12 +600,11 @@
       </p>
     </div>
   </div>
-  <br>
   <p style="font-size: 0.75em; color: #90a4ae;">
-    Mirrors how system prompts work internally.<br>
-    Establishes identity more firmly over longer sessions.
+    <span style="font-size: 1.1em; font-weight: bold; color: #64b5f6;">›</span>
+    Mirrors how system prompts work internally.
   </p>
-  <p class="sidenote">💡 TIP: Using "Please" in instructions subtly shifts the model into a positive, cooperative bias.</p>
+  <p class="sidenote" style="margin-top:2em;">💡 TIP: Using "Please" in instructions subtly shifts the model into a positive, cooperative bias.</p>
   <aside class="notes">
     The AI doesn't need to BE something — it needs to DO something. The identity anchor defines the
     function, not the character. This is more stable over long conversations. And a small practical tip:
@@ -609,7 +615,6 @@
 <section>
   <p class="section-label">The Craft of Persona Curation</p>
   <h2>Why English Works Best</h2>
-  <br>
   <p style="font-size: 0.85em;">Language models store <strong>concepts</strong>, not words.</p>
   <p style="font-size: 0.85em;">But they're <strong>trained predominantly on English text</strong>.</p>
   <br>
@@ -778,7 +783,6 @@
 <section>
   <p class="section-label">Catering to multiple platforms</p>
   <h2>The Scaling Problem</h2>
-  <br>
   <p style="font-size: 0.85em;">One persona. Many targets.</p>
   <p style="font-size: 0.85em;">Each with its own metadata format.</p>
   <br>
@@ -939,7 +943,6 @@
 <section>
   <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Coordination Problem</h2>
-  <br>
   <p style="font-size: 0.9em;">Nine agents need to <strong>share state</strong>.</p>
   <p style="font-size: 0.9em;">AI has <strong>no long-term memory</strong> between sessions.</p>
   <p style="font-size: 0.9em;">Memory concepts are <strong>tool-specific</strong> (e.g. Claude).</p>
