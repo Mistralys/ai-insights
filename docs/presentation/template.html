@@ -178,6 +178,17 @@
     font-size: 1.3em;
     line-height: 1;
   }
+
+  /* Optional agent cards — asterisk marker */
+  .pipeline .agent-card.optional::after {
+    content: '*';
+    position: absolute;
+    top: 0.1em;
+    right: 0.25em;
+    font-size: 0.9em;
+    color: #90a4ae;
+    line-height: 1;
+  }
   .ledger-roles .role-desc { color: #b0bec5; font-size: 0.8em; margin-top: 0.15em; }
 
   /* Knowledge scopes */
