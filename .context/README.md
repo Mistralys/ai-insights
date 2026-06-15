@@ -98,7 +98,7 @@ You can also invoke any menu action directly without entering the interactive mo
 
 | Resource | Description |
 |----------|-------------|
-| [docs/development.md](docs/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
+| [docs/references/development.md](docs/references/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
 | [docs/agents/references/README.md](docs/agents/references/README.md) | Reference docs hub for workflow diagrams, CTX configuration, and Deep Agents subagent patterns |
 | [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
 | [docs/agents/references/ledger-workflow-visual-guide.md](docs/agents/references/ledger-workflow-visual-guide.md) | Visual reference for the ledger workflow: end-to-end ASCII diagrams, handoffs, sub-agents, and knowledge flow |
