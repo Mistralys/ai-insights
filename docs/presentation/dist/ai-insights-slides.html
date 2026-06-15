@@ -149,10 +149,35 @@
     font-weight: 700;
   }
 
-  /* Ledger roles */
-  .ledger-roles { text-align: left; }
-  .ledger-roles .role-item { margin-bottom: 0.8em; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 10px; padding: 0.7em 1em; box-shadow: var(--glass-shadow); }
-  .ledger-roles .role-name { color: #64b5f6; font-weight: 600; font-size: 1em; }
+  /* Agentic loop bracket around agents 3–8 */
+  .loop-bracket {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    border: 1.5px dashed rgba(100, 181, 246, 0.4);
+    border-radius: 10px;
+    padding: 0.6em 0.45em;
+    margin: -0.4em 0;
+  }
+  .loop-label {
+    position: absolute;
+    bottom: -1.5em;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.42em;
+    color: #64b5f6;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+  }
+  .loop-label .loop-icon {
+    font-size: 1.3em;
+    line-height: 1;
+  }
   .ledger-roles .role-desc { color: #b0bec5; font-size: 0.8em; margin-top: 0.15em; }
 
   /* Knowledge scopes */
@@ -909,40 +934,43 @@
       </div>
     </div>
     <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">3</div>
-      <div class="name">Developer</div>
-      <div class="role">Implement</div>
-    </div>
-    <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">4</div>
-      <div class="name">QA</div>
-      <div class="role">Test &amp; verify</div>
-    </div>
-    <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">5</div>
-      <div class="name">Security</div>
-      <div class="role">Audit</div>
-    </div>
-    <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">6</div>
-      <div class="name">Reviewer</div>
-      <div class="role">Code review</div>
-    </div>
-    <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">7</div>
-      <div class="name">Release</div>
-      <div class="role">Ship it</div>
-    </div>
-    <div class="arrow">›</div>
-    <div class="agent-card">
-      <div class="num">8</div>
-      <div class="name">Docs</div>
-      <div class="role">Document</div>
+    <div class="loop-bracket">
+      <div class="agent-card">
+        <div class="num">3</div>
+        <div class="name">Developer</div>
+        <div class="role">Implement</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="agent-card">
+        <div class="num">4</div>
+        <div class="name">QA</div>
+        <div class="role">Test &amp; verify</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="agent-card">
+        <div class="num">5</div>
+        <div class="name">Security</div>
+        <div class="role">Audit</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="agent-card">
+        <div class="num">6</div>
+        <div class="name">Reviewer</div>
+        <div class="role">Code review</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="agent-card">
+        <div class="num">7</div>
+        <div class="name">Release</div>
+        <div class="role">Ship it</div>
+      </div>
+      <div class="arrow">›</div>
+      <div class="agent-card">
+        <div class="num">8</div>
+        <div class="name">Docs</div>
+        <div class="role">Document</div>
+      </div>
+      <div class="loop-label"><span class="loop-icon">↻</span> repeat per work package</div>
     </div>
     <div class="arrow">›</div>
     <div class="agent-wrapper">
