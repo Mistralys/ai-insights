@@ -1,0 +1,23 @@
+title: AI Insights
+description: Structured AI-assisted software development toolkit
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+
+# Apply default layout to all pages
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+# Exclude non-page assets from processing
+exclude:
+  - presentation/tools/
+  - presentation/build.sh
+  - presentation/build.cmd
+  - presentation/slides.json
+  - presentation/template.html
+  - presentation/partials/
+  - presentation/slides/
