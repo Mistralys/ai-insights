@@ -52,10 +52,12 @@
   }
   .reveal h3 { font-size: 1.2em; font-weight: 600; color: #90caf9; }
   .reveal code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
-  .reveal strong { color: #ffffff; font-weight: 600; }
+  .reveal strong { font-weight: 600; }
+  .reveal strong:not([class]) { color: #ffffff; }
   .reveal em { color: #b0bec5; }
   .reveal .subtitle { font-size: 0.7em; color: #90a4ae; margin-top: 0.5em; }
   .reveal .section-label { font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.15em; color: #64b5f6; margin-bottom: 0.3em; }
+  .reveal .lead { font-size: 0.8em; margin-bottom: 1.8em; }
 
   /* Accent colors */
   .accent { color: #ffd54f; }
@@ -335,10 +337,11 @@
   #outline-panel {
     position: fixed; top: 0; right: -340px; z-index: 99;
     width: 320px; height: 100vh; overflow-y: auto;
+    box-sizing: border-box;
     background: rgba(15, 15, 26, 0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border-left: 1px solid rgba(255,255,255,0.08);
     box-shadow: -8px 0 32px rgba(0,0,0,0.4);
-    padding: 70px 20px 30px;
+    padding: 70px 20px 60px;
     transition: right 0.3s ease;
     font-family: 'Inter', system-ui, sans-serif;
   }
@@ -401,8 +404,9 @@
 <!-- ============================================================ -->
 <section>
   <h1>AI Insights</h1>
-  <p class="subtitle" style="font-size: 0.9em; color: #64b5f6;">Structured Multi-Agent Workflows</p>
+  <p class="subtitle" style="font-size: 0.9em; color: #64b5f6;">Persona Crafting &amp; Multi-Agent Workflow</p>
   <br>
+  <p style="font-size: 0.6em; color: #64b5f6;"><!-- BUILD:SLIDE_VERSION --></p>
   <p style="font-size: 0.7em; color: #90a4ae;">Sebastian Mordziol</p>
   <aside class="notes">
     Welcome everyone. Today I'll share how we brought engineering discipline to AI agent instructions —
@@ -415,17 +419,16 @@
 <!-- ============================================================ -->
 <section>
   <h2>What We'll Cover</h2>
-  <div style="text-align: left; font-size: 0.85em; max-width: 700px; margin: 0 auto;">
+  <div style="text-align: left; font-size: 0.85em; max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.4em;">
     <p><strong class="accent-blue">Part 1</strong> &mdash; Persona Philosophy<br>
-       <em>What agent personas are, why they matter, and how to write them well.</em></p>
+       <em>What agent personas are and how to craft them effectively.</em></p>
     <p><strong class="accent-blue">Part 2</strong> &mdash; The Build System<br>
        <em>Write once, deploy to every AI platform.</em></p>
     <p><strong class="accent-blue">Part 3</strong> &mdash; The Ledger &amp; Workflow<br>
        <em>How 9 agents coordinate through a shared notebook.</em></p>
     <p><strong class="accent-blue">Demo</strong> &mdash; The Ledger GUI<br>
-       <em>See a completed project from the inside.</em></p>
+       <em>An overview of ledger features through the GUI.</em></p>
   </div>
-  <p class="sidenote">This is about making AI work <em>reliably</em> — not a tool demo.</p>
   <aside class="notes">
     Three parts plus a short live demo at the end. The focus is on the "why" and the philosophy behind
     persona curation — the technical parts are kept visual and accessible.
@@ -450,7 +453,9 @@
   <p style="font-size: 0.85em;">Not just a prompt — <span class="accent">an operating manual.</span></p>
   <br>
   <p style="font-size: 0.75em; color: #90a4ae;">
-    Our running example: the <strong>Recipe Curator</strong><br>
+    Our running example: the <strong>Recipe Curator</strong>
+  </p>
+    <p style="font-size: 0.75em; color: #90a4ae;">
     <em>"Imagine an AI that's genuinely good at helping you cook your way—<br>
     and that knows your kitchen inside and out."</em>
   </p>
@@ -501,8 +506,7 @@
 <section>
   <p class="section-label">The Craft of Persona Curation</p>
   <h2>Natural Language Programming</h2>
-  <p style="font-size: 0.8em;">Writing personas <strong>is</strong> programming — without code.</p>
-  <br>
+  <p class="lead">Writing personas <strong>is</strong> programming — without code.</p>
   <div style="text-align: left; font-size: 0.7em; max-width: 700px; margin: 0 auto;">
     <p>The Recipe Curator agent's <strong>Workflow</strong> section:</p>
     <ol>
@@ -526,8 +530,9 @@
 
 <!-- SLIDE 6 — Persona document structure -->
 <section>
+  <p class="section-label">The Craft of Persona Curation</p>
   <h2>Persona Document Structure</h2>
-  <p style="font-size: 0.7em; color: #90a4ae; margin-bottom: 0.5em;">Mission first, workflow last. The AI reads top-to-bottom — frontload what matters.</p>
+  <p class="lead">Mission first, workflow last. The AI reads top-to-bottom — frontload what matters.</p>
   <div class="persona-structure" style="max-width: 756px; margin: 0 auto;">
     <div class="section"><span class="num">1</span> <span class="label">Mission</span> <span class="desc">— Identity anchor + core purpose</span></div>
     <div class="section"><span class="num">2</span> <span class="label">Operating Philosophy</span> <span class="desc">— Values &amp; principles (rainbow plate, seasonal…)</span></div>
@@ -548,8 +553,9 @@
 
 <!-- SLIDE 6b — Markdown as structured format -->
 <section>
+  <p class="section-label">The Craft of Persona Curation</p>
   <h2>LLMs speak Markdown</h2>
-  <p style="font-size: 0.7em; color: #90a4ae; margin-bottom: 2.2em;">The entire Recipe Curator persona is a single Markdown file. No tooling required.</p>
+  <p class="lead">The entire Recipe Curator persona is a single Markdown file. No tooling required.</p>
   <div style="font-size: 0.85em; max-width: 740px; margin: 0 auto; text-align: left;">
     <p><strong class="accent-green">Human-readable</strong> — authors and reviewers need no special tools</p>
     <p><strong class="accent-green">AI-native</strong> — models parse Markdown natively</p>
@@ -571,6 +577,7 @@
 
 <!-- SLIDE 7 — The identity anchor -->
 <section>
+  <p class="section-label">The Craft of Persona Curation</p>
   <h2>The Identity Anchor</h2>
   <br>
   <div class="compare">
@@ -581,7 +588,7 @@
     <div>
       <div class="label after">Stronger</div>
       <p style="font-size: 0.85em;" class="better">
-        "Identity: Private Chef &amp; Culinary Consultant.<br>
+        "**Identity: Private Chef &amp; Culinary Consultant.**<br>
         Curate, adapt, and compose recipes tailored to a home kitchen…"
       </p>
     </div>
@@ -601,6 +608,7 @@
 
 <!-- SLIDE 8 — Why English works best -->
 <section>
+  <p class="section-label">The Craft of Persona Curation</p>
   <h2>Why English Works Best</h2>
   <br>
   <p style="font-size: 0.85em;">Language models store <strong>concepts</strong>, not words.</p>
@@ -627,7 +635,7 @@
 <section>
   <p class="section-label">What Makes a Persona Powerful</p>
   <h2>Domain Knowledge</h2>
-  <p style="font-size: 0.7em; color: #90a4ae; margin-bottom: 0.3em;">Context the AI can't guess — so you give it.</p>
+  <p class="lead">Context the AI can't guess — so you give it.</p>
   <div class="equipment-table">
     <table>
       <thead><tr><th>Equipment</th><th>Capabilities</th></tr></thead>
@@ -656,7 +664,7 @@
 <section>
   <p class="section-label">What Makes a Persona Powerful</p>
   <h2>Values &amp; Standards</h2>
-  <p style="font-size: 0.65em; color: #90a4ae; margin-bottom: 0.3em;">A quality standard the AI enforces automatically.</p>
+  <p class="lead">A recipe quality standard the AI enforces automatically.</p>
   <div class="rainbow-table">
     <table>
       <thead><tr><th>Color Group</th><th>Key Phytonutrients</th><th>Examples</th></tr></thead>
@@ -695,6 +703,7 @@
 
 <!-- SLIDE 11 — Where can personas be used? -->
 <section>
+  <p class="section-label">Catering to multiple platforms</p>
   <h2>Where Can Personas Be Used?</h2>
   <br>
   <div class="platform-grid" style="max-width: 766px; margin: 0 auto; font-size: 0.8em;">
@@ -703,7 +712,7 @@
     <div><span class="status-full">●</span> <strong>Gemini Web</strong></div>
     <div>With Gems</div>
     <div><span class="status-full">●</span> <strong>Claude Web & Desktop</strong></div>
-    <div>With project instructions</div>
+    <div>With Project instructions</div>
     <div><span class="status-partial">●</span> <strong>Copilot Web</strong></div>
     <div>Not yet — manual copy &amp; paste</div>
     <div><span class="status-partial">●</span> <strong>ChatGPT Web</strong></div>
@@ -718,6 +727,7 @@
 
 <!-- SLIDE 12 — The scaling problem -->
 <section>
+  <p class="section-label">Catering to multiple platforms</p>
   <h2>The Scaling Problem</h2>
   <br>
   <p style="font-size: 0.85em;">One persona. Many targets.</p>
@@ -741,6 +751,7 @@
 
 <!-- SLIDE 13 — Build pipeline overview -->
 <section>
+  <p class="section-label">Catering to multiple platforms</p>
   <h2>Build Pipeline</h2>
   <br>
   <div class="build-flow">
@@ -748,12 +759,12 @@
       <strong>Sources</strong><br>
       <span style="font-size: 0.85em;">YAML metadata<br>+ Markdown templates<br>+ Shared partials</span>
     </div>
-    <div style="font-size: 1.5em; color: #ffd54f;">→</div>
+    <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box engine">
       <strong>Build Engine</strong><br>
       <span style="font-size: 0.85em;">Resolve variables<br>Apply conditionals<br>Inject partials</span>
     </div>
-    <div style="font-size: 1.5em; color: #ffd54f;">→</div>
+    <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box target">
       <strong>Targets</strong><br>
       <span style="font-size: 0.85em;">VS Code <code>.agent.md</code><br>Claude Code <code>.md</code><br>Deep Agents <code>.md</code></span>
@@ -782,8 +793,9 @@
 
 <!-- SLIDE 14 — The 9-stage pipeline -->
 <section data-auto-animate>
+  <p class="section-label">Building a virtuous chain</p>
   <h2 style="font-size: 1.2em;">The Agentic Workflow</h2>
-  <p style="color: #90a4ae; margin: -0.4em 0 1.4em; font-size: 0.8em;">Granular Precision with well-defined personas.</p>
+  <p class="lead">Granular precision with well-defined personas.</p>
   <div class="pipeline">
     <div class="agent-card">
       <div class="num">1</div>
@@ -863,8 +875,27 @@
   </aside>
 </section>
 
-<!-- SLIDE 15 — The coordination problem -->
+<!-- SLIDE 15 — Dynamic pipelines -->
 <section>
+  <p class="section-label">Building a virtuous chain</p>
+  <h2>Dynamic Pipelines</h2>
+  <p class="lead">Not every task needs all 9 stages. The PM agent decides on the stage sequencing.</p>
+  <img src="img/work-package-stages.png" alt="Work packages with different pipeline configurations"
+       style="max-width: 90%; max-height: 420px;">
+  <br>
+  <p class="sidenote">
+    WP-006: docs only. WP-001: rework badges — the pipeline caught issues and looped back.
+  </p>
+  <aside class="notes">
+    This is a screenshot from the actual ledger GUI. Notice WP-006 has only DOC. WP-003 and 004 include
+    the security audit stage. WP-001 has red rework badges on DEV and QA — meaning those stages found
+    issues, sent the work back, and the developer fixed them. The pipeline is adaptive.
+  </aside>
+</section>
+
+<!-- SLIDE 16 — The coordination problem -->
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Coordination Problem</h2>
   <br>
   <p style="font-size: 0.9em;">Nine agents need to <strong>share state</strong>.</p>
@@ -880,10 +911,11 @@
   </aside>
 </section>
 
-<!-- SLIDE 16 — The project ledger -->
+<!-- SLIDE 17 — The project ledger -->
 <section>
+  <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Project Ledger</h2>
-  <p style="font-size: 0.7em; color: #90a4ae;">A persistent notebook that workflow agents read from and write to.</p>
+  <p class="lead">A platform-independent, persistent notebook that workflow agents read from and write to.</p>
   <div class="ledger-roles" style="max-width: 750px; margin: 0 auto;">
     <div class="role-item">
       <div class="role-name">📋 Shared Memory</div>
@@ -898,7 +930,6 @@
       <div class="role-desc">Every agent can add observations. The ledger accumulates collective intelligence.</div>
     </div>
   </div>
-  <p class="sidenote">The notebook is tooling-independent. VS Code, Claude Code, headless orchestrator — switch tools, keep the ledger.</p>
   <aside class="notes">
     Three roles in one. The observation log is particularly powerful — problems surface organically
     as each specialist examines the work through their lens. No single agent needs to see everything;
@@ -907,15 +938,15 @@
   </aside>
 </section>
 
-<!-- SLIDE 17 — Knowledge that persists -->
+<!-- SLIDE 18 — Knowledge that persists -->
 <section>
+  <p class="section-label">Interconnecting multiple agents</p>
   <h2>Knowledge That Persists</h2>
-  <p style="font-size: 0.7em; color: #90a4ae;">Elevate curated project insights into institutional memory.</p>
-  <br>
+  <p class="lead">Elevate curated project insights into institutional memory.</p>
   <div class="knowledge-scopes">
     <div>
       <h3 style="color: #ffd54f;">🌍 Global Knowledge</h3>
-      <p style="font-size: 0.7em;">Cross-repository insights: architectural patterns, tooling decisions, workflow lessons.<br><br><strong>Survives across all projects.</strong></p>
+      <p style="font-size: 0.7em;">Curated cross-repository insights: architectural patterns, tooling decisions, workflow lessons.<br><br><strong>Survives across all projects.</strong></p>
     </div>
     <div>
       <h3 style="color: #81c784;">📦 Repository Knowledge</h3>
@@ -934,33 +965,14 @@
   </aside>
 </section>
 
-<!-- SLIDE 18 — Dynamic pipelines -->
-<section>
-  <h2>Dynamic Pipelines</h2>
-  <p style="font-size: 0.7em; color: #90a4ae;">Not every task needs all 9 stages. The PM agent decides on the stage sequencing.</p>
-  <br>
-  <img src="work-package-stages.png" alt="Work packages with different pipeline configurations"
-       style="max-width: 90%; max-height: 420px;">
-  <br>
-  <p class="sidenote">
-    WP-006: docs only. WP-001: rework badges — the pipeline caught issues and looped back.
-  </p>
-  <aside class="notes">
-    This is a screenshot from the actual ledger GUI. Notice WP-006 has only DOC. WP-003 and 004 include
-    the security audit stage. WP-001 has red rework badges on DEV and QA — meaning those stages found
-    issues, sent the work back, and the developer fixed them. The pipeline is adaptive.
-  </aside>
-</section>
-
 <!-- ============================================================ -->
 <!-- DEMO -->
 <!-- ============================================================ -->
 <section>
   <p class="section-label">Live Demo</p>
   <h2>The Ledger GUI</h2>
-  <p style="color: #90a4ae;">Let's look at some of the integrated GUI's features.</p>
-  <br>
-  <img src="ledger-gui.png" alt="Ledger GUI overview"
+  <p class="lead">Let's look at some of the ledger features in the GUI.</p>
+  <img src="img/ledger-gui.png" alt="Ledger GUI overview"
        style="max-width: 85%; max-height: 380px;">
   <br>
   <p style="font-size: 0.65em; color: #90a4ae;">
@@ -1000,7 +1012,7 @@
 
 <!-- SLIDE 21 — Resources & Q&A -->
 <section>
-  <h2>Thank You</h2>
+  <h2>Thank You :)</h2>
   <br>
   <p style="font-size: 0.85em;">Questions?</p>
   <br>

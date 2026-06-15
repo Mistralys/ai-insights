@@ -29,3 +29,4 @@
 /node_modules/
 /.claude/agent-memory
 .vscode/settings.json
+docs/presentation/dist/ai-insights-slides.html

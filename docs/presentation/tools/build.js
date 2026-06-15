@@ -3,7 +3,7 @@
 /**
  * Presentation build script.
  *
- * Reads index.html (the lean dev source) and produces index.dist.html
+ * Reads template.html (the lean dev source) and produces dist/ai-insights-slides.html
  * with all heavy resources inlined:
  *
  *   - PNG images  → base64 data URIs
@@ -11,38 +11,38 @@
  *     converter) injected into JS template literals
  *   - Persona source Markdown → JS template literal for the persona modal
  *
- * Usage:
- *   node build.js            → writes index.dist.html
- *   node build.js --watch    → rebuilds on any source file change
+ * Usage (run from the presentation root):
+ *   node tools/build.js          → writes dist/ai-insights-slides.html
+ *   node tools/build.js --watch  → rebuilds on any source file change
  *
  * No dependencies — uses only Node.js built-ins.
  */
 
-import { readFileSync, writeFileSync, watch as fsWatch, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, watch as fsWatch, statSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SRC = resolve(__dirname, 'index.html');
-const DIST = resolve(__dirname, 'index.dist.html');
+const SRC = resolve(__dirname, '../template.html');
+const DIST = resolve(__dirname, '../dist/ai-insights-slides.html');
 
 // ── Resource manifest ────────────────────────────────────────────────────────
 // Each entry maps a src="<filename>" in the HTML to a local PNG file.
 const IMAGE_MAP = {
-  'work-package-stages.png': resolve(__dirname, 'work-package-stages.png'),
-  'ledger-gui.png': resolve(__dirname, 'ledger-gui.png'),
+  'img/work-package-stages.png': resolve(__dirname, '../img/work-package-stages.png'),
+  'img/ledger-gui.png': resolve(__dirname, '../img/ledger-gui.png'),
 };
 
 // Markdown files rendered to HTML and injected as JS string literals.
 const RECIPE_FILES = {
-  '/* BUILD:RECIPE_VANILLA */': resolve(__dirname, 'recipe-results-vanilla.md'),
-  '/* BUILD:RECIPE_PERSONA */': resolve(__dirname, 'recipe-results-persona.md'),
+  '/* BUILD:RECIPE_VANILLA */': resolve(__dirname, '../partials/recipe-results-vanilla.md'),
+  '/* BUILD:RECIPE_PERSONA */': resolve(__dirname, '../partials/recipe-results-persona.md'),
 };
 
 // Plain-text persona source injected as a JS template literal.
 const PERSONA_SOURCE = resolve(
   __dirname,
-  '../../personas/standalone/src/content/recipe-curator.md'
+  '../../../personas/standalone/src/content/recipe-curator.md'
 );
 
 // ── Lightweight Markdown → HTML ──────────────────────────────────────────────
@@ -230,12 +230,20 @@ function build() {
     `const personaMarkdown = \`${personaEscaped}\`;`
   );
 
+  // 4. Inject version + date from changelog
+  const CHANGELOG = resolve(__dirname, '../changelog.md');
+  const changelogText = readFileSync(CHANGELOG, 'utf8');
+  const versionMatch = changelogText.match(/^## (v[\d.]+) \(([^)]+)\)/m);
+  const slideVersion = versionMatch ? `${versionMatch[1]} &middot; ${versionMatch[2]}` : '';
+  html = html.replace('<!-- BUILD:SLIDE_VERSION -->', slideVersion);
+
+  mkdirSync(dirname(DIST), { recursive: true });
   writeFileSync(DIST, html, 'utf8');
 
   const elapsed = (performance.now() - start).toFixed(0);
   const srcSize = (statSync(SRC).size / 1024).toFixed(1);
   const distSize = (statSync(DIST).size / 1024).toFixed(1);
-  console.log(`✓ Built index.dist.html (${srcSize} KB → ${distSize} KB) in ${elapsed} ms`);
+  console.log(`✓ Built dist/ai-insights-slides.html (${srcSize} KB → ${distSize} KB) in ${elapsed} ms`);
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
@@ -247,6 +255,7 @@ if (args.includes('--watch') || args.includes('-w')) {
   const watchFiles = [
     SRC,
     PERSONA_SOURCE,
+    resolve(__dirname, '../changelog.md'),
     ...Object.values(IMAGE_MAP),
     ...Object.values(RECIPE_FILES),
   ];
