@@ -3,13 +3,17 @@
   <h2 style="font-size: 1.2em;">The Agentic Workflow</h2>
   <p class="lead">Granular precision with well-defined personas.</p>
   <div class="pipeline">
-    <div class="agent-card">
-      <div class="num">1</div>
-      <div class="name">Planner</div>
-      <div class="role">Scope &amp; plan</div>
+    <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
+      <div class="agent-card">
+        <div class="num">1</div>
+        <div class="name">Planner</div>
+        <div class="role">Scope &amp; plan</div>
+      </div>
     </div>
     <div class="arrow">›</div>
     <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
       <div class="agent-card has-subagents">
         <div class="num">2</div>
         <div class="name">PM</div>
@@ -60,6 +64,7 @@
     </div>
     <div class="arrow">›</div>
     <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
       <div class="agent-card has-subagents">
         <div class="num">9</div>
         <div class="name">Synthesis</div>
@@ -75,8 +80,9 @@
     extracting lessons so the next project starts smarter.
   </p>
   <aside class="notes">
-    Nine specialized agents, each with a defined role. The PM and Synthesis have subagents for
-    decomposition and knowledge extraction. Each agent has its own persona built by the same build
-    system we just discussed. The yellow-bordered cards have subagents shown below.
+    Nine specialized agents, each with a defined role. The 👤 markers show where a human initiates
+    the agent — Planner, PM, and Synthesis are human-driven stages. The middle stages (3–8) run
+    per work package. The PM and Synthesis have subagents shown below their cards (yellow borders).
+    Each agent has its own persona built by the same build system we just discussed.
   </aside>
 </section>

@@ -1,0 +1,40 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>The Orchestrator</h2>
+  <p class="lead">Same workflow, headless in the command line.</p>
+  <div class="compare">
+    <div>
+      <div class="label after">Semi-Interactive (IDE)</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        Agents hand off automatically through the ledger in VS Code.<br><br>
+        Human involved at key stages<br>(Planner, PM, Synthesis).<br><br>
+        <span style="color: #90a4ae;">
+            Deterministic &amp; observable.<br>
+            Live GUI tracking.
+        </span>
+      </p>
+    </div>
+    <div>
+      <div class="label after" style="color: #ffd54f;">Headless (Orchestrator)</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        One command launches the full workflow.<br><br>
+        LangGraph routes agents automatically.<br>
+        Same MCP server. Same personas.<br><br>
+        <span style="color: #90a4ae;">
+            Ideal for oversightless automation.<br>
+            Live GUI tracking.
+        </span>
+      </p>
+    </div>
+  </div>
+  <br>
+  <p class="sidenote">
+    Both paths use identical persona prompts and ledger state &mdash; the orchestrator is a different driver, not a different system.
+  </p>
+  <aside class="notes">
+    The IDE path is already deterministic — agents hand off automatically through the ledger. The
+    human is involved at Planner, PM, and Synthesis (as shown in the previous slide). The orchestrator
+    removes even that — a LangGraph supervisor drives the entire chain from a single CLI command.
+    Same MCP server, same personas, same ledger. Useful for CI, batch processing, or fully hands-off runs.
+  </aside>
+</section>

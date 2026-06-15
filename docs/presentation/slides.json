@@ -29,7 +29,8 @@
         "part2-divider",
         "platforms",
         "scaling-problem",
-        "build-pipeline"
+        "build-pipeline",
+        "template-syntax"
       ]
     },
     {
@@ -40,7 +41,9 @@
         "dynamic-pipelines",
         "coordination-problem",
         "project-ledger",
-        "knowledge-persists"
+        "knowledge-persists",
+        "orchestrator",
+        "battle-tested"
       ]
     },
     {

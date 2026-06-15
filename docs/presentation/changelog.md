@@ -1,5 +1,10 @@
 # Presentation Slides Changelog
 
+## v1.1.2 (2026-06-15) - New slides
+- Added an Orchestrator slide.
+- Added a template syntax slide.
+- Added a statistics slide.
+
 ## v1.1.1 (2026-06-15) - Wording & Layout
 - Tweaked wording in some slides.
 - Tweaked layout in some slides.

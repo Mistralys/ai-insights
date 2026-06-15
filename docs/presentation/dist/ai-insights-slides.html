@@ -122,6 +122,14 @@
   .agent-wrapper { display: flex; flex-direction: column; align-items: flex-start; position: relative; }
   .agent-wrapper .subagents { position: absolute; top: 100%; font-size: 0.48em; margin-top: 0.55em; white-space: nowrap; }
 
+  /* Human-in-the-loop marker above agent cards */
+  .human-marker {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    font-size: 0.4em; color: #ce93d8; text-align: center;
+    margin-bottom: 0.15em; letter-spacing: 0.04em; font-weight: 600;
+    white-space: nowrap;
+  }
+
   /* Subagent pills */
   .subagents {
     display: flex; flex-direction: column; gap: 0.3em;
@@ -835,6 +843,38 @@
 </section>
 
 <section>
+  <p class="section-label">Catering to multiple platforms</p>
+  <h2>One Source, Multiple Outputs</h2>
+  <p class="lead">Target conditionals adapt to each platform automatically.</p>
+  <div style="font-size: 0.55em; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 1em 1.4em; text-align: left; font-family: 'JetBrains Mono', monospace; line-height: 1.6; max-width: 780px; margin: 0 auto; border: 1px solid rgba(255,255,255,0.06);">
+    <span style="color: #ce93d8;">{{#if target_vscode}}</span><br>
+    &nbsp;&nbsp;Invoke <span style="color: #81c784;">`runSubagent`</span> with agentName: <span style="color: #ffd54f;">"WP Decomposer"</span><br>
+    <span style="color: #ce93d8;">{{else if target_claude_code}}</span><br>
+    &nbsp;&nbsp;Use the <span style="color: #81c784;">`Task`</span> tool with agent: <span style="color: #ffd54f;">"WP Decomposer"</span><br>
+    <span style="color: #ce93d8;">{{else if target_deep_agents}}</span><br>
+    &nbsp;&nbsp;Use the <span style="color: #81c784;">`task`</span> tool with subagent_type: <span style="color: #ffd54f;">"wp-decomposer"</span><br>
+    <span style="color: #ce93d8;">{{/if}}</span>
+  </div>
+  <p style="font-size: 0.7em; color: #90a4ae;">
+    From the Project Manager persona &mdash; each platform has a different tool API<br>
+    for dispatching sub-agents. The template handles it.
+  </p>
+  <p class="sidenote" style="margin-top: 2em;">
+    Variables <span style="color: #ffd54f;">{{agent_name}}</span>
+    |
+    Partials <span style="color: #81c784;">{{&gt; shared-partial}}</span>
+    |
+    Conditionals <span style="color: #ce93d8;">{{#if}}</span>
+  </p>
+  <aside class="notes">
+    This is real syntax from the Project Manager persona. VS Code uses runSubagent, Claude Code uses
+    Task, Deep Agents uses task with a slug. One source file, three correct outputs. The template
+    language has just three constructs: variables for values, partials for shared content blocks,
+    and conditionals for platform differences. No programming required.
+  </aside>
+</section>
+
+<section>
   <p class="section-label">Part 3</p>
   <h2>The Ledger &amp; Workflow</h2>
   <p style="color: #90a4ae;">A team of 9 interconnected AI specialists.</p>
@@ -845,13 +885,17 @@
   <h2 style="font-size: 1.2em;">The Agentic Workflow</h2>
   <p class="lead">Granular precision with well-defined personas.</p>
   <div class="pipeline">
-    <div class="agent-card">
-      <div class="num">1</div>
-      <div class="name">Planner</div>
-      <div class="role">Scope &amp; plan</div>
+    <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
+      <div class="agent-card">
+        <div class="num">1</div>
+        <div class="name">Planner</div>
+        <div class="role">Scope &amp; plan</div>
+      </div>
     </div>
     <div class="arrow">›</div>
     <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
       <div class="agent-card has-subagents">
         <div class="num">2</div>
         <div class="name">PM</div>
@@ -902,6 +946,7 @@
     </div>
     <div class="arrow">›</div>
     <div class="agent-wrapper">
+      <div class="human-marker">👤 Human</div>
       <div class="agent-card has-subagents">
         <div class="num">9</div>
         <div class="name">Synthesis</div>
@@ -917,9 +962,10 @@
     extracting lessons so the next project starts smarter.
   </p>
   <aside class="notes">
-    Nine specialized agents, each with a defined role. The PM and Synthesis have subagents for
-    decomposition and knowledge extraction. Each agent has its own persona built by the same build
-    system we just discussed. The yellow-bordered cards have subagents shown below.
+    Nine specialized agents, each with a defined role. The 👤 markers show where a human initiates
+    the agent — Planner, PM, and Synthesis are human-driven stages. The middle stages (3–8) run
+    per work package. The PM and Synthesis have subagents shown below their cards (yellow borders).
+    Each agent has its own persona built by the same build system we just discussed.
   </aside>
 </section>
 
@@ -959,7 +1005,7 @@
 <section>
   <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Project Ledger</h2>
-  <p class="lead">A platform-independent, persistent notebook that workflow agents read from and write to.</p>
+  <p class="lead">A platform-independent, <strong class="accent">persistent MCP notebook</strong> that workflow agents read from and write to.</p>
   <div class="ledger-roles" style="max-width: 750px; margin: 0 auto;">
     <div class="role-item">
       <div class="role-name">📋 Shared Memory</div>
@@ -1005,6 +1051,75 @@
     The Knowledge Archiver (subagent of Synthesis) extracts insights at project end. Future projects
     start smarter. Two scopes: global knowledge applies everywhere, repository knowledge is codebase-specific.
     The project strategy is a separate concept — a high-level vision and timeline context.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>The Orchestrator</h2>
+  <p class="lead">Same workflow, headless in the command line.</p>
+  <div class="compare">
+    <div>
+      <div class="label after">Semi-Interactive (IDE)</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        Agents hand off automatically through the ledger in VS Code.<br><br>
+        Human involved at key stages<br>(Planner, PM, Synthesis).<br><br>
+        <span style="color: #90a4ae;">
+            Deterministic &amp; observable.<br>
+            Live GUI tracking.
+        </span>
+      </p>
+    </div>
+    <div>
+      <div class="label after" style="color: #ffd54f;">Headless (Orchestrator)</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        One command launches the full workflow.<br><br>
+        LangGraph routes agents automatically.<br>
+        Same MCP server. Same personas.<br><br>
+        <span style="color: #90a4ae;">
+            Ideal for oversightless automation.<br>
+            Live GUI tracking.
+        </span>
+      </p>
+    </div>
+  </div>
+  <br>
+  <p class="sidenote">
+    Both paths use identical persona prompts and ledger state &mdash; the orchestrator is a different driver, not a different system.
+  </p>
+  <aside class="notes">
+    The IDE path is already deterministic — agents hand off automatically through the ledger. The
+    human is involved at Planner, PM, and Synthesis (as shown in the previous slide). The orchestrator
+    removes even that — a LangGraph supervisor drives the entire chain from a single CLI command.
+    Same MCP server, same personas, same ledger. Useful for CI, batch processing, or fully hands-off runs.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Battle-Tested</h2>
+  <p class="lead">Real-world pluridisciplinary usage since January 2026.</p>
+  <div style="display: flex; justify-content: center; gap: 2em; margin: 1.5em 0;">
+    <div style="text-align: center;">
+      <p style="font-size: 2.8em; font-weight: 700; color: #ffd54f; margin: 0; line-height: 1.1;">420+</p>
+      <p style="font-size: 0.7em; color: #90a4ae; margin-top: 0.3em;">plans executed</p>
+    </div>
+  </div>
+  <p style="font-size: 0.8em; max-width: 700px; margin: 0 auto;">
+    Personas refined iteratively from <span class="accent">real-world usage</span>.<br>
+    With the knowledge store, every project's lessons are <span class="accent">remembered</span>.
+  </p>
+  <br>
+  <p style="font-size: 0.7em; color: #90a4ae;">
+    Experience was drawn from Windows, Linux, and MacOS development.<br>
+    Languages include Python, Rust, TypeScript, C#, PHP and more.<br>
+    Application targets include web, desktop, and CLI. 
+  </p>
+  <aside class="notes">
+    Since January 2026, over 420 plans have been run through the workflow. Each run stress-tests the
+    personas and surfaces edge cases in agent behavior, handoff logic, and quality standards. The
+    current persona set is battle-tested — shaped by real failures and real fixes, not theoretical
+    design. This is what gives confidence that the crafting principles work in practice.
   </aside>
 </section>
 
@@ -1080,7 +1195,7 @@ Reveal.initialize({
   const panel = document.getElementById('outline-panel');
 
   // Build outline from build-injected outline data
-  const outlineData = [{"label":"Opening","startIndex":0,"count":2},{"label":"Part 1 — Persona Philosophy","startIndex":2,"count":11},{"label":"Part 2 — Build System","startIndex":13,"count":4},{"label":"Part 3 — Ledger & Workflow","startIndex":17,"count":6},{"label":"Demo","startIndex":23,"count":1},{"label":"Closing","startIndex":24,"count":2}];
+  const outlineData = [{"label":"Opening","startIndex":0,"count":2},{"label":"Part 1 — Persona Philosophy","startIndex":2,"count":11},{"label":"Part 2 — Build System","startIndex":13,"count":5},{"label":"Part 3 — Ledger & Workflow","startIndex":18,"count":8},{"label":"Demo","startIndex":26,"count":1},{"label":"Closing","startIndex":27,"count":2}];
 
   const allSections = document.querySelectorAll('.reveal .slides > section');
   let html = '';
