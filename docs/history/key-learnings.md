@@ -98,3 +98,11 @@
 
 - Always audit a newly created plan, no plan is perfect from the start.
 - After auditing a plan, check it for simplification opportunities.
+- Give agents a simple way to refresh CTX generated files.
+- Use a mini-audit workflow to automate plan reviews.
+
+### June 2026
+
+- Extracting bits of knowledge from a Synthesis.
+- Using a dedicated agent to curate knowledge.
+- Adding project-specific stategy and vision to the planner agent.
