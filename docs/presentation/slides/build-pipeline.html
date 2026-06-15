@@ -1,0 +1,31 @@
+<section>
+  <p class="section-label">Catering to multiple platforms</p>
+  <h2>Build Pipeline</h2>
+  <br>
+  <div class="build-flow">
+    <div class="box source">
+      <strong>Sources</strong><br>
+      <span style="font-size: 0.85em;">YAML metadata<br>+ Markdown templates<br>+ Shared partials</span>
+    </div>
+    <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
+    <div class="box engine">
+      <strong>Build Engine</strong><br>
+      <span style="font-size: 0.85em;">Resolve variables<br>Apply conditionals<br>Inject partials</span>
+    </div>
+    <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
+    <div class="box target">
+      <strong>Targets</strong><br>
+      <span style="font-size: 0.85em;">VS Code <code>.agent.md</code><br>Claude Code <code>.md</code><br>Deep Agents <code>.md</code></span>
+    </div>
+  </div>
+  <br>
+  <p style="font-size: 0.7em; color: #90a4ae;">
+    Shared partials handle cross-cutting concerns:<br>
+    operational protocols, output formats, incident logging.
+  </p>
+  <aside class="notes">
+    Single source of truth. One change propagates to all targets. Shared partials mean that if you
+    change how all agents should log incidents, you change one file and rebuild. No code on screen
+    intentionally — this is the conceptual flow.
+  </aside>
+</section>

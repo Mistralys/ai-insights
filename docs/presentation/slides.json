@@ -1,0 +1,60 @@
+{
+  "sections": [
+    {
+      "label": "Opening",
+      "slides": [
+        "title",
+        "agenda"
+      ]
+    },
+    {
+      "label": "Part 1 — Persona Philosophy",
+      "slides": [
+        "part1-divider",
+        "persona-what",
+        "persona-difference",
+        "nlp",
+        "persona-structure",
+        "markdown-format",
+        "identity-anchor",
+        "english-best",
+        "domain-knowledge",
+        "values-standards",
+        "meet-the-team"
+      ]
+    },
+    {
+      "label": "Part 2 — Build System",
+      "slides": [
+        "part2-divider",
+        "platforms",
+        "scaling-problem",
+        "build-pipeline"
+      ]
+    },
+    {
+      "label": "Part 3 — Ledger & Workflow",
+      "slides": [
+        "part3-divider",
+        "agentic-workflow",
+        "dynamic-pipelines",
+        "coordination-problem",
+        "project-ledger",
+        "knowledge-persists"
+      ]
+    },
+    {
+      "label": "Demo",
+      "slides": [
+        "demo-divider"
+      ]
+    },
+    {
+      "label": "Closing",
+      "slides": [
+        "key-takeaways",
+        "thank-you"
+      ]
+    }
+  ]
+}

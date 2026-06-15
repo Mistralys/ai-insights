@@ -25,6 +25,8 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(__dirname, '../template.html');
 const DIST = resolve(__dirname, '../dist/ai-insights-slides.html');
+const SLIDES_JSON = resolve(__dirname, '../slides.json');
+const SLIDES_DIR = resolve(__dirname, '../slides');
 
 // ── Resource manifest ────────────────────────────────────────────────────────
 // Each entry maps a src="<filename>" in the HTML to a local PNG file.
@@ -197,11 +199,62 @@ function escapeForJsSingleQuote(str) {
     .replace(/\r/g, '');
 }
 
+// ── Slide assembly ──────────────────────────────────────────────────────────
+
+/**
+ * Reads slides.json and concatenates all slide fragment files into one HTML string.
+ * Each entry in slides.json resolves to slides/{name}.html.
+ * Throws if a referenced file does not exist.
+ */
+function assembleSlides() {
+  const registry = JSON.parse(readFileSync(SLIDES_JSON, 'utf8'));
+  const fragments = [];
+  for (const section of registry.sections) {
+    for (const name of section.slides) {
+      const fragmentPath = resolve(SLIDES_DIR, `${name}.html`);
+      let content;
+      try {
+        content = readFileSync(fragmentPath, 'utf8').trimEnd();
+      } catch (err) {
+        throw new Error(`Slide fragment not found: slides/${name}.html (referenced in slides.json section "${section.label}")`);
+      }
+      fragments.push(content);
+    }
+  }
+  return fragments.join('\n\n');
+}
+
+/**
+ * Computes outline data from slides.json: an array of { label, startIndex, count }
+ * where startIndex is the 0-based slide index and count is the number of slides
+ * in the section. Injected into the template as JSON for the runtime outline panel.
+ */
+function buildOutlineData() {
+  const registry = JSON.parse(readFileSync(SLIDES_JSON, 'utf8'));
+  const result = [];
+  let index = 0;
+  for (const section of registry.sections) {
+    const count = section.slides.length;
+    result.push({ label: section.label, startIndex: index, count });
+    index += count;
+  }
+  return result;
+}
+
 // ── Build ────────────────────────────────────────────────────────────────────
 
 function build() {
   const start = performance.now();
   let html = readFileSync(SRC, 'utf8');
+
+  // 0. Assemble slide fragments and inject outline data
+  //    Must run before all other steps so BUILD:* placeholders inside
+  //    slide fragments are processed by the subsequent injection steps.
+  const slidesHtml = assembleSlides();
+  html = html.replace('<!-- BUILD:SLIDES -->', slidesHtml);
+
+  const outlineData = buildOutlineData();
+  html = html.replace('/* BUILD:OUTLINE_DATA */', JSON.stringify(outlineData));
 
   // 1. Inline PNG images as base64 data URIs
   for (const [filename, filepath] of Object.entries(IMAGE_MAP)) {
@@ -254,11 +307,18 @@ if (args.includes('--watch') || args.includes('-w')) {
   // Watch mode: rebuild on any source file change
   const watchFiles = [
     SRC,
+    SLIDES_JSON,
     PERSONA_SOURCE,
     resolve(__dirname, '../changelog.md'),
     ...Object.values(IMAGE_MAP),
     ...Object.values(RECIPE_FILES),
   ];
+
+  // Watch the slides/ directory so new or renamed fragment files trigger a rebuild
+  fsWatch(SLIDES_DIR, { persistent: true }, () => {
+    console.log(`\n  Changed: slides/`);
+    try { build(); } catch (e) { console.error('  Build error:', e.message); }
+  });
 
   build();
   console.log('Watching for changes…');
