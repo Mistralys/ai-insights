@@ -1,5 +1,8 @@
 # Presentation Slides Changelog
 
+## v1.1.5 (2026-06-17) - Improved Onboarding
+- Added new slides for a smoother start.
+
 ## v1.1.4 (2026-06-16) - Minor Tweaks
 - Using a better carbonara recipe example.
 - Wording adjustments for a non-technical audience.

@@ -465,7 +465,7 @@
   <h1>AI Insights</h1>
   <p class="subtitle" style="font-size: 0.9em; color: #64b5f6;">Persona Crafting &amp; Multi-Agent Workflow</p>
   <br>
-  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.4 &middot; 2026-06-16</p>
+  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.5 &middot; 2026-06-17</p>
   <p style="font-size: 0.7em; color: #90a4ae;">Sebastian Mordziol</p>
   <aside class="notes">
     Welcome everyone. Today I'll share how we brought engineering discipline to AI agent instructions —
@@ -474,9 +474,36 @@
 </section>
 
 <section>
+  <p class="section-label">Opening</p>
+  <h2>Introducing AI Insights</h2>
+  <p class="lead">A Github repository with the results of my personal AI journey as a developer.</p>
+  <div style="text-align: left; max-width: 790px; margin: 0 auto; font-size: 0.75em; display: flex; flex-direction: column; gap: 0.7em;">
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">AI usage insights:</strong><br>
+      Key learnings, real world applications and research-backed usage principles.
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">A collection of agent personas:</strong><br>
+      AI specialists to help me in my daily software architect and development work.
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">An agentic workflow:</strong><br>
+      A group of interconnected agents used to implement features autonomously.
+    </div>
+  </div>
+  <aside class="notes">
+    Since January 2026, over 420 plans have been run through the workflow. Each run stress-tests the
+    personas and surfaces edge cases in agent behavior, handoff logic, and quality standards. The
+    current persona set is battle-tested — shaped by real failures and real fixes, not theoretical
+    design. This is what gives confidence that the crafting principles work in practice.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Opening</p>
   <h2>What We'll Cover</h2>
   <div style="text-align: left; font-size: 0.85em; max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.4em;">
-    <p><strong class="accent-blue">Part 1</strong> &mdash; Persona Philosophy<br>
+    <p><strong class="accent-blue">Part 1</strong> &mdash; Agent Personas<br>
        <em>What agent personas are and how to craft them effectively.</em></p>
     <p><strong class="accent-blue">Part 2</strong> &mdash; The Build System<br>
        <em>Write once, deploy to every AI platform.</em></p>
@@ -493,7 +520,7 @@
 
 <section>
   <p class="section-label">Part 1</p>
-  <h2>Persona Philosophy</h2>
+  <h2>Agent Personas</h2>
   <p style="color: #90a4ae;">The foundation of everything.</p>
 </section>
 
@@ -504,23 +531,57 @@
      <strong>who</strong> it is, <strong>what</strong> it does, and <strong>how</strong> it works.</p>
   <br>
   <p style="font-size: 0.85em;">More than a prompt — <span class="accent">an operating manual.</span></p>
-  <br>
-  <p style="font-size: 0.75em; color: #90a4ae;">
-    Our running example: the <strong>Recipe Curator</strong>
-  </p>
-    <p style="font-size: 0.75em; color: #90a4ae;">
-    <em>"Imagine an AI that's genuinely good at helping you cook your way—<br>
-    and that knows your kitchen inside and out."</em>
-  </p>
   <aside class="notes">
-    We'll use the Recipe Curator throughout — it's a real production persona from our standalone suite.
-    Non-technical, universally relatable. Everyone understands cooking.
+    A persona is not a one-line system prompt. It's a complete operating manual that defines identity,
+    knowledge, constraints, and workflow. Think of it as the difference between telling someone "be a chef"
+    and handing them a detailed job description with equipment lists, dietary rules, and step-by-step procedures.
   </aside>
 </section>
 
 <section>
   <p class="section-label">Discovering personas</p>
-  <h2>The Persona Difference</h2>
+  <h2>Meet the Recipe Curator</h2>
+  <p class="lead">Our running example — a real production persona.</p>
+  <div class="two-col" style="font-size: 0.7em;">
+    <div class="glass" style="padding: 1em 1.2em;">
+      <h3 style="margin-top: 0;">Identity</h3>
+      <p><strong>Private Chef &amp; Culinary Consultant</strong></p>
+      <p style="color: #90a4ae;">Curates, adapts, and composes recipes<br>tailored to a real home kitchen.</p>
+      <p style="margin-top: 0.8em; font-size: 0.9em;">
+        <span class="accent">🍳</span> Knows every piece of equipment<br>
+        <span class="accent">🌿</span> Knows the garden herbs by name<br>
+        <span class="accent">🎨</span> Enforces "Rainbow Eating" nutrition<br>
+        <span class="accent">📏</span> Metric only, no exceptions
+      </p>
+    </div>
+    <div class="glass" style="padding: 1em 1.2em;">
+      <h3 style="margin-top: 0;">Why this example?</h3>
+      <p><strong>My family actively uses it :)</strong></p>
+      <p style="color: #90a4ae;">Non-technical, universally relatable.<br>Everyone understands cooking.</p>
+      <p style="margin-top: 0.8em; font-size: 0.9em;">
+        <span class="accent-blue">›</span> 276 lines of structured instructions<br>
+        <span class="accent-blue">›</span> 7-step processing workflow<br>
+        <span class="accent-blue">›</span> Equipment table, nutrition targets<br>
+        <span class="accent-blue">›</span> Output templates with exact format
+      </p>
+    </div>
+  </div>
+  <br>
+  <p style="font-size: 0.75em; color: #90a4ae;">
+    <em>"Imagine an AI that's genuinely good at helping you cook your way —<br>
+    and that knows your kitchen inside and out."</em>
+  </p>
+  <aside class="notes">
+    We'll use the Recipe Curator throughout the presentation. It's a real production persona from our
+    standalone suite. Non-technical, universally relatable — everyone understands cooking. It demonstrates
+    every concept we'll cover: identity anchoring, domain knowledge, structured workflow, strict constraints,
+    and output templates. 276 lines — this is not a one-liner prompt.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Discovering personas</p>
+  <h2>A Clear Difference</h2>
   <p class="lead">
     Same prompt: <em>"Please give me a pasta carbonara recipe."</em> &mdash; Gemini Web
   </p>
@@ -528,7 +589,10 @@
     <div data-modal="before">
       <div class="label before">Without persona</div>
       <p style="font-size: 0.6em; text-align: left;">
-        <strong>Authentic Roman Pasta Carbonara</strong><br><br>
+        <strong>Authentic Roman Pasta Carbonara</strong><br>
+        <br>
+        <strong style="color:#64b5f6">35 Lines - Generic</strong><br>
+        <br>
         Textbook recipe. Guanciale, eggs, Pecorino.<br>
         Generic quantities, no personalization.<br>
         Imperial + metric mix.<br>
@@ -538,12 +602,14 @@
     <div data-modal="after">
       <div class="label after">With Recipe Curator (Gem)</div>
       <p style="font-size: 0.6em; text-align: left;">
-        <strong>Rigatoni alla Carbonara di Zucchine</strong><br>
-        <em>Roman (Lazio region)</em><br><br>
+        <strong>Rigatoni alla Carbonara di Zucchine</strong><em>- Roman (Lazio region)</em><br>
+        <br>
+        <strong style="color:#64b5f6">75 Lines - Creative &amp; Detailed</strong><br>
+        <br>
         Uses <span class="accent">garden herbs</span> by name.<br>
         References <span class="accent">household equipment</span>.<br>
-        Metric only. Color groups listed.<br>
-        Nutrition table + Tinkerer's Notes + Shopping List.
+        Metric only. Rainbow color groups listed.<br>
+        <span class="accent">Nutrition table</span> + Tinkerer's Notes + Shopping List.
       </p>
     </div>
   </div>
@@ -711,32 +777,38 @@
 
 <section>
   <p class="section-label">What Makes a Persona Powerful</p>
-  <h2>Values &amp; Standards</h2>
-  <p class="lead">A recipe quality standard the AI enforces automatically.</p>
-  <div class="rainbow-table">
-    <table>
-      <thead><tr><th>Color Group</th><th>Key Phytonutrients</th><th>Examples</th></tr></thead>
-      <tbody>
-        <tr><td><span class="color-dot" style="background:#e53935;"></span>Red</td><td>Lycopene, ellagic acid</td><td>Tomatoes, red peppers, strawberries</td></tr>
-        <tr><td><span class="color-dot" style="background:#ff9800;"></span>Orange &amp; Yellow</td><td>Beta-carotene, hesperidin</td><td>Carrots, sweet potatoes, mango</td></tr>
-        <tr><td><span class="color-dot" style="background:#43a047;"></span>Green</td><td>Lutein, sulforaphane</td><td>Spinach, broccoli, zucchini</td></tr>
-        <tr><td><span class="color-dot" style="background:#5c6bc0;"></span>Blue &amp; Purple</td><td>Anthocyanins, resveratrol</td><td>Eggplant, blueberries, figs</td></tr>
-        <tr><td><span class="color-dot" style="background:#ad1457;"></span>Dark Red / Magenta</td><td>Betalains</td><td>Beets, rhubarb, ruby chard</td></tr>
-        <tr><td><span class="color-dot" style="background:#a1887f;"></span>White / Tan / Brown</td><td>Allicin, quercetin</td><td>Garlic, mushrooms, cauliflower</td></tr>
-      </tbody>
-    </table>
+  <h2>Philosophy &amp; Thought Patterns</h2>
+  <p class="lead">An Operating Philosophy teaches the model <em>how to think</em>, not just what to do.</p>
+  <div style="text-align: left; max-width: 780px; margin: 0 auto; font-size: 0.75em; display: flex; flex-direction: column; gap: 0.7em;">
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">Novelty Over Familiarity:</strong><br>
+      <span style="color: #90a4ae;padding:0.8em 0;display:block"><em>"Would this appear on the first page of a search engine? If yes, dig deeper."</em></span>
+      <strong>›</strong> This single principle turned a generic carbonara into the zucchini variation.
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">Garden First:</strong><br>
+      <span style="color: #90a4ae;padding:0.8em 0;display:block"><em>"Prioritize fresh herbs from the household garden."</em></span>
+      <strong>›</strong> The model now defaults to ingredients you actually have.
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.6em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent">The Tinkerer's Mindset:</strong><br>
+      <span style="color: #90a4ae;padding:0.8em 0;display:block"><em>"Always include variations, substitutions, and creative twists."</em></span>
+      <strong>›</strong> Every recipe comes with ideas for experimentation.
+    </div>
   </div>
   <br>
   <p style="font-size: 0.7em;">
-    <strong class="accent-blue">Equipment</strong> = situational awareness &nbsp;|&nbsp;
-    <strong class="accent-green">Rainbow Eating</strong> = quality standards<br>
-    Together: the AI makes <span class="accent">judgment calls</span>, not just follows commands.
+    A model with such guidance makes <span class="accent">better judgment calls</span> on things you didn't anticipate.
   </p>
   <aside class="notes">
-    Per-meal target: 2-3 color groups. Per-week: all 6 must appear. The AI checks this automatically
-    on every recipe and flags gaps. This is the key takeaway: equipment gives situational awareness,
-    rainbow eating gives quality standards. Together, they let the AI make judgment calls. This is the
-    difference between a prompt and a persona.
+    This is the difference between a rule and a value. Rules handle known situations — "use metric units."
+    Values handle unknown situations — when the model faces a choice you didn't foresee, the philosophy
+    guides the decision. "Novelty Over Familiarity" is a great example: you can't list every obvious
+    recipe to avoid, but you can teach the model to always look past the obvious. These principles are
+    from the actual Recipe Curator persona. You can apply the same approach to any domain — a travel
+    planner, a writing assistant, a research helper. The equipment table on the previous slide showed
+    domain knowledge — situational awareness. This slide shows values — quality standards. Together,
+    they let the model make judgment calls instead of just following commands.
   </aside>
 </section>
 
@@ -795,6 +867,42 @@
     workflow, and quality standards. They range from coding agents to documentation curators to
     personal-use personas like the Recipe Curator. The key point: the same persona-crafting discipline
     applies whether you're building a code review agent or a meal planner.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Beyond a single persona</p>
+  <h2>Build Your Own Personas</h2>
+  <p class="lead">You don't need to start from scratch &mdash; let the model help you build it.</p>
+  <div style="text-align: left; max-width: 720px; margin: 0 auto; font-size: 0.8em; display: flex; flex-direction: column; gap: 0.55em;">
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.5em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent" style="font-size: 1.4em;">1.</strong> Pick a task you repeat often<br>
+      <span style="font-size: 0.85em; color: #90a4ae;">Meal planning, travel research, email drafting, meeting summaries&hellip;</span>
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.5em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent" style="font-size: 1.4em;">2.</strong> Give the model the AI Insights' persona creation guide<br>
+      <span style="font-size: 0.85em; color: #90a4ae;">This guide teaches the structure, principles, and patterns.</span>
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.5em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent" style="font-size: 1.4em;">3.</strong> Describe what you need in your own words<br>
+      <span style="font-size: 0.85em; color: #90a4ae;">The model generates the persona for you &mdash; following the guide.</span>
+    </div>
+    <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.5em 1em; box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <strong class="accent" style="font-size: 1.4em;">4.</strong> Use it, observe, refine<br>
+      <span style="font-size: 0.85em; color: #90a4ae;">Personas are living documents. Each use shows you what to tighten.</span>
+    </div>
+  </div>
+  <br>
+  <p style="font-size: 0.75em;">
+    A <strong class="accent-blue">Quickstart Guide</strong> with the creation guide and step-by-step<br>
+    instructions are linked at the end.
+  </p>
+  <aside class="notes">
+    The key takeaway: you don't need to be a prompt engineer. The AI Insights project includes a
+    Persona Design Guide — a detailed reference document that teaches the model itself how to create
+    well-structured personas. You feed the guide to the model, describe what you want, and it generates
+    the persona for you. Then you use it, see where it falls short, and tighten the instructions.
+    A quickstart guide with everything you need is linked at the end.
   </aside>
 </section>
 
@@ -1201,6 +1309,7 @@
   <br>
   <div style="font-size: 0.7em; color: #90a4ae;">
     <p><strong class="accent-blue">AI Insights</strong> — github.com/Mistralys/ai-insights</p>
+    <p><strong class="accent-blue">Persona Creation Guide</strong> — github.com/Mistralys/ai-insights</p>
     <p><strong class="accent-blue">Persona Builder</strong> — github.com/Mistralys/persona-builder</p>
   </div>
   <aside class="notes">
@@ -1229,7 +1338,7 @@ Reveal.initialize({
   const panel = document.getElementById('outline-panel');
 
   // Build outline from build-injected outline data
-  const outlineData = [{"label":"Opening","startIndex":0,"count":2},{"label":"Part 1 — Persona Philosophy","startIndex":2,"count":11},{"label":"Part 2 — Build System","startIndex":13,"count":5},{"label":"Part 3 — Ledger & Workflow","startIndex":18,"count":8},{"label":"Demo","startIndex":26,"count":1},{"label":"Closing","startIndex":27,"count":2}];
+  const outlineData = [{"label":"Opening","startIndex":0,"count":3},{"label":"Part 1 — Agent Personas","startIndex":3,"count":13},{"label":"Part 2 — Build System","startIndex":16,"count":5},{"label":"Part 3 — Ledger & Workflow","startIndex":21,"count":8},{"label":"Demo","startIndex":29,"count":1},{"label":"Closing","startIndex":30,"count":2}];
 
   const allSections = document.querySelectorAll('.reveal .slides > section');
   let html = '';

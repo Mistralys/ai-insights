@@ -4,14 +4,16 @@
       "label": "Opening",
       "slides": [
         "title",
+        "intro",
         "agenda"
       ]
     },
     {
-      "label": "Part 1 — Persona Philosophy",
+      "label": "Part 1 — Agent Personas",
       "slides": [
         "part1-divider",
         "persona-what",
+        "recipe-curator",
         "persona-difference",
         "nlp",
         "markdown-format",
@@ -20,7 +22,8 @@
         "english-best",
         "domain-knowledge",
         "values-standards",
-        "meet-the-team"
+        "meet-the-team",
+        "build-your-personas"
       ]
     },
     {
