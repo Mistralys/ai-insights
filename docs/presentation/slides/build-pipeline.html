@@ -5,26 +5,26 @@
   <div class="build-flow">
     <div class="box source">
       <strong>Sources</strong><br>
-      <span style="font-size: 0.85em;">YAML metadata<br>+ Markdown templates<br>+ Shared partials</span>
+      <span style="font-size: 0.85em;">- Metadata<br>- Markdown templates<br>- Shared includes</span>
     </div>
     <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box engine">
       <strong>Build Engine</strong><br>
-      <span style="font-size: 0.85em;">Resolve variables<br>Apply conditionals<br>Inject partials</span>
+      <span style="font-size: 0.85em;">- Enrich with data<br>- Handle logic<br>- Insert includes</span>
     </div>
     <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box target">
       <strong>Targets</strong><br>
-      <span style="font-size: 0.85em;">VS Code <code>.agent.md</code><br>Claude Code <code>.md</code><br>Deep Agents <code>.md</code></span>
+      <span style="font-size: 0.85em;">VS Code<br>Claude Code<br>&hellip;</span>
     </div>
   </div>
   <br>
   <p style="font-size: 0.7em; color: #90a4ae;">
-    Shared partials handle cross-cutting concerns:<br>
+    Shared includes handle cross-cutting concerns:<br>
     operational protocols, output formats, incident logging.
   </p>
   <aside class="notes">
-    Single source of truth. One change propagates to all targets. Shared partials mean that if you
+    Single source of truth. One change propagates to all targets. Shared includes mean that if you
     change how all agents should log incidents, you change one file and rebuild. No code on screen
     intentionally — this is the conceptual flow.
   </aside>

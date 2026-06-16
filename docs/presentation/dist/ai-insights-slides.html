@@ -189,6 +189,9 @@
     color: #90a4ae;
     line-height: 1;
   }
+  .ledger-roles { text-align: left; }
+  .ledger-roles .role-item { margin-bottom: 0.8em; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 10px; padding: 0.7em 1em; box-shadow: var(--glass-shadow); }
+  .ledger-roles .role-name { color: #64b5f6; font-weight: 600; font-size: 1em; }
   .ledger-roles .role-desc { color: #b0bec5; font-size: 0.8em; margin-top: 0.15em; }
 
   /* Knowledge scopes */
@@ -462,7 +465,7 @@
   <h1>AI Insights</h1>
   <p class="subtitle" style="font-size: 0.9em; color: #64b5f6;">Persona Crafting &amp; Multi-Agent Workflow</p>
   <br>
-  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.3 &middot; 2026-06-15</p>
+  <p style="font-size: 0.6em; color: #64b5f6;">v1.1.4 &middot; 2026-06-16</p>
   <p style="font-size: 0.7em; color: #90a4ae;">Sebastian Mordziol</p>
   <aside class="notes">
     Welcome everyone. Today I'll share how we brought engineering discipline to AI agent instructions —
@@ -569,7 +572,7 @@
     </ol>
   </div>
   <br>
-  <p style="font-size: 0.7em; color: #90a4ae;">Same logical structure as a processing pipeline. You define inputs, outputs, control flow, and error handling.</p>
+  <p style="font-size: 0.7em; color: #90a4ae;">Same logical structure as a software program. You define inputs, outputs, control flow, and error handling.</p>
   <aside class="notes">
     This is the key insight for the technical audience: persona curation IS programming. For the non-technical
     audience: it's a recipe for how the AI should think. You debug personas the same way you debug code —
@@ -580,13 +583,12 @@
 <section>
   <p class="section-label">The Craft of Persona Curation</p>
   <h2>Models speak Markdown</h2>
-  <p class="lead">Natural language, but with structure.</p>
+  <p class="lead">A simple text format with headings and formatting.</p>
   <div style="font-size: 0.85em; max-width: 740px; margin: 0 auto; text-align: left;">
     <p><strong class="accent-green">Human-readable</strong> — authors and reviewers need no special tools</p>
-    <p><strong class="accent-green">AI-native</strong> — models parse Markdown natively</p>
+    <p><strong class="accent-green">AI-native</strong> — models read Markdown natively</p>
     <p><strong class="accent-green">Semantically structured</strong> — headings create structure</p>
     <p><strong class="accent-green">Formatting as a tool</strong> — bold text for emphasis</p>
-    <p><strong class="accent-green">Version-controllable</strong> — Git diffs show exactly what changed</p>
     <p><strong class="accent-green">Platform-portable</strong> — every AI tool accepts plain text</p>
   </div>
   <p style="font-size: 0.7em; margin-top: 2.2em; margin-bottom: 2em; color: #64b5f6; cursor: pointer;" onclick="document.getElementById('persona-modal').classList.add('open');">
@@ -646,7 +648,7 @@
   </div>
   <p style="font-size: 0.75em; color: #90a4ae;">
     <span style="font-size: 1.1em; font-weight: bold; color: #64b5f6;">›</span>
-    Mirrors how system prompts work internally.
+    Mirrors how language models are configured internally.
   </p>
   <p class="sidenote" style="margin-top:2em;">💡 TIP: Using "Please" in instructions subtly shifts the model into a positive, cooperative bias.</p>
   <aside class="notes">
@@ -744,14 +746,9 @@
   <p class="lead">19 standalone personas &mdash; each a specialist you can invoke on demand.</p>
   <div class="team-grid">
     <div class="team-card">
-      <div class="team-icon">📋</div>
-      <div class="team-name">Planner</div>
-      <div class="team-desc">Actionable implementation plans from feature requests</div>
-    </div>
-    <div class="team-card">
-      <div class="team-icon">💻</div>
-      <div class="team-name">Developer</div>
-      <div class="team-desc">Plan execution with code insights and synthesis</div>
+      <div class="team-icon">🥗</div>
+      <div class="team-name">Recipe Curator</div>
+      <div class="team-desc">Meal planning &amp; recipe curation with nutritional standards</div>
     </div>
     <div class="team-card">
       <div class="team-icon">🔍</div>
@@ -759,9 +756,9 @@
       <div class="team-desc">Deep-dive analysis of complex problems</div>
     </div>
     <div class="team-card">
-      <div class="team-icon">🧪</div>
-      <div class="team-name">Unit Test Auditor</div>
-      <div class="team-desc">Coverage gaps, weak assertions, missing edge cases</div>
+      <div class="team-icon">📜</div>
+      <div class="team-name">Documenter</div>
+      <div class="team-desc">Write and maintain technical documentation</div>
     </div>
     <div class="team-card">
       <div class="team-icon">📝</div>
@@ -774,17 +771,25 @@
       <div class="team-desc">Create and audit personas with the design guide</div>
     </div>
     <div class="team-card">
-      <div class="team-icon">📦</div>
-      <div class="team-name">Git Committer</div>
+      <div class="team-icon">ℹ️</div>
+      <div class="team-name">Readme Curator</div>
       <div class="team-desc">Structured commits with plan traceability</div>
     </div>
     <div class="team-card">
-      <div class="team-icon">🍳</div>
-      <div class="team-name">Recipe Curator</div>
-      <div class="team-desc">Meal planning &amp; recipe curation with nutritional standards</div>
+      <div class="team-icon">📋</div>
+      <div class="team-name">Planner</div>
+      <div class="team-desc">Actionable implementation plans from feature requests</div>
     </div>
+    <div class="team-card">
+      <div class="team-icon">💻</div>
+      <div class="team-name">Developer</div>
+      <div class="team-desc">Plan execution with code insights and synthesis</div>
+    </div>    
   </div>
-  <p style="font-size: 0.6em; color: #90a4ae; margin-top: 1em;">+ 11 more: Documentation, Manifest Curator, Readme Curator&hellip;</p>
+  <p style="font-size: 0.6em; color: #90a4ae; margin-top: 1em;">
+    + 11 more: Git Committer, Unit Test Auditor, Manifest Curator&hellip;<br>
+    All created to respond to real-world needs, with the same persona-crafting discipline.
+  </p>
   <aside class="notes">
     This is just a selection. Each persona is a full specialist with its own mission, constraints,
     workflow, and quality standards. They range from coding agents to documentation curators to
@@ -804,17 +809,17 @@
   <h2>Where Can Personas Be Used?</h2>
   <br>
   <div class="platform-grid" style="max-width: 766px; margin: 0 auto; font-size: 0.8em;">
+    <div><span class="status-full">●</span> <strong>Gemini (Web)</strong></div>
+    <div>With Gems</div>
+    <div><span class="status-full">●</span> <strong>Claude (Web & Desktop)</strong></div>
+    <div>With Project instructions</div>
     <div><span class="status-full">●</span> <strong>VS Code, Cursor, Claude Code</strong></div>
     <div>Fully supported (global + project)</div>
-    <div><span class="status-full">●</span> <strong>Gemini Web</strong></div>
-    <div>With Gems</div>
-    <div><span class="status-full">●</span> <strong>Claude Web & Desktop</strong></div>
-    <div>With Project instructions</div>
-    <div><span class="status-partial">●</span> <strong>Copilot Web</strong></div>
+    <div><span class="status-partial">●</span> <strong>Copilot (Web)</strong></div>
     <div>Not yet — manual copy &amp; paste</div>
-    <div><span class="status-partial">●</span> <strong>ChatGPT Web</strong></div>
+    <div><span class="status-partial">●</span> <strong>ChatGPT (Web)</strong></div>
     <div>Project instructions (8k limit) or "GPTs" (paywall)</div>
-    <div><span class="status-partial">●</span> <strong>Grok Web</strong></div>
+    <div><span class="status-partial">●</span> <strong>Grok (Web)</strong></div>
     <div>With Custom Agents (4 max, paywall)</div>
   </div>
   <aside class="notes">
@@ -827,18 +832,15 @@
 <section>
   <p class="section-label">Catering to multiple platforms</p>
   <h2>The Scaling Problem</h2>
-  <p style="font-size: 0.85em;">One persona. Many targets.</p>
-  <p style="font-size: 0.85em;">Each with its own metadata format.</p>
-  <br>
+  <p class="lead">One persona. Many targets.</p>
   <p style="font-size: 0.8em; color: #90a4ae;">
-    VS Code needs YAML frontmatter.<br>
-    Claude Code needs a different header.<br>
-    Deep Agents need plain Markdown.
+    Development platforms like VS Code,<br>
+    Claude Code, Cursor, etc. all need slightly<br>
+    different metadata formats.
   </p>
-  <br>
-  <p style="font-size: 0.85em;">
-    The persona builder: a <span class="accent">templating system</span><br>
-    to write once, deploy everywhere.
+  <p style="font-size: 0.85em; margin-top: 2em; ">
+    Enter the persona builder: a <span class="accent">templating system</span><br>
+    to write once and deploy everywhere.
   </p>
   <aside class="notes">
     Maintaining copies by hand doesn't scale. One change to the persona means updating 3 files in 3
@@ -853,26 +855,26 @@
   <div class="build-flow">
     <div class="box source">
       <strong>Sources</strong><br>
-      <span style="font-size: 0.85em;">YAML metadata<br>+ Markdown templates<br>+ Shared partials</span>
+      <span style="font-size: 0.85em;">- Metadata<br>- Markdown templates<br>- Shared includes</span>
     </div>
     <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box engine">
       <strong>Build Engine</strong><br>
-      <span style="font-size: 0.85em;">Resolve variables<br>Apply conditionals<br>Inject partials</span>
+      <span style="font-size: 0.85em;">- Enrich with data<br>- Handle logic<br>- Insert includes</span>
     </div>
     <div style="font-size: 2.5em; font-weight: bold; color: #ffd54f;">›</div>
     <div class="box target">
       <strong>Targets</strong><br>
-      <span style="font-size: 0.85em;">VS Code <code>.agent.md</code><br>Claude Code <code>.md</code><br>Deep Agents <code>.md</code></span>
+      <span style="font-size: 0.85em;">VS Code<br>Claude Code<br>&hellip;</span>
     </div>
   </div>
   <br>
   <p style="font-size: 0.7em; color: #90a4ae;">
-    Shared partials handle cross-cutting concerns:<br>
+    Shared includes handle cross-cutting concerns:<br>
     operational protocols, output formats, incident logging.
   </p>
   <aside class="notes">
-    Single source of truth. One change propagates to all targets. Shared partials mean that if you
+    Single source of truth. One change propagates to all targets. Shared includes mean that if you
     change how all agents should log incidents, you change one file and rebuild. No code on screen
     intentionally — this is the conceptual flow.
   </aside>
@@ -881,7 +883,7 @@
 <section>
   <p class="section-label">Catering to multiple platforms</p>
   <h2>One Source, Multiple Outputs</h2>
-  <p class="lead">Target conditionals adapt to each platform automatically.</p>
+  <p class="lead">Use template logic commands to switch between platform-specific wording.</p>
   <div style="font-size: 0.55em; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 1em 1.4em; text-align: left; font-family: 'JetBrains Mono', monospace; line-height: 1.6; max-width: 780px; margin: 0 auto; border: 1px solid rgba(255,255,255,0.06);">
     <span style="color: #ce93d8;">{{#if target_vscode}}</span><br>
     &nbsp;&nbsp;Invoke <span style="color: #81c784;">`runSubagent`</span> with agentName: <span style="color: #ffd54f;">"WP Decomposer"</span><br>
@@ -892,15 +894,8 @@
     <span style="color: #ce93d8;">{{/if}}</span>
   </div>
   <p style="font-size: 0.7em; color: #90a4ae;">
-    From the Project Manager persona &mdash; each platform has a different tool API<br>
-    for dispatching sub-agents. The template handles it.
-  </p>
-  <p class="sidenote" style="margin-top: 2em;">
-    Variables <span style="color: #ffd54f;">{{agent_name}}</span>
-    |
-    Partials <span style="color: #81c784;">{{&gt; shared-partial}}</span>
-    |
-    Conditionals <span style="color: #ce93d8;">{{#if}}</span>
+    From the Project Manager persona &mdash; each platform has a different way<br>
+    to call sub-agents. The logic commands handle it.
   </p>
   <aside class="notes">
     This is real syntax from the Project Manager persona. VS Code uses runSubagent, Claude Code uses
@@ -1044,14 +1039,14 @@
 <section>
   <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Project Ledger</h2>
-  <p class="lead">A platform-independent, <strong class="accent">persistent MCP notebook</strong> that workflow agents read from and write to.</p>
+  <p class="lead">A platform-independent, <strong class="accent">persistent notebook</strong> that workflow agents read from and write to.</p>
   <div class="ledger-roles" style="max-width: 750px; margin: 0 auto;">
     <div class="role-item">
       <div class="role-name">📋 Shared Memory</div>
       <div class="role-desc">The state that makes coordination possible. Lives on disk, survives across sessions.</div>
     </div>
     <div class="role-item">
-      <div class="role-name">🔀 Handoff Authority</div>
+      <div class="role-name">🔀 Routing Authority</div>
       <div class="role-desc">Each agent asks "what should I do next?" — the ledger routes them based on project state, not human intervention.</div>
     </div>
     <div class="role-item">
@@ -1096,7 +1091,7 @@
 <section>
   <p class="section-label">Interconnecting multiple agents</p>
   <h2>The Orchestrator</h2>
-  <p class="lead">Same workflow, headless in the command line.</p>
+  <p class="lead">For developers: Same workflow, headless in the command line.</p>
   <div class="compare">
     <div>
       <div class="label after">Semi-Interactive (IDE)</div>

@@ -1,5 +1,9 @@
 # Presentation Slides Changelog
 
+## v1.1.4 (2026-06-16) - Minor Tweaks
+- Using a better carbonara recipe example.
+- Wording adjustments for a non-technical audience.
+
 ## v1.1.3 (2026-06-15) - Improved Workflow
 - Workflow slide now shows the agentic loop.
 - Marked the optional agents in the workflow slide.
