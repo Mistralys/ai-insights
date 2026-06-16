@@ -18,3 +18,4 @@ An open-source toolkit that brings **structure, persistence, and role separation
 
 - [Project Overview](references/project-overview) — High-level overview: philosophy, components, and goals
 - [Development Guide](references/development) — Workspace layout, local dev setup, CI, and changelog workflow
+- [Persona Quickstart Guide](references/persona-quickstart) — How to create your own AI agent persona from scratch
