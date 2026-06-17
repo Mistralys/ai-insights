@@ -1,5 +1,16 @@
 # AI Insights Changelog
 
+## v2.3.0 - Ledger-Support Suite and Project Detail Auto-Update
+> mcp v2.3.0 · orchestrator v1.1.0 · personas v3.25.0
+
+- GUI: Project detail page now auto-refreshes every 5 seconds via in-place DOM patching.
+- MCP: `project-detail.js` refactored into focused sub-modules; test suite decomposed and expanded.
+- Personas: Introduced `ledger-support` — a dedicated suite for MCP-dependent support personas.
+- Orchestrator: Subagent loading updated to resolve from `ledger-support` first, then `standalone`.
+- Scripts: CLI staleness check now compares `package-lock.json` timestamps to detect stale deps.
+- Docs: Added a slide deck of the AI Insights project.
+- Docs: Added Github pages under `/docs`.
+
 ## v2.2.0 - Insight Deletion and New Standalone Personas
 > mcp v2.2.0 · personas v3.24.0
 

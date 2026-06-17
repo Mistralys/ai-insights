@@ -1,6 +1,6 @@
 [project]
 name = "ai-insights-orchestrator"
-version = "1.0.0"
+version = "1.1.0"
 description = "LangGraph + Deep Agents orchestrator for ledger-based agent workflow"
 requires-python = ">=3.11"
 dependencies = [

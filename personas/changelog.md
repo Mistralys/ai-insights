@@ -1,7 +1,9 @@
 # Personas Changelog
 
-## v3.25.0 - No-Stale-Counts Principle
-- General: Added "Counts Are a Maintenance Liability" principle.
+## v3.25.0 - Ledger-Support Suite
+- Build: Introduced `ledger-support` as a dedicated third suite for MCP-dependent support personas.
+- Global: Added a "Counts are a maintenance liability" to multiple personas.
+- Global: Added persona-integrated YAML changelogs.
 
 ## v3.24.0 - Recipe Curator and Per-Persona Changelogs
 - Standalone: Added Recipe Curator for household meal planning with rainbow eating principles,

@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v1.1.0 - Ledger-Support Suite Resolution
+- Utils: Subagent loading now resolves description and system prompt from `ledger-support` suite
+  first, falling back to `standalone` for legacy slugs.
+- Tests: Added ledger-support resolution tests covering suite priority and fallback order.
+- Docs: Updated architecture guide and public API for the new resolution order.
+
 ## v1.0.0 - Run Metadata
 - CLI: Added `.orchestrator-run.json` sidecar with atomic writes; result field updated at run end.
 - Tests: Added run metadata tests covering initial write, atomic cleanup, result update, and schema.

@@ -1,5 +1,14 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.3.0 - Project Detail Auto-Update
+- GUI: Added 5-second auto-polling for the project detail page with in-place DOM patching.
+- GUI: Snapshot/diff engine and `pollController` state machine drive selective DOM updates.
+- GUI: Orchestrator runs section updated to scroll-preserving in-place patching.
+- GUI: `project-detail.js` decomposed into `project-detail-helpers.js`, `project-detail-modal.js`,
+  and `project-detail-orch.js` sub-modules.
+- Tests: Added shared `api-stubs.ts` and `make-project.ts` fixture helpers.
+- Tests: Project-detail suite split into focused per-concern files; 100+ new tests added.
+
 ## v2.2.0 - Insight Deletion and Migration Fix
 - Tools: Added `ledger_delete_insight` to remove individual insights from the knowledge store.
 - Storage: Fixed namespace migration recovery for interrupted copy operations.
