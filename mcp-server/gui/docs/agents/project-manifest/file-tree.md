@@ -21,7 +21,17 @@ gui/
     ├── stale-check.js           # Background polling for server version mismatch (StaleCheck namespace)
     ├── views/                   # One JS file per SPA view/page
     │   ├── project-list.js      # Projects table with filtering, sorting, pagination
-    │   ├── project-detail.js    # Single project: WP table, plan synopsis, run controls
+    │   ├── project-detail-helpers.js  # project-detail sub-module: pure helpers (extractSynopsis,
+    │   │                              #   STAGE_ABBREV, buildPipelineTrack, buildRunBadges,
+    │   │                              #   _findScrollAnchor, _snapshotProjectState, _diffProjectState)
+    │   │                              #   STAGE_ABBREV is also consumed by work-package.js
+    │   ├── project-detail-orch.js     # project-detail sub-module: orchestrator section
+    │   │                              #   (renderOrchToolbar, renderRunsList, _orchRunsStructureKey,
+    │   │                              #   _patchOrchStatusCard); uses globalThis._pdLogPreviewCleanups
+    │   ├── project-detail-modal.js    # project-detail sub-module: Reset Project modal
+    │   │                              #   (PIPELINE_STAGES, showResetModal)
+    │   ├── project-detail.js    # Single project: WP table, plan synopsis, run controls (main)
+    │   │                        #   Loads after helpers → orch → modal (see index.html)
     │   ├── work-package.js      # Work package detail: pipelines, acceptance criteria, dialogues
     │   ├── run-log.js           # Orchestrator run log viewer (streaming JSONL events)
     │   ├── orchestrator.js      # Orchestrator management: queue, start run, preflight
@@ -50,3 +60,7 @@ gui/
 | `public/utils.js` | ~200 | Shared utility functions |
 | `public/components.js` | ~80 | UI namespace (badge, banner, emptyState) |
 | `public/js/orchestrator-widgets.js` | ~500 | Widget library |
+| `public/views/project-detail-helpers.js` | ~240 | project-detail sub-module: pure helpers |
+| `public/views/project-detail-orch.js` | ~310 | project-detail sub-module: orchestrator section |
+| `public/views/project-detail-modal.js` | ~270 | project-detail sub-module: Reset Project modal |
+| `public/views/project-detail.js` | ~1040 | project-detail main (trimmed; was ~1886 lines pre-decomposition) |
