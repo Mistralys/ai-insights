@@ -58,6 +58,10 @@ documents:
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "constraints.md"
+      - type: file
+        description: "GUI-layer constraints and conventions (frontend, polling, DOM, error handling)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
+        filePattern: "constraints.md"
 
   - description: 'MCP Server - Manifest (Tech Stack)'
     outputPath: 'mcp-server/manifest-tech-stack.md'
@@ -76,9 +80,13 @@ documents:
       - type: text
         content: |
           # MCP Server - Manifest: Data Flows
-          Tool invocation lifecycle, storage paths, inter-module data movement, and ledger read/write patterns.
+          Tool invocation lifecycle, storage paths, inter-module data movement, ledger read/write patterns, and GUI polling/DOM-patching flows.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "data-flows.md"
+      - type: file
+        description: "GUI-layer data flows (server startup, request lifecycle, polling, DOM patching, orchestrator queue, run log streaming)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
         filePattern: "data-flows.md"
 
   - description: 'MCP Server - Manifest (File Tree)'

@@ -72,7 +72,11 @@ Browser loads index.html
   │   ├── utils.js → window.escapeHtml, formatDate, breadcrumb, showLoading,
   │   │             showError (→ UI.banner('error', …) since rework-1), etc.
   │   ├── components.js → window.UI
-  │   ├── views/*.js → window.renderProjectList, etc.
+  │   ├── views/project-detail-helpers.js → helpers (STAGE_ABBREV, buildPipelineTrack, etc.)
+  │   ├── views/project-detail-orch.js   → renderOrchToolbar, renderRunsList, etc.
+  │   ├── views/project-detail-modal.js  → PIPELINE_STAGES, showResetModal
+  │   ├── views/project-detail.js + other views/*.js → window.renderProjectList, etc.
+  │   │   (project-detail sub-modules must be loaded before project-detail.js — see §3a)
   │   ├── orchestrator-widgets.js → window.OrchestratorWidgets
   │   ├── stale-check.js → window.StaleCheck
   │   └── app.js → Bootstrap
@@ -82,6 +86,24 @@ Browser loads index.html
       ├── Router.init() → listen hashchange, dispatch current hash
       └── StaleCheck.init() → start 30s polling of /api/server-info
 ```
+
+---
+
+## 3a. project-detail Module Load Order
+
+`project-detail.js` is decomposed into four files that must be loaded in dependency order. `index.html` and all 9 GUI test files enforce this sequence:
+
+```
+project-detail-helpers.js   — pure helpers; no dependencies on other project-detail files
+  ↓
+project-detail-orch.js      — orchestrator section; depends on helpers
+  ↓
+project-detail-modal.js     — Reset Project modal; depends on helpers
+  ↓
+project-detail.js           — main; depends on all three sub-modules above
+```
+
+**Shared-state invariant:** `_pdLogPreviewCleanups` is declared and initialised as a `var` in `project-detail.js` and immediately promoted to `globalThis._pdLogPreviewCleanups` so that `project-detail-orch.js` can push cleanups into, and drain, the same array instance. Both drain sites use `.length = 0` (in-place mutation). A `= []` reassignment would break array identity across the module boundary — see `constraints.md §3`.
 
 ---
 
@@ -226,7 +248,55 @@ Server side (handleGetRunLog):
 
 ---
 
-## 9. Project Name Cache Flow
+## 9. Project Detail In-Place DOM Patching
+
+`renderProjectDetail` uses targeted DOM patching to avoid full-page flicker during poll cycles. Two strategies are applied depending on which data changed:
+
+```
+pollQueue() fires (every ~3 s while project detail is visible)
+  │
+  ├── Compute _orchRunsStructureKey(sorted, activeFilename)
+  │   → JSON string of sorted run filenames + activeFilename
+  │
+  ├── If key === lastRunsStructureKey (data-only change):
+  │   │   Same run list structure, same active run — only the status
+  │   │   card content may have changed (elapsed time, PID, progress).
+  │   │
+  │   └── _patchOrchStatusCard(matchingQueueEntry)
+  │       ├── Re-render OrchestratorWidgets.renderStatusCard()
+  │       ├── Replace innerHTML of #orch-status-card-container only
+  │       │   → Log preview widget (#orch-project-log-preview) is a
+  │       │     sibling — it is NOT touched
+  │       └── _pdLogPreviewCleanups array is NOT drained
+  │           → Existing log preview widget stays alive
+  │
+  └── If key !== lastRunsStructureKey (structural change):
+          Run appeared / run became inactive / first tick (key is null).
+          │
+          └── renderRunsList(matchingQueueEntry)
+              ├── Drain _pdLogPreviewCleanups (destroy existing widgets)
+              ├── Walk DOM from runsEl to find nearest scrollable ancestor
+              │   (window.getComputedStyle overflowY === 'auto'|'scroll')
+              │   → Falls back to document.documentElement if none found
+              ├── Save scrollTop of scroll anchor
+              ├── Rebuild runsEl.innerHTML (full structural re-render)
+              │   └── Active run section wraps status card in
+              │       <div id="orch-status-card-container">
+              ├── Restore scrollTop to saved value
+              └── Start new log preview widget (renderLogPreview)
+                  → Cleanup fn pushed into _pdLogPreviewCleanups
+                    (guarded by `if (cleanup)` — defensive against null returns)
+```
+
+**Key invariants:**
+- `lastRunsStructureKey` is initialised to `null` so the first poll tick always takes the structural path and performs a full `renderRunsList`.
+- `_pdLogPreviewCleanups` is drained at exactly two sites: (1) `renderRunsList` before the innerHTML rebuild, and (2) `renderProjectDetail` at the very start of a new full-page render (pre-route-visit drain). No other drain site should exist.
+- `_pdLogPreviewCleanups` is only drained on structural rebuilds — the log preview widget survives data-only status card updates.
+- `renderOrchToolbar` is called on every tick (both paths) to keep Kill/Resume button state current.
+
+---
+
+## 10. Project Name Cache Flow
 
 ```
 View fetches project detail

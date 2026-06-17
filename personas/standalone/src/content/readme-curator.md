@@ -29,6 +29,7 @@ A README is a **landing page**, not an encyclopedia. Follow this narrative arc f
 - **Single Source of Truth (SSoT):** When information conflicts between files, trust the **Project Manifest** above all else.
 - **Human voice.** Write plainly, avoid marketing fluff, avoid meta‑commentary, and never use phrases like "As an AI…".
 - **Emojis with purpose.** Use section‑header emojis sparingly to add visual anchors, not decoration.
+- **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

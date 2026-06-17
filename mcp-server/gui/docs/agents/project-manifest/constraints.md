@@ -48,6 +48,18 @@ var ModuleName = (function () {
 - View files expose a `render*` function that the router calls.
 - Do not introduce a module loader or import map.
 
+**Cross-module shared state (`globalThis`):** When a view is split into sub-modules that need to share a mutable array or object, the owning module declares it as a `var` and immediately promotes it to `globalThis`:
+
+```javascript
+// In the owning module (project-detail.js):
+var _pdLogPreviewCleanups = [];
+globalThis._pdLogPreviewCleanups = _pdLogPreviewCleanups;
+```
+
+Sub-modules then reference the shared state exclusively via `globalThis.*`. All in-place mutations (`.push()`, `.length = 0`) operate on the same array instance.
+
+**Drain invariant:** Drain sites must use `.length = 0` (in-place reset), never `= []` (reassignment). Reassignment would create a new array that the other module's reference does not see, silently breaking the drain contract. See `data-flows.md §3a` for the full project-detail module load-order and shared-state documentation.
+
 ---
 
 ## 4. Hash-Based Routing Convention
@@ -147,8 +159,9 @@ Legacy non-namespaced routes (e.g., `/api/projects/:slug`) are retained for back
 
 - Views that need live data set up polling via `Router._setPolling(fn, delayMs)`.
 - The router **automatically clears** any active interval on route change.
-- The `OrchestratorWidgets.renderLogPreview()` returns a cleanup function for component-level polling.
+- The `OrchestratorWidgets.renderLogPreview()` returns a cleanup function for component-level polling. Callers must wrap the push with `if (cleanup)` to defend against a null/undefined return (the current implementation always returns a function, but the guard is kept for contract safety).
 - Default intervals: 3–5 seconds for active data, 30 seconds for stale checks.
+- **In-place patch pattern (project-detail):** `renderProjectDetail` avoids full-page rebuilds on poll ticks by comparing a stable structure key (`_orchRunsStructureKey`) against the previous tick. If the structure is unchanged, only the status card's `innerHTML` is replaced (`_patchOrchStatusCard`). If the structure changed (new run, run completed, or first tick), a full `renderRunsList` is performed with scroll-position save/restore. See `data-flows.md §9` for details.
 
 ---
 

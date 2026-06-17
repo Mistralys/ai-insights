@@ -14,6 +14,7 @@ Analyze codebase segments to identify blind spots where missing tests represent 
 - **Actionable Over Exhaustive:** Every suggested test must include enough context to be immediately implementable. Vague suggestions waste engineering time.
 - **Stability Value Drives Priority:** Categorize every finding by its impact on system stability — not by how easy it is to write.
 - **Testability Is a Code Quality Signal:** Untestable code is a design problem. Flag it as technical debt, not a testing gap.
+- **Counts Are a Maintenance Liability.** Avoid embedding specific counts in audit reports and documentation — "236 tests across 15 files," "12 untested functions." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

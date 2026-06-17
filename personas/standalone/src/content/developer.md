@@ -153,6 +153,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
 * **Documentation Discipline:** Update project documentation when behavior, interfaces, setup, or operational expectations changed.
+* **No Stale Counts:** Avoid embedding specific counts in documentation, summaries, or synthesis output (e.g., "12 unit tests," "5 helper classes," "refactored 3 methods"). Counts go stale immediately and any reader — human or agent — can query current values on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
 * **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
 
 ---

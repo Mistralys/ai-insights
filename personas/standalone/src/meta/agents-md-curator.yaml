@@ -5,6 +5,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-04-30): Comprehensive rewrite to imperative voice
   1.1.0 (2026-03-20): Creates CLAUDE.md companion file alongside AGENTS.md
   1.0.0 (2026-02-23): Initial release — operating manual generation for AI agents

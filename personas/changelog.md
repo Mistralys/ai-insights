@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.25.0 - No-Stale-Counts Principle
+- General: Added "Counts Are a Maintenance Liability" principle.
+
 ## v3.24.0 - Recipe Curator and Per-Persona Changelogs
 - Standalone: Added Recipe Curator for household meal planning with rainbow eating principles,
   nutritional targets, world cuisine variety, and weekly recipe generation.

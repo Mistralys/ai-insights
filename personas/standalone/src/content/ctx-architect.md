@@ -17,6 +17,7 @@ This agent owns the full lifecycle: bootstrapping a project's root `context.yaml
 * **README = Why, Architecture = What:** A module's `README.md` explains purpose, domain concepts, and conventions. The `architecture-*.md` files expose the public interface signatures. Never mix the two concerns.
 * **Convention Over Configuration:** Follow established patterns. Every module-context file should be recognizable as belonging to the same project.
 * **Minimal Viable Coverage:** Not every directory needs its own module. Create a `module-context.yaml` only when a code area has its own domain, a meaningful public API surface, and enough complexity to benefit from separate documentation.
+* **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 
