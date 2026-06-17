@@ -22,9 +22,10 @@ Two persona suites exist:
 | Suite | Path | Discovery | Purpose |
 |-------|------|-----------|---------|
 | **Ledger** | `personas/ledger/src/` | `N-name.yaml` (numbered) | 9-agent MCP-backed workflow |
-| **Standalone** | `personas/standalone/src/` | `slug.yaml` (kebab-case) | Special-purpose personas outside the 9-stage workflow |
+| **Ledger Support** | `personas/ledger-support/src/` | `slug.yaml` (kebab-case) | MCP-dependent utility agents for the ledger workflow |
+| **Standalone** | `personas/standalone/src/` | `slug.yaml` (kebab-case) | Special-purpose personas with no MCP dependency |
 
-Each suite produces output for all three targets — 6 output directories total.
+Each suite produces output for all three targets — 9 output directories total.
 
 ---
 

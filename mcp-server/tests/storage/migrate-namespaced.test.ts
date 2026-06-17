@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, mkdir, writeFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, mkdir, writeFile, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { migrateToNamespacedLayout } from '../../src/storage/migrate-namespaced.js';
@@ -154,10 +154,10 @@ describe('migrateToNamespacedLayout', () => {
     await makeFlatProject(ledgerRoot, '2026-07-01-will-fail', 'my-repo');
     await makeFlatProject(ledgerRoot, '2026-07-02-ok', 'my-repo');
 
-    // Place a regular FILE at the would-be target path to cause rename to fail
-    // (rename(dir, file) fails with ENOTDIR/EEXIST on POSIX).
-    await mkdir(join(ledgerRoot, 'my-repo'), { recursive: true });
-    await writeFile(join(ledgerRoot, 'my-repo', '2026-07-01-will-fail'), 'blocker', 'utf-8');
+    // Place a non-empty directory at the would-be target path to trigger a
+    // conflict error (cross-platform: works on both POSIX and Windows).
+    await mkdir(join(ledgerRoot, 'my-repo', '2026-07-01-will-fail'), { recursive: true });
+    await writeFile(join(ledgerRoot, 'my-repo', '2026-07-01-will-fail', 'existing.json'), '{}', 'utf-8');
 
     const result = await migrateToNamespacedLayout(ledgerRoot);
 
@@ -207,5 +207,58 @@ describe('migrateToNamespacedLayout', () => {
     await expect(
       readFile(join(ledgerRoot, 'resumable', '2026-08-02-project-b', '.meta.json'), 'utf-8')
     ).resolves.toBeDefined();
+  });
+
+  it('recovers from an empty stub left by a previously interrupted EXDEV copy', async () => {
+    await makeFlatProject(ledgerRoot, '2026-09-01-stubbed', 'my-repo');
+
+    // Simulate the broken state: an empty stub exists at the target path
+    // (as if copyDirRecursive ran mkdir(dest) but then the file copy failed),
+    // while the source flat-layout dir is still fully intact.
+    await mkdir(join(ledgerRoot, 'my-repo', '2026-09-01-stubbed'), { recursive: true });
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.skipped).toBe(false);
+    expect(result.errors).toHaveLength(0);
+    expect(result.moved).toContain('my-repo/2026-09-01-stubbed');
+
+    // Source must be gone
+    await expect(access(join(ledgerRoot, '2026-09-01-stubbed'))).rejects.toThrow();
+
+    // Data must be at the namespaced path
+    const content = await readFile(
+      join(ledgerRoot, 'my-repo', '2026-09-01-stubbed', 'project-ledger.json'),
+      'utf-8'
+    );
+    expect(JSON.parse(content).slug).toBe('2026-09-01-stubbed');
+
+    // Migration must be marked complete
+    const state = JSON.parse(
+      await readFile(join(ledgerRoot, '.migration-state.json'), 'utf-8')
+    ) as { storage_version: number };
+    expect(state.storage_version).toBe(2);
+  });
+
+  it('reports conflict when both source and non-empty target exist, does not write state', async () => {
+    await makeFlatProject(ledgerRoot, '2026-09-02-conflicted', 'my-repo');
+
+    // Simulate a non-empty conflicting target
+    await mkdir(join(ledgerRoot, 'my-repo', '2026-09-02-conflicted'), { recursive: true });
+    await writeFile(
+      join(ledgerRoot, 'my-repo', '2026-09-02-conflicted', 'project-ledger.json'),
+      JSON.stringify({ slug: '2026-09-02-conflicted' }),
+      'utf-8'
+    );
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.slug).toBe('2026-09-02-conflicted');
+
+    // storage_version must NOT be written when there are errors
+    await expect(
+      readFile(join(ledgerRoot, '.migration-state.json'), 'utf-8')
+    ).rejects.toThrow();
   });
 });

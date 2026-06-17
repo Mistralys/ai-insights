@@ -51,6 +51,12 @@ The primary data flow: transform source templates into final persona Markdown fi
   │    personas/standalone/claude-code/      │
   │  standalone + deep-agents:               │
   │    personas/standalone/deep-agents/      │
+  │  ledger-support + vscode:                │
+  │    personas/ledger-support/vs-code/      │
+  │  ledger-support + claude-code:           │
+  │    personas/ledger-support/claude-code/  │
+  │  ledger-support + deep-agents:           │
+  │    personas/ledger-support/deep-agents/  │
   └──────────────────────────────────────────┘
 ```
 
@@ -167,8 +173,8 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone [--target] [--dry-run]
-  │                          │  Always rebuilds both ledger and standalone output before syncing.
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--target] [--dry-run]
+  │                          │  Always rebuilds all three suites (ledger, standalone, ledger-support) before syncing.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐

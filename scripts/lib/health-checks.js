@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * scripts/lib/health-checks.js
  *
@@ -13,7 +11,7 @@
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 8 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> with 7 annotated entries.
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
@@ -32,7 +30,6 @@ const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
 const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
-const SIBLING_DIR       = path.resolve(WORKSPACE_ROOT, '..');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,18 +127,6 @@ export const HEALTH_CHECKS = [
       return major >= 18;
     },
     fix: 'Install Node.js 18 or later from https://nodejs.org',
-  },
-
-  /** @type {SyncCheck} */
-  {
-    id: 'sibling-persona-builder',
-    label: 'ai-persona-builder dist built',
-    cost: 'instant',
-    /** @returns {boolean} */
-    detect() {
-      return fs.existsSync(path.join(SIBLING_DIR, 'ai-persona-builder', 'dist'));
-    },
-    fix: 'cd ../ai-persona-builder && npm run build',
   },
 
   // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────

@@ -187,9 +187,9 @@ const version = parseVersion();
 log(`Version: ${version}`);
 
 if (!SKIP_BUILD) {
-  log('\nBuilding standalone personas...');
+  log('\nBuilding standalone and ledger-support personas...');
   try {
-    execSync('node scripts/build-personas.js --suite standalone --target all --strict', {
+    execSync('node scripts/build-personas.js --suite standalone,ledger-support --target all --strict', {
       cwd: WORKSPACE_ROOT,
       stdio: 'inherit',
     });
@@ -205,8 +205,10 @@ fs.mkdirSync(distDir, { recursive: true });
 log(`\nOutput directory: dist/`);
 
 const TARGETS = [
-  { dir: 'personas/standalone/vs-code',     label: 'VS Code',     slug: 'vscode'     },
-  { dir: 'personas/standalone/claude-code', label: 'Claude Code', slug: 'claudecode' },
+  { dir: 'personas/standalone/vs-code',          label: 'VS Code',                   slug: 'vscode'                    },
+  { dir: 'personas/standalone/claude-code',       label: 'Claude Code',               slug: 'claudecode'                },
+  { dir: 'personas/ledger-support/vs-code',       label: 'VS Code (Ledger Support)',  slug: 'ledger-support-vscode'     },
+  { dir: 'personas/ledger-support/claude-code',   label: 'Claude Code (Ledger Support)', slug: 'ledger-support-claudecode' },
 ];
 
 for (const target of TARGETS) {

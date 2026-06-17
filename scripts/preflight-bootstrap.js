@@ -3,12 +3,6 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const SIBLING_DIR = path.resolve(ROOT, '..');
-
-/** Canonical repository clone URLs (no embedded credentials). */
-const SIBLING_CLONE_URLS = {
-  'ai-persona-builder':'https://github.com/Mistralys/ai-persona-builder.git',
-};
 
 /**
  * Return the latest mtime (ms) of any file found recursively inside `dir`.
@@ -43,13 +37,22 @@ function isStale(srcDir, distFile) {
 
 function bootstrap() {
   const root = ROOT;
-  const workspaceRoot = SIBLING_DIR;
-  const personaBuilderDir = path.join(workspaceRoot, 'ai-persona-builder');
 
-  // --- Missing sibling repo guidance ---
-  if (!fs.existsSync(personaBuilderDir)) {
-    console.log(`[Bootstrap] Sibling repo 'ai-persona-builder' not found.`);
-    console.log(`           Run: git clone ${SIBLING_CLONE_URLS['ai-persona-builder']} ${personaBuilderDir}`);
+  // --- Ensure root node_modules are installed and up to date ---
+  // Use node_modules/.package-lock.json mtime (updated by every npm install)
+  // to detect whether package.json has changed since the last install.
+  const pkgJson       = path.join(root, 'package.json');
+  const internalLock  = path.join(root, 'node_modules', '.package-lock.json');
+  const needsInstall  = !fs.existsSync(internalLock)
+    || fs.statSync(pkgJson).mtimeMs > fs.statSync(internalLock).mtimeMs;
+  if (needsInstall) {
+    console.log(`[Bootstrap] Preparing ai-insights...`);
+    try {
+      execSync('npm install', { cwd: root, stdio: 'inherit' });
+    } catch {
+      console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
+      process.exit(1);
+    }
   }
 
   // --- mcp-server staleness detection (mtime comparison only) ---
@@ -61,55 +64,6 @@ function bootstrap() {
       execSync('npm run build', { cwd: path.join(root, 'mcp-server'), stdio: 'inherit' });
     } catch {
       console.error(`[Bootstrap] Failed to rebuild mcp-server.`);
-      process.exit(1);
-    }
-  }
-
-  // --- Sibling repo: install + build (initial setup and staleness) ---
-  const packages = [
-    {
-      name:     '@mistralys/persona-builder',
-      dir:      personaBuilderDir,
-      distFile: path.join(personaBuilderDir, 'dist', 'index.js'),
-    },
-  ];
-
-  let builtAny = false;
-
-  for (const pkg of packages) {
-    if (!fs.existsSync(pkg.dir)) continue;
-
-    const distDir    = path.join(pkg.dir, 'dist');
-    const nodeModules = path.join(pkg.dir, 'node_modules');
-    const srcDir     = path.join(pkg.dir, 'src');
-
-    const stale = !fs.existsSync(distDir)
-               || !fs.existsSync(nodeModules)
-               || isStale(srcDir, pkg.distFile);
-
-    if (stale) {
-      console.log(`[Bootstrap] Preparing ${pkg.name}...`);
-      try {
-        if (!fs.existsSync(nodeModules)) {
-          execSync('npm install', { cwd: pkg.dir, stdio: 'inherit' });
-        }
-        execSync('npm run build', { cwd: pkg.dir, stdio: 'inherit' });
-        builtAny = true;
-      } catch {
-        console.error(`[Bootstrap] Failed to prepare ${pkg.name}.`);
-        process.exit(1);
-      }
-    }
-  }
-
-  // Also ensure ai-insights root has node_modules
-  const insightsModules = path.join(root, 'node_modules');
-  if (builtAny || !fs.existsSync(insightsModules)) {
-    console.log(`[Bootstrap] Preparing ai-insights...`);
-    try {
-      execSync('npm install', { cwd: root, stdio: 'inherit' });
-    } catch {
-      console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
       process.exit(1);
     }
   }

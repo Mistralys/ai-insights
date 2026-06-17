@@ -13,6 +13,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 | Suite | Description | Docs |
 |-------|-------------|------|
 | **Ledger-Enabled** | 9-stage workflow (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger Support** | Utility agents for the ledger workflow (PM sub-agents, ledger doctor, orchestrator runner, etc.) — MCP-dependent | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
 | **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
 
 ### Project Ledger MCP Server
@@ -81,7 +82,8 @@ You can also invoke any menu action directly without entering the interactive mo
 
 | Resource | Description |
 |----------|-------------|
-| [docs/development.md](docs/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
+| [docs/references/project-overview.md](docs/references/project-overview.md) | High-level project overview: philosophy, workflow, architecture, and open questions |
+| [docs/references/development.md](docs/references/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
 | [docs/agents/references/README.md](docs/agents/references/README.md) | Reference docs hub for workflow diagrams, CTX configuration, and Deep Agents subagent patterns |
 | [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
 | [docs/agents/references/ledger-workflow-visual-guide.md](docs/agents/references/ledger-workflow-visual-guide.md) | Visual reference for the ledger workflow: end-to-end ASCII diagrams, handoffs, sub-agents, and knowledge flow |

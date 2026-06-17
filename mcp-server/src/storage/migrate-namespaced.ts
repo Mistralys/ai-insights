@@ -89,9 +89,32 @@ export async function migrateToNamespacedLayout(ledgerRoot: string): Promise<Mig
     const namespaceDir = join(ledgerRoot, repoName);
     const newDir = join(namespaceDir, entry);
 
-    // Skip if target already exists (idempotent within or across migration runs).
+    // If the target already exists, we need to determine whether the migration
+    // actually completed for this project or not.
     if (await dirExists(newDir)) {
-      continue;
+      if (!(await dirExists(oldDir))) {
+        // Source is gone — project was successfully migrated in a prior run. Skip.
+        continue;
+      }
+      // Source still exists — the target is a leftover stub from a previously
+      // interrupted move (e.g., mkdir in copyDirRecursive ran but copy failed).
+      // Recover by removing the empty stub and retrying, or report a conflict
+      // if the stub already contains data.
+      const stubEntries = await readdir(newDir).catch(() => [] as string[]);
+      if (stubEntries.length > 0) {
+        errors.push({
+          slug: entry,
+          error: `Target '${newDir}' already exists with content and source '${oldDir}' also exists. Manual resolution required.`,
+        });
+        continue;
+      }
+      // Stub is empty — safe to remove and retry.
+      try {
+        await rm(newDir, { recursive: true });
+      } catch (rmErr) {
+        errors.push({ slug: entry, error: `Failed to remove empty stub at '${newDir}': ${(rmErr as Error).message}` });
+        continue;
+      }
     }
 
     try {

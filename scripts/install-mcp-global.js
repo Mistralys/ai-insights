@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * scripts/install-mcp-global.js
  *

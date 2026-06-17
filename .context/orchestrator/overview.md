@@ -53,6 +53,24 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 
 ## Installation
 
+### Via the CLI menu (Recommended)
+
+The workspace menu handles the entire setup automatically:
+
+```bash
+./menu.sh          # macOS / Linux — select "First-time setup"
+```
+
+This creates the Python virtual environment, installs all dependencies (including your chosen LLM provider), copies `.env.example` to `.env`, and builds the MCP server. You can also re-run just the orchestrator component later:
+
+```bash
+./menu.sh setup --components orchestrator
+```
+
+### Manual installation (Advanced)
+
+If you prefer to set up manually:
+
 ```bash
 # 1. Enter the orchestrator directory
 cd orchestrator
@@ -130,96 +148,87 @@ The LLM model for each stage is read from the persona YAML metadata (`personas/l
 
 ## Usage
 
-### Recommended entry point
+### Running via the CLI Menu (Recommended)
 
-Before launching, run the dedicated **pre-flight script** to verify the environment is ready:
-
-```bash
-node scripts/preflight-orchestrator.js             # basic checks
-node scripts/preflight-orchestrator.js --plan path/to/plan.md  # also verify plan exists
-node scripts/preflight-orchestrator.js --json       # machine-readable output
-node scripts/preflight-orchestrator.js --check-api-key  # also live-validate API key(s)
-```
-
-This validates: venv + `orchestrate` binary, `.env` configuration (API key presence), MCP server dist freshness, and no conflicting orchestrator process. Add `--check-api-key` to also live-validate configured API keys against their provider endpoints (no tokens consumed). It is also available via `node scripts/cli.js preflight`.
-
-Then use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
-It performs a **build freshness check** — if any file under `mcp-server/src/`
-is newer than `mcp-server/dist/index.js` (or if `dist/` does not yet exist),
-it automatically rebuilds the MCP server before starting the orchestrator.
-This prevents silent failures caused by a stale compiled dist.
-
-> **Pre-requisite:** Your Python virtual environment must be activated so that `orchestrate` is on `PATH`. Run `source orchestrator/.venv/bin/activate` (or the Windows equivalent) before invoking the script, or add the activation step to your shell profile.
+From the workspace root, use the interactive menu for all orchestrator operations:
 
 ```bash
-# Activate your virtualenv first
-source orchestrator/.venv/bin/activate
-
-# Run from the workspace root
-node scripts/run-orchestrator.js path/to/plan.md
-node scripts/run-orchestrator.js path/to/plan.md --dry-run
+./menu.sh          # macOS / Linux
+menu.cmd           # Windows
 ```
 
-> **Note:** You can still call `orchestrate` directly if you know the MCP
-> server dist is already up to date. `node scripts/run-orchestrator.js` is simply the safer default.
-
-### Basic run
+Or invoke commands directly:
 
 ```bash
-python -m src.cli path/to/plan.md
+./menu.sh preflight                     # verify environment readiness
+./menu.sh preflight --plan path/to/plan.md  # also verify plan file exists
+./menu.sh orchestrator path/to/plan.md  # launch a run
+./menu.sh kill-orchestrator             # terminate stale processes
+./menu.sh preview-prompts               # render stage prompts for review
+./menu.sh preview-prompts --list        # list available stages
 ```
 
-Or if installed as a package:
+The menu's orchestrator launcher performs a **build freshness check** — if `mcp-server/src/` is newer than `mcp-server/dist/`, it rebuilds automatically before starting. This prevents silent failures from a stale compiled server. You never need to manually rebuild.
 
-```bash
-orchestrate path/to/plan.md
-```
+> **Note:** Orchestrator runs can also be launched from the **GUI dashboard** (`./menu.sh gui` → Orchestrator tab) — including preflight checks, run monitoring, and log browsing — all without touching the command line.
+
+> **Pre-requisite:** Your Python virtual environment must be activated so that `orchestrate` is on `PATH`. Run `source orchestrator/.venv/bin/activate` (or the Windows equivalent) before invoking the menu.
 
 ### Common examples
 
 ```bash
 # Override iteration limit
-orchestrate plan.md --max-iterations 50
+./menu.sh orchestrator plan.md --max-iterations 50
 
 # Override the target project path
-orchestrate plan.md --project-path /path/to/my-project
+./menu.sh orchestrator plan.md --project-path /path/to/my-project
 
 # Dry run (prints routing decisions without calling agents)
-orchestrate plan.md --dry-run
+./menu.sh orchestrator plan.md --dry-run
 
 # Resume a previous run from the last checkpoint
-orchestrate plan.md --resume <thread-id>
+./menu.sh orchestrator plan.md --resume <thread-id>
 
 # Pause for human review before specific stages
-orchestrate plan.md --interrupt-on pm,fail,synthesis
+./menu.sh orchestrator plan.md --interrupt-on pm,fail,synthesis
 
 # Verbose logging
-orchestrate plan.md --log-level DEBUG
+./menu.sh orchestrator plan.md --log-level DEBUG
+```
+
+### Direct invocation (Advanced)
+
+If you prefer to bypass the menu, you can call `orchestrate` directly:
+
+```bash
+orchestrate path/to/plan.md
+orchestrate plan.md --dry-run
+```
+
+Or via the raw scripts (advanced — only when you need full control):
+
+```bash
+node scripts/run-orchestrator.js path/to/plan.md
+node scripts/preflight-orchestrator.js --check-api-key
 ```
 
 ### Developer utilities
 
 #### Previewing stage prompts
 
-`scripts/preview-prompts.py` is a standalone developer utility that renders all orchestrator stage prompt templates with representative placeholder values and writes the fully-resolved Markdown files to `orchestrator/dist/stage-prompts/` (gitignored). Use it to inspect the exact prompt each stage will receive without running the full orchestrator pipeline — useful when editing or optimising templates.
+`scripts/preview-prompts.py` renders all orchestrator stage prompt templates with representative placeholder values and writes the fully-resolved Markdown files to `orchestrator/dist/stage-prompts/` (gitignored). Use it to inspect the exact prompt each stage will receive.
 
 ```bash
-# Render all 14 output files (pm.md, synthesis.md, and
-# {stage}-with-wp.md / {stage}-without-wp.md for each WP-scoped stage)
-node scripts/cli.js preview-prompts
-
-# Render a single stage (2 files for WP-scoped stages, 1 for pm/synthesis)
-node scripts/cli.js preview-prompts --stage developer
-node scripts/cli.js preview-prompts --stage pm
-
-# List the 8 available stage names and exit (no files written)
-node scripts/cli.js preview-prompts --list
+# Via the CLI menu (recommended)
+./menu.sh preview-prompts
+./menu.sh preview-prompts --stage developer
+./menu.sh preview-prompts --list
 ```
 
-You can also invoke the script directly:
+Direct invocation (advanced):
 
 ```bash
-python scripts/preview-prompts.py
+node scripts/cli.js preview-prompts
 python scripts/preview-prompts.py --stage reviewer
 python scripts/preview-prompts.py --list
 ```

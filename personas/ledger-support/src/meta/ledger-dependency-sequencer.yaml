@@ -1,0 +1,15 @@
+slug: ledger-dependency-sequencer
+name: "Ledger Dependency Sequencer"
+description: "Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering."
+vs_file_name: ledger-dependency-sequencer.agent.md
+id: standalone-ledger-dependency-sequencer
+cc_file_name: ledger-dependency-sequencer.md
+changelog: |
+  1.0.4 (2026-05-18): Gains missing write step; subagent handoff precision improved
+  1.0.3 (2026-04-30): Overall improvements
+  1.0.0 (2026-04-11): Initial release — Work Package dependency mapping and ordering
+
+tools:
+  - read
+  - edit
+  - search

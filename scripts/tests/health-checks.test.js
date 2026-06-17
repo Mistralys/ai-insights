@@ -4,12 +4,17 @@
  * Unit tests for scripts/lib/health-checks.js
  *
  * Acceptance Criteria verified:
- *   AC-1: HEALTH_CHECKS contains exactly 9 entries; each has id, label, cost, detect.
+ *   AC-1: HEALTH_CHECKS contains exactly 7 entries; each has id, label, cost, detect.
  *   AC-2: All instant-tier detect() functions return a plain boolean (no Promise).
  *   AC-2b: All fast-tier detect() functions return a plain boolean (no Promise).
  *   AC-3: runChecks('instant') excludes slow checks and resolves correctly.
  *   AC-4: runChecks('all') includes and awaits async slow checks.
  *   AC-6: personas-deployed check is NOT in HEALTH_CHECKS.
+ *
+ * Convention: Do NOT add checks for sibling-repo build artefacts (e.g. ../ai-persona-builder/dist).
+ * Local symlinks are a development-time convenience only and must not be modelled as workspace
+ * health requirements. @mistralys/persona-builder is an npm dependency; its build state is
+ * irrelevant once published.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,8 +23,8 @@ import { HEALTH_CHECKS, runChecks } from '../lib/health-checks.js';
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
 describe('HEALTH_CHECKS registry', () => {
-  it('contains exactly 8 entries', () => {
-    expect(HEALTH_CHECKS).toHaveLength(8);
+  it('contains exactly 7 entries', () => {
+    expect(HEALTH_CHECKS).toHaveLength(7);
   });
 
   it('every entry has id, label, cost, and detect fields', () => {
@@ -38,13 +43,12 @@ describe('HEALTH_CHECKS registry', () => {
     }
   });
 
-  it('contains all 8 expected ids in any order', () => {
+  it('contains all 7 expected ids in any order', () => {
     const expected = [
       'mcp-dist',
       'orchestrator-venv',
       'hooks-installed',
       'node-version',
-      'sibling-persona-builder',
       'global-mcp-registered',
       'mcp-dist-fresh',
       'personas-fresh',

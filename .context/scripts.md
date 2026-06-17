@@ -148,6 +148,7 @@ if (!CHECK) {
    * YAML files must not use trailing inline comments on scalar fields.
    */
   function parseYamlScalars(text, fields) {
+
     const result = {};
     for (const line of text.split(/\r?\n/)) {
       const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
@@ -165,6 +166,112 @@ if (!CHECK) {
     return result;
   }
 
+  /**
+   * Extracts the string content of a YAML block scalar (`key: |` or `key: |-`)
+   * from raw YAML text without a full YAML parse.
+   * Returns the block content (newline-joined, trimmed) or undefined when the
+   * key is absent or does not use a block scalar indicator.
+   */
+  function extractYamlBlockScalar(text, key) {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re    = new RegExp(`^${escaped}\\s*:\\s*\\|[-+]?\\s*$`, 'm');
+    const match = re.exec(text);
+    if (!match) return undefined;
+
+    const after   = text.slice(match.index + match[0].length);
+    const lines   = after.split(/\r?\n/);
+    let   indent  = -1;
+    const content = [];
+
+    for (const line of lines) {
+      if (line.trim() === '') {
+        if (indent !== -1) content.push('');
+        continue;
+      }
+      const m          = line.match(/^(\s+)/);
+      const lineIndent = m ? m[1].length : 0;
+      if (lineIndent === 0) break;            // outdented — end of block scalar
+      if (indent === -1) indent = lineIndent; // first content line determines indent
+      if (lineIndent < indent) break;
+      content.push(line.slice(indent));
+    }
+
+    const joined = content.join('\n').trimEnd();
+    return joined || undefined;
+  }
+
+  /**
+   * Extracts the version string from a `changelog: |` block scalar in raw YAML
+   * text. Returns the version string (e.g. "3.6.3") or undefined when absent.
+   *
+   * Regex patterns mirror resolveChangelogMeta() in @mistralys/persona-builder:
+   *   Primary:  "3.6.3 (2026-05-29): description"
+   *   Fallback: "3.6.3: description"            (no date)
+   */
+  function resolveVersionFromChangelog(text) {
+    if (typeof text !== 'string') return undefined;
+    const content = extractYamlBlockScalar(text, 'changelog');
+    if (!content) return undefined;
+    // Line-by-line first-wins, mirrors resolveChangelogMeta() in the library
+    for (const line of content.split(/\r?\n/)) {
+      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
+      if (withDate) return withDate[1];
+      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+      if (withoutDate) return withoutDate[1];
+    }
+    return undefined;
+  }
+
+  /**
+   * Validates the `changelog` field in a persona YAML.
+   * Warns when the field is present but unparseable, or when the first version
+   * entry has no date. Logs an info message when explicit `version` or
+   * `last_updated` scalar fields coexist with the changelog (indicating they
+   * can be removed).
+   */
+  function validateChangelogField(raw, filename) {
+    const content = extractYamlBlockScalar(raw, 'changelog');
+    if (content === undefined) return;
+
+    // Track first-entry date status and detect same-version/different-date duplicates.
+    let firstHasDate = null; // null = not yet seen, true/false = first entry result
+    let firstVersion = null;
+    const versionDates = {}; // version → date string (first occurrence)
+
+    for (const line of content.split(/\r?\n/)) {
+      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\((\d{4}-\d{2}-\d{2})\)\s*:/);
+      if (withDate) {
+        const [, ver, date] = withDate;
+        if (firstHasDate === null) { firstHasDate = true; firstVersion = ver; }
+        if (Object.prototype.hasOwnProperty.call(versionDates, ver)) {
+          if (versionDates[ver] !== date) {
+            console.warn(`[WARN] ${filename}: version "${ver}" appears with two different dates` +
+              ` (${versionDates[ver]} and ${date}).`);
+          }
+        } else {
+          versionDates[ver] = date;
+        }
+        continue;
+      }
+      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+      if (withoutDate && firstHasDate === null) { firstHasDate = false; firstVersion = withoutDate[1]; }
+    }
+
+    if (firstHasDate === null) {
+      console.warn(`[WARN] ${filename}: changelog present but no parseable version found.`);
+    } else if (!firstHasDate) {
+      console.warn(`[WARN] ${filename}: changelog first entry has no date (version "${firstVersion}").`);
+    }
+
+    const scalars = parseYamlScalars(raw, ['version', 'last_updated']);
+    if (scalars.version) {
+      console.info(`[INFO] ${filename}: explicit version "${scalars.version}" coexists with changelog.`);
+    }
+    if (scalars.last_updated) {
+      console.info(`[INFO] ${filename}: explicit last_updated "${scalars.last_updated}" coexists with changelog.`);
+    }
+  }
+
   /** Returns the filename stem (strips the last extension). */
   function stem(filename) {
     return filename.replace(/\.[^.]+$/, '');
@@ -179,12 +286,14 @@ if (!CHECK) {
     const raw  = fs.readFileSync(path.join(metaDir, file), 'utf8');
     const data = parseYamlScalars(raw, SCALAR_FIELDS);
 
+    validateChangelogField(raw, file);
+
     const ccFileName = data.cc_file_name;
     const daFileName = data.da_file_name || ccFileName;
     const ccStem     = stem(ccFileName);
     const daStem     = stem(daFileName);
     const number     = Number(data.number);
-    const version    = data.version || DEFAULT_VERSION;
+    const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
 
     return {
       number,
@@ -1615,8 +1724,6 @@ console.log('Git hooks installed. Pre-commit persona guard active.');
 ###  Path: `/scripts/install-mcp-global.js`
 
 ```js
-#!/usr/bin/env node
-
 /**
  * scripts/install-mcp-global.js
  *
@@ -2450,8 +2557,6 @@ main().catch((err) => {
 ###  Path: `/scripts/lib/health-checks.js`
 
 ```js
-#!/usr/bin/env node
-
 /**
  * scripts/lib/health-checks.js
  *
@@ -2465,7 +2570,7 @@ main().catch((err) => {
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 8 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> with 7 annotated entries.
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
@@ -2484,7 +2589,6 @@ const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
 const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
-const SIBLING_DIR       = path.resolve(WORKSPACE_ROOT, '..');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2582,18 +2686,6 @@ export const HEALTH_CHECKS = [
       return major >= 18;
     },
     fix: 'Install Node.js 18 or later from https://nodejs.org',
-  },
-
-  /** @type {SyncCheck} */
-  {
-    id: 'sibling-persona-builder',
-    label: 'ai-persona-builder dist built',
-    cost: 'instant',
-    /** @returns {boolean} */
-    detect() {
-      return fs.existsSync(path.join(SIBLING_DIR, 'ai-persona-builder', 'dist'));
-    },
-    fix: 'cd ../ai-persona-builder && npm run build',
   },
 
   // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────
@@ -3018,9 +3110,9 @@ const version = parseVersion();
 log(`Version: ${version}`);
 
 if (!SKIP_BUILD) {
-  log('\nBuilding standalone personas...');
+  log('\nBuilding standalone and ledger-support personas...');
   try {
-    execSync('node scripts/build-personas.js --suite standalone --target all --strict', {
+    execSync('node scripts/build-personas.js --suite standalone,ledger-support --target all --strict', {
       cwd: WORKSPACE_ROOT,
       stdio: 'inherit',
     });
@@ -3036,8 +3128,10 @@ fs.mkdirSync(distDir, { recursive: true });
 log(`\nOutput directory: dist/`);
 
 const TARGETS = [
-  { dir: 'personas/standalone/vs-code',     label: 'VS Code',     slug: 'vscode'     },
-  { dir: 'personas/standalone/claude-code', label: 'Claude Code', slug: 'claudecode' },
+  { dir: 'personas/standalone/vs-code',          label: 'VS Code',                   slug: 'vscode'                    },
+  { dir: 'personas/standalone/claude-code',       label: 'Claude Code',               slug: 'claudecode'                },
+  { dir: 'personas/ledger-support/vs-code',       label: 'VS Code (Ledger Support)',  slug: 'ledger-support-vscode'     },
+  { dir: 'personas/ledger-support/claude-code',   label: 'Claude Code (Ledger Support)', slug: 'ledger-support-claudecode' },
 ];
 
 for (const target of TARGETS) {
@@ -3067,12 +3161,6 @@ import path from 'path';
 import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const SIBLING_DIR = path.resolve(ROOT, '..');
-
-/** Canonical repository clone URLs (no embedded credentials). */
-const SIBLING_CLONE_URLS = {
-  'ai-persona-builder':'https://github.com/Mistralys/ai-persona-builder.git',
-};
 
 /**
  * Return the latest mtime (ms) of any file found recursively inside `dir`.
@@ -3107,13 +3195,22 @@ function isStale(srcDir, distFile) {
 
 function bootstrap() {
   const root = ROOT;
-  const workspaceRoot = SIBLING_DIR;
-  const personaBuilderDir = path.join(workspaceRoot, 'ai-persona-builder');
 
-  // --- Missing sibling repo guidance ---
-  if (!fs.existsSync(personaBuilderDir)) {
-    console.log(`[Bootstrap] Sibling repo 'ai-persona-builder' not found.`);
-    console.log(`           Run: git clone ${SIBLING_CLONE_URLS['ai-persona-builder']} ${personaBuilderDir}`);
+  // --- Ensure root node_modules are installed and up to date ---
+  // Use node_modules/.package-lock.json mtime (updated by every npm install)
+  // to detect whether package.json has changed since the last install.
+  const pkgJson       = path.join(root, 'package.json');
+  const internalLock  = path.join(root, 'node_modules', '.package-lock.json');
+  const needsInstall  = !fs.existsSync(internalLock)
+    || fs.statSync(pkgJson).mtimeMs > fs.statSync(internalLock).mtimeMs;
+  if (needsInstall) {
+    console.log(`[Bootstrap] Preparing ai-insights...`);
+    try {
+      execSync('npm install', { cwd: root, stdio: 'inherit' });
+    } catch {
+      console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
+      process.exit(1);
+    }
   }
 
   // --- mcp-server staleness detection (mtime comparison only) ---
@@ -3125,55 +3222,6 @@ function bootstrap() {
       execSync('npm run build', { cwd: path.join(root, 'mcp-server'), stdio: 'inherit' });
     } catch {
       console.error(`[Bootstrap] Failed to rebuild mcp-server.`);
-      process.exit(1);
-    }
-  }
-
-  // --- Sibling repo: install + build (initial setup and staleness) ---
-  const packages = [
-    {
-      name:     '@mistralys/persona-builder',
-      dir:      personaBuilderDir,
-      distFile: path.join(personaBuilderDir, 'dist', 'index.js'),
-    },
-  ];
-
-  let builtAny = false;
-
-  for (const pkg of packages) {
-    if (!fs.existsSync(pkg.dir)) continue;
-
-    const distDir    = path.join(pkg.dir, 'dist');
-    const nodeModules = path.join(pkg.dir, 'node_modules');
-    const srcDir     = path.join(pkg.dir, 'src');
-
-    const stale = !fs.existsSync(distDir)
-               || !fs.existsSync(nodeModules)
-               || isStale(srcDir, pkg.distFile);
-
-    if (stale) {
-      console.log(`[Bootstrap] Preparing ${pkg.name}...`);
-      try {
-        if (!fs.existsSync(nodeModules)) {
-          execSync('npm install', { cwd: pkg.dir, stdio: 'inherit' });
-        }
-        execSync('npm run build', { cwd: pkg.dir, stdio: 'inherit' });
-        builtAny = true;
-      } catch {
-        console.error(`[Bootstrap] Failed to prepare ${pkg.name}.`);
-        process.exit(1);
-      }
-    }
-  }
-
-  // Also ensure ai-insights root has node_modules
-  const insightsModules = path.join(root, 'node_modules');
-  if (builtAny || !fs.existsSync(insightsModules)) {
-    console.log(`[Bootstrap] Preparing ai-insights...`);
-    try {
-      execSync('npm install', { cwd: root, stdio: 'inherit' });
-    } catch {
-      console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
       process.exit(1);
     }
   }
@@ -4559,24 +4607,25 @@ function validateCCFrontmatter(dir) {
 }
 
 /**
- * Validate Claude Code frontmatter for standalone personas: requires name
+ * Validate Claude Code frontmatter for slug-mode personas: requires name
  * (kebab-case without numeric prefix), permissionMode, model, and memory.
- * Standalone personas do not require a 'role' field.
- * @param {string} dir - Absolute path to personas/standalone/claude-code/
+ * Slug-mode personas do not require a 'role' field.
+ * @param {string} dir - Absolute path to personas/{suite}/claude-code/
+ * @param {string} suiteLabel - Suite name for display (e.g. 'standalone', 'ledger-support')
  */
-function validateStandaloneCCFrontmatter(dir) {
+function validateSlugModeCCFrontmatter(dir, suiteLabel) {
   if (!fs.existsSync(dir)) return;
 
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
-  console.log(`\n${colors.bright}${colors.cyan}=== Standalone Claude Code Frontmatter Validation ===${colors.reset}`);
+  console.log(`\n${colors.bright}${colors.cyan}=== ${suiteLabel} Claude Code Frontmatter Validation ===${colors.reset}`);
 
-  const STANDALONE_NAME_RE = /^[a-z][a-z0-9-]*$/;
+  const SLUG_NAME_RE = /^[a-z][a-z0-9-]*$/;
   let warningCount = 0;
 
   for (const file of files) {
     const filePath = path.join(dir, file);
     const fields = parseFrontmatter(filePath);
-    const relPath = path.join('standalone', 'claude-code', file);
+    const relPath = path.join(suiteLabel, 'claude-code', file);
 
     if (!fields) {
       console.warn(`${colors.yellow}⚠ ${relPath}: could not parse frontmatter${colors.reset}`);
@@ -4588,7 +4637,7 @@ function validateStandaloneCCFrontmatter(dir) {
     if (!fields.name) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'name:' field${colors.reset}`);
       warningCount++;
-    } else if (!STANDALONE_NAME_RE.test(fields.name)) {
+    } else if (!SLUG_NAME_RE.test(fields.name)) {
       console.warn(`${colors.yellow}⚠ ${relPath}: 'name: ${fields.name}' does not match kebab-case pattern (e.g. "manifest-curator")${colors.reset}`);
       warningCount++;
     }
@@ -4603,7 +4652,7 @@ function validateStandaloneCCFrontmatter(dir) {
   }
 
   if (warningCount === 0) {
-    console.log(`${colors.green}✓ All ${files.length} standalone Claude Code persona file(s) passed frontmatter validation${colors.reset}`);
+    console.log(`${colors.green}✓ All ${files.length} ${suiteLabel} Claude Code persona file(s) passed frontmatter validation${colors.reset}`);
   } else {
     console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
   }
@@ -4702,22 +4751,23 @@ function syncVSCode(dryRun = false, customPath = null) {
 }
 
 /**
- * Validate VS Code frontmatter for standalone personas: requires name and
- * vs_file_name. Standalone personas do not require a 'role' field.
- * @param {string} dir - Absolute path to personas/standalone/vs-code/
+ * Validate VS Code frontmatter for slug-mode personas: requires name and
+ * vs_file_name. Slug-mode personas do not require a 'role' field.
+ * @param {string} dir - Absolute path to personas/{suite}/vs-code/
+ * @param {string} suiteLabel - Suite name for display (e.g. 'standalone', 'ledger-support')
  */
-function validateStandaloneVSCodeFrontmatter(dir) {
+function validateSlugModeVSCodeFrontmatter(dir, suiteLabel) {
   if (!fs.existsSync(dir)) return;
 
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
-  console.log(`\n${colors.bright}${colors.cyan}=== Standalone VS Code Frontmatter Validation ===${colors.reset}`);
+  console.log(`\n${colors.bright}${colors.cyan}=== ${suiteLabel} VS Code Frontmatter Validation ===${colors.reset}`);
 
   let warningCount = 0;
 
   for (const file of files) {
     const filePath = path.join(dir, file);
     const fields = parseFrontmatter(filePath);
-    const relPath = path.join('standalone', 'vs-code', file);
+    const relPath = path.join(suiteLabel, 'vs-code', file);
 
     if (!fields) {
       console.warn(`${colors.yellow}⚠ ${relPath}: could not parse frontmatter${colors.reset}`);
@@ -4742,7 +4792,7 @@ function validateStandaloneVSCodeFrontmatter(dir) {
   }
 
   if (warningCount === 0) {
-    console.log(`${colors.green}✓ All ${files.length} standalone VS Code persona file(s) passed frontmatter validation${colors.reset}`);
+    console.log(`${colors.green}✓ All ${files.length} ${suiteLabel} VS Code persona file(s) passed frontmatter validation${colors.reset}`);
   } else {
     console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
   }
@@ -4757,7 +4807,19 @@ function syncStandaloneVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'vs-code');
   const targetDir = customPath || getVSCodePromptsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
-  validateStandaloneVSCodeFrontmatter(sourceDir);
+  validateSlugModeVSCodeFrontmatter(sourceDir, 'standalone');
+}
+
+/**
+ * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code prompts directory.
+ * @param {boolean} dryRun
+ * @param {string|null} customPath - Override the default VS Code prompts directory
+ */
+function syncLedgerSupportVSCode(dryRun = false, customPath = null) {
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'vs-code');
+  const targetDir = customPath || getVSCodePromptsDir();
+  syncFromDir(sourceDir, targetDir, extractVSFileName, 'Ledger Support VS Code', dryRun);
+  validateSlugModeVSCodeFrontmatter(sourceDir, 'ledger-support');
 }
 
 /**
@@ -4779,7 +4841,18 @@ function syncStandaloneClaudeCode(dryRun = false) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'claude-code');
   const targetDir = getClaudeCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractCCFileName, 'Standalone Claude Code', dryRun);
-  validateStandaloneCCFrontmatter(sourceDir);
+  validateSlugModeCCFrontmatter(sourceDir, 'standalone');
+}
+
+/**
+ * Sync ledger-support Claude Code personas: personas/ledger-support/claude-code/ → ~/.claude/agents/.
+ * @param {boolean} dryRun
+ */
+function syncLedgerSupportClaudeCode(dryRun = false) {
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'claude-code');
+  const targetDir = getClaudeCodeAgentsDir();
+  syncFromDir(sourceDir, targetDir, extractCCFileName, 'Ledger Support Claude Code', dryRun);
+  validateSlugModeCCFrontmatter(sourceDir, 'ledger-support');
 }
 
 /**
@@ -4902,7 +4975,7 @@ ${colors.bright}Examples:${colors.reset}
   try {
     // Build personas from source templates, forwarding --target and --dry-run
     const buildScript = path.join(import.meta.dirname, 'build-personas.js');
-    const buildArgs = ['--suite', 'ledger,standalone'];
+    const buildArgs = ['--suite', 'ledger,standalone,ledger-support'];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the
     // existing output directories. On a clean checkout where output dirs
@@ -4920,11 +4993,15 @@ ${colors.bright}Examples:${colors.reset}
       console.log();
       syncStandaloneVSCode(dryRun, customPath);
       console.log();
+      syncLedgerSupportVSCode(dryRun, customPath);
+      console.log();
     }
     if (target === 'claude-code' || target === 'all') {
       syncClaudeCode(dryRun);
       console.log();
       syncStandaloneClaudeCode(dryRun);
+      console.log();
+      syncLedgerSupportClaudeCode(dryRun);
       console.log();
       syncSkills(dryRun);
     }

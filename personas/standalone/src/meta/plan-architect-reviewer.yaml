@@ -4,8 +4,11 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.6.0"
-last_updated: "2026-06-05"
+changelog: |
+  1.6.0 (2026-06-05): Improved review philosophy and architectural framing
+  1.5.0 (2026-05-29): Gained browser tool for UI verification
+  1.4.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters
+  1.3.0 (2026-05-12): Initial release — advisory architectural review with Simplifications vocab
 
 tools:
   - vscode

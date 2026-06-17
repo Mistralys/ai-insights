@@ -1,7 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.2.0 - **WIP - UNRELEASED**
-- Tools: Added the new `ledger_delete_insight` tool.
+## v2.2.0 - Insight Deletion and Migration Fix
+- Tools: Added `ledger_delete_insight` to remove individual insights from the knowledge store.
+- Storage: Fixed namespace migration recovery for interrupted copy operations.
+- Tests: Added coverage for migration recovery and insight deletion.
+- Docs: Updated api-surface.md with the new tool entry.
 
 ## v2.1.0 - Repository Context and Strategy View
 - Tools: Added `ledger_get_repository_context` for cross-project history and outcome access.

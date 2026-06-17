@@ -37,7 +37,9 @@ name: '{{name}} v{{version}}'
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 vs_file_name: {{vs_file_name}}
 tools: [{{tools_list}}]
 ---`;
@@ -47,7 +49,9 @@ name: {{cc_name}}
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 tools: [{{cc_tools_list}}]
 permissionMode: {{cc_permission_mode}}
 model: {{cc_model}}
@@ -98,6 +102,15 @@ module.exports = {
       outClaudeCode: path.join(ROOT, 'personas', 'standalone', 'claude-code'),
       outputDirs: {
         'deep-agents': path.join(ROOT, 'personas', 'standalone', 'deep-agents'),
+      },
+      personaMode:   'standalone',
+    },
+    'ledger-support': {
+      srcDir:        path.join(ROOT, 'personas', 'ledger-support', 'src'),
+      outVscode:     path.join(ROOT, 'personas', 'ledger-support', 'vs-code'),
+      outClaudeCode: path.join(ROOT, 'personas', 'ledger-support', 'claude-code'),
+      outputDirs: {
+        'deep-agents': path.join(ROOT, 'personas', 'ledger-support', 'deep-agents'),
       },
       personaMode:   'standalone',
     },

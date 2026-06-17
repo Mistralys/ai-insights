@@ -1,0 +1,15 @@
+slug: ledger-pipeline-configurator
+name: "Ledger Pipeline Configurator"
+description: "Determine which pipeline stages should be active for each Work Package based on the nature of the work."
+vs_file_name: ledger-pipeline-configurator.agent.md
+id: standalone-ledger-pipeline-configurator
+cc_file_name: ledger-pipeline-configurator.md
+changelog: |
+  1.0.2 (2026-05-18): Write step references Output Location; subagent handoff precision improved
+  1.0.1 (2026-04-30): Overall improvements
+  1.0.0 (2026-04-11): Initial release — pipeline stage activation per Work Package type
+
+tools:
+  - read
+  - edit
+  - search

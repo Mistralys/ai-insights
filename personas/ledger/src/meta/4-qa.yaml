@@ -4,8 +4,12 @@ vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
-version: "3.6.2"
-last_updated: "2026-05-29"
+changelog: |
+  3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
+  3.5.3 (2026-02-22): Simplified preflight and verbose sections
+  3.5.2 (2026-02-22): Added incident logging block and REWORK_QA handling
+  3.5.1 (2026-02-22): Enabled incident logging
+  3.5.0 (2026-02-22): Initial changelogged version — role boundaries and mandatory handoffs
 
 tools:
   - vscode

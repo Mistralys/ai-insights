@@ -1,0 +1,33 @@
+slug: ledger-orchestrator-runner
+name: "Ledger Orchestrator Runner"
+description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
+vs_file_name: ledger-orchestrator-runner.agent.md
+id: standalone-ledger-orchestrator-runner
+cc_file_name: ledger-orchestrator-runner.md
+da_file_name: ledger-orchestrator-runner.md
+changelog: |
+  1.5.1 (2026-03-26): Troubleshooting table updated with --depth N flag for kill-orchestrator
+  1.5.0 (2026-03-25): Replaced log monitoring with read-log.js; kill-orchestrator.js added
+  1.4.1 (2026-03-25): Fixed terminal polling; JSONL schema reading; dry-run go/no-go decisions
+  1.4.0 (2026-03-23): Updated JSONL event count to 20; added env vars; log archival docs
+  1.3.0 (2026-03-23): Restructured progress monitoring; expanded JSONL event type coverage
+  1.2.0 (2026-03-20): Simplified preflight to single script call
+  1.0.1 (2026-02-24): Minor updates and fixes
+  1.0.0 (2026-02-24): Initial release — orchestrator pre-flight, launch, and monitoring
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - todo
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - Task
+  - TodoRead
+  - TodoWrite

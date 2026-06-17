@@ -1,0 +1,24 @@
+<section>
+  <p class="section-label">Catering to multiple platforms</p>
+  <h2>One Source, Multiple Outputs</h2>
+  <p class="lead">Use template logic commands to switch between platform-specific wording.</p>
+  <div style="font-size: 0.55em; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 1em 1.4em; text-align: left; font-family: 'JetBrains Mono', monospace; line-height: 1.6; max-width: 780px; margin: 0 auto; border: 1px solid rgba(255,255,255,0.06);">
+    <span style="color: #ce93d8;">{{#if target_vscode}}</span><br>
+    &nbsp;&nbsp;Invoke <span style="color: #81c784;">`runSubagent`</span> with agentName: <span style="color: #ffd54f;">"WP Decomposer"</span><br>
+    <span style="color: #ce93d8;">{{else if target_claude_code}}</span><br>
+    &nbsp;&nbsp;Use the <span style="color: #81c784;">`Task`</span> tool with agent: <span style="color: #ffd54f;">"WP Decomposer"</span><br>
+    <span style="color: #ce93d8;">{{else if target_deep_agents}}</span><br>
+    &nbsp;&nbsp;Use the <span style="color: #81c784;">`task`</span> tool with subagent_type: <span style="color: #ffd54f;">"wp-decomposer"</span><br>
+    <span style="color: #ce93d8;">{{/if}}</span>
+  </div>
+  <p style="font-size: 0.7em; color: #90a4ae;">
+    From the Project Manager persona &mdash; each platform has a different way<br>
+    to call sub-agents. The logic commands handle it.
+  </p>
+  <aside class="notes">
+    This is real syntax from the Project Manager persona. VS Code uses runSubagent, Claude Code uses
+    Task, Deep Agents uses task with a slug. One source file, three correct outputs. The template
+    language has just three constructs: variables for values, partials for shared content blocks,
+    and conditionals for platform differences. No programming required.
+  </aside>
+</section>

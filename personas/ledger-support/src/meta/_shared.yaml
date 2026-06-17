@@ -1,0 +1,18 @@
+author: Sebastian Mordziol
+default_version: "1.0.0"
+mcp_server_name: central_pm
+cc_permission_mode: "acceptEdits"    # Autonomous workflow default
+cc_model: "inherit"                  # Defer to user's configured model
+cc_memory: "project"                 # Project-scoped memory
+default_cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite

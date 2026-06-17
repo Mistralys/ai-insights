@@ -1,0 +1,66 @@
+{
+  "sections": [
+    {
+      "label": "Opening",
+      "slides": [
+        "title",
+        "intro",
+        "agenda"
+      ]
+    },
+    {
+      "label": "Part 1 — Agent Personas",
+      "slides": [
+        "part1-divider",
+        "persona-what",
+        "recipe-curator",
+        "persona-difference",
+        "nlp",
+        "markdown-format",
+        "persona-structure",
+        "identity-anchor",
+        "english-best",
+        "domain-knowledge",
+        "values-standards",
+        "meet-the-team",
+        "build-your-personas"
+      ]
+    },
+    {
+      "label": "Part 2 — Build System",
+      "slides": [
+        "part2-divider",
+        "platforms",
+        "scaling-problem",
+        "build-pipeline",
+        "template-syntax"
+      ]
+    },
+    {
+      "label": "Part 3 — Ledger & Workflow",
+      "slides": [
+        "part3-divider",
+        "agentic-workflow",
+        "dynamic-pipelines",
+        "coordination-problem",
+        "project-ledger",
+        "knowledge-persists",
+        "orchestrator",
+        "battle-tested"
+      ]
+    },
+    {
+      "label": "Demo",
+      "slides": [
+        "demo-divider"
+      ]
+    },
+    {
+      "label": "Closing",
+      "slides": [
+        "key-takeaways",
+        "thank-you"
+      ]
+    }
+  ]
+}

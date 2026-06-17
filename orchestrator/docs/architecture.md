@@ -41,7 +41,7 @@ The `pm` stage is the only stage that delegates sub-tasks to specialised subagen
 
 - **Ledger persona YAML `subagents` field** (e.g. `personas/ledger/src/meta/2-project-manager.yaml`) — declares the kebab-case slugs of sub-agents a stage should receive. This is the source of truth for which stages have subagent delegation.
 
-- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads the `subagents` list from the ledger persona YAML for *stage*, then resolves `description` from `personas/standalone/src/meta/{slug}.yaml` and `system_prompt` from `personas/standalone/deep-agents/{slug}.md`. Returns `[]` for stages with no `subagents` key. Results are cached per `(stage, slug)` for the process lifetime.
+- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads the `subagents` list from the ledger persona YAML for *stage*, then resolves `description` from `personas/ledger-support/src/meta/{slug}.yaml` (falling back to `personas/standalone/src/meta/{slug}.yaml`) and `system_prompt` from `personas/ledger-support/deep-agents/{slug}.md` (falling back to `personas/standalone/deep-agents/{slug}.md`). Returns `[]` for stages with no `subagents` key. Results are cached per `(stage, slug)` for the process lifetime.
 
 - **`create_stage_node()` call site** — `load_subagents()` is called inside every `node_fn` before `create_deep_agent()`. When the returned list is non-empty, it is forwarded as `subagents=list`; when empty it is forwarded as `subagents=None`. Non-PM stages simply receive `subagents=None`.
 
@@ -49,10 +49,10 @@ The `pm` stage is the only stage that delegates sub-tasks to specialised subagen
 
 | Slug | Description source | System prompt source |
 |------|--------------------|---------------------|
-| `ledger-wp-decomposer` | `personas/standalone/src/meta/ledger-wp-decomposer.yaml` | `personas/standalone/deep-agents/ledger-wp-decomposer.md` |
-| `ledger-dependency-sequencer` | `personas/standalone/src/meta/ledger-dependency-sequencer.yaml` | `personas/standalone/deep-agents/ledger-dependency-sequencer.md` |
-| `ledger-pipeline-configurator` | `personas/standalone/src/meta/ledger-pipeline-configurator.yaml` | `personas/standalone/deep-agents/ledger-pipeline-configurator.md` |
-| `ledger-bootstrapper` | `personas/standalone/src/meta/ledger-bootstrapper.yaml` | `personas/standalone/deep-agents/ledger-bootstrapper.md` |
+| `ledger-wp-decomposer` | `personas/ledger-support/src/meta/ledger-wp-decomposer.yaml` | `personas/ledger-support/deep-agents/ledger-wp-decomposer.md` |
+| `ledger-dependency-sequencer` | `personas/ledger-support/src/meta/ledger-dependency-sequencer.yaml` | `personas/ledger-support/deep-agents/ledger-dependency-sequencer.md` |
+| `ledger-pipeline-configurator` | `personas/ledger-support/src/meta/ledger-pipeline-configurator.yaml` | `personas/ledger-support/deep-agents/ledger-pipeline-configurator.md` |
+| `ledger-bootstrapper` | `personas/ledger-support/src/meta/ledger-bootstrapper.yaml` | `personas/ledger-support/deep-agents/ledger-bootstrapper.md` |
 
 **To add a subagent to a stage:** Add the kebab-case slug to the `subagents` field in the stage's ledger persona YAML source (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). Rebuild personas with `node scripts/build-personas.js`. No Python changes required.
 

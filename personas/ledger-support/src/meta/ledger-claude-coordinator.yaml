@@ -1,0 +1,22 @@
+slug: ledger-claude-coordinator
+name: "Ledger Claude Coordinator"
+description: "Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent."
+vs_file_name: ledger-claude-coordinator.agent.md
+id: standalone-ledger-claude-coordinator
+cc_file_name: ledger-claude-coordinator.md
+changelog: |
+  1.0.0 (2026-03-19): Initial release — coordinate multi-stage pipeline via central_pm ledger
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - agent
+  - mcp
+
+cc_tools:
+  - Task
+  - Read
+  - Grep

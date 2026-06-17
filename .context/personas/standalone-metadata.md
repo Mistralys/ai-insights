@@ -2,10 +2,11 @@
 <INSTRUCTION>
 # Personas - Standalone Persona Metadata
 YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
+
 </INSTRUCTION>
 ------------------------------------------------------------
-_SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)_
-# YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)
+_SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-persona overrides)_
+# YAML metadata for all 19 standalone personas (shared defaults + per-persona overrides)
 ```
 // Structure of documents
 └── personas/
@@ -20,13 +21,6 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── developer.yaml
                 └── documentation-curator.yaml
                 └── git-committer.yaml
-                └── ledger-bootstrapper.yaml
-                └── ledger-claude-coordinator.yaml
-                └── ledger-dependency-sequencer.yaml
-                └── ledger-doctor.yaml
-                └── ledger-orchestrator-runner.yaml
-                └── ledger-pipeline-configurator.yaml
-                └── ledger-wp-decomposer.yaml
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
                 └── persona-curator.yaml
@@ -35,8 +29,8 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
                 └── plan-refiner.yaml
                 └── planner.yaml
                 └── readme-curator.yaml
+                └── recipe-curator.yaml
                 └── researcher.yaml
-                └── standalone-knowledge-archiver.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
 
@@ -45,7 +39,6 @@ _SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-per
 
 ```yaml
 author: Sebastian Mordziol
-last_updated: "2026-02-23"
 default_version: "1.0.0"
 cc_permission_mode: "acceptEdits"    # Autonomous workflow default
 cc_model: "inherit"                  # Defer to user's configured model
@@ -73,8 +66,10 @@ description: "Generate, update, and maintain AGENTS.md files — the operating m
 vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
-version: "1.2.0"
-last_updated: "2026-04-30"
+changelog: |
+  1.2.0 (2026-04-30): Comprehensive rewrite to imperative voice
+  1.1.0 (2026-03-20): Creates CLAUDE.md companion file alongside AGENTS.md
+  1.0.0 (2026-02-23): Initial release — operating manual generation for AI agents
 
 tools:
   - vscode
@@ -96,8 +91,10 @@ description: "Produce clean, scannable changelogs from Git history or rewrite ve
 vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
-version: "1.1.1"
-last_updated: "2026-03-04"
+changelog: |
+  1.1.1 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.1.0 (2026-02-25): Refined entry verbosity rationales
+  1.0.0 (2026-02-24): Initial release — Git-to-changelog summarization with house style
 
 tools:
   - vscode
@@ -118,8 +115,9 @@ description: "Verify that the project's composer.json file is set up correctly f
 vs_file_name: composer-curator.agent.md
 id: standalone-composer-curator
 cc_file_name: composer-curator.md
-version: "1.0.1"
-last_updated: "2026-03-04"
+changelog: |
+  1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.0 (2026-02-24): Initial release — composer.json verification for agentic coding
 
 tools:
   - vscode
@@ -140,8 +138,10 @@ description: "Design, generate, and maintain CTX Generator context documentation
 vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
-version: "1.2.0"
-last_updated: "2026-05-27"
+changelog: |
+  1.2.0 (2026-05-27): Variable examples escaped to fix warnings; integrated knowledge updated
+  1.1.0 (2026-03-20): Added tree-source type warnings; exclude package manager artifacts
+  1.0.0 (2026-03-12): Initial release — CTX Generator documentation workflows
 
 tools:
   - vscode
@@ -174,8 +174,9 @@ description: "Implement scoped plan documents without ledger workflow, including
 vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
-version: "1.1.0"
-last_updated: "2026-05-29"
+changelog: |
+  1.1.0 (2026-05-29): Gained browser tool for UI and regression verification
+  1.0.0 (2026-03-29): Initial release — plan implementation with code insights, no ledger
 
 tools:
   - vscode
@@ -204,8 +205,8 @@ description: "Analyze codebase changes, identify documentation gaps, and update 
 vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
-version: "1.0.0"
-last_updated: "2026-04-30"
+changelog: |
+  1.0.0 (2026-04-30): Initial release — documentation analysis, gap-filling, and updating
 
 tools:
   - vscode
@@ -227,8 +228,13 @@ description: "Analyze uncommitted changes and organize them into comprehensive, 
 vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
-version: "1.0.5"
-last_updated: "2026-06-03"
+changelog: |
+  1.0.5 (2026-06-03): Added uncommitted-changes pre-check before commit sequence
+  1.0.4 (2026-05-22): Excludes CTX files from commits on feature branches
+  1.0.3 (2026-05-20): Checks for upstream and default-branch divergence before committing
+  1.0.2 (2026-05-11): Archives both plan.md and synthesis.md to implementation history
+  1.0.1 (2026-05-07): Minor fixes and adjustments
+  1.0.0 (2026-05-06): Initial release — structured commit workflows with plan traceability
 
 tools:
   - vscode
@@ -241,176 +247,6 @@ cc_tools:
   - Read
   - Grep
   - Glob
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
-
-```yaml
-slug: ledger-bootstrapper
-name: "Ledger Bootstrapper"
-description: "Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete."
-vs_file_name: ledger-bootstrapper.agent.md
-id: standalone-ledger-bootstrapper
-cc_file_name: ledger-bootstrapper.md
-version: "1.1.0"
-last_updated: "2026-05-19"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - central_pm/*
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-claude-coordinator.yaml`
-
-```yaml
-slug: ledger-claude-coordinator
-name: "Ledger Claude Coordinator"
-description: "Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent."
-vs_file_name: ledger-claude-coordinator.agent.md
-id: standalone-ledger-claude-coordinator
-cc_file_name: ledger-claude-coordinator.md
-version: "1.0.0"
-last_updated: "2026-03-19"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - agent
-  - mcp
-
-cc_tools:
-  - Task
-  - Read
-  - Grep
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-dependency-sequencer.yaml`
-
-```yaml
-slug: ledger-dependency-sequencer
-name: "Ledger Dependency Sequencer"
-description: "Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering."
-vs_file_name: ledger-dependency-sequencer.agent.md
-id: standalone-ledger-dependency-sequencer
-cc_file_name: ledger-dependency-sequencer.md
-version: "1.0.4"
-last_updated: "2026-05-18"
-
-tools:
-  - read
-  - edit
-  - search
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-doctor.yaml`
-
-```yaml
-slug: ledger-doctor
-name: "Ledger Doctor"
-description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
-vs_file_name: ledger-doctor.agent.md
-id: standalone-ledger-doctor
-cc_file_name: ledger-doctor.md
-version: "1.3.0"
-last_updated: "2026-06-04"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - web
-  - mcp
-  - todo
-  - central_pm/*
-
-cc_tools:
-  - Bash
-  - Read
-  - Edit
-  - Grep
-  - Glob
-  - WebFetch
-  - TodoRead
-  - TodoWrite
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-orchestrator-runner.yaml`
-
-```yaml
-slug: ledger-orchestrator-runner
-name: "Ledger Orchestrator Runner"
-description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
-vs_file_name: ledger-orchestrator-runner.agent.md
-id: standalone-ledger-orchestrator-runner
-cc_file_name: ledger-orchestrator-runner.md
-da_file_name: ledger-orchestrator-runner.md
-version: "1.5.1"
-last_updated: "2026-03-26"
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - todo
-
-cc_tools:
-  - Bash
-  - Read
-  - Edit
-  - Grep
-  - Task
-  - TodoRead
-  - TodoWrite
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-pipeline-configurator.yaml`
-
-```yaml
-slug: ledger-pipeline-configurator
-name: "Ledger Pipeline Configurator"
-description: "Determine which pipeline stages should be active for each Work Package based on the nature of the work."
-vs_file_name: ledger-pipeline-configurator.agent.md
-id: standalone-ledger-pipeline-configurator
-cc_file_name: ledger-pipeline-configurator.md
-version: "1.0.2"
-last_updated: "2026-05-18"
-
-tools:
-  - read
-  - edit
-  - search
-
-```
-###  Path: `/personas/standalone/src/meta/ledger-wp-decomposer.yaml`
-
-```yaml
-slug: ledger-wp-decomposer
-name: "Ledger WP Decomposer"
-description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
-vs_file_name: ledger-wp-decomposer.agent.md
-id: standalone-ledger-wp-decomposer
-cc_file_name: ledger-wp-decomposer.md
-version: "1.0.7"
-last_updated: "2026-06-04"
-
-tools:
-  - read
-  - edit
-  - search
 
 ```
 ###  Path: `/personas/standalone/src/meta/manifest-curator.yaml`
@@ -422,8 +258,10 @@ description: "Create, update, and audit project manifests — the source of trut
 vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
-version: "1.0.6"
-last_updated: "2026-04-30"
+changelog: |
+  1.0.6 (2026-04-30): Audited and improved content and workflow
+  1.0.5 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.0 (2026-02-23): Initial release — AI agent session documentation creation and maintenance
 
 tools:
   - vscode
@@ -445,8 +283,10 @@ description: "Infers and documents the purpose, role, and dependencies of specif
 vs_file_name: module-intent-architect.agent.md
 id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
-version: "1.0.3"
-last_updated: "2026-03-04"
+changelog: |
+  1.0.3 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.2 (2026-02-24): Improved documentation generation guidance
+  1.0.1 (2026-02-23): Initial pre-changelog version
 
 tools:
   - vscode
@@ -480,8 +320,11 @@ description: "Create, audit, and maintain AI agent personas according to the Per
 vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
-version: "1.1.0"
-last_updated: "2026-04-29"
+changelog: |
+  1.3.0 (2026-06-13): Updated Create workflow + Version bookkeeping constraint to use changelog: block scalar; prohibit standalone version: and last_updated: fields
+  1.2.0 (2026-06-13): Changelog entries now recorded in persona YAML metadata instead of personas/changelog.md
+  1.1.0 (2026-04-29): Improved mission statement and operational protocol
+  1.0.0 (2026-04-11): Initial release — AI agent persona creation and auditing
 
 tools:
   - vscode
@@ -503,8 +346,11 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.6.0"
-last_updated: "2026-06-05"
+changelog: |
+  1.6.0 (2026-06-05): Improved review philosophy and architectural framing
+  1.5.0 (2026-05-29): Gained browser tool for UI verification
+  1.4.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters
+  1.3.0 (2026-05-12): Initial release — advisory architectural review with Simplifications vocab
 
 tools:
   - vscode
@@ -527,8 +373,13 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.5.0"
-last_updated: "2026-06-03"
+changelog: |
+  1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
+  1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings
+  1.3.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters
+  1.2.0 (2026-05-12): Narrowed to technical defects; gained Test Plan and Docs section checks
+  1.1.0 (2026-04-29): Initial improvements
+  1.0.0 (2026-04-29): Initial release — technical plan defect detection
 
 tools:
   - vscode
@@ -551,8 +402,11 @@ description: "Orchestrate iterative plan refinement: architectural review, findi
 vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
-version: "1.0.4"
-last_updated: "2026-05-31"
+changelog: |
+  1.0.4 (2026-05-31): Minor refinements
+  1.0.3 (2026-05-20): Handoff improvements to give subagents more agency
+  1.0.2 (2026-05-20): Wording improvements to remove overly imperative instructions
+  1.0.0 (2026-05-20): Initial release — iterative plan refinement with repeated auditing
 
 tools:
   - vscode
@@ -578,8 +432,8 @@ description: "Produce clear, actionable, technically sound plans from feature re
 vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
-version: "1.0.0"
-last_updated: "2026-06-08"
+changelog: |
+  1.0.0 (2026-06-08): Initial release — ledger-independent planning for non-ledger workflows
 
 tools:
   - vscode
@@ -601,8 +455,11 @@ description: "Produces a human‑optimized README.md that follows a landing‑pa
 vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
-version: "1.3.0"
-last_updated: "2026-04-12"
+changelog: |
+  1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
+  1.2.1 (2026-03-01): Added helper section for rewriting entire READMEs
+  1.2.0 (2026-02-24): Rewritten to produce better human-oriented output
+  1.1.0 (2026-02-23): Initial pre-changelog version
 
 tools:
   - vscode
@@ -615,6 +472,37 @@ tools:
   - todo
 
 ```
+###  Path: `/personas/standalone/src/meta/recipe-curator.yaml`
+
+```yaml
+slug: recipe-curator
+name: "Recipe Curator"
+description: "Curate, adapt, and compose recipes tailored to a home kitchen that values fresh, seasonal, and predominantly organic ingredients."
+vs_file_name: recipe-curator.agent.md
+id: standalone-recipe-curator
+cc_file_name: recipe-curator.md
+changelog: |
+  1.4.1 (2026-06-14): World cuisine reframing — Mediterranean demoted from home base to geographic influence; culinary identity is global
+  1.4.0 (2026-06-14): Consistency audit — de-duplicated Philosophy (12→8), moved Sugar/Salt/Fat to Philosophy as Light Touch on Seasoning, moved Beyond Fresh and Bread to Kitchen Reference, categorized Constraints, moved Session Opener to Workflow, standardized color targets, fixed pronouns and column labels
+  1.3.0 (2026-06-14): Creativity and novelty — anti-repetition philosophy, repertoire rotation constraint, session opener, enhanced survey workflow
+  1.2.0 (2026-06-14): Rainbow eating integration — color diversity reference, constraint, recipe/plan format, and verification workflow
+  1.1.1 (2026-06-14): Ignore leftovers constraint — plan each meal from scratch
+  1.1.0 (2026-06-14): Nutrition verification workflow step
+  1.0.5 (2026-06-13): Calorie ceiling (2500 kcal/day) and fiber target (30g/day) added
+  1.0.4 (2026-06-13): Canned and refrigerated goods as first-class ingredient sources
+  1.0.3 (2026-06-13): No fresh fish; Mediterranean as style home base, not a boundary
+  1.0.2 (2026-06-13): Weekly plan includes full individual recipes below the overview table
+  1.0.1 (2026-06-13): Weekly plan defaults to dinner-only; asks whether to include lunch
+  1.0.0 (2026-06-13): Initial release — household recipe curation and meal planning
+
+tools:
+  - vscode
+  - read
+  - search
+  - web
+  - browser
+
+```
 ###  Path: `/personas/standalone/src/meta/researcher.yaml`
 
 ```yaml
@@ -624,8 +512,10 @@ description: "Research solutions to complex problems through known patterns or c
 vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
-version: "1.2.0"
-last_updated: "2026-05-29"
+changelog: |
+  1.2.0 (2026-05-29): Gained browser tool for research verification
+  1.1.0 (2026-04-30): Audited and improved
+  1.0.0 (2026-02-23): Initial release — complex problem research via known patterns
 
 tools:
   - vscode
@@ -639,27 +529,6 @@ tools:
   - todo
 
 ```
-###  Path: `/personas/standalone/src/meta/standalone-knowledge-archiver.yaml`
-
-```yaml
-slug: standalone-knowledge-archiver
-name: "Knowledge Archiver"
-description: "Extract and commit reusable knowledge from completed ledger project folders into the knowledge base."
-vs_file_name: knowledge-archiver.agent.md
-id: standalone-knowledge-archiver
-cc_file_name: knowledge-archiver.md
-version: "1.5.1"
-last_updated: "2026-06-04"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - read
-  - edit
-  - search
-  - central_pm/*
-
-```
 ###  Path: `/personas/standalone/src/meta/unit-test-auditor.yaml`
 
 ```yaml
@@ -669,8 +538,9 @@ description: "Audit unit test coverage of specific codebase modules — identify
 vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
-version: "1.1.0"
-last_updated: "2026-04-30"
+changelog: |
+  1.1.0 (2026-04-30): Audited and improved; rewritten to imperative voice
+  1.0.0 (2026-02-23): Initial release — unit test coverage auditing for specific modules
 
 tools:
   - vscode
@@ -692,8 +562,9 @@ description: "Write bilingual WHATSNEW.xml release note entries from the develop
 vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
-version: "1.0.1"
-last_updated: "2026-03-04"
+changelog: |
+  1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.0 (2026-02-25): Initial release — bilingual WHATSNEW.xml release note generation
 
 tools:
   - vscode

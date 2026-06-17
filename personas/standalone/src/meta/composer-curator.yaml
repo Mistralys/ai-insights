@@ -4,8 +4,9 @@ description: "Verify that the project's composer.json file is set up correctly f
 vs_file_name: composer-curator.agent.md
 id: standalone-composer-curator
 cc_file_name: composer-curator.md
-version: "1.0.1"
-last_updated: "2026-03-04"
+changelog: |
+  1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
+  1.0.0 (2026-02-24): Initial release — composer.json verification for agentic coding
 
 tools:
   - vscode

@@ -4,8 +4,13 @@ description: "Analyze uncommitted changes and organize them into comprehensive, 
 vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
-version: "1.0.5"
-last_updated: "2026-06-03"
+changelog: |
+  1.0.5 (2026-06-03): Added uncommitted-changes pre-check before commit sequence
+  1.0.4 (2026-05-22): Excludes CTX files from commits on feature branches
+  1.0.3 (2026-05-20): Checks for upstream and default-branch divergence before committing
+  1.0.2 (2026-05-11): Archives both plan.md and synthesis.md to implementation history
+  1.0.1 (2026-05-07): Minor fixes and adjustments
+  1.0.0 (2026-05-06): Initial release — structured commit workflows with plan traceability
 
 tools:
   - vscode

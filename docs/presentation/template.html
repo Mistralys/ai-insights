@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Insights: Structured Multi-Agent Workflows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<style>
+  :root {
+    --r-background-color: #0f0f1a;
+    --r-main-color: #e0e0e0;
+    --r-heading-color: #ffffff;
+    --r-link-color: #64b5f6;
+    --r-selection-background-color: #64b5f680;
+    --r-heading-font: 'Inter', system-ui, -apple-system, sans-serif;
+    --r-main-font: 'Inter', system-ui, -apple-system, sans-serif;
+    --r-code-font: 'JetBrains Mono', monospace;
+    --r-main-font-size: 28px;
+    --glass-bg: rgba(255, 255, 255, 0.04);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Radial gradient background */
+  .reveal-viewport {
+    background: radial-gradient(ellipse at 20% 50%, #162447 0%, #0f0f1a 50%, #0a0a14 100%);
+  }
+
+  .reveal { font-weight: 300; letter-spacing: -0.01em; }
+  .reveal h1 {
+    font-size: 2.2em; font-weight: 700; letter-spacing: -0.03em;
+    color: #fff;
+    text-shadow:
+      0 1px 0 rgba(255,255,255,0.15),
+      0 -1px 0 rgba(0,0,0,0.4),
+      0 4px 12px rgba(100, 181, 246, 0.25),
+      0 0 30px rgba(100, 181, 246, 0.08);
+  }
+  .reveal h2 {
+    font-size: 1.6em; font-weight: 600; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #90caf9 0%, #64b5f6 40%, #ce93d8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 15px rgba(100, 181, 246, 0.4)) drop-shadow(0 0 40px rgba(100, 181, 246, 0.15));
+  }
+  .reveal h3 { font-size: 1.2em; font-weight: 600; color: #90caf9; }
+  .reveal code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
+  .reveal strong { font-weight: 600; }
+  .reveal strong:not([class]) { color: #ffffff; }
+  .reveal em { color: #b0bec5; }
+  .reveal .subtitle { font-size: 0.7em; color: #90a4ae; margin-top: 0.5em; }
+  .reveal .section-label { font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.15em; color: #64b5f6; margin-bottom: 0.3em; }
+  .reveal .lead { font-size: 0.8em; margin-bottom: 1.8em; }
+
+  /* Accent colors */
+  .accent { color: #ffd54f; }
+  .accent-green { color: #81c784; }
+  .accent-red { color: #ef9a9a; }
+  .accent-blue { color: #64b5f6; }
+
+  /* Two-column layout */
+  .two-col { display: flex; gap: 2em; align-items: flex-start; }
+  .two-col > div { flex: 1; }
+
+  /* Glassmorphism base */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* Comparison columns */
+  .compare { display: flex; gap: 1.5em; }
+  .compare > div { flex: 1; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 1em 1.2em; box-shadow: var(--glass-shadow); }
+  .compare .label { font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5em; }
+  .compare .label.before { color: #ef9a9a; }
+  .compare .label.after { color: #81c784; }
+
+  /* Platform matrix */
+  .platform-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6em 2em; font-size: 0.75em; text-align: left; }
+  .platform-grid .status-full { color: #81c784; }
+  .platform-grid .status-partial { color: #ffd54f; }
+  .platform-grid .status-none { color: #ef9a9a; }
+
+  /* Pipeline cards */
+  .pipeline { display: flex; align-items: flex-start; gap: 0; justify-content: center; flex-wrap: nowrap; padding-bottom: 4em; }
+  .pipeline .agent-card {
+    background: rgba(30, 58, 95, 0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(42, 74, 127, 0.5);
+    border-radius: 8px;
+    padding: 0.3em 0.4em;
+    text-align: center;
+    min-width: 80px;
+    font-size: 0.48em;
+    position: relative;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .pipeline .agent-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+  .pipeline .agent-card .num { font-size: 1.4em; font-weight: 700; color: #64b5f6; }
+  .pipeline .agent-card .name { font-weight: 600; color: #fff; margin: 0.15em 0; font-size: 0.95em; }
+  .pipeline .agent-card .role { color: #90a4ae; font-size: 0.85em; }
+  .pipeline .arrow { color: #64b5f6; font-size: 1.5em; font-weight: 700; align-self: center; margin: 0 0.3em; flex-shrink: 0; line-height: 1; }
+  .pipeline .has-subagents { border-color: #ffd54f; }
+
+  /* Agent wrapper — card + optional subagent pills below */
+  .agent-wrapper { display: flex; flex-direction: column; align-items: flex-start; position: relative; }
+  .agent-wrapper .subagents { position: absolute; top: 100%; font-size: 0.48em; margin-top: 0.55em; white-space: nowrap; }
+
+  /* Human-in-the-loop marker above agent cards */
+  .human-marker {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    font-size: 0.4em; color: #ce93d8; text-align: center;
+    margin-bottom: 0.15em; letter-spacing: 0.04em; font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Subagent pills */
+  .subagents {
+    display: flex; flex-direction: column; gap: 0.3em;
+    align-items: flex-start;
+  }
+  .subagents .pill {
+    background: rgba(255,213,79,0.15);
+    border: 1px solid rgba(255,213,79,0.3);
+    border-radius: 4px;
+    padding: 0.15em 0.4em;
+    font-size: 0.75em;
+    color: #ffd54f;
+  }
+  .subagents .pill::before {
+    content: '·';
+    margin-right: 0.3em;
+    font-weight: 700;
+  }
+
+  /* Agentic loop bracket around agents 3–8 */
+  .loop-bracket {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    border: 1.5px dashed rgba(100, 181, 246, 0.4);
+    border-radius: 10px;
+    padding: 0.6em 0.45em;
+    margin: -0.4em 0;
+  }
+  .loop-label {
+    position: absolute;
+    bottom: -1.5em;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.42em;
+    color: #64b5f6;
+    white-space: nowrap;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+  }
+  .loop-label .loop-icon {
+    font-size: 1.3em;
+    line-height: 1;
+  }
+
+  /* Optional agent cards — asterisk marker */
+  .pipeline .agent-card.optional::after {
+    content: '*';
+    position: absolute;
+    top: 0.1em;
+    right: 0.25em;
+    font-size: 0.9em;
+    color: #90a4ae;
+    line-height: 1;
+  }
+  .ledger-roles { text-align: left; }
+  .ledger-roles .role-item { margin-bottom: 0.8em; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 10px; padding: 0.7em 1em; box-shadow: var(--glass-shadow); }
+  .ledger-roles .role-name { color: #64b5f6; font-weight: 600; font-size: 1em; }
+  .ledger-roles .role-desc { color: #b0bec5; font-size: 0.8em; margin-top: 0.15em; }
+
+  /* Knowledge scopes */
+  .knowledge-scopes { display: flex; gap: 1.5em; }
+  .knowledge-scopes > div { flex: 1; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 1em; box-shadow: var(--glass-shadow); }
+  .knowledge-scopes h3 { margin-top: 0; }
+
+  /* Equipment table */
+  .equipment-table { font-size: 0.6em; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.8em; box-shadow: var(--glass-shadow); }
+  .equipment-table table { width: 100%; border-collapse: collapse; }
+  .equipment-table th { text-align: left; color: #64b5f6; border-bottom: 1px solid rgba(42, 74, 127, 0.5); padding: 0.3em 0.5em; font-weight: 600; }
+  .equipment-table td { padding: 0.3em 0.5em; border-bottom: 1px solid rgba(255,255,255,0.04); }
+
+  /* Rainbow table */
+  .rainbow-table { font-size: 0.55em; background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.8em; box-shadow: var(--glass-shadow); }
+  .rainbow-table table { width: 100%; border-collapse: collapse; }
+  .rainbow-table th { text-align: left; padding: 0.3em 0.5em; border-bottom: 1px solid rgba(42, 74, 127, 0.5); font-weight: 600; }
+  .rainbow-table td { padding: 0.3em 0.5em; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .rainbow-table .color-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 0.4em; vertical-align: middle; }
+
+  /* Sidenote */
+  .sidenote { font-size: 0.65em; color: #90a4ae; font-style: italic; margin-top: 1em; border-left: 3px solid #64b5f6; padding-left: 0.8em; background: rgba(100, 181, 246, 0.05); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 0 8px 8px 0; padding: 0.6em 0.8em; }
+
+  /* Strikethrough comparison */
+  .strike { text-decoration: line-through; color: #ef9a9a; }
+  .better { color: #81c784; }
+
+  /* Build pipeline diagram */
+  .build-flow { display: flex; align-items: center; justify-content: center; gap: 1em; font-size: 0.75em; }
+  .build-flow .box { background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.8em 1em; text-align: center; box-shadow: var(--glass-shadow); }
+  .build-flow .box.source { border-color: #81c784; }
+  .build-flow .box.engine { border-color: #ffd54f; }
+  .build-flow .box.target { border-color: #64b5f6; }
+
+  /* Slide images */
+  .reveal img { border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+
+  /* Persona structure list */
+  .persona-structure { text-align: left; font-size: 0.75em; }
+  .persona-structure .section { display: flex; align-items: baseline; gap: 0.5em; margin-bottom: 0.4em; }
+  .persona-structure .section .num { color: #64b5f6; font-weight: 700; min-width: 1.5em; }
+  .persona-structure .section .label { color: #fff; font-weight: 600; white-space: nowrap; }
+  .persona-structure .section .desc { color: #90a4ae; }
+
+  /* Team grid */
+  .team-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.7em;
+    font-size: 0.65em; text-align: left;
+  }
+  .team-grid .team-card {
+    background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border); border-radius: 10px;
+    padding: 0.7em 0.9em; box-shadow: var(--glass-shadow);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+  }
+  .team-grid .team-card:hover { transform: translateY(-2px); border-color: rgba(100, 181, 246, 0.3); }
+  .team-grid .team-card .team-icon { font-size: 1.4em; margin-bottom: 0.2em; }
+  .team-grid .team-card .team-name { color: #64b5f6; font-weight: 600; font-size: 1.05em; }
+  .team-grid .team-card .team-desc { color: #90a4ae; font-size: 0.88em; margin-top: 0.15em; line-height: 1.35; }
+
+  /* Fragment highlight override */
+  .reveal .fragment.highlight-current-blue.current-fragment { color: #64b5f6; }
+
+  /* Outline panel */
+  /* Recipe modal */
+  #recipe-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  #recipe-modal.open { display: flex; }
+  #recipe-modal .modal-content {
+    background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+    box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+    width: 85vw; max-width: 900px; max-height: 80vh;
+    overflow-y: auto; padding: 2em 2.5em;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #e0e0e0; font-size: 15px; line-height: 1.6;
+  }
+  #recipe-modal .modal-content::-webkit-scrollbar { width: 6px; }
+  #recipe-modal .modal-content::-webkit-scrollbar-track { background: transparent; }
+  #recipe-modal .modal-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+  #recipe-modal .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 1.2em; padding-bottom: 0.8em;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #recipe-modal .modal-header h3 { margin: 0; font-size: 1.2em; font-weight: 600; }
+  #recipe-modal .modal-header .modal-label-before { color: #ef9a9a; }
+  #recipe-modal .modal-header .modal-label-after { color: #81c784; }
+  #recipe-modal .modal-close {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #90a4ae; font-size: 14px;
+    padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s;
+  }
+  #recipe-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #recipe-modal .modal-body { white-space: normal; font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.4; color: #c0c8d0; }
+  #recipe-modal .modal-body ul, #recipe-modal .modal-body ol { margin: 0.3em 0; padding-left: 1.5em; }
+  #recipe-modal .modal-body li { margin-bottom: 0.15em; }
+  #recipe-modal .modal-body p { margin: 0.4em 0; }
+  #recipe-modal .modal-body h2, #recipe-modal .modal-body h3 { margin: 0.8em 0 0.3em; }
+  #recipe-modal .modal-body h1, #recipe-modal .modal-body h2, #recipe-modal .modal-body h3 {
+    font-family: 'Inter', system-ui, sans-serif; color: #fff; background: none;
+    -webkit-text-fill-color: unset; filter: none;
+  }
+  #recipe-modal .modal-body h1 { font-size: 1.3em; text-shadow: none; }
+  #recipe-modal .modal-body h2 { font-size: 1.1em; }
+  #recipe-modal .modal-body h3 { font-size: 1em; }
+  #recipe-modal .modal-body strong { color: #fff; }
+  #recipe-modal .modal-body em { color: #90a4ae; }
+  #recipe-modal .modal-body hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 1.2em 0; }
+  #recipe-modal .modal-body table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+  #recipe-modal .modal-body th, #recipe-modal .modal-body td { padding: 0.3em 0.8em; border: 1px solid rgba(255,255,255,0.08); text-align: left; font-size: 0.95em; }
+  #recipe-modal .modal-body th { color: #64b5f6; font-weight: 600; }
+
+  .compare > div[data-modal] { cursor: pointer; transition: border-color 0.2s, transform 0.15s; }
+  .compare > div[data-modal]:hover { border-color: rgba(255,255,255,0.2); transform: translateY(-2px); }
+  .compare > div[data-modal]::after {
+    content: 'click to expand'; display: block;
+    font-size: 0.5em; color: #64b5f6; margin-top: 0.8em;
+    text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.6;
+  }
+
+  /* Persona source toggle */
+  #persona-toggle {
+    position: fixed; top: 16px; right: 64px; z-index: 100;
+    background: rgba(255,255,255,0.06); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+    width: 40px; height: 40px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s;
+    font-size: 18px; color: #90caf9; line-height: 1;
+  }
+  #persona-toggle:hover { background: rgba(255,255,255,0.12); }
+  #persona-toggle .icon { pointer-events: none; }
+
+  /* Persona source modal */
+  #persona-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  #persona-modal.open { display: flex; }
+  #persona-modal .modal-content {
+    background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+    box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+    width: 85vw; max-width: 900px; max-height: 80vh;
+    overflow-y: auto; padding: 2em 2.5em;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #e0e0e0; font-size: 15px; line-height: 1.6;
+  }
+  #persona-modal .modal-content::-webkit-scrollbar { width: 6px; }
+  #persona-modal .modal-content::-webkit-scrollbar-track { background: transparent; }
+  #persona-modal .modal-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+  #persona-modal .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 1.2em; padding-bottom: 0.8em;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #persona-modal .modal-header h3 { margin: 0; font-size: 1.2em; font-weight: 600; color: #81c784; }
+  #persona-modal .modal-close {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #90a4ae; font-size: 14px;
+    padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s;
+  }
+  #persona-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #persona-modal .persona-source {
+    font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.5;
+    color: #c0c8d0; white-space: pre-wrap; word-wrap: break-word;
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 1.5em;
+    border: 1px solid rgba(255,255,255,0.05);
+    max-height: 60vh; overflow-y: auto;
+  }
+  #persona-modal .persona-source::-webkit-scrollbar { width: 6px; }
+  #persona-modal .persona-source::-webkit-scrollbar-track { background: transparent; }
+  #persona-modal .persona-source::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+  #persona-modal .persona-meta {
+    font-size: 13px; color: #90a4ae; margin-bottom: 1em;
+    display: flex; gap: 2em; flex-wrap: wrap;
+  }
+  #persona-modal .persona-meta span { display: inline-flex; align-items: center; gap: 0.3em; }
+  #persona-modal .persona-meta .tag {
+    background: rgba(100, 181, 246, 0.15); border: 1px solid rgba(100, 181, 246, 0.3);
+    border-radius: 4px; padding: 0.1em 0.5em; font-size: 0.9em; color: #64b5f6;
+  }
+
+  #outline-toggle {
+    position: fixed; top: 16px; right: 16px; z-index: 100;
+    background: rgba(255,255,255,0.06); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+    width: 40px; height: 40px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    transition: background 0.2s;
+  }
+  #outline-toggle:hover { background: rgba(255,255,255,0.12); }
+  #outline-toggle span {
+    display: block; width: 18px; height: 2px; background: #90caf9; border-radius: 1px;
+    transition: transform 0.25s, opacity 0.25s;
+  }
+  #outline-toggle.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  #outline-toggle.open span:nth-child(2) { opacity: 0; }
+  #outline-toggle.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+  #outline-panel {
+    position: fixed; top: 0; right: -340px; z-index: 99;
+    width: 320px; height: 100vh; overflow-y: auto;
+    box-sizing: border-box;
+    background: rgba(15, 15, 26, 0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+    padding: 70px 20px 60px;
+    transition: right 0.3s ease;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  #outline-panel.open { right: 0; }
+  #outline-panel .outline-section {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: #64b5f6; margin: 16px 0 6px; padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  #outline-panel .outline-section:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  #outline-panel .outline-item {
+    display: block; padding: 6px 10px; margin: 2px 0;
+    font-size: 13px; color: #b0bec5; border-radius: 6px;
+    cursor: pointer; text-decoration: none; transition: background 0.15s, color 0.15s;
+    line-height: 1.4;
+  }
+  #outline-panel .outline-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  #outline-panel .outline-item.active { background: rgba(100, 181, 246, 0.12); color: #64b5f6; }
+</style>
+</head>
+<body>
+<div id="recipe-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close">ESC to close</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div id="persona-toggle" title="View Recipe Curator persona source">
+  <span class="icon">📄</span>
+</div>
+<div id="persona-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Recipe Curator — Persona Source (Markdown)</h3>
+      <button class="modal-close">ESC to close</button>
+    </div>
+    <div class="persona-meta">
+      <span>📦 <span class="tag">v1.4.1</span></span>
+      <span>📏 276 lines</span>
+      <span>🎯 Standalone persona</span>
+    </div>
+    <pre class="persona-source" id="persona-source"></pre>
+  </div>
+</div>
+
+<div id="outline-toggle" title="Slide outline">
+  <span></span><span></span><span></span>
+</div>
+<div id="outline-panel"></div>
+
+<div class="reveal">
+<div class="slides">
+<!-- BUILD:SLIDES -->
+</div><!-- /.slides -->
+</div><!-- /.reveal -->
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  slideNumber: 'c/t',
+  width: 1280,
+  height: 720,
+  margin: 0.08,
+  center: true,
+  transition: 'slide',
+  transitionSpeed: 'default',
+  plugins: [RevealNotes, RevealHighlight]
+}).then(() => {
+  const toggle = document.getElementById('outline-toggle');
+  const panel = document.getElementById('outline-panel');
+
+  // Build outline from build-injected outline data
+  const outlineData = /* BUILD:OUTLINE_DATA */;
+
+  const allSections = document.querySelectorAll('.reveal .slides > section');
+  let html = '';
+  outlineData.forEach(s => {
+    const sectionSlides = [];
+    for (let i = s.startIndex; i < s.startIndex + s.count; i++) {
+      const sec = allSections[i];
+      if (!sec) continue;
+      const h2 = sec.querySelector('h2');
+      const title = h2 ? h2.textContent.trim() : null;
+      if (title) sectionSlides.push({ index: i, title });
+    }
+    if (sectionSlides.length === 0) return;
+    html += `<div class="outline-section">${s.label}</div>`;
+    sectionSlides.forEach(sl => {
+      html += `<a class="outline-item" data-index="${sl.index}">${sl.title}</a>`;
+    });
+  });
+  panel.innerHTML = html;
+
+  // Toggle
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('open');
+    panel.classList.toggle('open');
+  });
+
+  // Navigate on click
+  panel.addEventListener('click', (e) => {
+    const item = e.target.closest('.outline-item');
+    if (!item) return;
+    Reveal.slide(parseInt(item.dataset.index, 10));
+    toggle.classList.remove('open');
+    panel.classList.remove('open');
+  });
+
+  // Highlight active
+  function updateActive() {
+    const idx = Reveal.getIndices().h;
+    panel.querySelectorAll('.outline-item').forEach(el => {
+      el.classList.toggle('active', parseInt(el.dataset.index, 10) === idx);
+    });
+  }
+  Reveal.on('slidechanged', updateActive);
+  updateActive();
+
+  // Recipe modal
+  const recipeModal = document.getElementById('recipe-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
+
+  const recipes = {
+    before: {
+      label: 'Without Persona — Gemini Web',
+      labelClass: 'modal-label-before',
+      html: '/* BUILD:RECIPE_VANILLA */'
+    },
+    after: {
+      label: 'With Recipe Curator — Gemini Web (Gem)',
+      labelClass: 'modal-label-after',
+      html: '/* BUILD:RECIPE_PERSONA */'
+    }
+  };
+
+  document.querySelectorAll('[data-modal]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const which = el.dataset.modal;
+      const recipe = recipes[which];
+      modalTitle.innerHTML = `<span class="${recipe.labelClass}">${recipe.label}</span>`;
+      modalBody.innerHTML = recipe.html;
+      recipeModal.classList.add('open');
+    });
+  });
+
+  recipeModal.addEventListener('click', (e) => {
+    if (e.target === recipeModal || e.target.closest('.modal-close')) {
+      recipeModal.classList.remove('open');
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && recipeModal.classList.contains('open')) {
+      recipeModal.classList.remove('open');
+      e.stopImmediatePropagation();
+    }
+  }, true);
+
+  // Persona source modal
+  const personaModal = document.getElementById('persona-modal');
+  const personaToggle = document.getElementById('persona-toggle');
+  const personaSource = document.getElementById('persona-source');
+
+  // The full Recipe Curator persona source (Markdown)
+  const personaMarkdown = '/* BUILD:PERSONA_SOURCE */';
+
+  personaSource.textContent = personaMarkdown;
+
+  personaToggle.addEventListener('click', () => {
+    personaModal.classList.add('open');
+  });
+
+  personaModal.addEventListener('click', (e) => {
+    if (e.target === personaModal || e.target.closest('.modal-close')) {
+      personaModal.classList.remove('open');
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && personaModal.classList.contains('open')) {
+      personaModal.classList.remove('open');
+      e.stopImmediatePropagation();
+    }
+  }, true);
+});
+</script>
+</body>
+</html>

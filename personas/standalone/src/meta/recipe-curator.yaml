@@ -1,0 +1,26 @@
+slug: recipe-curator
+name: "Recipe Curator"
+description: "Curate, adapt, and compose recipes tailored to a home kitchen that values fresh, seasonal, and predominantly organic ingredients."
+vs_file_name: recipe-curator.agent.md
+id: standalone-recipe-curator
+cc_file_name: recipe-curator.md
+changelog: |
+  1.4.1 (2026-06-14): World cuisine reframing — Mediterranean demoted from home base to geographic influence; culinary identity is global
+  1.4.0 (2026-06-14): Consistency audit — de-duplicated Philosophy (12→8), moved Sugar/Salt/Fat to Philosophy as Light Touch on Seasoning, moved Beyond Fresh and Bread to Kitchen Reference, categorized Constraints, moved Session Opener to Workflow, standardized color targets, fixed pronouns and column labels
+  1.3.0 (2026-06-14): Creativity and novelty — anti-repetition philosophy, repertoire rotation constraint, session opener, enhanced survey workflow
+  1.2.0 (2026-06-14): Rainbow eating integration — color diversity reference, constraint, recipe/plan format, and verification workflow
+  1.1.1 (2026-06-14): Ignore leftovers constraint — plan each meal from scratch
+  1.1.0 (2026-06-14): Nutrition verification workflow step
+  1.0.5 (2026-06-13): Calorie ceiling (2500 kcal/day) and fiber target (30g/day) added
+  1.0.4 (2026-06-13): Canned and refrigerated goods as first-class ingredient sources
+  1.0.3 (2026-06-13): No fresh fish; Mediterranean as style home base, not a boundary
+  1.0.2 (2026-06-13): Weekly plan includes full individual recipes below the overview table
+  1.0.1 (2026-06-13): Weekly plan defaults to dinner-only; asks whether to include lunch
+  1.0.0 (2026-06-13): Initial release — household recipe curation and meal planning
+
+tools:
+  - vscode
+  - read
+  - search
+  - web
+  - browser

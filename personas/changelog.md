@@ -1,9 +1,13 @@
 # Personas Changelog
 
-## v3.24.0 - **WIP - UNRELEASED**
-- Standalone: Added the Ledger Knowledge Curator persona.
-- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver (ledger-prefixed).
-- Standalone: Knowledge Curator: Deletions now require user confirmation before execution.
+## v3.24.0 - Recipe Curator and Per-Persona Changelogs
+- Standalone: Added Recipe Curator for household meal planning with rainbow eating principles,
+  nutritional targets, world cuisine variety, and weekly recipe generation.
+- Standalone: Added Ledger Knowledge Curator for knowledge store management with deletion guard.
+- Standalone: Knowledge Archiver renamed to Ledger Knowledge Archiver.
+- Standalone: Knowledge Curator: Deletions now require explicit user confirmation.
+- Standalone: Persona Curator: Create workflow updated to use `changelog:` block scalar.
+- All: All 37 persona YAML source files gain an integrated `changelog:` metadata field.
 
 ## v3.23.0 - Planner Repository History and Standalone Planner
 - Ledger: Planner gains repository history access via `ledger_get_repository_context`.

@@ -1,0 +1,17 @@
+slug: ledger-wp-decomposer
+name: "Ledger WP Decomposer"
+description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
+vs_file_name: ledger-wp-decomposer.agent.md
+id: standalone-ledger-wp-decomposer
+cc_file_name: ledger-wp-decomposer.md
+changelog: |
+  1.0.7 (2026-06-04): Minor output format tweaks
+  1.0.6 (2026-06-03): Minor refinements
+  1.0.5 (2026-05-19): Added Plan Context, Rationale, Rejected Approaches; improved handoff
+  1.0.4 (2026-04-30): Overall improvements
+  1.0.0 (2026-04-11): Initial release — plan decomposition into atomic WP definitions
+
+tools:
+  - read
+  - edit
+  - search

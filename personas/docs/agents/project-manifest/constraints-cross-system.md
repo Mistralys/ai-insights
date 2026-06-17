@@ -22,14 +22,14 @@
 
 <a name="c39"></a>
 <a name="x4"></a>
-4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of standalone personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
-   - **`description`** — from `personas/standalone/src/meta/{slug}.yaml`
-   - **`system_prompt`** — from `personas/standalone/deep-agents/{slug}.md`
+4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of ledger-support (or standalone, for legacy slugs) personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
+   - **`description`** — from `personas/ledger-support/src/meta/{slug}.yaml` (falls back to `personas/standalone/src/meta/{slug}.yaml`)
+   - **`system_prompt`** — from `personas/ledger-support/deep-agents/{slug}.md` (falls back to `personas/standalone/deep-agents/{slug}.md`)
    - **`name`** — the kebab-case slug itself
 
    The template engine silently ignores unknown YAML keys, so the `subagents` field has no effect on persona build output. It is not used by `scripts/build-personas.js` for rendering — only for the `{{agent_slug_*}}` cross-reference validation (see [Build System Constraint 9](constraints-build-system.md#b9)).
 
-   **Sync contract:** Every slug declared in the `subagents` field must have a corresponding `personas/standalone/src/meta/{slug}.yaml` (with a `description` field) and a `personas/standalone/deep-agents/{slug}.md` that are valid at orchestrator startup. Missing files raise `FileNotFoundError`; a missing `description` raises `ValueError`. Currently only Agent 2 (Project Manager) carries this field, listing four PM planning sub-agents.
+   **Sync contract:** Every slug declared in the `subagents` field must have a corresponding YAML file (with a `description` field) and a deep-agents file in either `personas/ledger-support/` or `personas/standalone/`. The resolver searches `ledger-support` first, then falls back to `standalone`. Missing files (in both suites) raise `FileNotFoundError`; a missing `description` raises `ValueError`. Currently only Agent 2 (Project Manager) carries this field, listing four PM planning sub-agents (all now in `ledger-support/`).
 
 ---
 
