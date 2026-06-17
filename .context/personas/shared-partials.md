@@ -76,6 +76,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
 * **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include ancillary or out-of-scope improvements you made while working, not just the primary WP deliverables.
+* **No Stale Counts:** Avoid embedding specific counts in documentation, summaries, or pipeline comments (e.g., "12 unit tests," "5 helper classes," "refactored 3 methods"). Counts go stale immediately and any reader — human or agent — can query current values on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
 * **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
 * **Environment Incident Logging:** {{> incident-logging}}
 
@@ -90,6 +91,8 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
 4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
 5. **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include documentation files, READMEs, and any other files touched during this pipeline, even ancillary changes.
+
+**Documentation Quality — No Stale Counts:** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
 
 ```
 ###  Path: `/personas/shared/partials/docs-output-format.md`

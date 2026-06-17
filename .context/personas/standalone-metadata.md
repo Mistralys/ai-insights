@@ -67,6 +67,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-04-30): Comprehensive rewrite to imperative voice
   1.1.0 (2026-03-20): Creates CLAUDE.md companion file alongside AGENTS.md
   1.0.0 (2026-02-23): Initial release — operating manual generation for AI agents
@@ -139,6 +140,7 @@ vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
 changelog: |
+  1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-05-27): Variable examples escaped to fix warnings; integrated knowledge updated
   1.1.0 (2026-03-20): Added tree-source type warnings; exclude package manager artifacts
   1.0.0 (2026-03-12): Initial release — CTX Generator documentation workflows
@@ -175,6 +177,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.1.1 (2026-06-17): Added no-stale-counts constraint to Strict Constraints
   1.1.0 (2026-05-29): Gained browser tool for UI and regression verification
   1.0.0 (2026-03-29): Initial release — plan implementation with code insights, no ledger
 
@@ -206,6 +209,7 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.0.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.0.0 (2026-04-30): Initial release — documentation analysis, gap-filling, and updating
 
 tools:
@@ -259,6 +263,7 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.0.7 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.0.6 (2026-04-30): Audited and improved content and workflow
   1.0.5 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-23): Initial release — AI agent session documentation creation and maintenance
@@ -284,6 +289,7 @@ vs_file_name: module-intent-architect.agent.md
 id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 changelog: |
+  1.0.4 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.0.3 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.2 (2026-02-24): Improved documentation generation guidance
   1.0.1 (2026-02-23): Initial pre-changelog version
@@ -456,6 +462,7 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.3.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
   1.2.1 (2026-03-01): Added helper section for rewriting entire READMEs
   1.2.0 (2026-02-24): Rewritten to produce better human-oriented output
@@ -539,6 +546,7 @@ vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 changelog: |
+  1.1.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.1.0 (2026-04-30): Audited and improved; rewritten to imperative voice
   1.0.0 (2026-02-23): Initial release — unit test coverage auditing for specific modules
 

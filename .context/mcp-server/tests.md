@@ -29,8 +29,10 @@ _SOURCE: Test suite directory structure_
             ├── dialogue-qa.test.ts
             ├── handoff-config-integration.test.ts
             ├── helpers/
+            │   ├── api-stubs.ts
             │   ├── create-namespaced-project.test.ts
             │   ├── create-namespaced-project.ts
+            │   ├── make-project.ts
             ├── insights-knowledge-links.test.ts
             ├── knowledge-api.test.ts
             ├── knowledge-repository-scope.test.ts
@@ -38,7 +40,15 @@ _SOURCE: Test suite directory structure_
             ├── orchestrator-manager.test.ts
             ├── orchestrator-view.test.ts
             ├── orchestrator-widgets.test.ts
+            ├── project-detail-auto-update.test.ts
+            ├── project-detail-diff.test.ts
+            ├── project-detail-helpers.test.ts
+            ├── project-detail-poll-modes.test.ts
+            ├── project-detail-poll.test.ts
+            ├── project-detail-resume.test.ts
             ├── project-detail-runs.test.ts
+            ├── project-detail-scroll.test.ts
+            ├── project-detail-snapshot.test.ts
             ├── project-list.test.ts
             ├── queue-ledger-status.test.ts
             ├── queue/

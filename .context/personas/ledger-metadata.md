@@ -127,6 +127,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.6.4 (2026-06-17): Added no-stale-counts constraint via shared developer-strict-constraints partial
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Compressed overly verbose operational protocol
   3.5.2 (2026-02-22): Simplified preflight and verbose sections
@@ -387,6 +388,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
   3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent
   3.5.4 (2026-02-22): Simplified preflight and verbose sections
   3.5.3 (2026-02-22): Fixed REWORK action name; added rework handling and status tool

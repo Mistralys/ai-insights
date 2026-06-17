@@ -14,14 +14,10 @@ _SOURCE: Top-level directory tree_
 └── README.md
 └── changelog.md
 └── context.yaml
-└── discussions/
-    ├── 2026-02-26-ui-agentic-techniques.md
-    ├── 2026-03-01-future-without-libraries.md
-    ├── 2026-04-08-subagents-manifest-key-design.md
-    ├── documentation-audit.md
-    ├── loading-mcp-tools-explained.md
-    ├── prompt-clarity.md
 └── docs/
+    ├── _config.yml
+    ├── _layouts/
+    │   ├── default.html
     ├── agents/
     │   ├── deferred-topics.md
     │   ├── implementation-history/
@@ -30,6 +26,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   ├── projects/
     │   │   ├── agent-name-map.md
+    │   │   ├── improved-dialogue-render.md
     │   │   ├── parallelization.md
     │   ├── references/
     │   │   ├── README.md
@@ -42,13 +39,71 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
     │   │   └── 2026-06-13-persona-changelog-strategy.md
     │   │   └── 2026-06-14-standalone-ledger-folder-separation.md
-    ├── development.md
-└── history/
-    ├── 2026-03-25-implementation-comparison.html
-    ├── error-ledger.md
-    ├── key-learnings.md
-    ├── screenshots/
-    │   └── 2026-02-17-qa-ledger-handoff.png
+    ├── discussions/
+    │   ├── 2026-02-26-ui-agentic-techniques.md
+    │   ├── 2026-03-01-future-without-libraries.md
+    │   ├── 2026-04-08-subagents-manifest-key-design.md
+    │   ├── documentation-audit.md
+    │   ├── loading-mcp-tools-explained.md
+    │   ├── prompt-clarity.md
+    ├── history/
+    │   ├── 2026-03-25-implementation-comparison.html
+    │   ├── error-ledger.md
+    │   ├── key-learnings.md
+    │   ├── screenshots/
+    │   │   └── 2026-02-17-qa-ledger-handoff.png
+    ├── index.md
+    ├── presentation/
+    │   ├── build.cmd
+    │   ├── build.sh
+    │   ├── changelog.md
+    │   ├── img/
+    │   │   ├── ledger-gui.png
+    │   │   ├── work-package-stages.png
+    │   ├── partials/
+    │   │   ├── recipe-results-persona.md
+    │   │   ├── recipe-results-vanilla.md
+    │   ├── slides.json
+    │   ├── slides/
+    │   │   ├── agenda.html
+    │   │   ├── agentic-workflow.html
+    │   │   ├── battle-tested.html
+    │   │   ├── build-pipeline.html
+    │   │   ├── build-your-personas.html
+    │   │   ├── coordination-problem.html
+    │   │   ├── demo-divider.html
+    │   │   ├── domain-knowledge.html
+    │   │   ├── dynamic-pipelines.html
+    │   │   ├── english-best.html
+    │   │   ├── identity-anchor.html
+    │   │   ├── intro.html
+    │   │   ├── key-takeaways.html
+    │   │   ├── knowledge-persists.html
+    │   │   ├── markdown-format.html
+    │   │   ├── meet-the-team.html
+    │   │   ├── nlp.html
+    │   │   ├── orchestrator.html
+    │   │   ├── part1-divider.html
+    │   │   ├── part2-divider.html
+    │   │   ├── part3-divider.html
+    │   │   ├── persona-difference.html
+    │   │   ├── persona-structure.html
+    │   │   ├── persona-what.html
+    │   │   ├── platforms.html
+    │   │   ├── project-ledger.html
+    │   │   ├── recipe-curator.html
+    │   │   ├── scaling-problem.html
+    │   │   ├── template-syntax.html
+    │   │   ├── thank-you.html
+    │   │   ├── title.html
+    │   │   ├── values-standards.html
+    │   ├── template.html
+    │   ├── tools/
+    │   │   └── build.js
+    ├── references/
+    │   └── development.md
+    │   └── persona-quickstart.md
+    │   └── project-overview.md
 └── mcp-server/
     ├── AGENTS.md
     ├── README.md
@@ -176,7 +231,15 @@ _SOURCE: Top-level directory tree_
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
     │   │   ├── orchestrator-widgets.test.ts
+    │   │   ├── project-detail-auto-update.test.ts
+    │   │   ├── project-detail-diff.test.ts
+    │   │   ├── project-detail-helpers.test.ts
+    │   │   ├── project-detail-poll-modes.test.ts
+    │   │   ├── project-detail-poll.test.ts
+    │   │   ├── project-detail-resume.test.ts
     │   │   ├── project-detail-runs.test.ts
+    │   │   ├── project-detail-scroll.test.ts
+    │   │   ├── project-detail-snapshot.test.ts
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
     │   │   ├── router-utils.test.ts
