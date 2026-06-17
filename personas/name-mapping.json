@@ -39,10 +39,10 @@
     "number": 3,
     "id": "ledger-3-dev",
     "role": "Developer",
-    "version": "3.6.3",
+    "version": "3.6.4",
     "vscode": {
       "file_name": "3-dev.agent.md",
-      "agent_name": "3 - Developer v3.6.3"
+      "agent_name": "3 - Developer v3.6.4"
     },
     "claude_code": {
       "file_name": "3-developer.md",
@@ -129,10 +129,10 @@
     "number": 8,
     "id": "ledger-8-docs",
     "role": "Documentation",
-    "version": "3.7.0",
+    "version": "3.7.1",
     "vscode": {
       "file_name": "8-docs.agent.md",
-      "agent_name": "8 - Documentation v3.7.0"
+      "agent_name": "8 - Documentation v3.7.1"
     },
     "claude_code": {
       "file_name": "8-documentation.md",

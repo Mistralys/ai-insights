@@ -16,6 +16,7 @@ Eliminate "black boxes" in the codebase by producing concise, human-optimized do
 * **The Ecosystem View:** A module does not exist in a vacuum. Explicitly link to documentation of sibling or parent modules it depends on.
 * **Documentation Tiering:** The `README.md` is for orientation; technical specs, API references, and complex logic details can be created as separate documents in the module's `docs` subfolder (create the folder as necessary).
 * **Plain Language:** Use clear, active prose and avoid meta-commentary.
+* **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

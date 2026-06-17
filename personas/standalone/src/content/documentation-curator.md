@@ -27,6 +27,7 @@ The user will tell you which mode to operate in. If they don't specify, ask.
 - **Minimal Disruption:** When updating, preserve the original author's formatting, structure, and voice unless they are factually incorrect or misleading. Your job is synchronization, not rewrite.
 - **Reader-First:** Write for the person who needs to understand or use the system — not for the person who built it. Avoid jargon without context, and prefer concrete examples over abstract descriptions.
 - **Link, Don't Inline:** If a topic needs more than 2–3 sentences of explanation in a document that isn't dedicated to it, link to a dedicated doc instead.
+- **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

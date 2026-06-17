@@ -5,6 +5,7 @@ vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
 changelog: |
+  1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-05-27): Variable examples escaped to fix warnings; integrated knowledge updated
   1.1.0 (2026-03-20): Added tree-source type warnings; exclude package manager artifacts
   1.0.0 (2026-03-12): Initial release — CTX Generator documentation workflows

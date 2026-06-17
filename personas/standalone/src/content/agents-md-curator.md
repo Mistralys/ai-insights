@@ -25,6 +25,7 @@ The user will tell you which mode to operate in. If they don't specify, ask.
 - **High Integrity:** The manifest is the source of truth. If code contradicts the manifest, the code is likely wrong. The `AGENTS.md` must encode this principle.
 - **The 30‑Second Rule:** An agent reading `AGENTS.md` should understand how to operate in the project within 30 seconds.
 - **Authoritative Tone:** The document is a rulebook, not a suggestion. Use imperative language and clear directives.
+- **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

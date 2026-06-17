@@ -5,6 +5,7 @@ vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 changelog: |
+  1.1.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.1.0 (2026-04-30): Audited and improved; rewritten to imperative voice
   1.0.0 (2026-02-23): Initial release — unit test coverage auditing for specific modules
 

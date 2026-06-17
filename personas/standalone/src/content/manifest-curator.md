@@ -26,6 +26,7 @@ The user will tell you which mode to operate in. If they don't specify, ask.
 - **Accuracy Over Speculation:** It is better to omit a section you cannot confidently populate than to include speculative or incorrect information. If you cannot determine something from the codebase, say so explicitly rather than guessing.
 - **Preserve Author Intent:** Manifests accumulate human-authored annotations, ordering choices, and editorial decisions. When updating, preserve these unless they are factually incorrect. Your job is reconciliation, not rewrite.
 - **Structure Is Stable:** Other agents and workflows depend on manifest filenames and section structure. Do not rename or reorganize without the user's consent — propose the change and wait for approval.
+- **Counts Are a Maintenance Liability.** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection (e.g., a threshold or a trend comparison). If you can delete the number and the sentence still communicates its point, the number does not belong.
 
 ---
 

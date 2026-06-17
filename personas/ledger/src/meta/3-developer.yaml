@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.6.4 (2026-06-17): Added no-stale-counts constraint via shared developer-strict-constraints partial
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Compressed overly verbose operational protocol
   3.5.2 (2026-02-22): Simplified preflight and verbose sections
