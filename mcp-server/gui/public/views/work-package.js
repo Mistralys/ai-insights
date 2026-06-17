@@ -2,7 +2,7 @@
    views/work-package.js — Work Package Detail view
    Section 4c of the MCP Server Dashboard SPA
    Depends on: API, escapeHtml, formatDate, statusBadge,
-               showLoading, showError, STAGE_ABBREV (project-detail.js)
+               showLoading, showError, STAGE_ABBREV (project-detail-helpers.js)
    ============================================================ */
 
 var WP_DEFAULT_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];

@@ -22,6 +22,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -29,6 +30,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>)['marked'] = {
@@ -51,6 +55,9 @@ beforeAll(() => {
     _clearPolling: vi.fn(),
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -117,27 +124,6 @@ declare global {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeProject(overrides: Record<string, unknown> = {}) {
-  return {
-    meta: {
-      status: 'IN_PROGRESS',
-      title: 'Test Project',
-      plan_path: '/some/path',
-      date_created: '2026-01-01T00:00:00Z',
-      last_updated: '2026-01-01T00:00:00Z',
-      ...overrides,
-    },
-    work_packages: [] as { work_package_id: string; status: string; assigned_to?: string }[],
-    project_comments: [],
-    project_name: 'Test Project',
-    timing: null,
-    server_version: null,
-    ledger_version: null,
-    synthesis_generated: false,
-    ...(overrides._rootOverrides as Record<string, unknown> ?? {}),
-  };
-}
 
 /**
  * Render the project detail page and wait for all async chains to settle.
@@ -351,14 +337,14 @@ describe('WP-003 — _pollProjectDetail data-only patches (AC-3)', () => {
     // Set up the DOM with the anchor elements that _pollProjectDetail patches.
     app.innerHTML = '<span id="project-status-badge"></span>';
 
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const lastSnapshot = globalThis._snapshotProjectState(project, null);
     // Advance to READY (non-structural transition)
     const pollStateRef: unknown[] = [lastSnapshot];
     const ctrl = makeNoopPollController();
 
     (globalThis as Record<string, unknown>)['API'] = {
-      getProject: vi.fn().mockResolvedValue(makeProject({ status: 'READY' })),
+      getProject: vi.fn().mockResolvedValue(makeProject({ meta: { status: 'READY' } })),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
       getProjectHealth: vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
     };
@@ -440,12 +426,12 @@ describe('WP-003 — _pollProjectDetail data-only patches (AC-3)', () => {
   });
 
   it('updates pollStateRef[0] with the new snapshot after each poll', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const lastSnapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [lastSnapshot];
     const ctrl = makeNoopPollController();
 
-    const updatedProject = makeProject({ status: 'READY' });
+    const updatedProject = makeProject({ meta: { status: 'READY' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject: vi.fn().mockResolvedValue(updatedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
@@ -521,12 +507,12 @@ describe('WP-003 — _pollProjectDetail structural re-render (AC-4)', () => {
   });
 
   it('calls pollController.stopPolling when project transitions to COMPLETE', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
-    const completedProject = makeProject({ status: 'COMPLETE' });
+    const completedProject = makeProject({ meta: { status: 'COMPLETE' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject: vi.fn().mockResolvedValue(completedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
@@ -543,12 +529,12 @@ describe('WP-003 — _pollProjectDetail structural re-render (AC-4)', () => {
   });
 
   it('calls pollController.stopPolling when project transitions to ARCHIVED', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
-    const archivedProject = makeProject({ status: 'ARCHIVED' });
+    const archivedProject = makeProject({ meta: { status: 'ARCHIVED' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject: vi.fn().mockResolvedValue(archivedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
@@ -593,13 +579,13 @@ describe('WP-003 — _pollProjectDetail interactive-state guard (AC-8)', () => {
     // Set up the patch target so we can verify it was NOT updated.
     app.innerHTML = '<span id="project-status-badge">ORIGINAL</span>';
 
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
     (globalThis as Record<string, unknown>)['API'] = {
-      getProject: vi.fn().mockResolvedValue(makeProject({ status: 'READY' })),
+      getProject: vi.fn().mockResolvedValue(makeProject({ meta: { status: 'READY' } })),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
       getProjectHealth: vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
     };
@@ -620,13 +606,13 @@ describe('WP-003 — _pollProjectDetail interactive-state guard (AC-8)', () => {
 
     app.innerHTML = '<span id="project-status-badge">ORIGINAL</span>';
 
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
     (globalThis as Record<string, unknown>)['API'] = {
-      getProject: vi.fn().mockResolvedValue(makeProject({ status: 'READY' })),
+      getProject: vi.fn().mockResolvedValue(makeProject({ meta: { status: 'READY' } })),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
       getProjectHealth: vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
     };
@@ -647,13 +633,13 @@ describe('WP-003 — _pollProjectDetail interactive-state guard (AC-8)', () => {
 
     app.innerHTML = '<span id="project-status-badge">ORIGINAL</span>';
 
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
     (globalThis as Record<string, unknown>)['API'] = {
-      getProject: vi.fn().mockResolvedValue(makeProject({ status: 'READY' })),
+      getProject: vi.fn().mockResolvedValue(makeProject({ meta: { status: 'READY' } })),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
       getProjectHealth: vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
     };
@@ -673,7 +659,7 @@ describe('WP-003 — _pollProjectDetail interactive-state guard (AC-8)', () => {
     modal.id = 'reset-modal-overlay';
     document.body.appendChild(modal);
 
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();

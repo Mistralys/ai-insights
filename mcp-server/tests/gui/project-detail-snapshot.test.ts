@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -18,6 +19,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   // Install minimal stubs required by project-detail.js at parse time.
@@ -37,6 +41,9 @@ beforeAll(() => {
     _clearPolling: () => {},
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -61,28 +68,6 @@ declare global {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Minimal valid project response from API.getProject */
-function makeProject(overrides: Record<string, unknown> = {}) {
-  return {
-    meta: {
-      status: 'IN_PROGRESS',
-      title: 'Test Project',
-      plan_path: '/some/path',
-      date_created: '2026-01-01T00:00:00Z',
-      last_updated: '2026-01-15T12:00:00Z',
-      ...overrides,
-    },
-    work_packages: [],
-    project_comments: [],
-    project_name: 'Test Project',
-    timing: null,
-    server_version: null,
-    ledger_version: null,
-    synthesis_generated: false,
-    ...overrides,
-  };
-}
 
 /** Minimal valid work package entry inside a project response */
 function makeWp(id: string, status = 'READY') {
@@ -120,7 +105,7 @@ describe('_snapshotProjectState — basic shape', () => {
   });
 
   it('captures project status and last_updated from meta', () => {
-    const project = makeProject({ status: 'COMPLETE', last_updated: '2026-06-01T09:00:00Z' });
+    const project = makeProject({ meta: { status: 'COMPLETE', last_updated: '2026-06-01T09:00:00Z' } });
     const snapshot = globalThis._snapshotProjectState(project, null);
 
     expect(snapshot.status).toBe('COMPLETE');

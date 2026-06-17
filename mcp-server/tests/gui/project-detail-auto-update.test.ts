@@ -20,6 +20,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -27,6 +28,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>)['marked'] = {
@@ -52,6 +56,9 @@ beforeAll(() => {
     _clearPolling: vi.fn(),
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -116,28 +123,6 @@ declare global {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeProject(overrides: Record<string, unknown> = {}) {
-  return {
-    meta: {
-      status: 'IN_PROGRESS',
-      title: 'Test Project',
-      plan_path: '/some/path',
-      date_created: '2026-01-01T00:00:00Z',
-      last_updated: '2026-01-01T00:00:00Z',
-      ...(overrides._metaOverrides as Record<string, unknown> ?? {}),
-      ...overrides,
-    },
-    work_packages: (overrides.work_packages as unknown[] | undefined) ?? [],
-    project_comments: [],
-    project_name: 'Test Project',
-    timing: null,
-    server_version: null,
-    ledger_version: null,
-    synthesis_generated: !!(overrides.synthesis_generated),
-    ...(overrides._rootOverrides as Record<string, unknown> ?? {}),
-  };
-}
 
 /** Minimal no-op pollController for direct _pollProjectDetail calls. */
 function makeNoopPollController() {
@@ -210,7 +195,7 @@ describe('WP-005 — DOM element identity preservation during poll ticks (AC-4)'
   it('WP table row === identity is preserved after a data-only poll tick (status change)', async () => {
     // Render the page with one WP
     const wp = { work_package_id: 'WP-001', status: 'READY', assigned_to: 'Developer' };
-    const project = { ...makeProject(), work_packages: [wp] };
+    const project = makeProject({ work_packages: [wp] });
 
     await renderAndSettle(app, 'repo', 'proj', {
       getProject: vi.fn().mockResolvedValue(project),
@@ -247,7 +232,7 @@ describe('WP-005 — DOM element identity preservation during poll ticks (AC-4)'
 
   it('project-status-badge element === identity is preserved after a status patch', async () => {
     // Render the page to get the real badge element
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
     await renderAndSettle(app, 'repo', 'proj', {
       getProject: vi.fn().mockResolvedValue(project),
     });
@@ -256,7 +241,7 @@ describe('WP-005 — DOM element identity preservation during poll ticks (AC-4)'
     expect(badgeBefore).not.toBeNull();
 
     // Data-only poll: status changes from IN_PROGRESS → READY
-    const updatedProject = makeProject({ status: 'READY' });
+    const updatedProject = makeProject({ meta: { status: 'READY' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject:             vi.fn().mockResolvedValue(updatedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
@@ -325,7 +310,7 @@ describe('WP-005 — WP pipeline stage badge transitions in existing rows', () =
 
   it('updates only the .wp-status-cell without replacing the table or row element', async () => {
     const wp = { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'QA' };
-    const project = { ...makeProject(), work_packages: [wp] };
+    const project = makeProject({ work_packages: [wp] });
 
     await renderAndSettle(app, 'repo', 'proj', {
       getProject: vi.fn().mockResolvedValue(project),
@@ -371,7 +356,7 @@ describe('WP-005 — WP pipeline stage badge transitions in existing rows', () =
 
   it('updates WP row pipeline stage cell when pipeline stages change', async () => {
     const wp = { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'QA' };
-    const project = { ...makeProject(), work_packages: [wp] };
+    const project = makeProject({ work_packages: [wp] });
 
     const initialOverview = [
       {
@@ -579,7 +564,7 @@ describe('WP-005 — Project status badge updates in-place', () => {
   afterEach(() => { if (app.parentNode) app.parentNode.removeChild(app); });
 
   it('updates #project-status-badge text/class without full page rebuild', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
 
     await renderAndSettle(app, 'repo', 'proj', {
       getProject: vi.fn().mockResolvedValue(project),
@@ -595,7 +580,7 @@ describe('WP-005 — Project status badge updates in-place', () => {
     const ctrl = makeNoopPollController();
 
     // Poll tick: status changes to READY (data-only — not COMPLETE/ARCHIVED)
-    const updatedProject = makeProject({ status: 'READY' });
+    const updatedProject = makeProject({ meta: { status: 'READY' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject:             vi.fn().mockResolvedValue(updatedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),
@@ -612,7 +597,7 @@ describe('WP-005 — Project status badge updates in-place', () => {
   });
 
   it('status change to COMPLETE triggers structural re-render (stopPolling called)', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
+    const project = makeProject({ meta: { status: 'IN_PROGRESS' } });
 
     await renderAndSettle(app, 'repo', 'proj', {
       getProject: vi.fn().mockResolvedValue(project),
@@ -622,7 +607,7 @@ describe('WP-005 — Project status badge updates in-place', () => {
     const pollStateRef: unknown[] = [snapshot];
     const ctrl = makeNoopPollController();
 
-    const completedProject = makeProject({ status: 'COMPLETE' });
+    const completedProject = makeProject({ meta: { status: 'COMPLETE' } });
     (globalThis as Record<string, unknown>)['API'] = {
       getProject:             vi.fn().mockResolvedValue(completedProject),
       getWorkPackageOverview: vi.fn().mockResolvedValue(null),

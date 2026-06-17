@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -18,6 +19,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>)['marked'] = {
@@ -36,6 +40,9 @@ beforeAll(() => {
     _clearPolling: () => {},
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -341,27 +348,6 @@ describe('_diffProjectState — data-only changes', () => {
 // ---------------------------------------------------------------------------
 
 describe('_diffProjectState — round-trip with _snapshotProjectState', () => {
-  function makeProject(overrides: Record<string, unknown> = {}) {
-    return {
-      meta: {
-        status: 'IN_PROGRESS',
-        title: 'Test',
-        plan_path: '/path',
-        date_created: '2026-01-01T00:00:00Z',
-        last_updated: '2026-01-15T12:00:00Z',
-        ...overrides,
-      },
-      work_packages: [],
-      project_comments: [],
-      project_name: 'Test',
-      timing: null,
-      server_version: null,
-      ledger_version: null,
-      synthesis_generated: false,
-      ...overrides,
-    };
-  }
-
   it('returns type "none" when the same project data is snapshotted twice', () => {
     const project = makeProject();
     const overview = [

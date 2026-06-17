@@ -3,15 +3,24 @@
 /**
  * Tests for the "Orchestrator Runs" section of views/project-detail.js.
  *
+ * Covers:
+ *   - Orchestrator Runs section — run list rendering, badges, error handling
+ *   - Queue-aware active run (WP-013 AC-1 to AC-5)
+ *
  * Uses jsdom + vm.runInThisContext to load the browser-side scripts, then
  * stubs globalThis.API and globalThis.marked to exercise the
  * renderProjectDetail paths related to orchestrator run logs.
+ *
+ * Note: Resume-related tests live in project-detail-resume.test.ts.
+ * Polling-mode tests live in project-detail-poll-modes.test.ts.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
+import { createApiStubs, type ProjectDetailApiStubs } from './helpers/api-stubs.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -19,6 +28,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'),    'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   // Install stub globals needed by project-detail.js before it is evaluated
@@ -47,11 +59,15 @@ beforeAll(() => {
     _clearPolling: vi.fn(),
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
 // Reset OrchestratorWidgets and Router mocks between tests.
 beforeEach(() => {
+  vi.clearAllMocks();
   globalThis.OrchestratorWidgets.renderStatusCard
     .mockReturnValue('<div class="orchestrator-status-card">card</div>');
   globalThis.OrchestratorWidgets.renderKillButton
@@ -62,7 +78,6 @@ beforeEach(() => {
       return btn;
     });
   globalThis.OrchestratorWidgets.renderLogPreview.mockReturnValue(vi.fn());
-  vi.clearAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -117,58 +132,20 @@ declare global {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Minimal valid project response from API.getProject */
-function makeProject(overrides: Record<string, unknown> = {}) {
-  return {
-    meta: {
-      status: 'IN_PROGRESS',
-      runner: overrides.runner as string | undefined,
-      title: 'Test Project',
-      plan_path: '/some/path',
-      date_created: '2026-01-01T00:00:00Z',
-      last_updated: '2026-01-01T00:00:00Z',
-      ...overrides,
-    },
-    work_packages: [],
-    project_comments: [],
-    project_name: 'Test Project',
-    timing: null,
-    server_version: null,
-    ledger_version: null,
-    synthesis_generated: false,
-  };
-}
-
 /**
  * Installs a globalThis.API stub and calls renderProjectDetail.
  * Returns a promise that resolves once the initial synchronous render
  * AND any microtasks (promise resolutions) have settled.
+ *
+ * Stub keys are defined in `helpers/api-stubs.ts` — see `ProjectDetailApiStubs`.
  */
 async function renderWithAPI(
   app: HTMLElement,
   repo: string,
   slug: string,
-  apiStubs: {
-    getProject?: () => Promise<unknown>;
-    getPlanDocument?: () => Promise<unknown>;
-    getWorkPackageOverview?: () => Promise<unknown>;
-    getProjectHealth?: () => Promise<unknown>;
-    getRunLogs?: () => Promise<unknown>;
-    orchestratorGetQueue?: () => Promise<unknown>;
-    getRunMetadata?: () => Promise<unknown>;
-    orchestratorStart?: () => Promise<unknown>;
-  }
+  apiStubs: Partial<ProjectDetailApiStubs> = {}
 ) {
-  (globalThis as Record<string, unknown>)['API'] = {
-    getProject:           apiStubs.getProject           ?? (() => Promise.resolve(makeProject())),
-    getPlanDocument:      apiStubs.getPlanDocument       ?? (() => Promise.reject({ code: 'NOT_FOUND' })),
-    getWorkPackageOverview: apiStubs.getWorkPackageOverview ?? (() => Promise.resolve(null)),
-    getProjectHealth:     apiStubs.getProjectHealth      ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
-    getRunLogs:           apiStubs.getRunLogs            ?? (() => Promise.resolve([])),
-    orchestratorGetQueue: apiStubs.orchestratorGetQueue  ?? (() => Promise.resolve([])),
-    getRunMetadata:       apiStubs.getRunMetadata        ?? (() => Promise.reject(new Error('not stubbed'))),
-    orchestratorStart:    apiStubs.orchestratorStart     ?? (() => Promise.reject(new Error('not stubbed'))),
-  };
+  (globalThis as Record<string, unknown>)['API'] = createApiStubs(apiStubs);
 
   globalThis.renderProjectDetail(app, repo, slug);
 
@@ -203,7 +180,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('keeps runs section empty when getRunLogs returns [] (vscode runner)', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'vscode' } })),
       getRunLogs: () => Promise.resolve([]),
     });
 
@@ -218,7 +195,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('keeps runs section empty when runner is undefined and no logs', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({})), // no runner field
+      getProject: () => Promise.resolve(makeProject()), // no runner field
       getRunLogs: () => Promise.resolve([]),
     });
 
@@ -233,7 +210,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('keeps runs section empty when getRunLogs returns empty array', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve([]),
     });
 
@@ -253,7 +230,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -284,7 +261,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('encodes the slug in the run href', async () => {
     await renderWithAPI(app, 'repo/with/slashes', 'slug/with/slashes', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-some-project.jsonl', is_active: false }]),
     });
 
@@ -294,7 +271,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('shows logs for non-orchestrator runner when log files exist', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'vscode' } })),
       getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-my-project.jsonl', is_active: false }]),
     });
 
@@ -312,7 +289,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -332,7 +309,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -346,7 +323,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -362,7 +339,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -378,7 +355,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -393,7 +370,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -415,7 +392,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     ];
 
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve(logs),
     });
 
@@ -431,7 +408,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('keeps wrapper hidden on getRunLogs failure without crashing', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.reject({ message: 'Network error', code: 'ERROR' }),
     });
 
@@ -446,7 +423,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('handles null error objects gracefully', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.reject(null),
     });
 
@@ -460,7 +437,7 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   it('existing page content (WPs, comments, breadcrumb) is unaffected', async () => {
     await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getProject: () => Promise.resolve(makeProject({ meta: { runner: 'orchestrator' } })),
       getRunLogs: () => Promise.resolve([]),
     });
 
@@ -723,778 +700,4 @@ describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)'
   });
 });
 
-// ---------------------------------------------------------------------------
-// WP-004: showResumeError helper — error-banner deduplication
-// ---------------------------------------------------------------------------
 
-describe('renderProjectDetail — WP-004: showResumeError helper', () => {
-  let app: HTMLElement;
-
-  beforeEach(() => {
-    app = document.createElement('div');
-    document.body.appendChild(app);
-  });
-
-  afterEach(() => {
-    if (app.parentNode) app.parentNode.removeChild(app);
-  });
-
-  /** Minimal resumable run metadata */
-  function makeResumableMeta(overrides: Record<string, unknown> = {}) {
-    return { thread_id: 'thread-abc', dry_run: false, result: 'INTERRUPTED', ...overrides };
-  }
-
-  /**
-   * Flush promises until the resume button (or error banner) appears,
-   * or 300 ms elapses.
-   */
-  async function flushResume(): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < 300) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 15));
-      if (app.querySelector('#orch-resume-btn') || app.querySelector('#orch-resume-error')) break;
-    }
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-  }
-
-  async function flushError(): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < 300) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 15));
-      if (app.querySelector('#orch-resume-error')) break;
-    }
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-  }
-
-  // ── showResumeError DOM structure ─────────────────────────────────────────
-
-  it('creates a <p id="orch-resume-error" class="error-banner"> on a non-started result', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-      orchestratorStart: () => Promise.resolve({ started: false }),
-    });
-
-    await flushResume();
-
-    // Click the resume button to trigger the error path
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    btn!.click();
-
-    await flushError();
-
-    const errEl = app.querySelector('#orch-resume-error');
-    expect(errEl).not.toBeNull();
-    expect(errEl!.tagName).toBe('P');
-    expect(errEl!.className).toBe('error-banner');
-    expect(errEl!.textContent).toBe('Resume could not be started.');
-  });
-
-  it('creates a <p id="orch-resume-error" class="error-banner"> on a rejected orchestratorStart', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-      orchestratorStart: () => Promise.reject({ message: 'Connection refused' }),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    btn!.click();
-
-    await flushError();
-
-    const errEl = app.querySelector('#orch-resume-error');
-    expect(errEl).not.toBeNull();
-    expect(errEl!.tagName).toBe('P');
-    expect(errEl!.className).toBe('error-banner');
-    expect(errEl!.textContent).toBe('Resume failed: Connection refused');
-  });
-
-  // ── Error banner reuse (no duplicate elements) ────────────────────────────
-
-  it('reuses the existing #orch-resume-error element on a second call (no duplicates)', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-    let callCount = 0;
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-      orchestratorStart: () => {
-        callCount++;
-        return Promise.resolve({ started: false });
-      },
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-
-    // Click once — creates the error element.
-    btn!.disabled = false;
-    btn!.click();
-    await flushError();
-
-    // Click again — should reuse, not duplicate.
-    btn!.disabled = false;
-    btn!.click();
-    await flushError();
-
-    const errEls = app.querySelectorAll('#orch-resume-error');
-    expect(errEls).toHaveLength(1);
-    expect(callCount).toBeGreaterThanOrEqual(2);
-  });
-
-  // ── Error banner text content ─────────────────────────────────────────────
-
-  it('includes the error message from a rejected orchestratorStart in the banner text', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-      orchestratorStart: () => Promise.reject({ message: 'Server timeout' }),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    btn!.click();
-
-    await flushError();
-
-    const errEl = app.querySelector('#orch-resume-error');
-    expect(errEl).not.toBeNull();
-    expect(errEl!.textContent).toContain('Resume failed:');
-    expect(errEl!.textContent).toContain('Server timeout');
-  });
-
-  // ── Resume button not shown for ineligible projects ───────────────────────
-
-  it('shows a disabled resume button for a COMPLETE project', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'COMPLETE', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-    expect(app.querySelector('#orch-resume-error')).toBeNull();
-  });
-
-  it('shows a disabled resume button when result is SUCCESS', async () => {
-    const logs = [{ filename: '20260505T120000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta({ result: 'SUCCESS' })),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// WP-005: Resume Run button — show/hide conditions
-// ---------------------------------------------------------------------------
-
-describe('Resume Run button', () => {
-  let app: HTMLElement;
-
-  beforeEach(() => {
-    app = document.createElement('div');
-    document.body.appendChild(app);
-  });
-
-  afterEach(() => {
-    if (app.parentNode) app.parentNode.removeChild(app);
-  });
-
-  /** Minimal resumable run metadata */
-  function makeResumableMeta(overrides: Record<string, unknown> = {}) {
-    return { thread_id: 'thread-xyz', dry_run: false, result: 'INTERRUPTED', ...overrides };
-  }
-
-  /**
-   * Flush promises until the resume button appears or 300 ms elapses.
-   */
-  async function flushResume(): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < 300) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 15));
-      if (app.querySelector('#orch-resume-btn') || app.querySelector('#orch-resume-error')) break;
-    }
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-  }
-
-  // ── 1. SHOW: no active run, status IN_PROGRESS, metadata has thread_id, not dry_run, result !== SUCCESS ──
-
-  it('shows the resume button when conditions are met (IN_PROGRESS, thread_id, not dry_run, result !== SUCCESS)', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(false);
-    expect(btn!.textContent).toBe('Resume');
-  });
-
-  // ── 2. HIDE: status is COMPLETE ──────────────────────────────────────────
-
-  it('shows a disabled resume button when project status is COMPLETE', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'COMPLETE', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  // ── 3. SHOW DISABLED: status is ARCHIVED ─────────────────────────────────
-
-  it('shows a disabled resume button when project status is ARCHIVED', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'ARCHIVED', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  // ── 4. SHOW DISABLED: getRunMetadata returns null / no thread_id ──────────
-
-  it('shows a disabled resume button when getRunMetadata returns null', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(null),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  it('shows a disabled resume button when getRunMetadata returns metadata without thread_id', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve({ thread_id: null, dry_run: false, result: 'INTERRUPTED' }),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  // ── 5. SHOW DISABLED: metadata.dry_run is true ───────────────────────────
-
-  it('shows a disabled resume button when metadata.dry_run is true', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta({ dry_run: true })),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  // ── 6. SHOW DISABLED: metadata.result is SUCCESS ─────────────────────────
-
-  it('shows a disabled resume button when metadata.result is SUCCESS', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta({ result: 'SUCCESS' })),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-
-  // ── 7. SHOW DISABLED: an active run exists ────────────────────────────────
-
-  it('shows a disabled resume button when an active run exists', async () => {
-    // With an active run, renderOrchToolbar disables the resume button.
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: true }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      orchestratorGetQueue: () => Promise.resolve([]),
-      getRunMetadata: () => Promise.resolve(makeResumableMeta()),
-    });
-
-    await flushResume();
-
-    const btn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    expect(btn!.disabled).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// WP-005: Inline edit input value and focus survive data-only poll updates
-// ---------------------------------------------------------------------------
-
-describe('WP-005 — Inline edit survives data-only poll ticks (AC-5)', () => {
-  let app: HTMLElement;
-
-  beforeEach(() => {
-    app = document.createElement('div');
-    document.body.appendChild(app);
-  });
-  afterEach(() => {
-    if (app.parentNode) app.parentNode.removeChild(app);
-    // Clean up any stale edit inputs.
-    document.querySelectorAll('.title-edit-input, .slug-edit-input').forEach((el) => el.remove());
-  });
-
-  /**
-   * Why focus state is tested via element survival (not document.activeElement):
-   *
-   * jsdom does not implement the :focus pseudoclass or document.activeElement
-   * reliably. Calling `.focus()` inside jsdom does not update
-   * `document.activeElement` the way a real browser does. Asserting that
-   * `document.activeElement === input` would be a no-op (it always returns
-   * `document.body`), giving a false-green result regardless of whether the
-   * DOM was mutated.
-   *
-   * Instead, we verify the stronger invariant: the input *element itself*
-   * survives the poll tick without being unmounted. If the DOM is rebuilt
-   * (e.g., `innerHTML` is replaced), the input reference becomes stale and
-   * `app.querySelector('.title-edit-input')` returns null. This is the actual
-   * mechanism that would destroy focus in a real browser. A full end-to-end
-   * test (Playwright/Cypress) would be needed to assert document.activeElement
-   * directly.
-   */
-  it('title edit input value is preserved across a data-only poll update', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(project),
-    });
-
-    // Simulate a title-edit input being active while a data-only poll fires
-    const input = document.createElement('input');
-    input.className = 'title-edit-input';
-    input.value = 'My In-Progress Edit';
-    app.appendChild(input);
-
-    // The poll guard checks for .title-edit-input before patching; since
-    // editActive=true, patches should be skipped entirely (no DOM mutations)
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn(),
-    };
-
-    // Data-only change: project status changes
-    const updatedProject = makeProject({ status: 'READY' });
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(updatedProject),
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-    };
-
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 60));
-
-    // The edit input must still be present with its value intact
-    const inputAfter = app.querySelector('.title-edit-input') as HTMLInputElement | null;
-    expect(inputAfter).not.toBeNull();
-    expect(inputAfter!.value).toBe('My In-Progress Edit');
-
-    // The interactive-state guard skipped patching — no structural re-render
-    expect(ctrl.stopPolling).not.toHaveBeenCalled();
-  });
-
-  it('slug edit input value is preserved across a data-only poll update', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(project),
-    });
-
-    const input = document.createElement('input');
-    input.className = 'slug-edit-input';
-    input.value = 'my-new-slug-draft';
-    app.appendChild(input);
-
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn(),
-    };
-
-    const updatedProject = makeProject({ status: 'READY' });
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(updatedProject),
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-    };
-
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 60));
-
-    const inputAfter = app.querySelector('.slug-edit-input') as HTMLInputElement | null;
-    expect(inputAfter).not.toBeNull();
-    expect(inputAfter!.value).toBe('my-new-slug-draft');
-
-    expect(ctrl.stopPolling).not.toHaveBeenCalled();
-  });
-
-  it('multiple sequential data-only poll ticks do not destroy an active inline edit', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(project),
-    });
-
-    const input = document.createElement('input');
-    input.className = 'title-edit-input';
-    input.value = 'Draft title';
-    app.appendChild(input);
-
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn(),
-    };
-
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(project),   // no change → 'none' diff
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-    };
-
-    // Fire three poll ticks
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 30));
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 30));
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 30));
-
-    const inputAfter = app.querySelector('.title-edit-input') as HTMLInputElement | null;
-    expect(inputAfter).not.toBeNull();
-    expect(inputAfter!.value).toBe('Draft title');
-    expect(ctrl.stopPolling).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// WP-005: Single-interval invariant across combined ↔ resume mode transitions (AC-6)
-// ---------------------------------------------------------------------------
-
-describe('WP-005 — Single-interval invariant across combined↔resume mode transitions (AC-6)', () => {
-  let app: HTMLElement;
-
-  beforeEach(() => {
-    app = document.createElement('div');
-    document.body.appendChild(app);
-  });
-  afterEach(() => { if (app.parentNode) app.parentNode.removeChild(app); });
-
-  it('Router._setPolling is called exactly once for a no-active-run combined poll registration', async () => {
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:  () => Promise.resolve(makeProject()),
-      getRunLogs:  () => Promise.resolve([]),
-    });
-
-    // Combined poll only: _setPolling called once at 5s
-    expect(globalThis.Router._setPolling).toHaveBeenCalledOnce();
-    const [, delay] = (globalThis.Router._setPolling as Mock).mock.calls[0];
-    expect(delay).toBe(5000);
-  });
-
-  it('startResumePolling replaces the combined interval (single call to Router._setPolling)', async () => {
-    const logs = [{ filename: '20260601T100000-my-project.jsonl', is_active: false }];
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:     () => Promise.resolve(makeProject({ status: 'IN_PROGRESS', plan_path: '/some/path' })),
-      getRunLogs:     () => Promise.resolve(logs),
-      getRunMetadata: () => Promise.resolve({ thread_id: 'abc123', dry_run: false, result: 'INTERRUPTED' }),
-      orchestratorStart: () => Promise.resolve({ started: true }),
-    });
-
-    // After initial render: combined poll registered once
-    const callsAfterRender = (globalThis.Router._setPolling as Mock).mock.calls.length;
-    expect(callsAfterRender).toBeGreaterThanOrEqual(1);
-
-    vi.clearAllMocks();
-
-    // Wait for resume button to appear
-    const start = Date.now();
-    while (Date.now() - start < 300) {
-      await new Promise<void>((r) => setTimeout(r, 15));
-      if (app.querySelector('#orch-resume-btn')) break;
-    }
-
-    const resumeBtn = app.querySelector('#orch-resume-btn') as HTMLButtonElement | null;
-    expect(resumeBtn).not.toBeNull();
-
-    // Click Resume — this triggers pollController.startResumePolling which calls Router._setPolling
-    resumeBtn!.click();
-    await new Promise<void>((r) => setTimeout(r, 50));
-
-    // startResumePolling should result in a single new Router._setPolling call at 3s
-    expect(globalThis.Router._setPolling).toHaveBeenCalledOnce();
-    const [, resumeDelay] = (globalThis.Router._setPolling as Mock).mock.calls[0];
-    expect(resumeDelay).toBe(3000);
-  });
-
-  it('two sequential renderProjectDetail calls each register exactly one combined poll', async () => {
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:  () => Promise.resolve(makeProject()),
-      getRunLogs:  () => Promise.resolve([]),
-    });
-
-    const firstCount = (globalThis.Router._setPolling as Mock).mock.calls.length;
-
-    vi.clearAllMocks();
-
-    // Second render (simulates route leave/return)
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:  () => Promise.resolve(makeProject()),
-      getRunLogs:  () => Promise.resolve([]),
-    });
-
-    const secondCount = (globalThis.Router._setPolling as Mock).mock.calls.length;
-
-    // Each render registers exactly one poll
-    expect(firstCount).toBe(1);
-    expect(secondCount).toBe(1);
-  });
-
-  it('Router._clearPolling is called when stopPolling fires before structural re-render', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject:  () => Promise.resolve(project),
-      getRunLogs:  () => Promise.resolve([]),
-    });
-
-    vi.clearAllMocks();
-
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    // Structural change: WP count changes from 0 → 1
-    const updatedProject = {
-      ...project,
-      work_packages: [{ work_package_id: 'WP-001', status: 'READY', assigned_to: 'Developer' }],
-    };
-
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(updatedProject),
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-      getPlanDocument:        vi.fn().mockRejectedValue({ code: 'NOT_FOUND' }),
-      getRunLogs:             vi.fn().mockResolvedValue([]),
-      getRunMetadata:         vi.fn().mockRejectedValue(new Error('no meta')),
-    };
-
-    // Use the real pollController from the view — a fresh one is created by
-    // the second renderProjectDetail triggered by stopPolling.
-    // We simulate calling _pollProjectDetail with a noop controller to observe
-    // the stopPolling → _clearPolling contract.
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn().mockImplementation(() => {
-        // Real stopPolling calls Router._clearPolling
-        globalThis.Router._clearPolling();
-      }),
-    };
-
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 80));
-
-    // stopPolling was called once for the structural change
-    expect(ctrl.stopPolling).toHaveBeenCalledOnce();
-    // Router._clearPolling was called by the stopPolling implementation
-    expect(globalThis.Router._clearPolling).toHaveBeenCalledOnce();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// WP-005: Reset modal and archive/unarchive remain functional under active polling
-// ---------------------------------------------------------------------------
-
-describe('WP-005 — Modal and archive/unarchive remain functional under active polling', () => {
-  let app: HTMLElement;
-
-  beforeEach(() => {
-    app = document.createElement('div');
-    document.body.appendChild(app);
-  });
-  afterEach(() => {
-    if (app.parentNode) app.parentNode.removeChild(app);
-    document.getElementById('reset-modal-overlay')?.remove();
-  });
-
-  it('Reset Project button is present and clickable under active polling', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(project),
-      getRunLogs: () => Promise.resolve([]),
-    });
-
-    // Simulate a data-only poll tick running in the background
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn(),
-    };
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(project),
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-    };
-
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 30));
-
-    // The reset button must still be present and functional after a poll tick
-    const resetBtn = app.querySelector('#reset-project-btn') as HTMLButtonElement | null;
-    expect(resetBtn).not.toBeNull();
-    expect(resetBtn!.disabled).toBe(false);
-  });
-
-  it('DOM patching is skipped when #reset-modal-overlay is open', async () => {
-    const project = makeProject({ status: 'IN_PROGRESS' });
-
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(project),
-      getRunLogs: () => Promise.resolve([]),
-    });
-
-    // Inject a modal overlay
-    const modal = document.createElement('div');
-    modal.id = 'reset-modal-overlay';
-    document.body.appendChild(modal);
-
-    // Capture the current badge innerHTML
-    const badge = app.querySelector('#project-status-badge') as HTMLElement;
-    const badgeHtmlBefore = badge.innerHTML;
-
-    const snapshot = globalThis._snapshotProjectState(project, null);
-    const pollStateRef: unknown[] = [snapshot];
-    const ctrl = {
-      getMode:              vi.fn().mockReturnValue('combined'),
-      startCombinedPolling: vi.fn(),
-      startResumePolling:   vi.fn(),
-      settleResumePolling:  vi.fn(),
-      stopPolling:          vi.fn(),
-    };
-
-    // Data-only change: status changes, but modal is open so patches should be skipped
-    const updatedProject = makeProject({ status: 'READY' });
-    (globalThis as Record<string, unknown>)['API'] = {
-      getProject:             vi.fn().mockResolvedValue(updatedProject),
-      getWorkPackageOverview: vi.fn().mockResolvedValue(null),
-      getProjectHealth:       vi.fn().mockResolvedValue({ work_packages_needing_reset: 0 }),
-    };
-
-    globalThis._pollProjectDetail(app, 'my-repo', 'my-project', pollStateRef, ctrl);
-    await new Promise<void>((r) => setTimeout(r, 60));
-
-    // Badge should NOT have been updated (guard skipped patching while modal is open)
-    const badgeAfter = app.querySelector('#project-status-badge') as HTMLElement;
-    expect(badgeAfter.innerHTML).toBe(badgeHtmlBefore);
-
-    modal.remove();
-  });
-
-  it('archive banner shows on ARCHIVED project and unarchive button is present', async () => {
-    await renderWithAPI(app, 'my-repo', 'my-project', {
-      getProject: () => Promise.resolve(makeProject({ status: 'ARCHIVED' })),
-      getRunLogs: () => Promise.resolve([]),
-    });
-
-    expect(app.querySelector('#archive-banner')).not.toBeNull();
-    expect(app.querySelector('#unarchive-banner-btn')).not.toBeNull();
-  });
-});

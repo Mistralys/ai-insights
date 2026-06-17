@@ -16,6 +16,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { makeProject } from './helpers/make-project.js';
+import { createApiStubs, type ProjectDetailApiStubs } from './helpers/api-stubs.js';
 
 // ---------------------------------------------------------------------------
 // Load client scripts
@@ -23,6 +25,9 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
+const projectDetailOrchJs = readFileSync(join(publicDir, 'views/project-detail-orch.js'), 'utf-8');
+const projectDetailModalJs = readFileSync(join(publicDir, 'views/project-detail-modal.js'), 'utf-8');
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>)['marked'] = {
@@ -48,6 +53,9 @@ beforeAll(() => {
     _clearPolling: vi.fn(),
   };
 
+  vm.runInThisContext(projectDetailHelpersJs);
+  vm.runInThisContext(projectDetailOrchJs);
+  vm.runInThisContext(projectDetailModalJs);
   vm.runInThisContext(projectDetailJs);
 });
 
@@ -101,55 +109,19 @@ declare global {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeProject(overrides: Record<string, unknown> = {}) {
-  return {
-    meta: {
-      status: 'IN_PROGRESS',
-      title: 'Test Project',
-      plan_path: '/some/path',
-      date_created: '2026-01-01T00:00:00Z',
-      last_updated: '2026-01-01T00:00:00Z',
-      ...overrides,
-    },
-    work_packages: [],
-    project_comments: [],
-    project_name: 'Test Project',
-    timing: null,
-    server_version: null,
-    ledger_version: null,
-    synthesis_generated: false,
-  };
-}
-
 /**
  * Installs globalThis.API and renders the project detail page.
  * Returns once the orchestrator-runs-section is no longer showing the loading placeholder.
+ *
+ * Stub keys are defined in `helpers/api-stubs.ts` — see `ProjectDetailApiStubs`.
  */
 async function renderWithAPI(
   app: HTMLElement,
   repo: string,
   slug: string,
-  apiStubs: {
-    getProject?: () => Promise<unknown>;
-    getPlanDocument?: () => Promise<unknown>;
-    getWorkPackageOverview?: () => Promise<unknown>;
-    getProjectHealth?: () => Promise<unknown>;
-    getRunLogs?: () => Promise<unknown>;
-    orchestratorGetQueue?: () => Promise<unknown>;
-    getRunMetadata?: () => Promise<unknown>;
-    orchestratorStart?: () => Promise<unknown>;
-  } = {}
+  apiStubs: Partial<ProjectDetailApiStubs> = {}
 ) {
-  (globalThis as Record<string, unknown>)['API'] = {
-    getProject:             apiStubs.getProject             ?? (() => Promise.resolve(makeProject())),
-    getPlanDocument:        apiStubs.getPlanDocument         ?? (() => Promise.reject({ code: 'NOT_FOUND' })),
-    getWorkPackageOverview: apiStubs.getWorkPackageOverview  ?? (() => Promise.resolve(null)),
-    getProjectHealth:       apiStubs.getProjectHealth        ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
-    getRunLogs:             apiStubs.getRunLogs              ?? (() => Promise.resolve([])),
-    orchestratorGetQueue:   apiStubs.orchestratorGetQueue    ?? (() => Promise.resolve([])),
-    getRunMetadata:         apiStubs.getRunMetadata          ?? (() => Promise.reject(new Error('not stubbed'))),
-    orchestratorStart:      apiStubs.orchestratorStart       ?? (() => Promise.reject(new Error('not stubbed'))),
-  };
+  (globalThis as Record<string, unknown>)['API'] = createApiStubs(apiStubs);
 
   globalThis.renderProjectDetail(app, repo, slug);
 

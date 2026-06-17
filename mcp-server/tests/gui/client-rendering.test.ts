@@ -12,15 +12,16 @@ import vm from 'node:vm';
 
 // Load client JS files
 const publicDir = join(__dirname, '../../gui/public');
-const wpViewJs        = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
-const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'), 'utf-8');
+const wpViewJs               = readFileSync(join(publicDir, 'views/work-package.js'), 'utf-8');
+// buildPipelineTrack and STAGE_ABBREV are now in project-detail-helpers.js (WP-004 decomposition)
+const projectDetailHelpersJs = readFileSync(join(publicDir, 'views/project-detail-helpers.js'), 'utf-8');
 
 // Execute client scripts in the globalThis context (jsdom window) so their
 // function/var declarations are available as globalThis.buildWpDetailBar etc.
 // utils.js and components.js are loaded by the shared setup-gui-globals.ts.
 beforeAll(() => {
-  vm.runInThisContext(projectDetailJs);   // buildPipelineTrack, STAGE_ABBREV
-  vm.runInThisContext(wpViewJs);          // buildWpDetailBar, WP_DEFAULT_STAGES
+  vm.runInThisContext(projectDetailHelpersJs); // buildPipelineTrack, STAGE_ABBREV
+  vm.runInThisContext(wpViewJs);               // buildWpDetailBar, WP_DEFAULT_STAGES
 });
 
 // Declare global functions for TypeScript

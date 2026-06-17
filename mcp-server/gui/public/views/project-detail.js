@@ -1,10 +1,14 @@
 /* ============================================================
-   views/project-detail.js — Project Detail view
+   views/project-detail.js — Project Detail view (main)
    Sections 4b–4d of the MCP Server Dashboard SPA
    Depends on: API, Router, marked, escapeHtml, formatDate,
                statusBadge, showLoading, showError,
                OrchestratorWidgets (js/orchestrator-widgets.js),
                UI (components.js)
+   Sub-modules (must be loaded before this file):
+               project-detail-helpers.js  — pure helpers
+               project-detail-orch.js     — orchestrator section
+               project-detail-modal.js    — Reset Project modal
 
    DOM Contract (patch functions — see §4c-i):
    The following element IDs and data attributes are written by
@@ -56,26 +60,39 @@
    window.getComputedStyle in jsdom always returns empty objects, so
    overflowY is always '' and the walk falls back to
    document.documentElement on every call.  Tests in
-   project-detail-scroll.test.ts work around this by overriding
-   Object.defineProperty on the orchContainer element to stub its
-   scrollTop getter/setter via a data attribute
-   (dataset['scrollTop']), allowing scroll-restore assertions to pass
-   without a real CSS overflowY.  The walk logic itself is correct for
-   browser environments where getComputedStyle returns real values.
+   project-detail-scroll.test.ts and project-detail-helpers.test.ts
+   work around this by injecting a custom _getStyle stub or overriding
+   Object.defineProperty on ancestor elements to control scrollTop
+   via a data attribute (dataset['scrollTop']), allowing scroll-restore
+   assertions to pass without a real CSS overflowY.  The walk logic
+   itself is correct for browser environments where getComputedStyle
+   returns real values.
    ============================================================ */
 
-// Module-scoped log-preview cleanup registry.
-// Each renderProjectDetail() call drains this array before creating new widgets.
+/**
+ * Module-scoped log-preview cleanup registry.
+ *
+ * Callbacks returned by `OrchestratorWidgets.renderLogPreview` are pushed here
+ * and drained at exactly two sites:
+ *
+ *   1. `renderRunsList` (project-detail-orch.js) — pre-innerHTML-rebuild drain.
+ *      Called before the runs list DOM is replaced so that widgets attached to
+ *      the old nodes are stopped before their container elements are discarded.
+ *
+ *   2. `renderProjectDetail` (this file) — pre-full-render drain.  Called at
+ *      the very start of a new full-page render so that any cleanup left over
+ *      from the previous route visit is released before fresh widgets are created.
+ *
+ * No other drain site should exist.  Both sites must use `.length = 0`
+ * (in-place mutation) so that the local var and the `globalThis` reference
+ * always point to the same array instance.
+ */
 var _pdLogPreviewCleanups = [];
+globalThis._pdLogPreviewCleanups = _pdLogPreviewCleanups;
 
 /* ----------------------------------------------------------
    4b. View: Plan Document
    ---------------------------------------------------------- */
-function extractSynopsis(markdown) {
-  var match = markdown.match(/## Summary\s*\n([\s\S]*?)(?=\n## |\n---|\s*$)/);
-  return match ? match[1].trim() : null;
-}
-
 async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
   try {
@@ -121,228 +138,7 @@ async function renderSynthesis(app, repo, slug) {
    4c. View: Project Detail
    ---------------------------------------------------------- */
 
-/**
- * Display abbreviations for pipeline stage type strings.
- *
- * Maps each ledger pipeline type to the two- or three-character label shown
- * in the pipeline-track badge column of the project-detail table.
- * `buildPipelineTrack` falls back to `stage.type.slice(0, 3).toUpperCase()`
- * for any type that is absent from this map, so unknown types render
- * gracefully but without a meaningful abbreviation.
- *
- * **Maintenance contract:** whenever a new pipeline type is added to the
- * ledger (e.g., in `PIPELINE_TYPES` on the server), add a corresponding
- * entry here.  Omitting a new type will not cause a runtime error, but the
- * badge label in the GUI will be a raw three-character slice of the type
- * string instead of a human-readable abbreviation.
- */
-var STAGE_ABBREV = {
-  'implementation':     'DEV',
-  'qa':                 'QA',
-  'security-audit':     'SEC',
-  'code-review':        'REV',
-  'release-engineering':'REL',
-  'documentation':      'DOC'
-};
-
-function buildPipelineTrack(overviewEntry) {
-  if (!overviewEntry || !overviewEntry.pipeline_stages || !overviewEntry.pipeline_stages.length) {
-    return '—';
-  }
-  var badges = overviewEntry.pipeline_stages.map(function (stage) {
-    var abbrev = STAGE_ABBREV[stage.type] || stage.type.slice(0, 3).toUpperCase();
-    var statusClass = 'stage-pending';
-    if (stage.status === 'in-progress') statusClass = 'stage-in-progress';
-    else if (stage.status === 'pass')        statusClass = 'stage-pass';
-    else if (stage.status === 'fail')        statusClass = 'stage-fail';
-    var tooltip = escapeHtml(stage.type) + ' — ' + escapeHtml(stage.agent);
-    if (stage.rework_count > 0) tooltip += ' (rework: ' + stage.rework_count + ')';
-    var reworkBadge = stage.rework_count > 0
-      ? '<span class="rework-indicator" title="Rework count: ' + stage.rework_count + '">' + stage.rework_count + '</span>'
-      : '';
-    return '<span class="stage-badge ' + statusClass + '" title="' + tooltip + '">' +
-      escapeHtml(abbrev) +
-      reworkBadge +
-    '</span>';
-  }).join('');
-  return '<div class="pipeline-track">' + badges + '</div>';
-}
-
-function buildRunBadges(item, isActive) {
-  var badges = '';
-  if (isActive) {
-    badges += '<span class="badge badge-in-progress">Running</span>';
-  }
-  if (item && item.is_dry_run) {
-    badges += '<span class="badge badge-dry-run">Dry Run</span>';
-  }
-  return badges;
-}
-
-/* ----------------------------------------------------------
-   Orchestrator Toolbar
-   Renders Kill + Resume buttons into toolbarEl.
-   Always visible; buttons are disabled (with explanatory
-   tooltips) when the corresponding action is unavailable.
-
-   opts: {
-     loading:        bool,           — show "Loading…" disabled state
-     hasActiveRun:   bool,           — is there an active run?
-     queueEntry:     object|null,    — matching queue entry (kill)
-     runMeta:        object|null,    — run metadata (resume)
-     meta:           object,         — project meta (plan_path, status)
-     repo:           string,
-     slug:           string,
-     app:            Element,        — root element (re-render after resume)
-     onKillDone:     Function,       — called after a successful kill
-     pollController: object|null,    — owning pollController from renderProjectDetail
-   }
-   ---------------------------------------------------------- */
-function renderOrchToolbar(toolbarEl, opts) {
-  if (!toolbarEl) return;
-  toolbarEl.innerHTML = '';
-
-  var loading         = !!opts.loading;
-  var hasActiveRun    = !!opts.hasActiveRun;
-  var queueEntry      = opts.queueEntry      || null;
-  var runMeta         = opts.runMeta         || null;
-  var meta            = opts.meta            || {};
-  var repo            = opts.repo            || '';
-  var slug            = opts.slug            || '';
-  var app             = opts.app             || null;
-  var onKillDone      = typeof opts.onKillDone === 'function' ? opts.onKillDone : null;
-  var pollController  = opts.pollController  || null;
-
-  // ── Kill button ─────────────────────────────────────────────────────
-  var killDisabled = true;
-  var killTitle    = 'Loading\u2026';
-  if (!loading) {
-    if (!hasActiveRun) {
-      killTitle = 'No active run to kill';
-    } else if (!queueEntry) {
-      killTitle = 'Run is active but not found in the queue \u2014 use: node scripts/kill-orchestrator.js --force';
-    } else {
-      killDisabled = false;
-      killTitle    = '';
-    }
-  }
-
-  if (killDisabled) {
-    var killBtn = document.createElement('button');
-    killBtn.type = 'button';
-    killBtn.className = 'btn btn-danger btn-sm orchestrator-kill-btn';
-    killBtn.textContent = 'Kill';
-    killBtn.disabled = true;
-    if (killTitle) killBtn.title = killTitle;
-    toolbarEl.appendChild(killBtn);
-  } else {
-    toolbarEl.appendChild(
-      OrchestratorWidgets.renderKillButton(queueEntry.id, function () {
-        if (onKillDone) onKillDone();
-      })
-    );
-  }
-
-  // ── Resume button ────────────────────────────────────────────────────
-  var resumeDisabled = true;
-  var resumeTitle    = 'Loading\u2026';
-  if (!loading) {
-    if (hasActiveRun) {
-      resumeTitle = 'Cannot resume while a run is active';
-    } else if (!meta.plan_path) {
-      resumeTitle = 'No plan path configured for this project';
-    } else if (meta.status === 'COMPLETE') {
-      resumeTitle = 'Project is already complete \u2014 nothing to resume';
-    } else if (meta.status === 'ARCHIVED') {
-      resumeTitle = 'Project is archived';
-    } else if (!runMeta || !runMeta.thread_id) {
-      resumeTitle = 'No interrupted run found';
-    } else if (runMeta.dry_run === true) {
-      resumeTitle = 'Dry runs cannot be resumed';
-    } else if (runMeta.result === 'SUCCESS') {
-      resumeTitle = 'Last run completed successfully \u2014 nothing to resume';
-    } else {
-      resumeDisabled = false;
-      resumeTitle    = '';
-    }
-  }
-
-  var resumeBtn = document.createElement('button');
-  resumeBtn.id   = 'orch-resume-btn';
-  resumeBtn.type = 'button';
-  resumeBtn.className = 'btn btn-resume btn-sm';
-  resumeBtn.textContent = 'Resume';
-  resumeBtn.disabled = resumeDisabled;
-  if (resumeTitle) resumeBtn.title = resumeTitle;
-
-  if (!resumeDisabled) {
-    var threadId = runMeta.thread_id;
-    var planPath = meta.plan_path;
-
-    resumeBtn.addEventListener('click', function () {
-      resumeBtn.disabled = true;
-      resumeBtn.textContent = 'Resuming\u2026';
-      // Remove any stale error banner.
-      var prevErr = document.getElementById('orch-resume-error');
-      if (prevErr) prevErr.remove();
-
-      API.orchestratorStart(planPath, false, threadId).then(function (result) {
-        if (result && result.started) {
-          resumeBtn.textContent = 'Launching\u2026';
-          var pollResume = function () {
-            API.orchestratorGetQueue().then(function (queue) {
-              var hasActiveEntry = Array.isArray(queue) && queue.some(function (entry) {
-                return entry && (entry.effectiveStatus === 'pending' ||
-                                 entry.effectiveStatus === 'started');
-              });
-              if (hasActiveEntry) {
-                // Settle the resume poll: the run is now active, so hand back
-                // to the combined poll (or trigger a full re-render if no
-                // pollController is present — legacy fallback).
-                if (pollController) {
-                  pollController.settleResumePolling({ app: app, repo: repo, slug: slug });
-                } else {
-                  Router._clearPolling();
-                  if (app) renderProjectDetail(app, repo, slug);
-                }
-              }
-            }).catch(function () { /* keep polling */ });
-          };
-          // Switch to resume mode: clears combined interval, starts 3s resume poll.
-          if (pollController) {
-            pollController.startResumePolling({ pollFn: pollResume });
-          } else {
-            Router._setPolling(pollResume, 3000);
-          }
-        } else {
-          resumeBtn.disabled = false;
-          resumeBtn.textContent = 'Resume';
-          var errEl = document.getElementById('orch-resume-error');
-          if (!errEl) {
-            errEl = document.createElement('p');
-            errEl.id = 'orch-resume-error';
-            errEl.className = 'error-banner';
-            toolbarEl.insertAdjacentElement('afterend', errEl);
-          }
-          errEl.textContent = 'Resume could not be started.';
-        }
-      }).catch(function (err) {
-        resumeBtn.disabled = false;
-        resumeBtn.textContent = 'Resume';
-        var errEl = document.getElementById('orch-resume-error');
-        if (!errEl) {
-          errEl = document.createElement('p');
-          errEl.id = 'orch-resume-error';
-          errEl.className = 'error-banner';
-          toolbarEl.insertAdjacentElement('afterend', errEl);
-        }
-        errEl.textContent = 'Resume failed: ' + (err.message || String(err));
-      });
-    });
-  }
-
-  toolbarEl.appendChild(resumeBtn);
-}
+// renderOrchToolbar — extracted to project-detail-orch.js (WP-004)
 
 /* ----------------------------------------------------------
    4c-i. DOM Patch Functions
@@ -394,33 +190,35 @@ function _patchWpRow(wpId, newStatus, newPipelineTrack) {
 
 /**
  * Show or hide the synthesis link row.
- * When visible=true and the row exists but is hidden, it is shown.
- * When visible=true and the row is absent, it is injected before the WP table.
- * When visible=false, the row is hidden.
- * @param {boolean} visible         - Whether the synthesis link should be visible.
- * @param {string}  [repo]          - Repository name (required when injecting).
- * @param {string}  [slug]          - Project slug (required when injecting).
+ *
+ * Pre-render contract: `#synthesis-link-row` is always present in the DOM after
+ * `renderProjectDetail` completes. This function only toggles its visibility and,
+ * when shown, ensures the link href is populated (defensive guard for an empty
+ * pre-rendered row).
+ *
+ * When visible=true the row is shown; when visible=false it is hidden.
+ *
+ * @param {boolean} visible - Whether the synthesis link should be visible.
+ * @param {string}  [repo]  - Repository name (used to populate the link href when absent).
+ * @param {string}  [slug]  - Project slug (used to populate the link href when absent).
  */
 function _patchSynthesisLink(visible, repo, slug) {
   var row = document.getElementById('synthesis-link-row');
   if (visible) {
     if (row) {
-      // Ensure the link href is populated if the row was pre-rendered empty.
+      // Empty-div pre-render path: when `synthesis_generated` is `false`,
+      // `renderProjectDetail` writes `#synthesis-link-row` as a bare hidden
+      // `<div>` with no `.synthesis-link` anchor inside it.  When a poll
+      // cycle detects that synthesis became available and calls
+      // `_patchSynthesisLink(true, repo, slug)`, this guard fires and
+      // populates the anchor before making the row visible.  Without the
+      // guard a second patch call would overwrite an already-populated anchor,
+      // causing a redundant DOM mutation.
       if (!row.querySelector('.synthesis-link') && repo && slug) {
         row.className = 'synthesis-link-row';
         row.innerHTML = '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>';
       }
       row.style.display = '';
-    } else if (repo && slug) {
-      // Inject before the WP table section (card-title "Work Packages").
-      var wpTitle = document.querySelector('.card-title');
-      if (wpTitle) {
-        var newRow = document.createElement('div');
-        newRow.id = 'synthesis-link-row';
-        newRow.className = 'synthesis-link-row';
-        newRow.innerHTML = '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>';
-        wpTitle.parentNode.insertBefore(newRow, wpTitle);
-      }
     }
   } else {
     if (row) {
@@ -450,47 +248,9 @@ function _patchHealthBadge(health) {
   }
 }
 
-/**
- * Update the orchestrator active-run status card in-place.
- *
- * Replaces the innerHTML of `#orch-status-card-container` without touching
- * the rest of the runs list or the log-preview widget.  This is the
- * "data-only" update path for the active run — no DOM nodes outside the
- * container are disturbed, so log preview widgets and all other run-event
- * handlers survive intact.
- *
- * @param {object|null} matchingQueueEntry - Current queue entry for the active run
- *   (or null when the run has left the queue).
- */
-function _patchOrchStatusCard(matchingQueueEntry) {
-  var container = document.getElementById('orch-status-card-container');
-  if (!container) return;
-  var newHtml = matchingQueueEntry
-    ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
-    : '';
-  if (container.innerHTML !== newHtml) {
-    container.innerHTML = newHtml;
-  }
-}
-
-/**
- * Compute a stable structure key for the orchestrator runs list.
- *
- * The key encodes the set of run filenames and which filename (if any) is
- * currently active.  Two consecutive poll results that produce the same key
- * have the same list structure and can be updated via in-place DOM patching
- * rather than a full innerHTML rebuild.
- *
- * @param {Array}  sorted        - Sorted run-log items (most-recent first).
- * @param {string|null} activeFilename - Filename of the active run, or null.
- * @returns {string} Opaque structure key.
- */
-function _orchRunsStructureKey(sorted, activeFilename) {
-  var names = (Array.isArray(sorted) ? sorted : []).map(function (item) {
-    return (item && item.filename) ? item.filename : String(item);
-  });
-  return JSON.stringify({ names: names, active: activeFilename || null });
-}
+// _patchOrchStatusCard — extracted to project-detail-orch.js (WP-004)
+// _orchRunsStructureKey — extracted to project-detail-orch.js (WP-004)
+// _findScrollAnchor     — extracted to project-detail-helpers.js (WP-004)
 
 /**
  * Update the timing info display in-place.
@@ -520,168 +280,8 @@ function _patchTimingInfo(timing) {
   }
 }
 
-/* ----------------------------------------------------------
-   4c-iii. State Snapshot & Diff Helpers
-   Pure functions — no DOM access, JSON-serializable outputs.
-   Used by WP-003 polling to decide patch vs. full re-render.
-   ---------------------------------------------------------- */
-
-/**
- * Extract a comparable state snapshot from API response objects.
- *
- * @param {object} project      - Response from API.getProject()
- * @param {Array|null} overviewResult - Response from API.getWorkPackageOverview() (may be null)
- * @returns {{
- *   status: string,
- *   last_updated: string,
- *   synthesis_generated: boolean,
- *   wpStatuses: Object.<string, { status: string, pipelineStages: Array }>,
- *   health: null | { work_packages_needing_reset: number }
- * }}
- */
-function _snapshotProjectState(project, overviewResult) {
-  var meta = (project && project.meta) || {};
-  var wps  = (project && project.work_packages) || [];
-
-  // Build per-WP status map
-  var wpStatuses = {};
-  wps.forEach(function (wp) {
-    if (!wp || !wp.work_package_id) return;
-    wpStatuses[wp.work_package_id] = {
-      status: wp.status || '',
-      pipelineStages: [],
-    };
-  });
-
-  // Enrich with pipeline stage data from overview
-  if (Array.isArray(overviewResult)) {
-    overviewResult.forEach(function (entry) {
-      if (!entry || !entry.work_package_id) return;
-      var id = entry.work_package_id;
-      var stages = Array.isArray(entry.pipeline_stages)
-        ? entry.pipeline_stages.map(function (s) {
-            return {
-              type:         s.type        || '',
-              status:       s.status      || '',
-              agent:        s.agent       || '',
-              rework_count: s.rework_count || 0,
-            };
-          })
-        : [];
-      if (wpStatuses[id]) {
-        wpStatuses[id].pipelineStages = stages;
-      } else {
-        // Overview entry present without a matching WP in the main list.
-        wpStatuses[id] = { status: '', pipelineStages: stages };
-      }
-    });
-  }
-
-  return {
-    status:               meta.status              || '',
-    last_updated:         meta.last_updated         || '',
-    synthesis_generated:  !!(project && project.synthesis_generated),
-    wpStatuses:           wpStatuses,
-    health:               null,  // populated asynchronously via getProjectHealth()
-  };
-}
-
-/**
- * Compare two project-state snapshots and classify the difference.
- *
- * Structural changes (require full re-render):
- *   - The number of work packages differs between snapshots.
- *   - The project transitioned to COMPLETE or ARCHIVED status.
- *
- * Data-only changes (patchable in-place):
- *   - Status badge changed but is not a structural transition.
- *   - Any per-WP status or pipeline-stage changed.
- *   - synthesis_generated flipped.
- *   - health changed (including null → value transitions).
- *   - last_updated changed.
- *
- * NOTE — per-WP iteration order: per-WP status/pipeline changes are detected by
- * iterating over `next.wpStatuses` keys only. A WP present in `prev` but absent
- * from `next` is therefore not tracked per-field; the structural `wpCount` check
- * handles that case before per-WP diffing is reached. In practice, a missing WP
- * always triggers a structural re-render, so the per-field gap is intentional.
- *
- * @param {object} prev - Previous snapshot from _snapshotProjectState().
- *   Must be non-null; passing null will throw on Object.keys(prev.wpStatuses).
- *   Callers must initialise pollStateRef[0] with a real snapshot before
- *   registering the poll interval — the 5s setInterval delay ensures the
- *   first tick cannot fire before that assignment completes.
- * @param {object} next - Current  snapshot from _snapshotProjectState().
- * @returns {{ type: 'none'|'data'|'structural', changes: object }}
- */
-function _diffProjectState(prev, next) {
-  var changes = {};
-  var changeType = 'none';
-
-  function markData(key, from, to) {
-    changes[key] = { from: from, to: to };
-    if (changeType === 'none') changeType = 'data';
-  }
-
-  function markStructural(key, from, to) {
-    changes[key] = { from: from, to: to };
-    changeType = 'structural';
-  }
-
-  // ── WP count ────────────────────────────────────────────────────────
-  var prevIds = Object.keys(prev.wpStatuses || {});
-  var nextIds = Object.keys(next.wpStatuses || {});
-  if (prevIds.length !== nextIds.length) {
-    markStructural('wpCount', prevIds.length, nextIds.length);
-  }
-
-  // ── Project status ──────────────────────────────────────────────────
-  if (prev.status !== next.status) {
-    var isStructuralStatus = next.status === 'COMPLETE' || next.status === 'ARCHIVED';
-    if (isStructuralStatus) {
-      markStructural('status', prev.status, next.status);
-    } else {
-      markData('status', prev.status, next.status);
-    }
-  }
-
-  // ── Per-WP statuses and pipeline stages ─────────────────────────────
-  nextIds.forEach(function (id) {
-    var prevWp = (prev.wpStatuses || {})[id] || { status: '', pipelineStages: [] };
-    var nextWp = (next.wpStatuses || {})[id] || { status: '', pipelineStages: [] };
-
-    if (prevWp.status !== nextWp.status) {
-      markData('wp.' + id + '.status', prevWp.status, nextWp.status);
-    }
-
-    // Compare pipeline stages as JSON strings (simple deep-equal for flat objects)
-    var prevStagesStr = JSON.stringify(prevWp.pipelineStages || []);
-    var nextStagesStr = JSON.stringify(nextWp.pipelineStages || []);
-    if (prevStagesStr !== nextStagesStr) {
-      markData('wp.' + id + '.pipelineStages', prevWp.pipelineStages, nextWp.pipelineStages);
-    }
-  });
-
-  // ── synthesis_generated ─────────────────────────────────────────────
-  if (!!prev.synthesis_generated !== !!next.synthesis_generated) {
-    markData('synthesis_generated', prev.synthesis_generated, next.synthesis_generated);
-  }
-
-  // ── health ──────────────────────────────────────────────────────────
-  // null-to-value (or any value change) is data-only
-  var prevHealthStr = JSON.stringify(prev.health || null);
-  var nextHealthStr = JSON.stringify(next.health || null);
-  if (prevHealthStr !== nextHealthStr) {
-    markData('health', prev.health, next.health);
-  }
-
-  // ── last_updated ────────────────────────────────────────────────────
-  if (prev.last_updated !== next.last_updated) {
-    markData('last_updated', prev.last_updated, next.last_updated);
-  }
-
-  return { type: changeType, changes: changes };
-}
+// _snapshotProjectState — extracted to project-detail-helpers.js (WP-004)
+// _diffProjectState     — extracted to project-detail-helpers.js (WP-004)
 
 /* ----------------------------------------------------------
    4c-iv. Combined Poll Function
@@ -787,10 +387,12 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
   });
 }
 
+// renderRunsList — extracted to project-detail-orch.js (WP-004)
+
 function renderProjectDetail(app, repo, slug) {
   // Drain log preview cleanup callbacks from the previous render.
-  _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-  _pdLogPreviewCleanups = [];
+  globalThis._pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+  globalThis._pdLogPreviewCleanups.length = 0;
 
   // ── pollController ─────────────────────────────────────────────────────
   // Render-scoped polling state machine.  Two modes:
@@ -1242,13 +844,7 @@ function renderProjectDetail(app, repo, slug) {
     var healthBadge = document.getElementById('health-badge');
     if (healthBadge) {
       API.getProjectHealth(repo, slug).then(function (health) {
-        if (health.work_packages_needing_reset === 0) {
-          healthBadge.textContent = '\u2713 All pipelines complete';
-          healthBadge.className = 'health-badge healthy';
-        } else {
-          healthBadge.textContent = '\u26a0 ' + health.work_packages_needing_reset + ' WP' + (health.work_packages_needing_reset === 1 ? '' : 's') + ' need attention';
-          healthBadge.className = 'health-badge attention';
-        }
+        _patchHealthBadge(health);
       }).catch(function () {
         // Silent failure — remove badge without blocking page
         if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
@@ -1304,80 +900,6 @@ function renderProjectDetail(app, repo, slug) {
       var activeItem     = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
       var activeFilename = activeItem ? (activeItem.filename || '') : null;
 
-      // Render the full runs list; called with the matched queue entry (or null).
-      // NOTE (refactor candidate): renderRunsList is a nested closure inside the getRunLogs().then()
-      // callback to close over sorted, repo, slug, and activeFilename. A future pass could extract this as
-      // a module-level helper accepting (sorted, repo, slug, activeFilename, matchingQueueEntry) to improve
-      // testability and reduce closure depth.
-      function renderRunsList(matchingQueueEntry) {
-        // Drain any existing log preview cleanups before rebuilding the DOM.
-        _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-        _pdLogPreviewCleanups = [];
-
-        // Save scroll position before rebuilding so it can be restored after.
-        // runsEl itself may not be scrollable; walk up to the nearest scrollable
-        // ancestor (or fall back to document.documentElement).
-        var scrollAnchor = (function () {
-          var el = runsEl;
-          while (el && el !== document.documentElement) {
-            var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
-            if (style && (style.overflowY === 'auto' || style.overflowY === 'scroll')) {
-              return el;
-            }
-            el = el.parentElement;
-          }
-          return document.documentElement;
-        }());
-        var savedScrollTop = scrollAnchor ? scrollAnchor.scrollTop : 0;
-
-        runsEl.innerHTML = sorted.map(function (item, index) {
-          var filename = (item && item.filename) ? item.filename : String(item);
-          var isActive = index === 0 && !!(item && item.is_active);
-          var href = '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
-          var runNumber = sorted.length - index;
-
-          var dateStr = (function () {
-            var m = filename.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})-/);
-            if (!m) return '';
-            var iso = m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + m[6];
-            var formatted = formatDate(iso);
-            return formatted ? ' <span class="text-muted" style="font-size:11px">' + escapeHtml(formatted) + '</span>' : '';
-          }());
-
-          var badges = buildRunBadges(item, isActive);
-
-          var rowHtml =
-            '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
-              '<span>' + badges + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
-              '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
-            '</div>';
-
-          if (isActive) {
-            var statusCardHtml = matchingQueueEntry
-              ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
-              : '';
-            rowHtml +=
-              '<div class="orch-active-run-section">' +
-                '<div id="orch-status-card-container">' + statusCardHtml + '</div>' +
-                '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
-              '</div>';
-          }
-
-          return rowHtml;
-        }).join('');
-
-        // Restore scroll position after the innerHTML rebuild.
-        if (scrollAnchor) scrollAnchor.scrollTop = savedScrollTop;
-
-        // Start inline log preview for the active run.
-        if (activeFilename) {
-          var previewEl = document.getElementById('orch-project-log-preview');
-          if (previewEl) {
-            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, repo, slug, activeFilename);
-            _pdLogPreviewCleanups.push(cleanup);
-          }
-        }
-      }
 
       if (activeFilename) {
         // Active run: fetch the queue to find the matching entry, then render.
@@ -1420,10 +942,7 @@ function renderProjectDetail(app, repo, slug) {
               _patchOrchStatusCard(match);
             } else {
               // ── Structural change: full rebuild with scroll preservation ──────
-              // Drain log previews before the DOM rebuild.
-              _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-              _pdLogPreviewCleanups = [];
-              renderRunsList(match);
+              renderRunsList(runsEl, sorted, repo, slug, activeFilename, match);
               lastRunsStructureKey = currentStructureKey;
             }
 
@@ -1449,9 +968,7 @@ function renderProjectDetail(app, repo, slug) {
                       }
                     }
                     // After a kill the run leaves the queue — treat as structural.
-                    _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-                    _pdLogPreviewCleanups = [];
-                    renderRunsList(newMatch);
+                    renderRunsList(runsEl, sorted, repo, slug, activeFilename, newMatch);
                     lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
                     runMetaForToolbar.then(function (rm) {
                       renderOrchToolbar(toolbarEl, {
@@ -1462,9 +979,7 @@ function renderProjectDetail(app, repo, slug) {
                       });
                     });
                   }).catch(function () {
-                    _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-                    _pdLogPreviewCleanups = [];
-                    renderRunsList(null);
+                    renderRunsList(runsEl, sorted, repo, slug, activeFilename, null);
                     lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
                   });
                 },
@@ -1472,9 +987,7 @@ function renderProjectDetail(app, repo, slug) {
             });
           }).catch(function () {
             // On error fall back to a full rebuild (clears stale state).
-            _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
-            _pdLogPreviewCleanups = [];
-            renderRunsList(null);
+            renderRunsList(runsEl, sorted, repo, slug, activeFilename, null);
             lastRunsStructureKey = _orchRunsStructureKey(sorted, null);
             renderOrchToolbar(toolbarEl, {
               hasActiveRun: true, queueEntry: null, runMeta: null,
@@ -1494,7 +1007,7 @@ function renderProjectDetail(app, repo, slug) {
         // No active run — render without queue interaction.
         // The combined poll (project data only) was already registered after the
         // initial render; no additional interval needed here.
-        renderRunsList(null);
+        renderRunsList(runsEl, sorted, repo, slug, null, null);
 
         API.getRunMetadata(repo, slug).then(function (runMeta) {
           renderOrchToolbar(toolbarEl, {
@@ -1524,346 +1037,6 @@ function renderProjectDetail(app, repo, slug) {
   });
 }
 
-/* ----------------------------------------------------------
-   4c-ii. Reset Project Modal
-   ---------------------------------------------------------- */
-var PIPELINE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
+// PIPELINE_STAGES — extracted to project-detail-modal.js (WP-004)
+// showResetModal  — extracted to project-detail-modal.js (WP-004)
 
-function showResetModal(repo, slug, diagnosis, options) {
-  // Remove any existing modal
-  var existing = document.getElementById('reset-modal-overlay');
-  if (existing) existing.remove();
-
-  var wps = diagnosis.work_packages || [];
-
-  // Build state: per-WP action + criteria checkbox
-  var state = {};
-  wps.forEach(function (wp) {
-    state[wp.work_package_id] = {
-      action: wp.current_status === 'CANCELLED' ? 'skip' : wp.suggested_action,
-      reset_criteria: wp.suggested_reset_criteria,
-      isCancelled: wp.current_status === 'CANCELLED',
-    };
-  });
-
-  var markCompleteMode = !!(options && options.markComplete);
-
-  function buildSummary() {
-    if (markCompleteMode) {
-      return '\u26A0 All non-cancelled WPs will be forced to COMPLETE \u2014 Project status \u2192 COMPLETE';
-    }
-    var resetCount = 0, skipCount = 0, cancelCount = 0;
-    Object.keys(state).forEach(function (id) {
-      if (state[id].action === 'reset') resetCount++;
-      else if (state[id].action === 'cancel') cancelCount++;
-      else skipCount++;
-    });
-    var parts = [];
-    if (resetCount > 0) parts.push(resetCount + ' will be reset');
-    if (skipCount > 0) parts.push(skipCount + ' skipped');
-    if (cancelCount > 0) parts.push(cancelCount + ' cancelled');
-    var statusNote = (resetCount > 0 || cancelCount > 0)
-      ? ' — Project status \u2192 IN_PROGRESS'
-      : '';
-    return parts.join(', ') + statusNote;
-  }
-
-  function stageBadge(stage, present, inactive) {
-    var cls = inactive
-      ? 'reset-stage-badge reset-stage-inactive'
-      : (present ? 'reset-stage-badge reset-stage-present' : 'reset-stage-badge reset-stage-missing');
-    return '<span class="' + cls + '">' + escapeHtml(stage) + '</span>';
-  }
-
-  function buildWpRow(wp) {
-    var s = state[wp.work_package_id];
-    var id = wp.work_package_id;
-    var safeid = id.replace(/[^a-zA-Z0-9-]/g, '_');
-
-    // Stage badges
-    var presentSet = {};
-    (wp.pipeline_stages_present || []).forEach(function (st) { presentSet[st] = true; });
-    var activeSet = {};
-    (wp.active_pipeline_stages || PIPELINE_STAGES).forEach(function (st) { activeSet[st] = true; });
-    var stageBadges = PIPELINE_STAGES.map(function (st) {
-      return stageBadge(st, !!presentSet[st], !activeSet[st]);
-    }).join(' ');
-
-    if (s.isCancelled) {
-      return '<div class="reset-wp-row reset-wp-cancelled">' +
-        '<div class="reset-wp-header">' +
-          '<span class="monospace">' + escapeHtml(id) + '</span> ' +
-          statusBadge(wp.current_status) +
-        '</div>' +
-        '<div class="reset-wp-stages">' + stageBadges + '</div>' +
-        '<div class="text-muted" style="font-size:12px">CANCELLED — cannot be modified</div>' +
-      '</div>';
-    }
-
-    var expanded = s.action === 'reset' || wp.needs_reset;
-
-    // Collapsed summary line
-    var actionLabel = s.action === 'reset' ? 'Reset' : (s.action === 'cancel' ? 'Cancel' : 'Skip');
-    var collapsedSummary = escapeHtml(wp.reason);
-
-    var detailHtml =
-      '<div class="reset-wp-stages">' + stageBadges + '</div>' +
-      '<div class="reset-wp-reason text-muted">' + escapeHtml(wp.reason) + '</div>';
-
-    if (wp.pipeline_stages_missing.length > 0 && wp.next_required_stage) {
-      detailHtml +=
-        '<div class="reset-wp-diagnosis">Missing: ' + escapeHtml(wp.pipeline_stages_missing.join(', ')) +
-        ' \u2192 will resume at <strong>' + escapeHtml(wp.target_assigned_to || wp.next_required_stage) + '</strong></div>';
-    }
-
-    // Radio buttons
-    var radioName = 'action_' + safeid;
-    var radios =
-      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="reset"' + (s.action === 'reset' ? ' checked' : '') + '> Reset</label>' +
-      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="skip"' + (s.action === 'skip' ? ' checked' : '') + '> Skip</label>' +
-      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="cancel"' + (s.action === 'cancel' ? ' checked' : '') + '> Cancel</label>';
-
-    // Criteria checkbox (only visible when action === reset)
-    var criteriaHtml =
-      '<div class="reset-criteria-row" id="criteria_' + safeid + '" style="' + (s.action === 'reset' ? '' : 'display:none') + '">' +
-        '<label><input type="checkbox" class="form-check" id="criteria_cb_' + safeid + '"' + (s.reset_criteria ? ' checked' : '') + '> Reset acceptance criteria to unmet</label>' +
-      '</div>';
-
-    return '<div class="reset-wp-row' + (expanded ? ' reset-wp-expanded' : '') + '" data-wp-id="' + escapeHtml(id) + '">' +
-      '<div class="reset-wp-header reset-wp-toggle" data-target="detail_' + safeid + '">' +
-        '<span class="reset-wp-arrow">' + (expanded ? '\u25BC' : '\u25B6') + '</span> ' +
-        '<span class="monospace">' + escapeHtml(id) + '</span> ' +
-        statusBadge(wp.current_status) +
-        (wp.needs_reset ? ' <span class="badge badge-blocked" style="font-size:10px">NEEDS RESET</span>' : '') +
-        ' <span class="text-muted" style="font-size:12px;margin-left:auto">' + escapeHtml(actionLabel) + '</span>' +
-      '</div>' +
-      '<div class="reset-wp-detail" id="detail_' + safeid + '" style="' + (expanded ? '' : 'display:none') + '">' +
-        detailHtml +
-        '<div class="reset-wp-actions">' + radios + '</div>' +
-        criteriaHtml +
-      '</div>' +
-    '</div>';
-  }
-
-  var wpRowsHtml = wps.map(buildWpRow).join('');
-
-  var modalHtml =
-    '<div class="reset-modal-overlay" id="reset-modal-overlay">' +
-      '<div class="reset-modal">' +
-        '<div class="reset-modal-header">' +
-          '<h2>Reset Project \u2014 ' + escapeHtml(slug) + '</h2>' +
-          '<button class="reset-modal-close" id="reset-modal-close">\u00d7</button>' +
-        '</div>' +
-        '<div class="reset-modal-banner">' +
-          (markCompleteMode
-            ? 'All work packages are healthy. Click <strong>Mark as Complete</strong> to close out this project.'
-            : 'Analysis found <strong>' + diagnosis.work_packages_needing_reset + '</strong> broken work package' +
-              (diagnosis.work_packages_needing_reset !== 1 ? 's' : '') +
-              ' out of <strong>' + wps.length + '</strong> total.') +
-        '</div>' +
-        '<div class="reset-bulk-controls">' +
-          '<button class="btn btn-secondary btn-sm" id="reset-bulk-broken">Reset All Broken</button> ' +
-          '<button class="btn btn-secondary btn-sm" id="reset-bulk-skip">Skip All</button> ' +
-          '<button class="btn btn-warning btn-sm' + (markCompleteMode ? ' active' : '') + '" id="reset-mark-complete-btn">' + (markCompleteMode ? 'Cancel Override' : 'Mark All as Complete') + '</button>' +
-        '</div>' +
-        '<div class="reset-wp-list">' + wpRowsHtml + '</div>' +
-        '<div class="reset-modal-footer">' +
-          '<div class="reset-summary" id="reset-summary">' + buildSummary() + '</div>' +
-          '<div class="reset-modal-actions">' +
-            '<button class="btn btn-secondary" id="reset-cancel-btn">Cancel</button> ' +
-            '<button class="btn btn-primary" id="reset-apply-btn">' + (markCompleteMode ? 'Mark as Complete' : 'Apply Reset') + '</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-  var overlay = document.getElementById('reset-modal-overlay');
-
-  function updateSummary() {
-    var el = document.getElementById('reset-summary');
-    if (el) el.textContent = buildSummary();
-    var applyBtn = document.getElementById('reset-apply-btn');
-    if (markCompleteMode) {
-      if (applyBtn) {
-        applyBtn.disabled = false;
-        applyBtn.textContent = 'Mark as Complete';
-      }
-      return;
-    }
-    // Enable/disable apply button based on reset/cancel actions
-    var hasAction = Object.keys(state).some(function (id) {
-      return state[id].action === 'reset' || state[id].action === 'cancel';
-    });
-    if (applyBtn) {
-      applyBtn.disabled = !hasAction;
-      applyBtn.textContent = 'Apply Reset';
-    }
-  }
-
-  function closeModal() {
-    if (overlay) overlay.remove();
-  }
-
-  // Close button
-  document.getElementById('reset-modal-close').addEventListener('click', closeModal);
-  document.getElementById('reset-cancel-btn').addEventListener('click', closeModal);
-
-  // Click overlay to close
-  overlay.addEventListener('click', function (e) {
-    if (e.target === overlay) closeModal();
-  });
-
-  // Expand/collapse toggles
-  overlay.querySelectorAll('.reset-wp-toggle').forEach(function (toggle) {
-    toggle.addEventListener('click', function () {
-      var targetId = this.getAttribute('data-target');
-      var detail = document.getElementById(targetId);
-      var arrow = this.querySelector('.reset-wp-arrow');
-      if (detail) {
-        var isVisible = detail.style.display !== 'none';
-        detail.style.display = isVisible ? 'none' : '';
-        if (arrow) arrow.textContent = isVisible ? '\u25B6' : '\u25BC';
-      }
-    });
-  });
-
-  // Bulk controls
-  document.getElementById('reset-bulk-broken').addEventListener('click', function () {
-    wps.forEach(function (wp) {
-      if (state[wp.work_package_id].isCancelled) return;
-      state[wp.work_package_id].action = wp.needs_reset ? 'reset' : 'skip';
-      state[wp.work_package_id].reset_criteria = wp.suggested_reset_criteria;
-    });
-    refreshRadios();
-    updateSummary();
-  });
-
-  document.getElementById('reset-bulk-skip').addEventListener('click', function () {
-    wps.forEach(function (wp) {
-      if (state[wp.work_package_id].isCancelled) return;
-      state[wp.work_package_id].action = 'skip';
-    });
-    refreshRadios();
-    updateSummary();
-  });
-
-  document.getElementById('reset-mark-complete-btn').addEventListener('click', function () {
-    markCompleteMode = !markCompleteMode;
-    var btn = this;
-    if (markCompleteMode) {
-      btn.classList.add('active');
-      btn.textContent = 'Cancel Override';
-    } else {
-      btn.classList.remove('active');
-      btn.textContent = 'Mark All as Complete';
-    }
-    updateSummary();
-  });
-
-  function refreshRadios() {
-    wps.forEach(function (wp) {
-      var s = state[wp.work_package_id];
-      if (s.isCancelled) return;
-      var safeid = wp.work_package_id.replace(/[^a-zA-Z0-9-]/g, '_');
-      var radios = document.querySelectorAll('input[name="action_' + safeid + '"]');
-      radios.forEach(function (r) { r.checked = (r.value === s.action); });
-      var criteriaRow = document.getElementById('criteria_' + safeid);
-      if (criteriaRow) criteriaRow.style.display = s.action === 'reset' ? '' : 'none';
-      var criteriaCb = document.getElementById('criteria_cb_' + safeid);
-      if (criteriaCb) criteriaCb.checked = s.reset_criteria;
-    });
-  }
-
-  // Wire up radio and checkbox change events
-  wps.forEach(function (wp) {
-    if (state[wp.work_package_id].isCancelled) return;
-    var safeid = wp.work_package_id.replace(/[^a-zA-Z0-9-]/g, '_');
-
-    var radios = document.querySelectorAll('input[name="action_' + safeid + '"]');
-    radios.forEach(function (r) {
-      r.addEventListener('change', function () {
-        state[wp.work_package_id].action = this.value;
-        var criteriaRow = document.getElementById('criteria_' + safeid);
-        if (criteriaRow) criteriaRow.style.display = this.value === 'reset' ? '' : 'none';
-        updateSummary();
-      });
-    });
-
-    var criteriaCb = document.getElementById('criteria_cb_' + safeid);
-    if (criteriaCb) {
-      criteriaCb.addEventListener('change', function () {
-        state[wp.work_package_id].reset_criteria = this.checked;
-      });
-    }
-  });
-
-  // Apply button
-  document.getElementById('reset-apply-btn').addEventListener('click', function () {
-    var applyBtn = this;
-    applyBtn.disabled = true;
-
-    if (markCompleteMode) {
-      applyBtn.textContent = 'Marking…';
-      API.markProjectComplete(repo, slug).then(function () {
-        closeModal();
-        var toast = document.createElement('div');
-        toast.className = 'success-banner';
-        toast.style.cssText = 'position:fixed;top:80px;right:24px;z-index:10001;max-width:400px;animation:fadeIn 0.2s';
-        toast.textContent = 'Project marked as complete.';
-        document.body.appendChild(toast);
-        setTimeout(function () { toast.remove(); }, 4000);
-        var app = document.getElementById('app');
-        if (app) renderProjectDetail(app, repo, slug);
-      }).catch(function (err) {
-        applyBtn.disabled = false;
-        applyBtn.textContent = 'Mark as Complete';
-        var toast = document.createElement('div');
-        toast.className = 'error-banner';
-        toast.style.cssText = 'position:fixed;top:80px;right:24px;z-index:10001;max-width:400px;animation:fadeIn 0.2s';
-        toast.textContent = 'Mark complete failed: ' + (err.message || String(err));
-        document.body.appendChild(toast);
-        setTimeout(function () { toast.remove(); }, 5000);
-      });
-      return;
-    }
-
-    applyBtn.textContent = 'Applying…';
-
-    var decisions = {};
-    Object.keys(state).forEach(function (id) {
-      var s = state[id];
-      if (s.isCancelled) return; // Don't include CANCELLED WPs in decisions
-      decisions[id] = { action: s.action };
-      if (s.action === 'reset') {
-        decisions[id].reset_criteria = s.reset_criteria;
-      }
-    });
-
-    API.applyProjectReset(repo, slug, decisions).then(function (result) {
-      closeModal();
-      // Show brief success toast
-      var toast = document.createElement('div');
-      toast.className = 'success-banner';
-      toast.style.cssText = 'position:fixed;top:80px;right:24px;z-index:10001;max-width:400px;animation:fadeIn 0.2s';
-      toast.textContent = result.project_comment_added || 'Project reset applied successfully.';
-      document.body.appendChild(toast);
-      setTimeout(function () { toast.remove(); }, 4000);
-      // Refresh the project view
-      var app = document.getElementById('app');
-      if (app) renderProjectDetail(app, repo, slug);
-    }).catch(function (err) {
-      applyBtn.disabled = false;
-      applyBtn.textContent = 'Apply Reset';
-      var toast = document.createElement('div');
-      toast.className = 'error-banner';
-      toast.style.cssText = 'position:fixed;top:80px;right:24px;z-index:10001;max-width:400px;animation:fadeIn 0.2s';
-      toast.textContent = 'Reset failed: ' + (err.message || String(err));
-      document.body.appendChild(toast);
-      setTimeout(function () { toast.remove(); }, 5000);
-    });
-  });
-
-  updateSummary();
-}
