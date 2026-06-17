@@ -133,10 +133,12 @@ const SETUP_COMPONENTS = [
     label: 'MCP Server',
     desc:  'npm install + build',
     detect() {
-      return (
-        fs.existsSync(path.join(MCP_SERVER_DIR, 'node_modules')) &&
-        fs.existsSync(path.join(MCP_SERVER_DIR, 'dist'))
-      );
+      if (!fs.existsSync(path.join(MCP_SERVER_DIR, 'dist'))) return false;
+      // node_modules must exist AND be in sync with package-lock.json
+      const outerLock = path.join(MCP_SERVER_DIR, 'package-lock.json');
+      const innerLock = path.join(MCP_SERVER_DIR, 'node_modules', '.package-lock.json');
+      if (!fs.existsSync(innerLock)) return false;
+      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
     },
     run() {
       log('  Installing MCP server dependencies…', 'dim');
@@ -151,7 +153,13 @@ const SETUP_COMPONENTS = [
     id:    'personas',
     label: 'Personas',
     desc:  'npm install + build + sync to IDE',
-    detect: () => fs.existsSync(path.join(PERSONAS_DIR, 'node_modules')),
+    detect() {
+      // node_modules must exist AND be in sync with package-lock.json
+      const outerLock = path.join(PERSONAS_DIR, 'package-lock.json');
+      const innerLock = path.join(PERSONAS_DIR, 'node_modules', '.package-lock.json');
+      if (!fs.existsSync(innerLock)) return false;
+      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
+    },
     run() {
       log('  Installing personas dependencies…', 'dim');
       if (sh(NPM, ['install'], { cwd: PERSONAS_DIR }) !== 0) return false;

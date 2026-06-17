@@ -4,7 +4,7 @@
  * Unit tests for scripts/lib/health-checks.js
  *
  * Acceptance Criteria verified:
- *   AC-1: HEALTH_CHECKS contains exactly 7 entries; each has id, label, cost, detect.
+ *   AC-1: HEALTH_CHECKS contains exactly 9 entries; each has id, label, cost, detect.
  *   AC-2: All instant-tier detect() functions return a plain boolean (no Promise).
  *   AC-2b: All fast-tier detect() functions return a plain boolean (no Promise).
  *   AC-3: runChecks('instant') excludes slow checks and resolves correctly.
@@ -23,8 +23,8 @@ import { HEALTH_CHECKS, runChecks } from '../lib/health-checks.js';
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
 describe('HEALTH_CHECKS registry', () => {
-  it('contains exactly 7 entries', () => {
-    expect(HEALTH_CHECKS).toHaveLength(7);
+  it('contains exactly 9 entries', () => {
+    expect(HEALTH_CHECKS).toHaveLength(9);
   });
 
   it('every entry has id, label, cost, and detect fields', () => {
@@ -43,7 +43,7 @@ describe('HEALTH_CHECKS registry', () => {
     }
   });
 
-  it('contains all 7 expected ids in any order', () => {
+  it('contains all 9 expected ids in any order', () => {
     const expected = [
       'mcp-dist',
       'orchestrator-venv',
@@ -51,6 +51,8 @@ describe('HEALTH_CHECKS registry', () => {
       'node-version',
       'global-mcp-registered',
       'mcp-dist-fresh',
+      'personas-deps-fresh',
+      'mcp-deps-fresh',
       'personas-fresh',
     ];
     const actual = HEALTH_CHECKS.map(c => c.id);
