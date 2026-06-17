@@ -953,10 +953,12 @@ const SETUP_COMPONENTS = [
     label: 'MCP Server',
     desc:  'npm install + build',
     detect() {
-      return (
-        fs.existsSync(path.join(MCP_SERVER_DIR, 'node_modules')) &&
-        fs.existsSync(path.join(MCP_SERVER_DIR, 'dist'))
-      );
+      if (!fs.existsSync(path.join(MCP_SERVER_DIR, 'dist'))) return false;
+      // node_modules must exist AND be in sync with package-lock.json
+      const outerLock = path.join(MCP_SERVER_DIR, 'package-lock.json');
+      const innerLock = path.join(MCP_SERVER_DIR, 'node_modules', '.package-lock.json');
+      if (!fs.existsSync(innerLock)) return false;
+      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
     },
     run() {
       log('  Installing MCP server dependencies…', 'dim');
@@ -971,7 +973,13 @@ const SETUP_COMPONENTS = [
     id:    'personas',
     label: 'Personas',
     desc:  'npm install + build + sync to IDE',
-    detect: () => fs.existsSync(path.join(PERSONAS_DIR, 'node_modules')),
+    detect() {
+      // node_modules must exist AND be in sync with package-lock.json
+      const outerLock = path.join(PERSONAS_DIR, 'package-lock.json');
+      const innerLock = path.join(PERSONAS_DIR, 'node_modules', '.package-lock.json');
+      if (!fs.existsSync(innerLock)) return false;
+      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
+    },
     run() {
       log('  Installing personas dependencies…', 'dim');
       if (sh(NPM, ['install'], { cwd: PERSONAS_DIR }) !== 0) return false;
@@ -2589,6 +2597,8 @@ const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
 const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
+const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
+const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2613,6 +2623,29 @@ function latestMtime(dir) {
     // Directory unreadable — treat as empty.
   }
   return latest;
+}
+
+// ─── Helpers (continued) ─────────────────────────────────────────────────────
+
+/**
+ * Returns true when the installed `node_modules` are up to date with
+ * `package-lock.json`.  npm writes `node_modules/.package-lock.json` after
+ * every successful install; comparing its mtime against the outer lock file
+ * detects changes pulled in via git without a follow-up `npm install`.
+ *
+ * Returns false when:
+ *   - `package-lock.json` is missing (no lock file → cannot determine state)
+ *   - `node_modules/` is absent
+ *   - `node_modules/.package-lock.json` is absent or older than the outer lock
+ *
+ * @param {string} dir  Directory containing `package-lock.json` and `node_modules/`
+ * @returns {boolean}
+ */
+function lockfileFresh(dir) {
+  const outerLock = path.join(dir, 'package-lock.json');
+  const innerLock = path.join(dir, 'node_modules', '.package-lock.json');
+  if (!fs.existsSync(outerLock) || !fs.existsSync(innerLock)) return false;
+  return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
 }
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
@@ -2714,6 +2747,30 @@ export const HEALTH_CHECKS = [
       return latestMtime(MCP_SRC_DIR) <= distMtime;
     },
     fix: 'cd mcp-server && npm run build',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'personas-deps-fresh',
+    label: 'Personas dependencies up to date',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      return lockfileFresh(PERSONAS_DIR);
+    },
+    fix: 'cd personas && npm install',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'mcp-deps-fresh',
+    label: 'MCP Server dependencies up to date',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      return lockfileFresh(MCP_SERVER_DIR);
+    },
+    fix: 'cd mcp-server && npm install',
   },
 
   // ── slow tier (100 ms – 2 s — subprocess spawns) ─────────────────────────
