@@ -18,7 +18,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 
 ### Project Ledger MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
+An [MCP](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption. A built-in knowledge store lets agents record and search project insights across runs, building institutional memory over time.
 
 → [mcp-server/README.md](mcp-server/README.md)
 
@@ -48,33 +48,9 @@ menu.cmd           # Windows
 
 On **first launch**, the menu detects that nothing is configured yet and automatically enters the setup wizard — installing all dependencies, building the MCP server, syncing personas to your IDE, and registering the MCP server globally. No manual `npm install` or `npm run build` required.
 
-Every time the menu opens, it displays a **live health dashboard** showing whether the MCP server dist is built and up to date, the orchestrator venv exists, git hooks are installed, and sibling libraries are compiled. If anything is stale, the status line tells you exactly what to fix — or you can re-run setup to repair it.
+On every subsequent launch, the menu checks for stale builds and configuration drift and tells you exactly what (if anything) needs attention. Just open the menu — it keeps itself current.
 
-When you launch an orchestrator run, the menu **automatically rebuilds** the MCP server if its source has changed since the last build. You never need to remember to rebuild manually.
-
-### What You Can Do
-
-| Menu Item | What It Does |
-|-----------|-------------|
-| **First-time setup** | Installs everything: MCP server, personas, orchestrator venv, global MCP registration, git hooks |
-| **Sync personas** | Build + deploy persona files to your IDE |
-| **Install MCP (Global)** | Register the MCP server in VS Code / Claude Code user config |
-| **Launch GUI** | Open the MCP dashboard — monitor projects, start orchestrator runs, browse dialogues |
-| **Pre-flight checks** | Verify orchestrator readiness (venv, API keys, dist freshness) |
-| **Doctor** | Full environment health check across all tiers |
-| **Build & Maintain** | Sync versions, build personas, generate context docs |
-
-### Direct Commands (Non-Interactive)
-
-You can also invoke any menu action directly without entering the interactive mode:
-
-```bash
-./menu.sh sync-personas          # build + deploy personas to IDE
-./menu.sh gui                    # launch MCP GUI dashboard
-./menu.sh orchestrator plan.md   # run orchestrator pipeline
-./menu.sh doctor                 # run all health checks
-./menu.sh help                   # list all available commands
-```
+→ [docs/references/menu-guide.md](docs/references/menu-guide.md) — full menu reference and direct command list
 
 ---
 
@@ -82,6 +58,7 @@ You can also invoke any menu action directly without entering the interactive mo
 
 | Resource | Description |
 |----------|-------------|
+| [docs/references/menu-guide.md](docs/references/menu-guide.md) | Menu reference: all items, direct commands, and health dashboard |
 | [docs/references/project-overview.md](docs/references/project-overview.md) | High-level project overview: philosophy, workflow, architecture, and open questions |
 | [docs/references/development.md](docs/references/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
 | [docs/agents/references/README.md](docs/agents/references/README.md) | Reference docs hub for workflow diagrams, CTX configuration, and Deep Agents subagent patterns |
