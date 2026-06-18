@@ -89,5 +89,5 @@ You can also invoke any menu action directly without entering the interactive mo
 | [docs/agents/references/ledger-workflow-visual-guide.md](docs/agents/references/ledger-workflow-visual-guide.md) | Visual reference for the ledger workflow: end-to-end ASCII diagrams, handoffs, sub-agents, and knowledge flow |
 | [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, troubleshooting |
 | [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
-| [discussions/](discussions/) | LLM discussion archive and design notes |
-| [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
+| [docs/discussions/](docs/discussions/) | LLM discussion archive and design notes |
+| [docs/history/key-learnings.md](docs/history/key-learnings.md) | Lessons learned across the project |
