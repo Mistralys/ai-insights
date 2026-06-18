@@ -10,16 +10,18 @@ An open-source toolkit that brings **structure, persistence, and role separation
 
 ## Presentation
 
-- [AI Insights Slides](presentation/dist/ai-insights-slides.html) — Full slide deck
+- [AI Insights Slides](presentation/dist/ai-insights-slides.html) — Full introduction into the project
 
 ---
 
 ## References
 
 - [Project Overview](references/project-overview) — High-level overview: philosophy, components, and goals
-- [Development Guide](references/development) — Workspace layout, local dev setup, CI, and changelog workflow
-- [Persona Quickstart Guide](references/persona-quickstart) — How to create your own AI agent persona from scratch
+- [Persona Quickstart Guide](references/persona-quickstart) — How to create your own AI agent persona (for web or IDE)
 
 ---
 
-[Github repository](https://github.com/Mistralys/ai-insights)
+## Developer's Corner
+
+- [Development Guide](references/development) — Workspace layout, local dev setup, CI, etc.
+- [AI Insights Github repository](https://github.com/Mistralys/ai-insights)
