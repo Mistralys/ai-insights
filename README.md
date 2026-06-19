@@ -1,30 +1,34 @@
 # AI Insights
 
-A toolkit for structured, multi-agent AI development workflows. It gives AI coding agents a shared memory, a defined set of roles, and a headless execution path — so complex projects can be tackled across multiple chat sessions without losing context.
+AI coding agents forget everything between chat sessions. AI Insights fixes that — it gives agents persistent memory, defined roles, and a repeatable pipeline so complex projects survive across sessions without losing context.
 
 ---
 
-## 🧩 What's Inside
+## What's Inside
 
 ### Agent Personas
 
-Pre-built prompt files that assign a specific role to an AI agent in your IDE (VS Code / Claude Code). Two suites are available:
+**Are you here to make your own personas?** [Start Here](https://mistralys.github.io/ai-insights/)
+
+Each persona is a carefully crafted prompt file that turns a general-purpose AI into a specialist — a code reviewer, a security auditor, a release engineer. Load one in your IDE (VS Code / Claude Code) and the agent knows its job, its boundaries, and how to hand off to the next stage. The system prioritizes robust persona reliability over complex, constantly changing toolsets.
+
+The following persona suites are available:
 
 | Suite | Description | Docs |
 |-------|-------------|------|
-| **Ledger-Enabled** | 9-stage workflow (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
-| **Ledger Support** | Utility agents for the ledger workflow (PM sub-agents, ledger doctor, orchestrator runner, etc.) — MCP-dependent | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
-| **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
+| **Ledger** | Full 9-stage workflow (Planner → PM → Developer → QA → Security → Reviewer → Release → Docs → Synthesis) with persistent state via the MCP server | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger Support** | Utility agents that extend the ledger workflow — PM sub-agents, ledger doctor, orchestrator runner, and more | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
+| **Standalone** | Drop-in agents with no dependencies — pick one and go | [personas/standalone/](personas/standalone/) |
 
-### Project Ledger MCP Server
+### The Project Ledger
 
-An [MCP](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption. A built-in knowledge store lets agents record and search project insights across runs, building institutional memory over time.
+The reason agents can pick up where the last one left off. This [MCP server](https://modelcontextprotocol.io/) stores project state — work packages, progress, handoff notes — so every agent in the pipeline sees the full history. A built-in knowledge store captures insights across runs, giving your agents institutional memory that grows over time.
 
 → [mcp-server/README.md](mcp-server/README.md)
 
-### Orchestrator
+### The Orchestrator
 
-A headless, IDE-free alternative to the ledger workflow. Built on **LangGraph** + **Deep Agents**, it runs the same MCP-server-backed pipeline entirely from the command line — useful for automation, CI pipelines, or working outside an AI IDE.
+Run the entire 9-stage pipeline from the command line — no IDE required. Built on **LangGraph** + **Deep Agents**, the orchestrator executes the same MCP-backed workflow headlessly. Useful for automation, CI integration, or when you want to kick off a pipeline and walk away.
 
 → [orchestrator/README.md](orchestrator/README.md)
 
@@ -33,38 +37,44 @@ A headless, IDE-free alternative to the ledger workflow. Built on **LangGraph** 
 ## Requirements
 
 - **Node.js** >= 18
-- **Python 3.11+** (only for the orchestrator component)
+- **Python 3.11+** (only for the orchestrator)
 
 ---
 
 ## 🚀 Quick Start
 
-Everything is driven through a single interactive menu:
+Everything runs through a single interactive menu:
 
 ```bash
 ./menu.sh          # macOS / Linux
 menu.cmd           # Windows
 ```
 
-On **first launch**, the menu detects that nothing is configured yet and automatically enters the setup wizard — installing all dependencies, building the MCP server, syncing personas to your IDE, and registering the MCP server globally. No manual `npm install` or `npm run build` required.
+On **first launch**, the menu walks you through setup automatically — installing dependencies, building the MCP server, syncing personas to your IDE, and registering everything globally. No manual steps required.
 
-On every subsequent launch, the menu checks for stale builds and configuration drift and tells you exactly what (if anything) needs attention. Just open the menu — it keeps itself current.
+After that, the menu monitors your workspace for stale builds and configuration drift. Just open it — it keeps itself current.
 
-→ [docs/references/menu-guide.md](docs/references/menu-guide.md) — full menu reference and direct command list
+→ [docs/references/menu-guide.md](docs/references/menu-guide.md) — full menu reference and direct commands
 
 ---
 
 ## 📚 Learn More
 
+**Getting started:**
+
 | Resource | Description |
 |----------|-------------|
-| [docs/references/menu-guide.md](docs/references/menu-guide.md) | Menu reference: all items, direct commands, and health dashboard |
-| [docs/references/project-overview.md](docs/references/project-overview.md) | High-level project overview: philosophy, workflow, architecture, and open questions |
-| [docs/references/development.md](docs/references/development.md) | Developer guide: workspace layout, CI, scripts, changelog workflow |
-| [docs/agents/references/README.md](docs/agents/references/README.md) | Reference docs hub for workflow diagrams, CTX configuration, and Deep Agents subagent patterns |
-| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
-| [docs/agents/references/ledger-workflow-visual-guide.md](docs/agents/references/ledger-workflow-visual-guide.md) | Visual reference for the ledger workflow: end-to-end ASCII diagrams, handoffs, sub-agents, and knowledge flow |
-| [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, troubleshooting |
-| [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
-| [docs/discussions/](docs/discussions/) | LLM discussion archive and design notes |
-| [docs/history/key-learnings.md](docs/history/key-learnings.md) | Lessons learned across the project |
+| [Project Overview](docs/references/project-overview.md) | Philosophy, workflow design, and architecture |
+| [Ledger Workflow Guide](personas/ledger/README.md) | The 9-stage pipeline: setup, stages, best practices |
+| [Visual Workflow Guide](docs/agents/references/ledger-workflow-visual-guide.md) | End-to-end diagrams: handoffs, sub-agents, knowledge flow |
+
+**Going deeper:**
+
+| Resource | Description |
+|----------|-------------|
+| [MCP Server](mcp-server/README.md) | Server architecture, tool reference, GUI, troubleshooting |
+| [Orchestrator](orchestrator/README.md) | Headless runner: setup, configuration, CLI |
+| [Developer Guide](docs/references/development.md) | Workspace layout, CI, scripts, changelog workflow |
+| [Reference Docs Hub](docs/agents/references/README.md) | Workflow diagrams, CTX config, Deep Agents patterns |
+| [Key Learnings](docs/history/key-learnings.md) | Lessons learned across the project |
+| [Discussions](docs/discussions/) | Design notes and LLM conversation archive |
