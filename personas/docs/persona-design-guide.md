@@ -2,8 +2,11 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.1.  
-**Last Updated:** 2026-04-29.  
+**Version:** 2.1.
+**Last Updated:** 2026-04-29
+**License:** MIT 
+**Author:** Sebastian Mordziol
+**Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 ---
 
