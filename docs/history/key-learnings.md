@@ -106,3 +106,4 @@
 - Extracting bits of knowledge from a Synthesis.
 - Using a dedicated agent to curate knowledge.
 - Adding project-specific stategy and vision to the planner agent.
+- Not mixing topics in an LLM discussion is even more critical than I thought.
