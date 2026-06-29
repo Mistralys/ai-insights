@@ -1,16 +1,16 @@
 # Personas Changelog
 
-## v3.25.3 - Git Committer Audit Compliance
+## v3.26.0 - **WIP Unreleased**
 - Standalone: Git Committer audit compliance — added pre-execution checklist,
   fixed placeholders, output location, constraint reframing, style cleanup.
-
-## v3.25.2 - Git Committer Edge Case Hardening
 - Standalone: Git Committer hardened for git edge cases — no-remote/no-tracking
   guards, default branch detection, detached HEAD handling, pre-staged file
   handling, stash cleanup after conflict resolution, diff content analysis.
-
-## v3.25.1 - Git Committer Upstream Integration
 - Standalone: Git Committer now supports upstream integration (stash-merge-restore workflow).
+- Standalone: Added Communications Curator for user- and stakeholder-facing content
+  writing — release notes, user responses, stakeholder briefs, presentation slides.
+- Ledger: Planner Synthesis Rework mode triages deferred items instead of omitting them;
+  most valuable promoted into plan steps, remainder preserved in a Deferred Items table.
 
 ## v3.25.0 - Ledger-Support Suite
 - Build: Introduced `ledger-support` as a dedicated third suite for MCP-dependent support personas.
