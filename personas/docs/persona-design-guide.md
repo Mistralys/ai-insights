@@ -2,11 +2,19 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.1.
-**Last Updated:** 2026-04-29
+**Version:** 2.2.
+**Last Updated:** 2026-06-29
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
+
+**Changelog**
+
+- v2.2 - 2026-06-29: Added Markdown separator handling; added License, Author and Source metadata to the header.
+- v2.1 - 2026-04-29: Added "Lead with a verb, not You" guidance to the Mission section; documented second-person voice as an anti-pattern.
+- v2.0 - 2026-04-11: Major revision — expanded section-by-section guides with templates; added Placeholder Syntax with curly braces (`{}`).
+- v1.1 - 2026-04-11: Fixed missing Outputs entry in the recommended section order table.
+- v1.0 - 2026-03-26: Initial release.
 
 ---
 
@@ -890,6 +898,18 @@ Two tiers distinguish named slots from authoring instructions:
 - Authoring instructions use sentence case to read naturally as fill-in-the-blank prompts.
 - The same convention applies inside inline code: `` `**Identity: {TITLE}.**` ``.
 
+### Markdown Separators (`---`)
+
+Markdown horizontal rules (`---`) are **redundant** in persona content files and do not need to be included. Headings already provide a strictly stronger structural signal — they mark boundaries *and* carry semantic labels. Adding `---` between headed sections provides negligible additional value.
+
+This applies to persona source files in `src/content/`. The build system and templates may use `---` in generated output for visual formatting, but persona authors should not add them manually.
+
+**Rules:**
+
+- Do not add `---` between sections in persona content files. Headings are sufficient.
+- Do not add `---` after every section heading — this is a redundant pattern that adds no structural value.
+- Existing `---` in persona files are harmless but unnecessary. Remove them when editing a file for other reasons; do not make separator-only cleanup passes.
+
 ---
 
 ## Common Pitfalls
@@ -908,3 +928,4 @@ Two tiers distinguish named slots from authoring instructions:
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
 | **Tool instructions mixed into workflow** | Agent confuses tool mechanics with task logic | Extract tool integration into its own section |
+| **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
