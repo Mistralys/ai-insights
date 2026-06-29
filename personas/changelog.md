@@ -1,6 +1,11 @@
 # Personas Changelog
 
 ## v3.26.0 - **WIP Unreleased**
+- Standalone: Recipe Curator — recipe identifiers (R1, R2, …) across previews,
+  plan tables, and full recipes for easy back-reference in long conversations.
+- Standalone: Recipe Curator — template fidelity constraint: output templates
+  must preserve exact Markdown structure across languages; field values stay
+  compact.
 - Standalone: Recipe Curator — recipe preview step: Single Recipe workflow
   now presents a compact summary for chef approval before generating the
   full recipe (9 steps).
