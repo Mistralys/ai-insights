@@ -5,6 +5,9 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.1.1 (2026-06-29): Audit compliance — added pre-execution checklist, fixed angle bracket placeholders, removed title suffix, added output location, removed horizontal rules, reframed plan archival constraint
+  1.1.0 (2026-06-29): Hardened git edge cases — no-remote/no-tracking guards, default branch detection, detached HEAD handling, pre-staged file handling, stash drop after conflict resolution, discovery terminology, diff content analysis for grouping, constraint clarification for filesystem moves
+  1.0.6 (2026-06-29): Upstream integration is now a supported task (stash-merge-restore workflow)
   1.0.5 (2026-06-03): Added uncommitted-changes pre-check before commit sequence
   1.0.4 (2026-05-22): Excludes CTX files from commits on feature branches
   1.0.3 (2026-05-20): Checks for upstream and default-branch divergence before committing
