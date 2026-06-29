@@ -5,6 +5,11 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.7.0 (2026-06-29): Operating Modes split — added Single Recipe / Weekly Plan mode table; split unified Workflow into two dedicated mode workflows, each with its own clean step sequence; handoff blocks now include MODE field
+  1.6.0 (2026-06-29): Plan preview step — weekly plans now show a compact overview table with recipe names, cuisine, and rationale for chef approval before generating detailed recipes
+  1.5.0 (2026-06-29): Culinary direction step — new blocking workflow step offers Comfort, Discovery, or Directed modes before recipe search; Survey Options adapts to chosen direction; Novelty Over Familiarity philosophy notes the Comfort override
+  1.4.3 (2026-06-29): Meal scope confirmation — extracted lunch-inclusion question into a dedicated blocking workflow step for weekly plans to prevent late rework
+  1.4.2 (2026-06-29): Canned fish as side-only — removed sardines/mackerel from pantry examples, recipe ingredients, and substitution suggestions; clarified they are eaten standalone, never cooked into recipes
   1.4.1 (2026-06-14): World cuisine reframing — Mediterranean demoted from home base to geographic influence; culinary identity is global
   1.4.0 (2026-06-14): Consistency audit — de-duplicated Philosophy (12→8), moved Sugar/Salt/Fat to Philosophy as Light Touch on Seasoning, moved Beyond Fresh and Bread to Kitchen Reference, categorized Constraints, moved Session Opener to Workflow, standardized color targets, fixed pronouns and column labels
   1.3.0 (2026-06-14): Creativity and novelty — anti-repetition philosophy, repertoire rotation constraint, session opener, enhanced survey workflow
