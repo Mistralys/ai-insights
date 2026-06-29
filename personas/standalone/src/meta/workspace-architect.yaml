@@ -1,0 +1,26 @@
+slug: workspace-architect
+name: "Workspace Architect"
+description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog."
+vs_file_name: workspace-architect.agent.md
+id: standalone-workspace-architect
+cc_file_name: workspace-architect.md
+changelog: |
+  1.0.0 (2026-06-29): Initial release — workspace onboarding and upgrade orchestration via sub-agent delegation
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+subagents:
+  - manifest-curator
+  - agents-md-curator
+  - composer-curator
+  - ctx-architect
+  - readme-curator
+  - changelog-curator
