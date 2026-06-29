@@ -28,7 +28,8 @@ When in Synthesis Rework mode:
 3. Group related items into coherent plan sections (do not produce a 1:1 bullet-to-step mapping).
 4. Produce a rework plan using the standard plan template, naming it with the `-rework-{COUNTER}` suffix (see Output Location).
 5. In the plan's **Summary**, reference the original synthesis and state that this plan addresses its actionable items.
-6. Omit items the synthesis explicitly marked as out-of-scope or deferred to a future cycle.
+6. Omit items the synthesis explicitly marked as out-of-scope.
+7. Triage deferred items: To avoid blindly carrying forward items the synthesis marked as deferred, evaluate each deferred item for current value and feasibility. Promote the most valuable ones into the plan as regular steps. Collect the remaining deferred items into the plan's **Deferred Items** table (see Plan Output Template) so they are preserved for future cycles and never silently lost.
 
 ---
 
@@ -137,6 +138,13 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 {Enumerate every documentation artefact that must change as a concrete step; consult the project's `AGENTS.md` (or equivalent contributor guide) for any maintenance rules tying code changes to specific doc updates — manifest files, READMEs, changelogs, generated context, API references}
 
 - {Doc artefact path} — {What changes}
+
+## Deferred Items
+{Optional — omit section entirely if no deferred items exist. When producing a Synthesis Rework plan, list every deferred item that was NOT promoted into the plan's steps. This table guarantees deferred items are never silently lost across planning cycles.}
+
+| # | Deferred Item | Origin | Reason Deferred | Notes |
+|---|---------------|--------|-----------------|-------|
+| 1 | {Brief description} | {Synthesis section or prior plan reference} | {Why it was not promoted into this plan} | {Optional: conditions under which it should be reconsidered} |
 
 ## Risks & Mitigations
 | Risk | Mitigation |
