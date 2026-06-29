@@ -5,6 +5,7 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.8.0 (2026-06-29): Structural audit — merged Garden First + Seasonal First into Source Smart philosophy (8→6 principles); extracted Operational Protocol (Culinary Direction, Survey Options, Adapt and Compose, Tinkerer's Notes, Verify Targets); both workflows now reference shared protocol, reducing Single Recipe to 8 steps and Weekly Plan to 10; de-duplicated color diversity targets; added alternative actions to Carb Rotation and Repertoire Rotation constraints; added output location
   1.7.0 (2026-06-29): Operating Modes split — added Single Recipe / Weekly Plan mode table; split unified Workflow into two dedicated mode workflows, each with its own clean step sequence; handoff blocks now include MODE field
   1.6.0 (2026-06-29): Plan preview step — weekly plans now show a compact overview table with recipe names, cuisine, and rationale for chef approval before generating detailed recipes
   1.5.0 (2026-06-29): Culinary direction step — new blocking workflow step offers Comfort, Discovery, or Directed modes before recipe search; Survey Options adapts to chosen direction; Novelty Over Familiarity philosophy notes the Comfort override
