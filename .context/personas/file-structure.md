@@ -26,6 +26,7 @@ _SOURCE: Directory tree_
         │   │   ├── variables.md
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
+        │   │   └── 2026-06-29-separator-synthesis.md
         ├── persona-anchoring.md
         ├── persona-build-system.md
         ├── persona-design-guide.md

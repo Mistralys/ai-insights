@@ -3602,7 +3602,7 @@ export async function killQueueEntry(params: {
   const entryIndex = entries.findIndex((e) => e.id === id);
 
   if (entryIndex === -1) {
-    return { killed: false };
+    return { killed: false, reason: 'Queue entry not found.' };
   }
 
   const entry = entries[entryIndex]!;
@@ -3616,7 +3616,10 @@ export async function killQueueEntry(params: {
   const effectiveStatus = computeEffectiveStatus(alive, projectExists);
 
   if (effectiveStatus !== 'pending') {
-    return { killed: false };
+    const reason = effectiveStatus === 'started'
+      ? 'The run has already created the project ledger and cannot be killed from the GUI. Use: node scripts/kill-orchestrator.js --force'
+      : 'The run is no longer active.';
+    return { killed: false, reason };
   }
 
   // 1–3: Terminate the process.

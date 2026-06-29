@@ -3157,7 +3157,7 @@ export interface QueueEntry extends RawQueueEntry {
   logFilename: string | null;
 }
 
-export interface KillResult { killed: boolean; }
+export interface KillResult { killed: boolean; reason?: string; }
 
 export interface PreflightResult {
   name: string; pass: boolean; detail: string; fix?: string;
@@ -3932,7 +3932,7 @@ export async function handleOrchestratorKill(
   logsDir: string,
   ledgerRoot: string,
 ): Promise<KillResult>;
-// where KillResult = { killed: boolean } (from gui/orchestrator-manager.ts)
+// where KillResult = { killed: boolean; reason?: string } (from gui/orchestrator-manager.ts)
 
 // POST /api/orchestrator/dismiss/:id
 // Removes a dead queue entry from the queue file on disk. Delegates to dismissQueueEntry().

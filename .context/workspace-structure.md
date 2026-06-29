@@ -102,6 +102,9 @@ _SOURCE: Top-level directory tree_
     │   │   └── build.js
     ├── references/
     │   └── development.md
+    │   └── menu-guide.md
+    │   └── persona-quickstart-ide.md
+    │   └── persona-quickstart-web.md
     │   └── persona-quickstart.md
     │   └── project-overview.md
 └── mcp-server/

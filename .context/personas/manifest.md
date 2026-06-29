@@ -882,6 +882,14 @@ When the build system was introduced, the generated output differs from the orig
 <a name="c4a"></a>
 5a. **Numbered workflow steps in persona content templates are immutable structural contracts.** When a new phase partial is added to a persona's content template, a corresponding numbered-step entry must be added in the same implementation change — never deferred to a follow-up. An agent following only the numbered steps will silently skip any phase that exists as a partial but has no matching step entry. Before closing a persona-modification PR, cross-check the count of numbered workflow steps against the count of phase partials included in that template to confirm parity. The Documentation pipeline is responsible for catching step/partial count mismatches during its review pass.
 
+<a name="c4b"></a>
+5b. **Reference documents stay separate from persona content — never embed.** When a persona always loads an external reference document (e.g., the Persona Curator loads `personas/docs/persona-design-guide.md`), keep the document as a separate file read via tool call at session start. Do not embed reference material into the persona content, even though the effective per-session token cost is the same. Rationale:
+
+   - **Single source of truth.** Reference documents evolve independently. Embedding creates a second copy that can drift from the canonical file without automated detection.
+   - **Multiple consumers.** Reference documents serve other agents, human authors, and audit workflows. Embedding does not eliminate the standalone file — it only duplicates it.
+   - **Separation of concerns.** Persona content defines identity, methodology, and decision-making framework. Reference documents are consulted knowledge — analogous to config loaded at runtime, not hardcoded into source.
+   - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
+
 ---
 
 ## Naming & File Conventions
