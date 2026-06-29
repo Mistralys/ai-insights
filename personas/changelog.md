@@ -1,6 +1,16 @@
 # Personas Changelog
 
 ## v3.26.0 - **WIP Unreleased**
+- Standalone: Recipe Curator — recipe preview step: Single Recipe workflow
+  now presents a compact summary for chef approval before generating the
+  full recipe (9 steps).
+- Standalone: Recipe Curator — structural audit: merged philosophy (8→6),
+  extracted Operational Protocol, de-duplicated constraints, condensed
+  workflows (Single Recipe 8 steps, Weekly Plan 10 steps).
+- Standalone: Recipe Curator — split unified Workflow into Operating Modes
+  (Single Recipe / Weekly Plan) with dedicated per-mode workflows.
+- Standalone: Added Workspace Architect — orchestrates sub-agents to onboard
+  or upgrade repositories for the AI Insights persona ecosystem.
 - Standalone: Git Committer audit compliance — added pre-execution checklist,
   fixed placeholders, output location, constraint reframing, style cleanup.
 - Standalone: Git Committer hardened for git edge cases — no-remote/no-tracking
@@ -9,6 +19,8 @@
 - Standalone: Git Committer now supports upstream integration (stash-merge-restore workflow).
 - Standalone: Added Communications Curator for user- and stakeholder-facing content
   writing — release notes, user responses, stakeholder briefs, presentation slides.
+- Standalone: Recipe Curator — canned fish clarified as standalone side, not
+  a recipe ingredient; removed from pantry examples and substitution suggestions.
 - Ledger: Planner Synthesis Rework mode triages deferred items instead of omitting them;
   most valuable promoted into plan steps, remainder preserved in a Deferred Items table.
 
