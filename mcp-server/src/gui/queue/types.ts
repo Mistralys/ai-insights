@@ -105,6 +105,11 @@ export interface QueueEntry extends RawQueueEntry {
 export interface KillResult {
   /** `true` when the entry was found, was effectively pending, and was terminated. */
   killed: boolean;
+  /**
+   * Human-readable explanation of why `killed` is `false`.
+   * Only present when `killed === false`; absent when `killed === true`.
+   */
+  reason?: string;
 }
 
 // ---------------------------------------------------------------------------

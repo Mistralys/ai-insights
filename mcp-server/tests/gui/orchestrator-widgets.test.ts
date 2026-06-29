@@ -247,7 +247,7 @@ describe('OrchestratorWidgets.renderKillButton — AC-2', () => {
   it('invokes onDone callback after a successful kill', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorKill'] =
-      vi.fn().mockResolvedValue(null);
+      vi.fn().mockResolvedValue({ killed: true });
 
     const onDone = vi.fn();
     const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-4', onDone);
@@ -256,6 +256,40 @@ describe('OrchestratorWidgets.renderKillButton — AC-2', () => {
     // Settle the promise chain (confirm → API call → .then callback)
     await new Promise((r) => setTimeout(r, 0));
     expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT invoke onDone when killed is false, shows alert with reason', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorKill'] =
+      vi.fn().mockResolvedValue({ killed: false, reason: 'The run is no longer active.' });
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-kill-false', onDone);
+    btn.click();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith(
+      expect.stringContaining('The run is no longer active.')
+    );
+  });
+
+  it('falls back to generic message when killed is false with no reason', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorKill'] =
+      vi.fn().mockResolvedValue({ killed: false });
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-kill-no-reason', onDone);
+    btn.click();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onDone).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith(
+      expect.stringContaining('The server rejected the kill request.')
+    );
   });
 });
 

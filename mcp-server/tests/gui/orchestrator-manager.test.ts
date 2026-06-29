@@ -668,6 +668,7 @@ describe('killQueueEntry — graceful rejection (no sleep involved)', () => {
     await writeQueueFile(logsDir, []);
     const result = await killQueueEntry({ id: 'missing-id', logsDir, ledgerRoot });
     expect(result.killed).toBe(false);
+    expect(result.reason).toBeTruthy();
   });
 
   it('AC-7: returns { killed: false } when entry ID is not present in a non-empty queue', async () => {
@@ -675,6 +676,7 @@ describe('killQueueEntry — graceful rejection (no sleep involved)', () => {
     await writeQueueFile(logsDir, [makeRawEntry({ id: 'other-id' })]);
     const result = await killQueueEntry({ id: 'missing-id', logsDir, ledgerRoot });
     expect(result.killed).toBe(false);
+    expect(result.reason).toBeTruthy();
   });
 
   it('AC-1: returns { killed: false } when entry is effectively started (alive + project exists)', async () => {
@@ -684,6 +686,7 @@ describe('killQueueEntry — graceful rejection (no sleep involved)', () => {
     await writeLedgerProject(ledgerRoot, slug);
     const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
     expect(result.killed).toBe(false);
+    expect(result.reason).toMatch(/started|force/i);
   });
 
   it('AC-1: returns { killed: false } when entry is effectively dead (not alive + no project)', async () => {
@@ -691,6 +694,7 @@ describe('killQueueEntry — graceful rejection (no sleep involved)', () => {
     await writeQueueFile(logsDir, [makeRawEntry()]);
     const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
     expect(result.killed).toBe(false);
+    expect(result.reason).toBeTruthy();
   });
 });
 

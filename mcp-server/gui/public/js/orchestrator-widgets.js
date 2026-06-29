@@ -110,7 +110,14 @@ var OrchestratorWidgets = (function () {
       )) {
         return;
       }
-      API.orchestratorKill(entryId).then(function () {
+      API.orchestratorKill(entryId).then(function (result) {
+        if (!result || !result.killed) {
+          var reason = (result && result.reason)
+            ? result.reason
+            : 'The server rejected the kill request.';
+          window.alert('Could not kill run: ' + reason);
+          return;
+        }
         if (typeof onDone === 'function') onDone();
       }).catch(function (err) {
         window.alert(

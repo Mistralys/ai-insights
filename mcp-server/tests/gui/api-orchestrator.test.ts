@@ -321,11 +321,12 @@ describe('handleOrchestratorKill', () => {
   });
 
   it('AC-4: returns { killed: false } when entry not found or not pending', async () => {
-    mockKillQueueEntry.mockResolvedValueOnce({ killed: false });
+    mockKillQueueEntry.mockResolvedValueOnce({ killed: false, reason: 'Queue entry not found.' });
 
     const result = await handleOrchestratorKill('unknown-id', '/logs', '/ledger');
 
-    expect(result).toEqual({ killed: false });
+    expect(result).toMatchObject({ killed: false });
+    expect((result as { reason?: string }).reason).toBeTruthy();
   });
 
   it('AC-6: throws NOT_FOUND for ID containing a path separator', async () => {
