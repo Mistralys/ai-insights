@@ -1,0 +1,18 @@
+slug: comms-curator
+name: "Communications Curator"
+description: "Produce clear, engaging, audience-appropriate content from technical source material — release notes, user responses, stakeholder briefs, and presentation slides."
+vs_file_name: comms-curator.agent.md
+id: standalone-comms-curator
+cc_file_name: comms-curator.md
+changelog: |
+  1.0.0 (2026-06-19): Initial release — multi-mode content writing for user- and stakeholder-facing communications
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
