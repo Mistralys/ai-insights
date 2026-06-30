@@ -1,5 +1,5 @@
 slug: planner
-name: "Planner"
+name: "Planner (Standalone)"
 description: "Produce clear, actionable, technically sound plans from feature requests or task descriptions."
 vs_file_name: planner.agent.md
 id: standalone-planner
