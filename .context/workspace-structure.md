@@ -25,7 +25,6 @@ _SOURCE: Top-level directory tree_
     │   ├── project-manifest/
     │   │   ├── README.md
     │   ├── projects/
-    │   │   ├── agent-name-map.md
     │   │   ├── improved-dialogue-render.md
     │   │   ├── parallelization.md
     │   ├── references/
@@ -42,7 +41,7 @@ _SOURCE: Top-level directory tree_
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
-    │   ├── 2026-04-08-subagents-manifest-key-design.md
+    │   ├── 2026-06-30-token-cost-fallacies.md
     │   ├── documentation-audit.md
     │   ├── loading-mcp-tools-explained.md
     │   ├── prompt-clarity.md
@@ -523,6 +522,7 @@ _SOURCE: Top-level directory tree_
     │   └── claude-code/
     │       ├── agents-md-curator.md
     │       ├── changelog-curator.md
+    │       ├── comms-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
     │       ├── developer-standalone.md
@@ -540,9 +540,11 @@ _SOURCE: Top-level directory tree_
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
+    │       ├── workspace-architect.md
     │   └── deep-agents/
     │       ├── agents-md-curator.md
     │       ├── changelog-curator.md
+    │       ├── comms-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
     │       ├── developer.md
@@ -560,9 +562,11 @@ _SOURCE: Top-level directory tree_
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
+    │       ├── workspace-architect.md
     │   └── vs-code/
     │       └── agents-md-curator.agent.md
     │       └── changelog-curator.agent.md
+    │       └── comms-curator.agent.md
     │       └── composer-curator.agent.md
     │       └── ctx-architect.agent.md
     │       └── developer-standalone.agent.md
@@ -580,6 +584,7 @@ _SOURCE: Top-level directory tree_
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
     │       └── whatsnew-curator.agent.md
+    │       └── workspace-architect.agent.md
 └── scripts/
     ├── build-personas.js
     ├── bundle-docs.js

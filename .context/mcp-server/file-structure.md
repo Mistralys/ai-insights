@@ -14,7 +14,7 @@ _SOURCE: MCP server source directory tree_
     └── changelog.md
     └── docs/
         ├── agents/
-        │   └── plans/
+        │   └── implementation-history/
         │       ├── 2026-06-26-kill-button-silent-failure/
         │       │   └── synthesis.md
         │   └── project-manifest/
