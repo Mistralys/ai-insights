@@ -16,6 +16,7 @@ _SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-per
                 └── _shared.yaml
                 └── agents-md-curator.yaml
                 └── changelog-curator.yaml
+                └── comms-curator.yaml
                 └── composer-curator.yaml
                 └── ctx-architect.yaml
                 └── developer.yaml
@@ -33,6 +34,7 @@ _SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-per
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
+                └── workspace-architect.yaml
 
 ```
 ###  Path: `/personas/standalone/src/meta/_shared.yaml`
@@ -103,6 +105,29 @@ tools:
   - read
   - edit
   - search
+  - agent
+  - todo
+
+```
+###  Path: `/personas/standalone/src/meta/comms-curator.yaml`
+
+```yaml
+slug: comms-curator
+name: "Communications Curator"
+description: "Produce clear, engaging, audience-appropriate content from technical source material — release notes, user responses, stakeholder briefs, and presentation slides."
+vs_file_name: comms-curator.agent.md
+id: standalone-comms-curator
+cc_file_name: comms-curator.md
+changelog: |
+  1.0.0 (2026-06-19): Initial release — multi-mode content writing for user- and stakeholder-facing communications
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
   - agent
   - todo
 
@@ -436,7 +461,7 @@ subagents:
 
 ```yaml
 slug: planner
-name: "Planner"
+name: "Planner (Standalone)"
 description: "Produce clear, actionable, technically sound plans from feature requests or task descriptions."
 vs_file_name: planner.agent.md
 id: standalone-planner
@@ -492,6 +517,13 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.9.0 (2026-06-29): Recipe preview step — Single Recipe workflow now presents a compact summary (name, cuisine, key ingredients, effort) for chef approval before generating the full recipe; new Preview Selection protocol in Operational Protocol; workflow grows from 8 to 9 steps
+  1.8.0 (2026-06-29): Structural audit — merged Garden First + Seasonal First into Source Smart philosophy (8→6 principles); extracted Operational Protocol (Culinary Direction, Survey Options, Adapt and Compose, Tinkerer's Notes, Verify Targets); both workflows now reference shared protocol, reducing Single Recipe to 8 steps and Weekly Plan to 10; de-duplicated color diversity targets; added alternative actions to Carb Rotation and Repertoire Rotation constraints; added output location
+  1.7.0 (2026-06-29): Operating Modes split — added Single Recipe / Weekly Plan mode table; split unified Workflow into two dedicated mode workflows, each with its own clean step sequence; handoff blocks now include MODE field
+  1.6.0 (2026-06-29): Plan preview step — weekly plans now show a compact overview table with recipe names, cuisine, and rationale for chef approval before generating detailed recipes
+  1.5.0 (2026-06-29): Culinary direction step — new blocking workflow step offers Comfort, Discovery, or Directed modes before recipe search; Survey Options adapts to chosen direction; Novelty Over Familiarity philosophy notes the Comfort override
+  1.4.3 (2026-06-29): Meal scope confirmation — extracted lunch-inclusion question into a dedicated blocking workflow step for weekly plans to prevent late rework
+  1.4.2 (2026-06-29): Canned fish as side-only — removed sardines/mackerel from pantry examples, recipe ingredients, and substitution suggestions; clarified they are eaten standalone, never cooked into recipes
   1.4.1 (2026-06-14): World cuisine reframing — Mediterranean demoted from home base to geographic influence; culinary identity is global
   1.4.0 (2026-06-14): Consistency audit — de-duplicated Philosophy (12→8), moved Sugar/Salt/Fat to Philosophy as Light Touch on Seasoning, moved Beyond Fresh and Bread to Kitchen Reference, categorized Constraints, moved Session Opener to Workflow, standardized color targets, fixed pronouns and column labels
   1.3.0 (2026-06-14): Creativity and novelty — anti-repetition philosophy, repertoire rotation constraint, session opener, enhanced survey workflow
@@ -585,5 +617,36 @@ tools:
   - search
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/workspace-architect.yaml`
+
+```yaml
+slug: workspace-architect
+name: "Workspace Architect"
+description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog."
+vs_file_name: workspace-architect.agent.md
+id: standalone-workspace-architect
+cc_file_name: workspace-architect.md
+changelog: |
+  1.0.0 (2026-06-29): Initial release — workspace onboarding and upgrade orchestration via sub-agent delegation
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+subagents:
+  - manifest-curator
+  - agents-md-curator
+  - composer-curator
+  - ctx-architect
+  - readme-curator
+  - changelog-curator
 
 ```

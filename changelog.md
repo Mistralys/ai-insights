@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v2.4.0 - **WIP UNRELEASED**
+- Personas: New personas and persona enhancements.
+
 ## v2.3.0 - Ledger-Support Suite and Project Detail Auto-Update
 > mcp v2.3.0 · orchestrator v1.1.0 · personas v3.25.0
 

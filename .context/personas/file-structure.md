@@ -190,6 +190,7 @@ _SOURCE: Directory tree_
         └── claude-code/
             ├── agents-md-curator.md
             ├── changelog-curator.md
+            ├── comms-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
             ├── developer-standalone.md
@@ -207,9 +208,11 @@ _SOURCE: Directory tree_
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
+            ├── workspace-architect.md
         └── deep-agents/
             ├── agents-md-curator.md
             ├── changelog-curator.md
+            ├── comms-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
             ├── developer.md
@@ -227,10 +230,12 @@ _SOURCE: Directory tree_
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
+            ├── workspace-architect.md
         └── src/
             ├── content/
             │   ├── agents-md-curator.md
             │   ├── changelog-curator.md
+            │   ├── comms-curator.md
             │   ├── composer-curator.md
             │   ├── ctx-architect.md
             │   ├── developer.md
@@ -248,10 +253,12 @@ _SOURCE: Directory tree_
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
+            │   ├── workspace-architect.md
             ├── meta/
             │   └── _shared.yaml
             │   └── agents-md-curator.yaml
             │   └── changelog-curator.yaml
+            │   └── comms-curator.yaml
             │   └── composer-curator.yaml
             │   └── ctx-architect.yaml
             │   └── developer.yaml
@@ -269,9 +276,11 @@ _SOURCE: Directory tree_
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
+            │   └── workspace-architect.yaml
         └── vs-code/
             └── agents-md-curator.agent.md
             └── changelog-curator.agent.md
+            └── comms-curator.agent.md
             └── composer-curator.agent.md
             └── ctx-architect.agent.md
             └── developer-standalone.agent.md
@@ -289,5 +298,6 @@ _SOURCE: Directory tree_
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
             └── whatsnew-curator.agent.md
+            └── workspace-architect.agent.md
 
 ```
