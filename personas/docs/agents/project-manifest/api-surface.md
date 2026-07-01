@@ -187,9 +187,9 @@ Use these flags in content templates to write platform-conditional blocks:
 | `default_model_slug` | `string` | API-compatible model slug for orchestrator API calls (e.g. `"claude-sonnet-4-6"`). Per-persona `model_slug` overrides this. Not written into generated frontmatter. |
 | `mcp_server_name` | `string` | MCP server name used in tool patterns and references (e.g. `"central_pm"`) |
 | `roster` | `Array<{number, title, short}>` | 9-entry list of agent identities |
-| `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
-| `cc_model` | `string` | Claude Code model override — `"inherit"` to defer to user config. Also serves as the final named fallback in the VS Code `model` resolution chain (after `default_model`), so suites without `default_model` (e.g. standalone) resolve to this value. |
-| `cc_memory` | `string` | Claude Code memory scope — e.g. `"project"` |
+| `cc_permission_mode` | `string` | Claude Code permission mode — `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, or `plan` |
+| `cc_model` | `string` | Claude Code model override — `sonnet`, `opus`, `haiku`, `fable`, a full model ID, or `inherit` (default). Also serves as the final named fallback in the VS Code `model` resolution chain (after `default_model`), so suites without `default_model` (e.g. standalone) resolve to this value. |
+| `cc_memory` | `string` | Claude Code memory scope — `user`, `project`, `local`, or `false` |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter — applied to all personas unless per-persona `cc_tools` overrides it (e.g. `["Bash", "Read", "Edit", ...]`) |
 
 ### Per-Persona YAML (`N-name.yaml`) — Ledger Suite
@@ -213,6 +213,68 @@ Use these flags in content templates to write platform-conditional blocks:
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
 | `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
+
+---
+
+## Frontmatter Quick Reference
+
+This section consolidates the key frontmatter facts that agents need most often. The full template strings follow in [Generated Frontmatter Templates](#generated-frontmatter-templates-all-suites) below; metadata schema details are in the [Per-Persona YAML](#per-persona-yaml-n-nameyaml--ledger-suite) tables above.
+
+### Metadata → Frontmatter Field Map
+
+How persona YAML fields map to generated frontmatter output across all targets:
+
+| Frontmatter field | Ledger VS Code | Ledger Claude Code | Standalone VS Code | Standalone Claude Code | Deep Agents (all) |
+|-------------------|---------------|--------------------|--------------------|----------------------|-------------------|
+| `name` | `'{number} - {role} v{version}'` | `cc_file_name` stem | `'{name}'` | `cc_file_name` stem | `id` |
+| `id` | YAML `id` | — | YAML `id` | — | — |
+| `description` | Auto: `'Step N/T…'` | `cc_description` (roster-derived) | YAML `description` | YAML `description` | `cc_description` |
+| `model` | `model` → `default_model` → `cc_model` | `cc_model` → resolved `model` | — | `cc_model` | — |
+| `role` | YAML `role` | YAML `role` | — | — | — |
+| `tools` | `tools[]` → `tools_json` | `cc_tools[]` → `cc_tools_json` | `tools[]` → `tools_list` | `cc_tools[]` → `cc_tools_list` | — |
+| `version` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | — |
+| `last_updated` | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | — |
+| `author` | `_shared.author` | `_shared.author` | `_shared.author` | `_shared.author` | — |
+| `vs_file_name` | YAML `vs_file_name` | — | YAML `vs_file_name` | — | — |
+| `permissionMode` | — | `_shared.cc_permission_mode` | — | `_shared.cc_permission_mode` | — |
+| `memory` | — | `_shared.cc_memory` | — | `_shared.cc_memory` | — |
+| `mcpServers` | — | `_shared.mcp_server_name` (always) | — | Per-persona `mcp_server_name` (conditional) | — |
+
+### Key Derivation Rules
+
+- **`version` / `last_updated`** — Always auto-derived from the `changelog` block scalar via `resolveChangelogMeta()`. **Never set `version:` or `last_updated:` manually** in per-persona YAML — they will be silently overwritten. See constraint C20a.
+- **`cc_description`** — For ledger personas: computed from `_shared.roster[]` matching the persona's `number` (`title + " — " + short`). For standalone personas: falls back to the YAML `description` field.
+- **`model`** — Resolution chain: `persona.model` → `_shared.default_model` → `_shared.cc_model` → `'inherit'`. Uses `||` (falsy-skip).
+- **`cc_name`** — Derived from `cc_file_name` with `.md` stripped. Ledger: `N-role` (e.g. `3-developer`); standalone: plain slug.
+- **Conditional blocks** — `mcpServers` in standalone CC frontmatter uses `{{#if mcp_server_name}}` — the block is omitted entirely when the field is absent.
+
+### What Each Platform Consumes
+
+| Field | VS Code reads? | Claude Code reads? | Deep Agents reads? |
+|-------|---------------|-------------------|-------------------|
+| `name` | Yes — display name in agent picker | Yes — `@agent-<name>` routing | Yes — agent identifier |
+| `description` | Yes — placeholder text in chat input | Yes — trigger text for auto-delegation | Yes — agent description |
+| `id` | Yes — `@id` subagent routing | No | No |
+| `tools` | Yes — controls tool permissions | Yes — tool allowlist (omit to inherit) | No |
+| `disallowedTools` | No | Yes — tool denylist | No |
+| `model` | Yes — single model or prioritized array | Yes — selects the LLM | No |
+| `effort` | No | Yes — reasoning effort override | No |
+| `maxTurns` | No | Yes — caps agentic turns | No |
+| `memory` | No | Yes — `project` / `user` / `local` / `false` | No |
+| `permissionMode` | No | Yes — edit approval mode | No |
+| `mcpServers` | No | Yes — scoped MCP servers | No |
+| `agents` | Yes — subagent access control | No (uses `Agent()` in `tools`) | No |
+| `background` | No | Yes — run as background task | No |
+| `isolation` | No | Yes — `worktree` for git worktree isolation | No |
+| `skills` | No | Yes — preload skill content | No |
+| `handoffs` | Yes — suggested next-step buttons | No | No |
+| `hooks` | Preview (requires setting) | Yes — lifecycle hooks | No |
+
+> Fields like `role`, `author`, `version`, `last_updated`, and `vs_file_name` are metadata for human/agent orientation — they are not consumed by the host platforms' runtime.
+>
+> VS Code also supports `user-invocable`, `disable-model-invocation`, `target`, and `mcp-servers` on agent files. Claude Code also supports `initialPrompt`, `color`, and additional fields. The full field references are maintained in the `@mistralys/persona-builder` library docs (`docs/target-differences.md`).
+>
+> **Skills** use a cross-platform frontmatter schema ([agentskills.io](https://agentskills.io) standard) — not built by the persona-builder. The ai-insights `.github/skills/` files follow the VS Code skill format, while `.claude/skills/` files follow the Claude Code skill format. Both are documented in the persona-builder's `docs/target-differences.md`.
 
 ---
 
@@ -327,9 +389,9 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `author` | `string` | Author name |
 | `last_updated` | `string` | ISO-style date string |
 | `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
-| `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
-| `cc_model` | `string` | Claude Code model override |
-| `cc_memory` | `string` | Claude Code memory scope |
+| `cc_permission_mode` | `string` | Claude Code permission mode — `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, or `plan` |
+| `cc_model` | `string` | Claude Code model override — `sonnet`, `opus`, `haiku`, `fable`, a full model ID, or `inherit` |
+| `cc_memory` | `string` | Claude Code memory scope — `user`, `project`, `local`, or `false` |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter |
 
 > **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas are fully independent tools with no shared MCP dependency. MCP-dependent utility personas that support the ledger workflow live in the `ledger-support` suite instead, where `mcp_server_name: central_pm` is declared in `_shared.yaml`. `roster` is also absent — standalone personas are not part of the 9-stage workflow.
