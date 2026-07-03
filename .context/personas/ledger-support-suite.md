@@ -95,6 +95,12 @@ All 9 ledger-support personas, sourced from `personas/ledger-support/src/meta/*.
 | `ledger-knowledge-archiver` | Ledger Knowledge Archiver | Extract and commit reusable knowledge from completed ledger project folders into the knowledge base. | `ledger-knowledge-archiver.agent.md` | `ledger-knowledge-archiver.md` |
 | `ledger-knowledge-curator` | Ledger Knowledge Curator | Audit knowledge base entries for value, accuracy, and relevance — edit, merge, or delete entries that fail quality thresholds. | `ledger-knowledge-curator.agent.md` | `ledger-knowledge-curator.md` |
 
+### Ledger Archive Utilities
+
+| Slug | Name | Description | VS Code file | Claude Code file |
+|------|------|-------------|-------------|------------------|
+| `standalone-archiver` | Standalone Archiver | Import a completed standalone plan folder into the project ledger for archival and project history. | `standalone-archiver.agent.md` | `standalone-archiver.md` |
+
 ---
 
 ## MCP Server Dependency
@@ -129,6 +135,8 @@ node scripts/sync-personas.js --target claude-code
 
 ### `id` Field Stability
 
-All 9 personas in this suite carry `id` values with the `standalone-` prefix (e.g., `id: standalone-ledger-bootstrapper`). These IDs were assigned when the personas lived in the standalone suite and must **never change** — they are VS Code `@id` routing keys. The `standalone-*` prefix is a permanent historical artifact. New personas added to the `ledger-support` suite in the future must use the `ledger-support-{slug}` prefix convention.
+The 9 historically migrated personas in this suite carry `id` values with the `standalone-` prefix (e.g., `id: standalone-ledger-bootstrapper`). These IDs were assigned when the personas lived in the standalone suite and must **never change** — they are VS Code `@id` routing keys. The `standalone-*` prefix is a permanent historical artifact.
+
+> ⚠️ **`standalone-*` namespace is CLOSED to new personas.** New personas added to the `ledger-support` suite must use the `ledger-support-{slug}` prefix (e.g., `id: ledger-support-standalone-archiver`). Never adopt the `standalone-*` prefix for a newly authored persona, even if its slug begins with "standalone-".
 
 ```

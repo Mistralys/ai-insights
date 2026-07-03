@@ -85,6 +85,8 @@ _SOURCE: Test suite directory structure_
             ├── root-index.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
+        └── startup/
+            ├── tool-log-sync.test.ts
         └── storage/
             ├── knowledge-store-exclusion.test.ts
             ├── knowledge-store.test.ts
@@ -114,6 +116,7 @@ _SOURCE: Test suite directory structure_
             ├── rework-circuit-breaker.test.ts
             ├── runner-integration.test.ts
             ├── schema-integrity.test.ts
+            ├── standalone-import.test.ts
             ├── start-pipeline-guards.test.ts
             ├── synthesis-terminal.test.ts
             ├── version-freshness.test.ts
@@ -133,6 +136,7 @@ _SOURCE: Test suite directory structure_
             └── project-reset.test.ts
             └── project-resolver.test.ts
             └── runner.test.ts
+            └── synthesis-parser.test.ts
             └── timestamp.test.ts
             └── workflow-helpers.test.ts
             └── workflow-manifest.test.ts

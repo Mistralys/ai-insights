@@ -42,6 +42,7 @@ _SOURCE: Directory tree_
         │   ├── ledger-orchestrator-runner.md
         │   ├── ledger-pipeline-configurator.md
         │   ├── ledger-wp-decomposer.md
+        │   ├── standalone-archiver.md
         ├── deep-agents/
         │   ├── ledger-bootstrapper.md
         │   ├── ledger-claude-coordinator.md
@@ -52,6 +53,7 @@ _SOURCE: Directory tree_
         │   ├── ledger-orchestrator-runner.md
         │   ├── ledger-pipeline-configurator.md
         │   ├── ledger-wp-decomposer.md
+        │   ├── standalone-archiver.md
         ├── src/
         │   ├── content/
         │   │   ├── ledger-bootstrapper.md
@@ -63,6 +65,7 @@ _SOURCE: Directory tree_
         │   │   ├── ledger-orchestrator-runner.md
         │   │   ├── ledger-pipeline-configurator.md
         │   │   ├── ledger-wp-decomposer.md
+        │   │   ├── standalone-archiver.md
         │   ├── meta/
         │   │   └── _shared.yaml
         │   │   └── ledger-bootstrapper.yaml
@@ -74,6 +77,7 @@ _SOURCE: Directory tree_
         │   │   └── ledger-orchestrator-runner.yaml
         │   │   └── ledger-pipeline-configurator.yaml
         │   │   └── ledger-wp-decomposer.yaml
+        │   │   └── standalone-archiver.yaml
         ├── vs-code/
         │   └── ledger-bootstrapper.agent.md
         │   └── ledger-claude-coordinator.agent.md
@@ -84,6 +88,7 @@ _SOURCE: Directory tree_
         │   └── ledger-orchestrator-runner.agent.md
         │   └── ledger-pipeline-configurator.agent.md
         │   └── ledger-wp-decomposer.agent.md
+        │   └── standalone-archiver.agent.md
     └── ledger/
         ├── README.md
         ├── claude-code/

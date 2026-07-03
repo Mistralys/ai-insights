@@ -122,6 +122,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── pipeline.ts
         │   ├── project-lifecycle.ts
         │   ├── repository-context.ts
+        │   ├── standalone-import.ts
         │   ├── work-package.ts
         │   ├── workflow-handoff.ts
         │   ├── workflow-next-action-batch.ts
@@ -140,6 +141,7 @@ _SOURCE: MCP server source directory tree_
         │   └── read-project-name.ts
         │   └── runner.ts
         │   └── server-version.ts
+        │   └── synthesis-parser.ts
         │   └── timestamp.ts
         │   └── workflow-helpers.ts
         │   └── workspace-versions.ts
@@ -219,6 +221,8 @@ _SOURCE: MCP server source directory tree_
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
+        ├── startup/
+        │   ├── tool-log-sync.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts
@@ -239,6 +243,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── rework-circuit-breaker.test.ts
         │   ├── runner-integration.test.ts
         │   ├── schema-integrity.test.ts
+        │   ├── standalone-import.test.ts
         │   ├── start-pipeline-guards.test.ts
         │   ├── synthesis-terminal.test.ts
         │   ├── version-freshness.test.ts
@@ -258,6 +263,7 @@ _SOURCE: MCP server source directory tree_
         │   └── project-reset.test.ts
         │   └── project-resolver.test.ts
         │   └── runner.test.ts
+        │   └── synthesis-parser.test.ts
         │   └── timestamp.test.ts
         │   └── workflow-helpers.test.ts
         │   └── workflow-manifest.test.ts

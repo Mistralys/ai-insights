@@ -36,8 +36,6 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-28-ce-framework-audit.md
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
-    │   │   └── 2026-06-13-persona-changelog-strategy.md
-    │   │   └── 2026-06-14-standalone-ledger-folder-separation.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
@@ -183,6 +181,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
     │   │   ├── repository-context.ts
+    │   │   ├── standalone-import.ts
     │   │   ├── work-package.ts
     │   │   ├── workflow-handoff.ts
     │   │   ├── workflow-next-action-batch.ts
@@ -201,6 +200,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── read-project-name.ts
     │   │   └── runner.ts
     │   │   └── server-version.ts
+    │   │   └── synthesis-parser.ts
     │   │   └── timestamp.ts
     │   │   └── workflow-helpers.ts
     │   │   └── workspace-versions.ts
@@ -272,6 +272,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── root-index.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
+    │   ├── startup/
+    │   │   ├── tool-log-sync.test.ts
     │   ├── storage/
     │   │   ├── knowledge-store-exclusion.test.ts
     │   │   ├── knowledge-store.test.ts
@@ -301,6 +303,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── rework-circuit-breaker.test.ts
     │   │   ├── runner-integration.test.ts
     │   │   ├── schema-integrity.test.ts
+    │   │   ├── standalone-import.test.ts
     │   │   ├── start-pipeline-guards.test.ts
     │   │   ├── synthesis-terminal.test.ts
     │   │   ├── version-freshness.test.ts
@@ -320,6 +323,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── project-reset.test.ts
     │   │   └── project-resolver.test.ts
     │   │   └── runner.test.ts
+    │   │   └── synthesis-parser.test.ts
     │   │   └── timestamp.test.ts
     │   │   └── workflow-helpers.test.ts
     │   │   └── workflow-manifest.test.ts
@@ -431,6 +435,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
     │   │   ├── ledger-wp-decomposer.md
+    │   │   ├── standalone-archiver.md
     │   ├── deep-agents/
     │   │   ├── ledger-bootstrapper.md
     │   │   ├── ledger-claude-coordinator.md
@@ -441,6 +446,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
     │   │   ├── ledger-wp-decomposer.md
+    │   │   ├── standalone-archiver.md
     │   ├── vs-code/
     │   │   └── ledger-bootstrapper.agent.md
     │   │   └── ledger-claude-coordinator.agent.md
@@ -451,6 +457,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── ledger-orchestrator-runner.agent.md
     │   │   └── ledger-pipeline-configurator.agent.md
     │   │   └── ledger-wp-decomposer.agent.md
+    │   │   └── standalone-archiver.agent.md
     ├── ledger/
     │   ├── README.md
     │   ├── claude-code/
@@ -592,6 +599,7 @@ _SOURCE: Top-level directory tree_
     ├── check-version-sync.js
     ├── cli.js
     ├── extract-changelog-entry.js
+    ├── import-standalone.js
     ├── install-hooks.js
     ├── install-mcp-global.js
     ├── kill-orchestrator.js

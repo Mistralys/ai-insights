@@ -290,9 +290,9 @@ Use these flags in content templates to write platform-conditional blocks:
 | `default_model_slug` | `string` | API-compatible model slug for orchestrator API calls (e.g. `"claude-sonnet-4-6"`). Per-persona `model_slug` overrides this. Not written into generated frontmatter. |
 | `mcp_server_name` | `string` | MCP server name used in tool patterns and references (e.g. `"central_pm"`) |
 | `roster` | `Array<{number, title, short}>` | 9-entry list of agent identities |
-| `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
-| `cc_model` | `string` | Claude Code model override — `"inherit"` to defer to user config. Also serves as the final named fallback in the VS Code `model` resolution chain (after `default_model`), so suites without `default_model` (e.g. standalone) resolve to this value. |
-| `cc_memory` | `string` | Claude Code memory scope — e.g. `"project"` |
+| `cc_permission_mode` | `string` | Claude Code permission mode — `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, or `plan` |
+| `cc_model` | `string` | Claude Code model override — `sonnet`, `opus`, `haiku`, `fable`, a full model ID, or `inherit` (default). Also serves as the final named fallback in the VS Code `model` resolution chain (after `default_model`), so suites without `default_model` (e.g. standalone) resolve to this value. |
+| `cc_memory` | `string` | Claude Code memory scope — `user`, `project`, `local`, or `false` |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter — applied to all personas unless per-persona `cc_tools` overrides it (e.g. `["Bash", "Read", "Edit", ...]`) |
 
 ### Per-Persona YAML (`N-name.yaml`) — Ledger Suite
@@ -316,6 +316,68 @@ Use these flags in content templates to write platform-conditional blocks:
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
 | `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
+
+---
+
+## Frontmatter Quick Reference
+
+This section consolidates the key frontmatter facts that agents need most often. The full template strings follow in [Generated Frontmatter Templates](#generated-frontmatter-templates-all-suites) below; metadata schema details are in the [Per-Persona YAML](#per-persona-yaml-n-nameyaml--ledger-suite) tables above.
+
+### Metadata → Frontmatter Field Map
+
+How persona YAML fields map to generated frontmatter output across all targets:
+
+| Frontmatter field | Ledger VS Code | Ledger Claude Code | Standalone VS Code | Standalone Claude Code | Deep Agents (all) |
+|-------------------|---------------|--------------------|--------------------|----------------------|-------------------|
+| `name` | `'{number} - {role} v{version}'` | `cc_file_name` stem | `'{name}'` | `cc_file_name` stem | `id` |
+| `id` | YAML `id` | — | YAML `id` | — | — |
+| `description` | Auto: `'Step N/T…'` | `cc_description` (roster-derived) | YAML `description` | YAML `description` | `cc_description` |
+| `model` | `model` → `default_model` → `cc_model` | `cc_model` → resolved `model` | — | `cc_model` | — |
+| `role` | YAML `role` | YAML `role` | — | — | — |
+| `tools` | `tools[]` → `tools_json` | `cc_tools[]` → `cc_tools_json` | `tools[]` → `tools_list` | `cc_tools[]` → `cc_tools_list` | — |
+| `version` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | — |
+| `last_updated` | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | — |
+| `author` | `_shared.author` | `_shared.author` | `_shared.author` | `_shared.author` | — |
+| `vs_file_name` | YAML `vs_file_name` | — | YAML `vs_file_name` | — | — |
+| `permissionMode` | — | `_shared.cc_permission_mode` | — | `_shared.cc_permission_mode` | — |
+| `memory` | — | `_shared.cc_memory` | — | `_shared.cc_memory` | — |
+| `mcpServers` | — | `_shared.mcp_server_name` (always) | — | Per-persona `mcp_server_name` (conditional) | — |
+
+### Key Derivation Rules
+
+- **`version` / `last_updated`** — Always auto-derived from the `changelog` block scalar via `resolveChangelogMeta()`. **Never set `version:` or `last_updated:` manually** in per-persona YAML — they will be silently overwritten. See constraint C20a.
+- **`cc_description`** — For ledger personas: computed from `_shared.roster[]` matching the persona's `number` (`title + " — " + short`). For standalone personas: falls back to the YAML `description` field.
+- **`model`** — Resolution chain: `persona.model` → `_shared.default_model` → `_shared.cc_model` → `'inherit'`. Uses `||` (falsy-skip).
+- **`cc_name`** — Derived from `cc_file_name` with `.md` stripped. Ledger: `N-role` (e.g. `3-developer`); standalone: plain slug.
+- **Conditional blocks** — `mcpServers` in standalone CC frontmatter uses `{{#if mcp_server_name}}` — the block is omitted entirely when the field is absent.
+
+### What Each Platform Consumes
+
+| Field | VS Code reads? | Claude Code reads? | Deep Agents reads? |
+|-------|---------------|-------------------|-------------------|
+| `name` | Yes — display name in agent picker | Yes — `@agent-<name>` routing | Yes — agent identifier |
+| `description` | Yes — placeholder text in chat input | Yes — trigger text for auto-delegation | Yes — agent description |
+| `id` | Yes — `@id` subagent routing | No | No |
+| `tools` | Yes — controls tool permissions | Yes — tool allowlist (omit to inherit) | No |
+| `disallowedTools` | No | Yes — tool denylist | No |
+| `model` | Yes — single model or prioritized array | Yes — selects the LLM | No |
+| `effort` | No | Yes — reasoning effort override | No |
+| `maxTurns` | No | Yes — caps agentic turns | No |
+| `memory` | No | Yes — `project` / `user` / `local` / `false` | No |
+| `permissionMode` | No | Yes — edit approval mode | No |
+| `mcpServers` | No | Yes — scoped MCP servers | No |
+| `agents` | Yes — subagent access control | No (uses `Agent()` in `tools`) | No |
+| `background` | No | Yes — run as background task | No |
+| `isolation` | No | Yes — `worktree` for git worktree isolation | No |
+| `skills` | No | Yes — preload skill content | No |
+| `handoffs` | Yes — suggested next-step buttons | No | No |
+| `hooks` | Preview (requires setting) | Yes — lifecycle hooks | No |
+
+> Fields like `role`, `author`, `version`, `last_updated`, and `vs_file_name` are metadata for human/agent orientation — they are not consumed by the host platforms' runtime.
+>
+> VS Code also supports `user-invocable`, `disable-model-invocation`, `target`, and `mcp-servers` on agent files. Claude Code also supports `initialPrompt`, `color`, and additional fields. The full field references are maintained in the `@mistralys/persona-builder` library docs (`docs/target-differences.md`).
+>
+> **Skills** use a cross-platform frontmatter schema ([agentskills.io](https://agentskills.io) standard) — not built by the persona-builder. The ai-insights `.github/skills/` files follow the VS Code skill format, while `.claude/skills/` files follow the Claude Code skill format. Both are documented in the persona-builder's `docs/target-differences.md`.
 
 ---
 
@@ -430,9 +492,9 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `author` | `string` | Author name |
 | `last_updated` | `string` | ISO-style date string |
 | `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
-| `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
-| `cc_model` | `string` | Claude Code model override |
-| `cc_memory` | `string` | Claude Code memory scope |
+| `cc_permission_mode` | `string` | Claude Code permission mode — `default`, `acceptEdits`, `auto`, `dontAsk`, `bypassPermissions`, or `plan` |
+| `cc_model` | `string` | Claude Code model override — `sonnet`, `opus`, `haiku`, `fable`, a full model ID, or `inherit` |
+| `cc_memory` | `string` | Claude Code memory scope — `user`, `project`, `local`, or `false` |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter |
 
 > **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas are fully independent tools with no shared MCP dependency. MCP-dependent utility personas that support the ledger workflow live in the `ledger-support` suite instead, where `mcp_server_name: central_pm` is declared in `_shared.yaml`. `roster` is also absent — standalone personas are not part of the 9-stage workflow.
@@ -462,6 +524,7 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
 | `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone) persona slugs this persona may invoke as sub-agents. When declared, the builder resolves `{{agent_{slug}}}` (display name) and `{{agent_slug_{slug}}}` (kebab slug) template variables for use in target-conditional dispatch blocks. Each slug must resolve to a YAML file in `personas/ledger-support/src/meta/` (first) or `personas/standalone/src/meta/` (fallback). |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
@@ -611,6 +674,46 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `handoff-block-claude-code.md` | Agents 2–8 (Claude Code target) | `{{role}}` |
 | `incident-logging.md` | Agents 3–8 (via shared partials or directly) | *(none)* |
 
+---
+
+## Standalone Developer Synthesis Output Format
+
+The Standalone Developer persona (`personas/standalone/src/content/developer.md`) instructs
+the agent to produce a synthesis Markdown document at the end of an implementation task.
+This section documents the required section structure so that consumers (e.g. `parseOutcomeSummary()`
+in `mcp-server/src/utils/synthesis-parser.ts`) can reliably extract structured data from
+the output.
+
+### Required Sections
+
+The synthesis report must contain the following `###`-level sections in the order shown:
+
+| Section | Order | Description |
+|---------|-------|-------------|
+| `### Completion Status` | 1 | One-line status word (e.g. `COMPLETE`, `PARTIAL`) |
+| `### Outcome Summary` | 2 | 2–3 sentence prose summary of what was accomplished, the approach taken, and any notable results |
+| `### Implementation Summary` | 3 | Flat bullet list of implementation actions taken |
+| `### Documentation Updates` | 4 | List of documentation files created or updated |
+| `### Verification Summary` | 5 | Test results, linting results, and verification steps |
+| `### Code Insights` | 6 | Notable decisions, trade-offs, and architectural observations |
+| `### Additional Comments` | 7 | Optional free-form notes |
+
+### `### Outcome Summary` section
+
+Added in WP-004 (standalone synthesis format alignment). This section is consumed by
+`parseOutcomeSummary()` in `mcp-server/src/utils/synthesis-parser.ts` to populate the
+`outcome_summary` field on the project meta when `ledger_complete_synthesis` is called.
+
+**Fallback behaviour:** when `### Outcome Summary` is absent or its body is empty/whitespace,
+`parseOutcomeSummary()` falls back to the first bullet item in `### Implementation Summary`.
+When both sections yield no content, the function returns `null` and `outcome_summary` is
+not populated.
+
+**Source file:** `personas/standalone/src/content/developer.md` — modify this file to
+change the synthesis section structure. Regenerate all three output targets after any
+template change (`node scripts/build-personas.js`).
+
+
 ```
 ###  Path: `/personas/docs/agents/project-manifest/constraints-build-system.md`
 
@@ -730,6 +833,8 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
     - `[INFO]` when explicit `version:` or `last_updated:` fields coexist with `changelog` (indicating stale redundant fields that should be removed)
 
     The explicit `version:` field in per-persona YAML is **inert once a `changelog` field is present** — do not add or update `version:` manually.
+
+    > **Known limitation — generated frontmatter `version:` vs. `name-mapping.json` version.** The `changelog:`-based version derivation described above applies to `build-personas.js`'s internal `resolveVersionFromChangelog` helper (which writes `name-mapping.json`). The library's frontmatter generator uses the same `resolveChangelogMeta()` logic, **but only from `@mistralys/persona-builder` v2.5.0 onward**. With v2.4.x (and older) installed, the library falls back to `default_version` from `_shared.yaml` for the frontmatter `version:` field regardless of the persona's `changelog:` content. This causes a visible discrepancy: `name-mapping.json` and `agent_*` template variables will reflect the latest changelog version, while generated VS Code / Claude Code frontmatter will show the older `default_version` value. The fix is to update `@mistralys/persona-builder` to ≥ 2.5.0. This is a dependency-staleness issue, not a source authoring error — **do not** add an explicit `version:` field to persona YAML as a workaround.
 
 <a name="c38"></a>
 <a name="b11"></a>
@@ -963,6 +1068,9 @@ When the build system was introduced, the generated output differs from the orig
    - **Standalone personas**: `id` must follow `standalone-{vs_file_name stem}` — e.g. `vs_file_name: researcher.agent.md` → `id: standalone-researcher`.
    - **New ledger-support personas**: `id` must follow `ledger-support-{slug}` — e.g. `slug: my-new-tool` → `id: ledger-support-my-new-tool`.
    - **Migrated ledger-support personas**: The 9 personas moved from `standalone/` to `ledger-support/` retain their `standalone-*` id prefix permanently (e.g., `id: standalone-ledger-bootstrapper`). This is a historical artifact — changing these ids would break VS Code `@id` routing for all users who have these agents installed.
+
+   > ⚠️ **`standalone-*` namespace is CLOSED to new personas.** The `standalone-*` id prefix is **permanently reserved** for those 9 historically migrated personas only. **Never assign a `standalone-{slug}` id to any new ledger-support persona** — even when the slug itself begins with "standalone-". All new ledger-support personas must use the `ledger-support-{slug}` prefix without exception.
+
    - **Format constraints**: lowercase only, no spaces, no special characters except hyphens.
    - **Stability**: `id` values must never change once published — they are the routing key used by VS Code `@id` subagent routing. Version bumps, renames, or persona reordering must not alter the `id`.
    - **Uniqueness**: `id` values must be globally unique across all custom agents in the user's VS Code instance. The `ledger-`, `standalone-`, and `ledger-support-` namespace prefixes isolate these personas from each other and from any third-party agents the user may have installed.

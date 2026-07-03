@@ -22,6 +22,7 @@ _SOURCE: YAML metadata for all 9 ledger-support personas (shared defaults + per-
                 └── ledger-orchestrator-runner.yaml
                 └── ledger-pipeline-configurator.yaml
                 └── ledger-wp-decomposer.yaml
+                └── standalone-archiver.yaml
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/_shared.yaml`
@@ -278,5 +279,21 @@ tools:
   - read
   - edit
   - search
+
+```
+###  Path: `/personas/ledger-support/src/meta/standalone-archiver.yaml`
+
+```yaml
+slug: standalone-archiver
+name: "Standalone Archiver"
+description: "Import a completed standalone plan folder into the project ledger for archival and project history."
+vs_file_name: standalone-archiver.agent.md
+id: ledger-support-standalone-archiver
+cc_file_name: standalone-archiver.md
+changelog: |
+  1.0.0 (2026-07-01): Initial release — import standalone plan folders into the ledger via ledger_import_standalone
+
+tools:
+  - central_pm/ledger_import_standalone
 
 ```
