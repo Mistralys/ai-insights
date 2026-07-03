@@ -137,6 +137,9 @@
    - **Standalone personas**: `id` must follow `standalone-{vs_file_name stem}` — e.g. `vs_file_name: researcher.agent.md` → `id: standalone-researcher`.
    - **New ledger-support personas**: `id` must follow `ledger-support-{slug}` — e.g. `slug: my-new-tool` → `id: ledger-support-my-new-tool`.
    - **Migrated ledger-support personas**: The 9 personas moved from `standalone/` to `ledger-support/` retain their `standalone-*` id prefix permanently (e.g., `id: standalone-ledger-bootstrapper`). This is a historical artifact — changing these ids would break VS Code `@id` routing for all users who have these agents installed.
+
+   > ⚠️ **`standalone-*` namespace is CLOSED to new personas.** The `standalone-*` id prefix is **permanently reserved** for those 9 historically migrated personas only. **Never assign a `standalone-{slug}` id to any new ledger-support persona** — even when the slug itself begins with "standalone-". All new ledger-support personas must use the `ledger-support-{slug}` prefix without exception.
+
    - **Format constraints**: lowercase only, no spaces, no special characters except hyphens.
    - **Stability**: `id` values must never change once published — they are the routing key used by VS Code `@id` subagent routing. Version bumps, renames, or persona reordering must not alter the `id`.
    - **Uniqueness**: `id` values must be globally unique across all custom agents in the user's VS Code instance. The `ledger-`, `standalone-`, and `ledger-support-` namespace prefixes isolate these personas from each other and from any third-party agents the user may have installed.

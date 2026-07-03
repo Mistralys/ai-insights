@@ -421,6 +421,7 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
 | `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone) persona slugs this persona may invoke as sub-agents. When declared, the builder resolves `{{agent_{slug}}}` (display name) and `{{agent_slug_{slug}}}` (kebab slug) template variables for use in target-conditional dispatch blocks. Each slug must resolve to a YAML file in `personas/ledger-support/src/meta/` (first) or `personas/standalone/src/meta/` (fallback). |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
@@ -569,3 +570,43 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `handoff-block-vscode.md` | Agents 2–8 (VS Code target) | `{{role}}` |
 | `handoff-block-claude-code.md` | Agents 2–8 (Claude Code target) | `{{role}}` |
 | `incident-logging.md` | Agents 3–8 (via shared partials or directly) | *(none)* |
+
+---
+
+## Standalone Developer Synthesis Output Format
+
+The Standalone Developer persona (`personas/standalone/src/content/developer.md`) instructs
+the agent to produce a synthesis Markdown document at the end of an implementation task.
+This section documents the required section structure so that consumers (e.g. `parseOutcomeSummary()`
+in `mcp-server/src/utils/synthesis-parser.ts`) can reliably extract structured data from
+the output.
+
+### Required Sections
+
+The synthesis report must contain the following `###`-level sections in the order shown:
+
+| Section | Order | Description |
+|---------|-------|-------------|
+| `### Completion Status` | 1 | One-line status word (e.g. `COMPLETE`, `PARTIAL`) |
+| `### Outcome Summary` | 2 | 2–3 sentence prose summary of what was accomplished, the approach taken, and any notable results |
+| `### Implementation Summary` | 3 | Flat bullet list of implementation actions taken |
+| `### Documentation Updates` | 4 | List of documentation files created or updated |
+| `### Verification Summary` | 5 | Test results, linting results, and verification steps |
+| `### Code Insights` | 6 | Notable decisions, trade-offs, and architectural observations |
+| `### Additional Comments` | 7 | Optional free-form notes |
+
+### `### Outcome Summary` section
+
+Added in WP-004 (standalone synthesis format alignment). This section is consumed by
+`parseOutcomeSummary()` in `mcp-server/src/utils/synthesis-parser.ts` to populate the
+`outcome_summary` field on the project meta when `ledger_complete_synthesis` is called.
+
+**Fallback behaviour:** when `### Outcome Summary` is absent or its body is empty/whitespace,
+`parseOutcomeSummary()` falls back to the first bullet item in `### Implementation Summary`.
+When both sections yield no content, the function returns `null` and `outcome_summary` is
+not populated.
+
+**Source file:** `personas/standalone/src/content/developer.md` — modify this file to
+change the synthesis section structure. Regenerate all three output targets after any
+template change (`node scripts/build-personas.js`).
+
