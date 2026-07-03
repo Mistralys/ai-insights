@@ -215,25 +215,57 @@ class TestChunkFileCreation:
         chunks_dir = cfg.workspace_root / "mcp-server" / "storage" / "ledger"
         assert not chunks_dir.exists() or not list(chunks_dir.rglob("*.jsonl"))
 
-    async def test_no_chunk_file_when_wp_id_empty(self, tmp_path: Path) -> None:
-        """When wp_id is empty (synthesis), no chunk file must be written."""
+    async def test_chunk_file_created_when_wp_id_empty(self, tmp_path: Path) -> None:
+        """When wp_id is empty (synthesis), a chunk file with project- prefix must be written."""
         from src.nodes.synthesis import make_synthesis_node
 
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_synthesis_node(cfg, [])
 
         chunk = AIMessageChunk(content="synthesis done", id="msg-1")
-        agent = _make_stream_agent([((), (chunk, {}))])
+        agent = _make_stream_agent([((), (chunk, {"langgraph_node": "agent"}))])
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent):
-            result = await node_fn(_base_state(current_wp_id=""))
+            result = await node_fn(_base_state(
+                project_path="/workspaces/ai-insights/docs/agents/plans/2026-04-10-streaming-test",
+                current_wp_id="",
+            ))
 
         assert result["stage_success"] is True
-        chunks_dir = tmp_path / "mcp-server" / "storage"
-        # No JSONL file under the tmp workspace
-        jsonl_files = list(chunks_dir.rglob("*.jsonl")) if chunks_dir.exists() else []
-        assert not jsonl_files, f"Unexpected chunk files: {jsonl_files}"
+        slug = "2026-04-10-streaming-test"
+        chunks_dir = (
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+        )
+        assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
+        jsonl_files = list(chunks_dir.glob("project-synthesis-r*.jsonl"))
+        assert jsonl_files, f"No project-synthesis chunk file found in {chunks_dir}"
+
+    async def test_chunk_file_created_for_pm_stage(self, tmp_path: Path) -> None:
+        """When wp_id is empty (PM), a chunk file with project-pm- prefix must be written."""
+        from src.nodes.pm import make_pm_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_pm_node(cfg, [])
+
+        chunk = AIMessageChunk(content="pm done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {"langgraph_node": "agent"}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(
+                project_path="/workspaces/ai-insights/docs/agents/plans/2026-04-10-streaming-test",
+                current_wp_id="",
+            ))
+
+        assert result["stage_success"] is True
+        slug = "2026-04-10-streaming-test"
+        chunks_dir = (
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+        )
+        assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
+        jsonl_files = list(chunks_dir.glob("project-pm-r*.jsonl"))
+        assert jsonl_files, f"No project-pm chunk file found in {chunks_dir}"
 
 
 # ---------------------------------------------------------------------------
@@ -431,25 +463,60 @@ class TestDialogueCapturedChunkEvent:
         ]
         assert not chunk_events, "No dialogue_captured events when capture=False"
 
-    async def test_chunk_event_not_emitted_when_wp_id_empty(self, tmp_path: Path) -> None:
-        """No dialogue_captured event emitted when wp_id is empty."""
+    async def test_dialogue_captured_event_with_empty_wp_id(self, tmp_path: Path) -> None:
+        """dialogue_captured event must be emitted for synthesis with empty wp_id.
+
+        The wp_id field in the log entry must be "" (not "project"), while the
+        file_path must contain "project-" reflecting the filename sentinel.
+        """
         from src.nodes.synthesis import make_synthesis_node
 
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_synthesis_node(cfg, [])
 
         chunk = AIMessageChunk(content="synthesis", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {"langgraph_node": "agent"}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(
+                project_path="/workspaces/ai-insights/docs/agents/plans/2026-04-10-streaming-test",
+                current_wp_id="",
+            ))
+
+        chunk_events = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("format") == "chunks"
+        ]
+        assert chunk_events, "dialogue_captured event must be emitted even when wp_id is empty"
+        event = chunk_events[0]
+        assert event.get("wp_id") == "", "wp_id in log entry must remain empty string, not sentinel"
+        assert "project-" in event.get("file_path", ""), (
+            "file_path must contain 'project-' sentinel in filename"
+        )
+        assert event.get("stage") == "synthesis"
+        assert event.get("level") == "INFO"
+
+    async def test_no_chunk_file_when_capture_false_for_project_stage(self, tmp_path: Path) -> None:
+        """Master toggle (capture_dialogues=False) must disable capture for
+        project-level stages (empty wp_id) as well as WP-scoped stages."""
+        from src.nodes.synthesis import make_synthesis_node
+
+        cfg = _NoCaptureConfig()
+        node_fn = make_synthesis_node(cfg, [])
+
+        chunk = AIMessageChunk(content="synthesis done", id="msg-1")
         agent = _make_stream_agent([((), (chunk, {}))])
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent):
             result = await node_fn(_base_state(current_wp_id=""))
 
-        chunk_events = [
-            e for e in result["run_log"]
-            if e.get("action") == "dialogue_captured"
-        ]
-        assert not chunk_events, "No dialogue_captured events when wp_id is empty"
+        assert result["stage_success"] is True
+        # No chunk files must exist anywhere under NoCaptureConfig's workspace_root.
+        chunks_root = cfg.workspace_root / "mcp-server" / "storage" / "ledger"
+        jsonl_files = list(chunks_root.rglob("*.jsonl")) if chunks_root.exists() else []
+        assert not jsonl_files, f"Unexpected chunk files when capture=False: {jsonl_files}"
 
 
 # ---------------------------------------------------------------------------

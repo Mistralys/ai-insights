@@ -884,7 +884,7 @@ def create_stage_node(
 
             # Derive slug_dir once; passed to _accumulate_stream for ChunkWriter.
             _slug_dir: Path | None = None
-            if _app_config.capture_dialogues and _wp_id:
+            if _app_config.capture_dialogues:
                 _slug_dir = _derive_slug_dir(
                     state.get("project_path", ""),  # type: ignore[call-overload]
                     _app_config.workspace_root,
@@ -896,11 +896,15 @@ def create_stage_node(
                         stage,
                     )
 
+            # Use "project" sentinel for stages without a WP ID (PM, Synthesis)
+            # so ChunkWriter receives a valid filename component.
+            _capture_wp_id = _wp_id or "project"
+
             _msgs, _chunk_file_path = await _accumulate_stream(
                 agent,
                 user_prompt,
                 _slug_dir,
-                _wp_id,
+                _capture_wp_id,
                 stage,
                 max_retries=_app_config.stream_max_retries,
                 base_delay_s=_app_config.stream_retry_base_delay_s,
@@ -913,7 +917,7 @@ def create_stage_node(
 
             # ── dialogue capture (optional, non-fatal) ────────────────
             chunk_captured_entry: dict | None = None
-            if _app_config.capture_dialogues and _wp_id and _chunk_file_path is not None:
+            if _app_config.capture_dialogues and _chunk_file_path is not None:
                 try:
                     chunk_captured_entry = {
                         "timestamp": datetime.now(UTC).isoformat(),
