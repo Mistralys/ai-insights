@@ -10,7 +10,7 @@ The ai-insights repository has 102 tracked projects. The strategic vision emphas
 No prior insights were found on standalone integration or import tooling.
 
 ## Summary
-Implement end-to-end integration of standalone developer plan executions into the project ledger. This involves: (1) a new `ledger_import_standalone` MCP tool that creates a proper ledger project with a single completed work package from a standalone plan folder, (2) a new `standalone-archiver` ledger-support persona that calls this tool and dispatches the Knowledge Archiver for insight extraction, (3) a subagent dispatch step in the standalone developer persona so archival happens automatically after synthesis, (4) a CLI `import-standalone` command for manual and batch imports, and (5) supporting changes to the runner enum, GUI labels, and synthesis format alignment.
+Implement end-to-end integration of standalone developer plan executions into the project ledger. This involves: (1) a new `ledger_import_standalone` MCP tool that creates a proper ledger project with a single completed work package from a standalone plan folder, (2) a new `standalone-archiver` ledger-support persona that calls this tool to archive the plan into the ledger, (3) a subagent dispatch step in the standalone developer persona so archival happens automatically after synthesis, (4) a CLI `import-standalone` command for manual and batch imports, and (5) supporting changes to the runner enum, GUI labels, and synthesis format alignment.
 
 ## Architectural Context
 
@@ -41,13 +41,13 @@ The solution has five layers, each independently useful:
 
 1. **Runner enum extension** — Add `'standalone'` as a 5th runner value across all definition sites. This is the foundation — it allows imported projects to be visually distinguished in the GUI.
 
-2. **New MCP tool `ledger_import_standalone`** — The core backend. Accepts a plan folder path, validates that `plan.md` and `synthesis.md` exist, creates the storage directory, writes a `project-ledger.json` with a single completed WP (1 WP with `status: 'COMPLETE'`, a completed `implementation` pipeline at `PASS`, and `active_pipeline_stages: ['implementation']`), writes the WP detail file, sets `synthesis_generated: true`, `runner: 'standalone'`, archives both documents, and writes `.meta.json`. Insight extraction is **not** handled here — that is delegated to the Knowledge Archiver (see layer 3). Lives in a new tool module `mcp-server/src/tools/standalone-import.ts` to keep `project-lifecycle.ts` focused. All storage writes (root index, WP detail, meta sync, document archive) are delegated to a new `LedgerStore.importStandaloneProject()` method, satisfying Constraint 2c which prohibits tool code from calling `@internal` storage primitives directly.
+2. **New MCP tool `ledger_import_standalone`** — The core backend. Accepts a plan folder path, validates that `plan.md` and `synthesis.md` exist, creates the storage directory, writes a `project-ledger.json` with a single completed WP (1 WP with `status: 'COMPLETE'`, a completed `implementation` pipeline at `PASS`, and `active_pipeline_stages: ['implementation']`), writes the WP detail file, sets `synthesis_generated: true`, `runner: 'standalone'`, archives both documents, and writes `.meta.json`. Lives in a new tool module `mcp-server/src/tools/standalone-import.ts` to keep `project-lifecycle.ts` focused. All storage writes (root index, WP detail, meta sync, document archive) are delegated to a new `LedgerStore.importStandaloneProject()` method, satisfying Constraint 2c which prohibits tool code from calling `@internal` storage primitives directly.
 
-3. **Standalone archiver persona** — A ledger-support persona (`standalone-archiver`) that (a) calls `ledger_import_standalone` to create the ledger project, then (b) dispatches the existing `ledger-knowledge-archiver` as a subagent to extract and triage code insights from the now-ledger-backed project. This two-step approach reuses the Knowledge Archiver's judgment-based insight extraction — the same quality of deduplication, relevance triage, and rewriting that ledger projects receive.
+3. **Standalone archiver persona** — A ledger-support persona (`standalone-archiver`) that calls `ledger_import_standalone` to create the ledger project. This is a single-step persona focused purely on archival — importing the standalone plan into the ledger so it appears in project history, GUI dashboards, and repository context.
 
 4. **Standalone developer subagent dispatch** — A new final step in the standalone developer persona that dispatches the `standalone-archiver` after writing `synthesis.md`. Uses the established target-conditional pattern. Failure is non-blocking — the developer's deliverables are already written.
 
-5. **CLI `import-standalone` command** — A Node.js script for manual single-plan and batch imports. Imports the compiled handler from `mcp-server/dist/tools/standalone-import.js` (following the dist-freshness check pattern established by `scripts/run-orchestrator.js`) and calls the import function directly — no MCP protocol overhead, no schema duplication. Note: the CLI handles project creation only — insight extraction requires invoking the Knowledge Archiver persona separately (or will happen automatically when the standalone developer dispatches the archiver subagent).
+5. **CLI `import-standalone` command** — A Node.js script for manual single-plan and batch imports. Imports the compiled handler from `mcp-server/dist/tools/standalone-import.js` (following the dist-freshness check pattern established by `scripts/run-orchestrator.js`) and calls the import function directly — no MCP protocol overhead, no schema duplication.
 
 ### Synthesis Format Alignment
 Add an `### Outcome Summary` section to the standalone developer synthesis template (between `### Completion Status` and `### Implementation Summary`) to provide a clean 2-3 sentence summary for ledger extraction. This is additive — no existing workflows break.
@@ -62,7 +62,6 @@ The import tool creates a proper ledger project with a single work package (WP-0
 This means the project satisfies all existing lifecycle guards:
 - `computeHealedStatus` sees `totalWps: 1`, `pendingWps: 0`, `synthesis_generated: true` → no healing triggered
 - `progress_pct` computes to `100` — no division-by-zero risk
-- The Knowledge Archiver sees a normal project with WP data to cross-reference
 
 The `runner: 'standalone'` field distinguishes imported projects from ledger-workflow projects in the GUI.
 
@@ -70,9 +69,8 @@ The `runner: 'standalone'` field distinguishes imported projects from ledger-wor
 
 - **MCP tool over CLI-only script:** The MCP tool uses the existing `LedgerStore` directly, avoiding schema duplication. It's also callable from any MCP client, not just the CLI.
 - **Subagent dispatch over direct MCP in developer:** The standalone developer persona's identity is MCP-independent. Adding MCP tools to it would blur the standalone/ledger boundary. A subagent dispatch is non-intrusive — failure doesn't affect the developer's deliverables.
-- **Single completed WP over zero WPs:** A single WP representing the entire standalone implementation is a valid summary of the work performed. It avoids the zero-WP edge case entirely — no `computeHealedStatus` exemptions, no GUI progress guards, and the Knowledge Archiver sees a normal project. The `runner: 'standalone'` field provides the distinction that the work was done outside the ledger workflow.
+- **Single completed WP over zero WPs:** A single WP representing the entire standalone implementation is a valid summary of the work performed. It avoids the zero-WP edge case entirely — no `computeHealedStatus` exemptions, no GUI progress guards. The `runner: 'standalone'` field provides the distinction that the work was done outside the ledger workflow.
 - **New tool module over extending `project-lifecycle.ts`:** `project-lifecycle.ts` already handles 5 tools. Standalone import has distinct validation logic (no stale-server check, no WP guards) and a different data flow. A separate module keeps concerns clean. Constraint 2c compliance is achieved by delegating all storage writes to a new `LedgerStore.importStandaloneProject()` method rather than calling `@internal` primitives from tool code.
-- **Knowledge Archiver for insight extraction over regex in MCP tool:** The ledger Synthesis persona (#9) delegates insight extraction to the Knowledge Archiver subagent because it requires judgment — deduplication, relevance triage, and rewriting. The standalone archiver reuses this same agent after creating the ledger project, ensuring identical insight quality. Regex extraction would be cheaper but would produce unreviewed, potentially low-value or duplicate entries.
 
 ## Considered Alternatives
 
@@ -83,7 +81,7 @@ The `runner: 'standalone'` field distinguishes imported projects from ledger-wor
 | Automation trigger | Subagent dispatch from developer | Manual post-hoc import only, MCP tools on developer directly | Subagent preserves standalone independence; manual-only creates friction; MCP on developer blurs boundary |
 | Project representation | Single completed WP-001 | Zero WPs ("born complete") | Single WP satisfies all lifecycle guards without exemptions; zero WPs triggers `computeHealedStatus` Rule 6c regression and requires GUI NaN guards |
 | Tool module location | New `standalone-import.ts` (storage writes delegated to `LedgerStore.importStandaloneProject()`) | Extend `project-lifecycle.ts`; call `@internal` writes directly from tool code | Separation of concerns preserved by keeping tool logic in its own module; Constraint 2c prohibits tool code from calling `@internal` storage primitives directly, so writes are delegated to a new `LedgerStore` method |
-| Insight extraction | Knowledge Archiver subagent (LLM) | Regex in MCP tool, no extraction | Knowledge Archiver provides judgment-based triage matching ledger quality; regex is cheaper but produces unreviewed entries; no extraction loses knowledge |
+| Insight extraction | None — standalone syntheses lack sufficient insight density | Knowledge Archiver subagent (LLM), regex in MCP tool | Standalone syntheses contain too few actionable insights to justify LLM-based extraction; archival into the ledger for project history is sufficient value |
 
 ## Pattern Alignment
 
@@ -121,6 +119,7 @@ The `runner: 'standalone'` field distinguishes imported projects from ledger-wor
     - Verify `plan.md` exists at `project_path/plan.md`
     - Verify `synthesis.md` exists at `project_path/synthesis.md`
     - Reject if a ledger project already exists for this slug (via `store.rootIndexExists()`)
+  - **`repoName` derivation:** Uses the existing `deriveRepoName()` from `mcp-server/src/utils/ledger-root.ts`, which delegates to `inferProjectRootFromPlanPath()`. **Both functions must be upgraded in Step 3 (see below) to use the `docs/agents` anchor** — the fix propagates automatically to all callers including `detectProjectByCwd()`. If `docs/agents` is not found in any ancestor, fall back to `path.basename(cwd_path)` when `cwd_path` is supplied, otherwise reject with a clear error.
   - **Synthesis parsing:** Parse `synthesis.md` to extract:
     - `outcome_summary` — from `### Outcome Summary` section (fallback: first bullet of `### Implementation Summary`)
   - **Storage writes — delegated to `LedgerStore.importStandaloneProject(detail)`:** This new `LedgerStore` method (not tool code) acquires the write lock, calls `writeRootIndex()` and `writeWorkPackage()` internally, and auto-syncs `.meta.json`. This satisfies Constraint 2c, which prohibits tool code from calling `@internal` storage primitives directly. The `detail` parameter carries all computed fields:
@@ -152,36 +151,37 @@ The `runner: 'standalone'` field distinguishes imported projects from ledger-wor
       ```
     - `.meta.json` auto-synced by `writeRootIndex()` (internal to the `LedgerStore` method)
   - **Archive:** Call `store.archiveDocuments(['plan.md', 'synthesis.md'])` to copy files to storage
-  - **Response:** Return summary: slug, outcome_summary, archived files, and the `project_storage_path` (so the caller can pass it to the Knowledge Archiver)
+  - **Response:** Return summary: slug, outcome_summary, archived files, and the `project_storage_path`
 
-3b. Register the tool in `mcp-server/src/index.ts`: add an import for the new tool module and call `standaloneImportTools.register(server)`, following the same pattern as the existing tool modules (see lines 79–87). Also append `ledger_import_standalone` to the hardcoded tool name list in the `console.error('[project-ledger-mcp] Registered tools: …')` startup log call at L131–134 — an inline comment states this list must be kept in sync manually when tools are added or removed.
+3b. Upgrade `inferProjectRootFromPlanPath()` in `mcp-server/src/utils/ledger-root.ts`: replace the fixed 4-level `dirname()` walk with an anchor-based algorithm — traverse ancestors of `planPath` to find the segment where `docs/agents` appears, then take the directory immediately above `docs` as the project root. The function remains pure (no filesystem access). Update the JSDoc comment to document the new algorithm and drop the mention of `plans/` as the only supported convention. Since `deriveRepoName()` delegates to this function and `LedgerStore.detectProjectByCwd()` calls it directly, both callers benefit from the fix with no further changes.
 
-3c. Export the outcome summary parser as a separate function (`parseOutcomeSummary`) in a utility file `mcp-server/src/utils/synthesis-parser.ts` for testability. This parser only extracts the outcome summary text — insight extraction is handled by the Knowledge Archiver persona.
+3c. Register the tool in `mcp-server/src/index.ts`: add an import for the new tool module and call `standaloneImportTools.register(server)`, following the same pattern as the existing tool modules (see lines 79–87). Also append `ledger_import_standalone` to the hardcoded tool name list in the `console.error('[project-ledger-mcp] Registered tools: …')` startup log call at L131–134 — an inline comment states this list must be kept in sync manually when tools are added or removed.
 
-### Step 4: Create the `standalone-archiver` ledger-support personaStep 4 creates the standalone-archiver ledger-support persona.
-5a. Create `personas/ledger-support/src/meta/standalone-archiver.yaml`:
+3d. Export the outcome summary parser as a separate function (`parseOutcomeSummary`) in a utility file `mcp-server/src/utils/synthesis-parser.ts` for testability.
+
+### Step 4: Create the `standalone-archiver` ledger-support persona
+> **Tooling note:** Use the **Persona Curator** agent (`Persona Curator v1.3.0`) to create this persona. The Persona Curator is specialized in designing, authoring, and validating persona YAML metadata and Markdown content files against the ledger-support suite conventions. Hand it the YAML skeleton and content outline below as input; it will produce review-ready files that conform to all naming, metadata, and template constraints.
+
+4a. Create `personas/ledger-support/src/meta/standalone-archiver.yaml`:
 ```yaml
 slug: standalone-archiver
 name: "Standalone Archiver"
-description: "Import a completed standalone plan into the project ledger for archival and insight extraction."
+description: "Import a completed standalone plan into the project ledger for archival."
 vs_file_name: standalone-archiver.agent.md
 id: ledger-support-standalone-archiver
 cc_file_name: standalone-archiver.md
 da_file_name: standalone-archiver.md
 changelog: |
   1.0.0 (2026-06-30): Initial release
-tools: [vscode, read, search, agent, central_pm/ledger_import_standalone]
-cc_tools: [Read, Grep, Task]
-subagents: [ledger-knowledge-archiver]
+tools: [vscode, read, search, central_pm/ledger_import_standalone]
+cc_tools: [Read, Grep]
 ```
 > **Note on `cc_tools`:** The `mcp__central_pm__*` prefixed form is not used in any other ledger-support persona (see `ledger-doctor.yaml`, `ledger-knowledge-archiver.yaml`); MCP server tools are available through the registered server without being explicitly enumerated. `has_mcp` / `mcp_tools` fields are omitted — they exist only in ledger-suite YAML and are not consumed by ledger-support content templates.
 
-5b. Create `personas/ledger-support/src/content/standalone-archiver.md` with a two-step workflow:
-  - **Mission:** Accept a plan folder path, import it into the ledger, and extract insights.
-  - **Step 1 — Import:** Call `ledger_import_standalone` with the provided `project_path`. If the tool returns "already exists", report gracefully and skip to completion. Capture the `project_storage_path` from the response.
-  - **Step 2 — Extract insights:** Dispatch the `ledger-knowledge-archiver` subagent, passing the `cwd_path` (workspace root) and `project_storage_path` from Step 1. This reuses the same judgment-based insight extraction that ledger projects receive — the Knowledge Archiver reads the archived `synthesis.md`, triages code insights, deduplicates against existing knowledge, and writes qualifying entries to the repository-scoped knowledge store.
-  - **Error handling:** If the Knowledge Archiver subagent fails, log the failure but report the import as successful — the project is already in the ledger. Insight extraction can be retried by running the Knowledge Archiver manually on the imported project.
-  - Uses the standard target-conditional subagent dispatch pattern (VS Code `runSubagent` / Claude Code `Task` / Deep Agents `task`).
+4b. Create `personas/ledger-support/src/content/standalone-archiver.md` with a single-step workflow:
+  - **Mission:** Accept a plan folder path and import it into the ledger for archival.
+  - **Step 1 — Import:** Call `ledger_import_standalone` with the provided `project_path`. If the tool returns "already exists", report gracefully and skip to completion.
+  - **Completion:** Report the import result — slug, outcome summary, and archived files.
 
 4c. Rebuild personas: `node scripts/build-personas.js` (full three-suite rebuild; `--suite` filter not implemented in wrapper).
 
@@ -205,8 +205,9 @@ subagents: [ledger-knowledge-archiver]
   - **Single-plan mode:** `node scripts/cli.js import-standalone --path <plan-folder-path>`
     - Perform a dist-freshness check following the pattern of `scripts/run-orchestrator.js`: verify `mcp-server/dist/tools/standalone-import.js` exists and is up to date relative to the TypeScript source; if stale, emit a clear error directing the user to run `npm run build` in `mcp-server/`. Import the compiled module from `mcp-server/dist/` and call the handler function directly — no MCP protocol overhead and no schema duplication.
   - **Batch mode:** `node scripts/cli.js import-standalone --batch [--base-dir <path>]`
-    - Scan `docs/agents/plans/` (or `--base-dir`) for folders containing `synthesis.md`
-    - Cross-reference against existing ledger projects (via `LedgerStore.listAllProjects()`)
+    - Recursively walk `docs/agents/` (or `--base-dir`) to find all `synthesis.md` files, regardless of directory depth or structure (flat, dated subfolders, etc.)
+    - For each found `synthesis.md`, treat its parent directory as a candidate plan folder; filter by: (a) parent folder name matches `YYYY-MM-DD-name` pattern, and (b) `plan.md` exists alongside `synthesis.md`
+    - Cross-reference candidates against existing ledger projects (via `LedgerStore.listAllProjects()`) to identify untracked plans
     - List untracked plans with confirmation prompt: `Found N untracked plans. Import all? [y/N]`
     - Import each confirmed plan sequentially
   - **Flags:** `--dry-run` to preview without writing
@@ -230,7 +231,7 @@ function cmdImportStandalone(args) {
   helpVariants: [
     ['--path <dir>', 'Path to the standalone plan folder'],
     ['--batch', 'Scan for and import all untracked standalone plans'],
-    ['--base-dir <dir>', 'Base directory to scan (default: docs/agents/plans/)'],
+    ['--base-dir <dir>', 'Base directory to scan (default: docs/agents/)'],
     ['--dry-run', 'Preview what would be imported without writing'],
   ],
   run: cmdImportStandalone,
@@ -269,7 +270,7 @@ Parallelizable: Steps 1+2 can run concurrently. Steps 4+6 can run concurrently a
 - `mcp-server/src/tools/standalone-import.ts` — MCP tool handler and schema
 - `mcp-server/src/utils/synthesis-parser.ts` — Outcome summary parser (extracts outcome_summary from synthesis.md)
 - `personas/ledger-support/src/meta/standalone-archiver.yaml` — Archiver persona metadata
-- `personas/ledger-support/src/content/standalone-archiver.md` — Archiver persona content (two-step: import + Knowledge Archiver dispatch)
+- `personas/ledger-support/src/content/standalone-archiver.md` — Archiver persona content (single-step: import to ledger)
 - `scripts/import-standalone.js` — CLI import command implementation
 - `mcp-server/tests/tools/standalone-import.test.ts` — Tool unit tests
 - `mcp-server/tests/utils/synthesis-parser.test.ts` — Parser unit tests
@@ -281,6 +282,7 @@ Parallelizable: Steps 1+2 can run concurrently. Steps 4+6 can run concurrently a
 - `mcp-server/gui/public/views/project-list.js` — Add runner label, update runner order
 - `mcp-server/gui/public/styles.css` — Add `.badge-runner-standalone` CSS rule with `--color-badge-runner-standalone-bg/-fg` token pair and dark-mode override
 - `mcp-server/src/index.ts` — Register new tool (add import + `standaloneImportTools.register(server)` call)
+- `mcp-server/src/utils/ledger-root.ts` — Upgrade `inferProjectRootFromPlanPath()` to use the `docs/agents` anchor algorithm; update JSDoc
 - `mcp-server/src/storage/ledger-store.ts` — Add `importStandaloneProject()` method (acquires write lock, calls `@internal` writeRootIndex + writeWorkPackage, auto-syncs `.meta.json`); update L524 runner union cast to include `'standalone'` (or replace with `RunnerType`)
 - `personas/standalone/src/meta/developer.yaml` — Add `agent` tool, add `subagents: [standalone-archiver]`
 - `personas/standalone/src/content/developer.md` — Add Outcome Summary template section, add subagent dispatch step
@@ -289,8 +291,8 @@ Parallelizable: Steps 1+2 can run concurrently. Steps 4+6 can run concurrently a
 
 ## Assumptions
 
-- The Knowledge Archiver can process imported projects in Mode A (live subagent). It calls `ledger_get_project_status` (which returns a single-WP COMPLETE project — valid under all existing lifecycle guards), reads `synthesis.md` from `project_storage_path`, and cross-references the single WP via `ledger_get_work_package`. Its "Synthesis Is the Primary Source" philosophy means it primarily uses the synthesis document, with WP data as supplementary evidence.
-- The `LedgerStore` constructor will accept a plan path for a standalone plan folder — it derives `slug` from the path basename and `repoName` from the parent, both of which work for `docs/agents/plans/YYYY-MM-DD-name` paths.
+- `slug` is derived from `path.basename(project_path)` via the existing `projectSlugFromPath()` in `ledger-root.ts`.
+- `repoName` is derived via the existing `deriveRepoName()` → `inferProjectRootFromPlanPath()` chain in `ledger-root.ts`, once upgraded to use the `docs/agents` anchor. All ai-insights projects are expected to have at least this path structure.
 - The `standalone-archiver` persona will be available as a subagent in all three targets (VS Code, Claude Code, Deep Agents) after building the ledger-support suite.
 
 ## Constraints
@@ -304,8 +306,8 @@ Parallelizable: Steps 1+2 can run concurrently. Steps 4+6 can run concurrently a
 ## Out of Scope
 
 - **Retroactive WP creation from standalone plans.** Decomposing a standalone plan's steps into individual WPs is a larger effort with limited value for historical imports.
-- **Changes to the Knowledge Archiver persona.** The archiver is dispatched as-is on a valid single-WP project. No modifications needed.
-- **Standalone plan format enforcement.** The import tool will parse best-effort; malformed synthesis files produce fewer extracted fields rather than errors. The Knowledge Archiver handles insight extraction via LLM and adapts naturally to format variation.
+- **Knowledge extraction from standalone syntheses.** Standalone syntheses lack sufficient insight density to justify LLM-based extraction via the Knowledge Archiver. The value of importing standalone plans is archival — project history, GUI visibility, and repository context — not insight mining.
+- **Standalone plan format enforcement.** The import tool will parse best-effort; malformed synthesis files produce fewer extracted fields rather than errors.
 - **Automatic archival scheduling.** Imported projects use `COMPLETE` status and follow the existing auto-archive timer.
 - **Schema changes to `workflow-manifest.json`.** The runner enum is not manifest-governed; no manifest changes are needed.
 - **Changes to the `ledger_complete_synthesis` guard.** The import tool bypasses this entirely by writing storage directly.
@@ -318,16 +320,15 @@ Parallelizable: Steps 1+2 can run concurrently. Steps 4+6 can run concurrently a
 4. The imported project's WP-001 has `status: 'COMPLETE'`, `active_pipeline_stages: ['implementation']`, and a single `implementation` pipeline at `PASS`.
 5. `ledger_import_standalone` rejects folders missing `plan.md` or `synthesis.md` with a clear error.
 6. `ledger_import_standalone` rejects duplicate imports (same slug already exists in ledger).
-7. The `standalone-archiver` dispatches the Knowledge Archiver subagent after import, enabling judgment-based insight extraction from the standalone synthesis.
-8. The `standalone-archiver` persona exists in the ledger-support suite and successfully calls the import tool, then dispatches the Knowledge Archiver.
-9. The standalone developer persona dispatches the archiver subagent after writing `synthesis.md`.
-10. If the archiver subagent fails, the standalone developer continues normally — no deliverables are lost.
-11. The CLI `import-standalone` command imports a single plan in `--path` mode.
-12. The CLI `import-standalone` command scans and batch-imports untracked plans in `--batch` mode.
-13. All new code has unit test coverage.
-14. The standalone developer synthesis template includes `### Outcome Summary`.
-15. `computeHealedStatus` does not alter the imported project's `COMPLETE` status (totalWps=1 satisfies all healing rules).
-16. The GUI project detail page renders correctly for imported projects — plan link, synthesis link, WP-001 row with status badge and pipeline track, and timing info are all visible without layout errors or missing data.
+7. The `standalone-archiver` persona exists in the ledger-support suite and successfully calls the import tool to archive the plan into the ledger.
+8. The standalone developer persona dispatches the archiver subagent after writing `synthesis.md`.
+9. If the archiver subagent fails, the standalone developer continues normally — no deliverables are lost.
+10. The CLI `import-standalone` command imports a single plan in `--path` mode.
+11. The CLI `import-standalone` command scans and batch-imports untracked plans in `--batch` mode.
+12. All new code has unit test coverage.
+13. The standalone developer synthesis template includes `### Outcome Summary`.
+14. `computeHealedStatus` does not alter the imported project's `COMPLETE` status (totalWps=1 satisfies all healing rules).
+15. The GUI project detail page renders correctly for imported projects — plan link, synthesis link, WP-001 row with status badge and pipeline track, and timing info are all visible without layout errors or missing data.
 
 ## Testing Strategy
 
@@ -338,6 +339,12 @@ The MCP tool tests use in-memory or temp-dir storage to avoid touching the real 
 GUI detail page rendering for single-WP imported projects is verified via the existing `client-rendering.test.ts` test infrastructure — that file loads `project-detail-helpers.js` and `work-package.js` via `vm.runInThisContext` and exercises `buildWpDetailBar` and `buildPipelineTrack` directly. A new test case feeds a single-WP, single-stage project fixture through those helpers and asserts that all key elements (plan link, synthesis link row, WP row, pipeline track, timing info) are present and free of NaN or empty-state errors. Runner label and filter dropdown changes are verified in `project-list.test.ts`.
 
 ## Test Plan
+
+- `mcp-server/tests/utils/ledger-root.test.ts` (existing) — **`inferProjectRootFromPlanPath` anchor upgrade**
+  - Correctly derives project root from standard `docs/agents/plans/{slug}` path — covers AC 3
+  - Correctly derives project root from `docs/agents/implementation-history/{slug}` path — covers AC 3
+  - Correctly derives project root from `docs/agents/implementation-history/2026-05/{slug}` dated-subfolder path — covers AC 3
+  - Falls back to `cwd_path` basename when `docs/agents` anchor is absent — covers AC 3
 
 - `mcp-server/tests/utils/synthesis-parser.test.ts` — **Outcome summary parser unit tests**
   - Parses `### Outcome Summary` from well-formed synthesis — covers AC 4
@@ -350,7 +357,7 @@ GUI detail page rendering for single-WP imported projects is verified via the ex
   - Creates WP-001.json with `status: 'COMPLETE'`, single implementation pipeline at PASS — covers AC 4
   - Sets `runner: 'standalone'`, `total_work_packages: 1`, `synthesis_generated: true` — covers AC 1, 3
   - Archives plan.md and synthesis.md to storage directory — covers AC 3
-  - Returns `project_storage_path` in response for Knowledge Archiver dispatch — covers AC 7
+  - Returns `project_storage_path` in response — covers AC 3
   - `computeHealedStatus` does not alter the imported project (totalWps=1, pendingWps=0, synthesis=true) — covers AC 3
   - Rejects when plan.md is missing — covers AC 5
   - Rejects when synthesis.md is missing — covers AC 5
@@ -369,9 +376,9 @@ GUI detail page rendering for single-WP imported projects is verified via the ex
   - `buildRunnerOptions({standalone: 1})` output includes `<option>` with value `standalone` — covers AC 2
 
 - `mcp-server/tests/gui/client-rendering.test.ts` (existing) — **Detail page rendering for single-WP projects**
-  - Renders WP-001 row with COMPLETE badge and single implementation pipeline track for a standalone-imported project fixture — covers AC 16
-  - Renders synthesis link row as visible when `synthesis_generated: true` — covers AC 16
-  - Renders timing info without NaN or missing values for a single-pipeline project — covers AC 16
+  - Renders WP-001 row with COMPLETE badge and single implementation pipeline track for a standalone-imported project fixture — covers AC 15
+  - Renders synthesis link row as visible when `synthesis_generated: true` — covers AC 15
+  - Renders timing info without NaN or missing values for a single-pipeline project — covers AC 15
 
 ## Documentation Updates
 
@@ -379,22 +386,21 @@ GUI detail page rendering for single-WP imported projects is verified via the ex
 - `mcp-server/docs/agents/project-manifest/api-surface.md` — Add `LedgerStore.importStandaloneProject(detail)` to the Storage API section — document signature, parameter shape (`StandaloneImportDetail`), lock behaviour, and return type (required by AGENTS.md manifest maintenance rule: "Modify public method signature → `api-surface.md`")
 - `mcp-server/docs/agents/project-manifest/file-tree.md` — Add `src/tools/standalone-import.ts`, `src/utils/synthesis-parser.ts`, and test files
 - `mcp-server/gui/docs/agents/project-manifest/ui-components.md` — Add `standalone` row to the runner badge token table (`--color-badge-runner-standalone-bg/-fg`, CSS class `.badge-runner-standalone`)
-- `mcp-server/docs/agents/project-manifest/data-flows.md` — Add standalone import data flow (plan folder → MCP tool → storage; then Knowledge Archiver → knowledge store)
+- `mcp-server/docs/agents/project-manifest/data-flows.md` — Add standalone import data flow (plan folder → MCP tool → storage)
 - `personas/docs/agents/project-manifest/constraints.md` — No changes needed (no new constraints introduced)
-- Root `AGENTS.md` — Add `standalone-archiver` to cross-system dependencies table (standalone developer → standalone-archiver → MCP tool + Knowledge Archiver subagent chain)
+- Root `AGENTS.md` — Add `standalone-archiver` to cross-system dependencies table (standalone developer → standalone-archiver → MCP tool)
 - Root `AGENTS.md` — Add `scripts/import-standalone.js` to root-level tooling table
 - Root `AGENTS.md` — Update Project Statistics table if new tool count changes
-- `personas/docs/agents/project-manifest/data-flows.md` — Document the new `standalone-archiver` two-step flow (import tool call → Knowledge Archiver subagent dispatch)
+- `personas/docs/agents/project-manifest/data-flows.md` — Document the new `standalone-archiver` single-step flow (import tool call)
 
 ## Risks & Mitigations
 
 | Risk | Mitigation |
 |------|------------|
 | **`computeHealedStatus` alters imported project** | Eliminated by the single-WP strategy. With `totalWps: 1`, `pendingWps: 0`, and `synthesis_generated: true`, all healing rules are satisfied — no status regression occurs. A dedicated test case confirms this. |
-| **Standalone developer synthesis format drifts** | The outcome summary parser falls back gracefully — missing sections produce `null` outcome_summary. The import still succeeds with degraded metadata. Insight extraction is LLM-driven via the Knowledge Archiver and adapts to format changes naturally. |
+| **Standalone developer synthesis format drifts** | The outcome summary parser falls back gracefully — missing sections produce `null` outcome_summary. The import still succeeds with degraded metadata. |
 | **MCP server unavailable when subagent dispatches** | The subagent fails but the developer's deliverables (code + synthesis.md) are unaffected. The import can be retried via CLI `import-standalone --path`. |
-| **`LedgerStore` repo-name derivation for standalone plan paths** | The store derives `slug` from `path.basename(planPath)` and `repoName` by walking 4 ancestor levels up from the plan folder. For standard project paths (`{workspace-root}/docs/agents/plans/{slug}`), this correctly yields `repoName` equal to the workspace root directory name (e.g., `'ai-insights'`) — the expected and correct namespace. The tool should verify `repoName` derivation during integration testing. |
+| **`LedgerStore` repo-name derivation for non-standard plan paths** | `repoName` is derived by locating the `docs/agents` anchor in the plan path and taking `path.basename` of the directory immediately above `docs`. This is robust across all layout variants (`plans/`, `implementation-history/`, dated subfolders) because every ai-insights project is guaranteed to have `docs/agents`. If the anchor is absent (e.g., a completely external path), the tool falls back to `cwd_path` basename and errors clearly if neither is resolvable. |
 | **Progress display for imported projects** | With `total_work_packages: 1` and `pending_work_packages: 0`, progress computes to 100% — no NaN risk. No GUI guards needed. |
 | **Batch import of historical plans creates unexpected ledger noise** | The `--dry-run` flag allows previewing before committing. The CLI requires explicit confirmation (`[y/N]`). |
-| **Knowledge Archiver on single-WP imported projects** | The archiver receives a valid project with `.meta.json`, `project-ledger.json`, `WP-001.json`, and `synthesis.md` — all the files it expects. The single WP provides minimal but valid cross-referencing material. The archiver's "Synthesis Is the Primary Source" philosophy means it primarily extracts from `synthesis.md` regardless of WP count. |
 | **GUI detail page rendering for single-WP/single-stage projects** | The detail page renders WP rows, pipeline tracks, and timing info dynamically. A project with only 1 WP and 1 pipeline stage may expose assumptions (e.g., multi-stage progress bars, empty pipeline arrays). Step 8 explicitly verifies this and adds minimal guards if needed. Test coverage in `project-detail-helpers.test.ts` confirms rendering correctness. |

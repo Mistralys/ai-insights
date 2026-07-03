@@ -53,28 +53,39 @@ export function projectSlugFromPath(projectPath: string): string {
 }
 
 /**
- * Derives the project root from an absolute plan folder path by walking up
- * exactly four directory levels.
+ * Derives the project root from an absolute plan folder (or file) path by
+ * traversing ancestor directory segments to find the `docs/agents` anchor.
  *
  * The established convention is:
- *   {project-root}/docs/agents/plans/{slug}
+ *   {project-root}/docs/agents/plans/{slug}[/...]
  *
- * So calling dirname() four times on a normalized plan path returns the project root.
+ * The function locates the first occurrence of the `docs` segment that is
+ * immediately followed by `agents`, then returns the path of the directory
+ * immediately above `docs`. This approach is resilient to plans being nested
+ * at arbitrary depths below `docs/agents/plans/` and does not rely on a
+ * fixed directory-level count.
  *
  * This function is pure — it performs no filesystem access.
  *
- * @param planPath - Absolute path to the plan folder (e.g. "/home/user/project/docs/agents/plans/2026-02-01-feat")
- * @returns The project root path (e.g. "/home/user/project")
+ * @param planPath - Absolute path to the plan folder (or a file inside it).
+ *   Both forward-slash and backslash separators are accepted.
+ * @returns The project root path, or `null` when no `docs/agents` anchor is
+ *   found in the path.
  */
-export function inferProjectRootFromPlanPath(planPath: string): string {
+export function inferProjectRootFromPlanPath(planPath: string): string | null {
   // Normalize backslashes to forward slashes for cross-platform correctness
   const normalized = planPath.replace(/\\/g, '/');
-  // Walk up 4 levels: slug → plans → agents → docs → project-root
-  let current = normalized;
-  for (let i = 0; i < 4; i++) {
-    current = posix.dirname(current);
+  const segments = normalized.split('/');
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (segments[i] === 'docs' && segments[i + 1] === 'agents') {
+      // Rejoin segments before 'docs' to form the project root.
+      // When the root is the filesystem root (e.g. '/docs/agents/...'),
+      // slice(0, 0) is [] and ''.join('/') is '', so fall back to '/'.
+      const rootSegments = segments.slice(0, i);
+      return rootSegments.join('/') || '/';
+    }
   }
-  return current;
+  return null;
 }
 
 /**
@@ -90,14 +101,21 @@ export function inferProjectRootFromPlanPath(planPath: string): string {
  * This function is pure — it performs no filesystem access.
  *
  * @param projectPath - Absolute path to the plan folder
+ * @param resolvedRoot - Optional pre-resolved project root. When provided (and
+ *   non-undefined), skips the internal `inferProjectRootFromPlanPath()` call.
+ *   Pass `null` to indicate that no root could be resolved. Leave undefined
+ *   (or omit) to let the function resolve the root itself.
  * @returns Lowercase repository name (e.g. `'ai-insights'`), or `'unknown'`
  */
-export function deriveRepoName(projectPath: string): string {
+export function deriveRepoName(projectPath: string, resolvedRoot?: string | null): string {
   if (!projectPath) {
     return 'unknown';
   }
   // inferProjectRootFromPlanPath already normalises backslashes to forward slashes
-  const root = inferProjectRootFromPlanPath(projectPath);
+  const root = resolvedRoot !== undefined ? resolvedRoot : inferProjectRootFromPlanPath(projectPath);
+  if (root === null) {
+    return 'unknown';
+  }
   const name = posix.basename(root).toLowerCase();
   if (!name || !assertSafeSegment(name)) {
     return 'unknown';

@@ -10,7 +10,7 @@
  * @module runner
  */
 
-export type RunnerType = 'vscode' | 'claude-code' | 'orchestrator' | 'unknown';
+export type RunnerType = 'vscode' | 'claude-code' | 'orchestrator' | 'standalone' | 'unknown';
 
 export interface RunnerInfo {
   runner: RunnerType;

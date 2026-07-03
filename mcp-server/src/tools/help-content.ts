@@ -46,6 +46,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_update_insight | id | Update an existing insight by numeric ID |
 | ledger_delete_insight | id | Permanently delete an insight by numeric ID |
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
+| ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
 
 ## Common Mistakes
 
@@ -1094,6 +1095,57 @@ into a single sorted list. This ensures projects stored across aliased repositor
 - \`outcome_summary\` values are written by the Synthesis agent using \`ledger_complete_synthesis\` (the \`outcome_summary\` parameter). Projects without a completed synthesis will have \`null\` here.
 - The \`relevant_insights[]\` array combines both global insights (cross-repository principles) and repository-scoped insights (patterns specific to this codebase). Results are deduplicated by numeric \`id\` — when the same insight appears in both stores, the global copy is kept and the duplicate is dropped.
 - \`strategic_vision\` is \`null\` unless the repository has been registered and given a vision block via the repository registry (managed by the Project Manager or Planner).
+`,
+
+  // --- Standalone Import ---
+
+  ledger_import_standalone: `
+# ledger_import_standalone
+
+Imports a completed standalone developer plan execution into the project ledger. Use this after
+a developer session that used the Standalone Developer persona to produce \`plan.md\` and
+\`synthesis.md\` — it creates a COMPLETE project record with the outcome archived, without
+running through the full multi-agent pipeline.
+
+> **⚠ cwd_path semantics differ here:** Unlike all other tools where \`cwd_path\` is your
+> workspace root and the server auto-detects the active project, in \`ledger_import_standalone\`
+> \`cwd_path\` (or \`project_path\`) is the **plan folder itself** — the directory that contains
+> \`plan.md\` and \`synthesis.md\`. Pass the full absolute path to the plan folder directly.
+
+## Required Parameters (one of)
+${PROJECT_PATH_PARAM}
+${CWD_PATH_PARAM}
+
+Both \`project_path\` and \`cwd_path\` point to the **plan folder** here, not the workspace root.
+If both are provided, \`project_path\` takes precedence.
+
+## Validation (evaluated in order)
+1. At least one of \`project_path\` or \`cwd_path\` must be provided.
+2. The folder basename must match the \`{YYYY-MM-DD}-{name}\` convention (e.g. \`2026-06-30-my-feature\`).
+3. \`plan.md\` must exist inside the folder.
+4. \`synthesis.md\` must exist inside the folder.
+5. No project with the derived slug may already exist in the ledger.
+
+## Response (on success)
+\`\`\`json
+{
+  "slug": "2026-06-30-my-feature",
+  "outcome_summary": "Implemented X using Y approach...",
+  "archived_files": ["plan.md", "synthesis.md"],
+  "project_storage_path": "/absolute/path/to/storage/repo/2026-06-30-my-feature"
+}
+\`\`\`
+\`outcome_summary\` is extracted from the \`### Outcome Summary\` section of \`synthesis.md\`,
+falling back to the first bullet of \`### Implementation Summary\`. Returns \`null\` when neither
+section is found.
+
+## Examples
+\`\`\`json
+{ "project_path": "/path/to/docs/agents/plans/2026-06-30-my-feature" }
+\`\`\`
+\`\`\`json
+{ "cwd_path": "/path/to/docs/agents/plans/2026-06-30-my-feature" }
+\`\`\`
 `,
 };
 

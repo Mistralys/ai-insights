@@ -48,7 +48,7 @@ export const RootIndexSchema = z.object({
   ledger_version: z.string().optional(),
   server_version: z.string().optional(),
   // Runner metadata - optional for backward compatibility
-  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'standalone', 'unknown']).optional(),
   runner_client: z.string().optional(),   // raw clientInfo.name
   runner_version: z.string().optional(),  // raw clientInfo.version
 });
