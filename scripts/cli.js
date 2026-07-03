@@ -527,7 +527,13 @@ function cmdReadLog(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdImportStandalone(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'import-standalone.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdKillOrchestrator(args) {
+
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'kill-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
 }
@@ -607,6 +613,20 @@ const COMMANDS = [
     category:    'MCP Server',
     description: 'Launch MCP GUI dashboard (long-running)',
     run:         cmdGui,
+  },
+  {
+    id:           'import-standalone',
+    key:          null,
+    label:        'Import standalone plan',
+    category:     'MCP Server',
+    description:  'Import a standalone plan folder into the project ledger',
+    helpVariants: [
+      ['import-standalone --path <dir>',                    'Import a single plan folder'],
+      ['import-standalone --batch',                         'Scan docs/agents/ and import untracked plans'],
+      ['import-standalone --batch --base-dir <dir>',        'Scan a custom directory'],
+      ['import-standalone --batch --dry-run',               'Preview without writing'],
+    ],
+    run: cmdImportStandalone,
   },
   {
     id:           'preflight',
