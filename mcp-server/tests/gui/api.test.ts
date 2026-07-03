@@ -1315,9 +1315,9 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug);
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
-        { filename: 'WP-002-qa-r0.md',        wp_id: 'WP-002', stage: 'qa' },
-        { filename: 'WP-003-reviewer-r0.md',  wp_id: 'WP-003', stage: 'reviewer' },
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer', revision: 0 },
+        { filename: 'WP-002-qa-r0.md',        wp_id: 'WP-002', stage: 'qa',        revision: 0 },
+        { filename: 'WP-003-reviewer-r0.md',  wp_id: 'WP-003', stage: 'reviewer', revision: 0 },
       ]);
     });
 
@@ -1329,8 +1329,8 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
-        { filename: 'WP-001-qa-r0.md',        wp_id: 'WP-001', stage: 'qa' },
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer', revision: 0 },
+        { filename: 'WP-001-qa-r0.md',        wp_id: 'WP-001', stage: 'qa',        revision: 0 },
       ]);
       expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.md');
     });
@@ -1349,7 +1349,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug);
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
 
@@ -1373,7 +1373,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
   });
@@ -1402,7 +1402,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug, undefined, 'my-repo');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
 
@@ -1586,9 +1586,9 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug);
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
-        { filename: 'WP-002-qa-r0.jsonl',        wp_id: 'WP-002', stage: 'qa' },
-        { filename: 'WP-003-reviewer-r0.jsonl',  wp_id: 'WP-003', stage: 'reviewer' },
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer', revision: 0 },
+        { filename: 'WP-002-qa-r0.jsonl',        wp_id: 'WP-002', stage: 'qa',        revision: 0 },
+        { filename: 'WP-003-reviewer-r0.jsonl',  wp_id: 'WP-003', stage: 'reviewer', revision: 0 },
       ]);
     });
 
@@ -1600,8 +1600,8 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
-        { filename: 'WP-001-qa-r0.jsonl',        wp_id: 'WP-001', stage: 'qa' },
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer', revision: 0 },
+        { filename: 'WP-001-qa-r0.jsonl',        wp_id: 'WP-001', stage: 'qa',        revision: 0 },
       ]);
       expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.jsonl');
     });
@@ -1621,7 +1621,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug);
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
 
@@ -1642,7 +1642,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
 
@@ -1652,7 +1652,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug);
       expect(result).toEqual([
-        { filename: 'unrecognised-file.jsonl', wp_id: '', stage: '' },
+        { filename: 'unrecognised-file.jsonl', wp_id: '', stage: '', revision: 0 },
       ]);
     });
   });
@@ -1672,7 +1672,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleListChunks(ledgerRoot, slug, undefined, 'my-repo');
       expect(result).toEqual([
-        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer', revision: 0 },
       ]);
     });
 

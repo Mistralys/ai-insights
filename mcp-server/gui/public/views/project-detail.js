@@ -612,7 +612,10 @@ function renderProjectDetail(app, repo, slug) {
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
         '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
-      '</div>';
+      '</div>' +
+
+      // Dialogues section — loaded asynchronously after DOM is set
+      '<div id="project-dialogues-section"></div>';
 
     // ── Initial poll state snapshot ─────────────────────────────────────
     // Build the baseline state from the data already fetched above.
@@ -625,6 +628,9 @@ function renderProjectDetail(app, repo, slug) {
     // This replaces the previous per-section pollQueue registration so
     // that exactly one interval is active for the duration of this view.
     pollController.startCombinedPolling();
+
+    // Dialogues section — async, non-blocking (loaded once on page render)
+    renderDialoguesSection(document.getElementById('project-dialogues-section'), repo, slug);
 
     // Unarchive banner button handler
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
