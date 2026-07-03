@@ -213,6 +213,7 @@ _SOURCE: Top-level directory tree_
     │   ├── gui/
     │   │   ├── README.md
     │   │   ├── api-client.test.ts
+    │   │   ├── api-dialogue-parse.test.ts
     │   │   ├── api-knowledge.test.ts
     │   │   ├── api-orchestrator.test.ts
     │   │   ├── api-repos.test.ts
@@ -234,6 +235,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── orchestrator-view.test.ts
     │   │   ├── orchestrator-widgets.test.ts
     │   │   ├── project-detail-auto-update.test.ts
+    │   │   ├── project-detail-dialogues.test.ts
     │   │   ├── project-detail-diff.test.ts
     │   │   ├── project-detail-helpers.test.ts
     │   │   ├── project-detail-poll-modes.test.ts

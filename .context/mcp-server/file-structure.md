@@ -72,6 +72,7 @@ _SOURCE: MCP server source directory tree_
         │   │   └── insights.js
         │   │   └── knowledge.js
         │   │   └── orchestrator.js
+        │   │   └── project-detail-dialogues.js
         │   │   └── project-detail-helpers.js
         │   │   └── project-detail-modal.js
         │   │   └── project-detail-orch.js
@@ -151,6 +152,7 @@ _SOURCE: MCP server source directory tree_
         ├── gui/
         │   ├── README.md
         │   ├── api-client.test.ts
+        │   ├── api-dialogue-parse.test.ts
         │   ├── api-knowledge.test.ts
         │   ├── api-orchestrator.test.ts
         │   ├── api-repos.test.ts
@@ -177,6 +179,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── orchestrator-view.test.ts
         │   ├── orchestrator-widgets.test.ts
         │   ├── project-detail-auto-update.test.ts
+        │   ├── project-detail-dialogues.test.ts
         │   ├── project-detail-diff.test.ts
         │   ├── project-detail-helpers.test.ts
         │   ├── project-detail-poll-modes.test.ts

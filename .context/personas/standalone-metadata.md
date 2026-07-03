@@ -202,6 +202,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.2.1 (2026-07-03): Made the archiving step non-optional but not required, as it was skipped too often.
   1.2.0 (2026-07-01): Gained standalone-archiver subagent dispatch for automatic ledger archival after synthesis
   1.1.1 (2026-06-17): Added no-stale-counts constraint to Strict Constraints
   1.1.0 (2026-05-29): Gained browser tool for UI and regression verification
@@ -263,6 +264,7 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.2.0 (2026-07-03): Clarified that only plan.md and synthesis.md are version-controlled in plan folders — all other artifacts are gitignored and should be ignored during discovery and staging
   1.1.1 (2026-06-29): Audit compliance — added pre-execution checklist, fixed angle bracket placeholders, removed title suffix, added output location, removed horizontal rules, reframed plan archival constraint
   1.1.0 (2026-06-29): Hardened git edge cases — no-remote/no-tracking guards, default branch detection, detached HEAD handling, pre-staged file handling, stash drop after conflict resolution, discovery terminology, diff content analysis for grouping, constraint clarification for filesystem moves
   1.0.6 (2026-06-29): Upstream integration is now a supported task (stash-merge-restore workflow)
