@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.26.0 - Standalone Archiver and New Curators
+- Standalone: Git Committer now aware that only plan.md and synthesis.md are tracked in plan folders.
 - LedgerSupport: Added standalone-archiver persona for archiving standalone plan folders into the ledger.
 - Ledger: Developer gains subagent archival dispatch for completed standalone work.
 - Standalone: Added Workspace Architect for AI Insights repo onboarding and ecosystem maintenance.
