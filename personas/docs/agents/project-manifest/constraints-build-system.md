@@ -114,6 +114,8 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
     The explicit `version:` field in per-persona YAML is **inert once a `changelog` field is present** — do not add or update `version:` manually.
 
+    > **Known limitation — generated frontmatter `version:` vs. `name-mapping.json` version.** The `changelog:`-based version derivation described above applies to `build-personas.js`'s internal `resolveVersionFromChangelog` helper (which writes `name-mapping.json`). The library's frontmatter generator uses the same `resolveChangelogMeta()` logic, **but only from `@mistralys/persona-builder` v2.5.0 onward**. With v2.4.x (and older) installed, the library falls back to `default_version` from `_shared.yaml` for the frontmatter `version:` field regardless of the persona's `changelog:` content. This causes a visible discrepancy: `name-mapping.json` and `agent_*` template variables will reflect the latest changelog version, while generated VS Code / Claude Code frontmatter will show the older `default_version` value. The fix is to update `@mistralys/persona-builder` to ≥ 2.5.0. This is a dependency-staleness issue, not a source authoring error — **do not** add an explicit `version:` field to persona YAML as a workaround.
+
 <a name="c38"></a>
 <a name="b11"></a>
 11. **Frontmatter templates must guard `last_updated:` with `{{#if last_updated}}`.** When `buildContext()` derives `last_updated` from a changelog entry with no date component, it resolves to `''` (empty string). An unguarded `last_updated: {{last_updated}}` line in a frontmatter template produces `last_updated: ` — a blank YAML value that may cause downstream parsing issues or confuse consumers.

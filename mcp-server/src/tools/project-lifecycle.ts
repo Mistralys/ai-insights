@@ -16,7 +16,7 @@ import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
-import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
+import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { getClientInfo } from '../utils/client-info.js';
 import { classifyRunner } from '../utils/runner.js';
 
@@ -591,10 +591,8 @@ async function initializeProject(
     let enrichmentCached = false;
     try {
       const projectRoot = inferProjectRootFromPlanPath(args.project_path);
-      const projectName = await readProjectName(projectRoot);
-      const repositoryName = projectRoot
-        ? (projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? null)
-        : null;
+      const projectName = projectRoot !== null ? await readProjectName(projectRoot) : null;
+      const repositoryName = deriveRepoName(args.project_path, projectRoot);
       await store.writeProjectMeta(args.plan_file, 'READY', {
         total_work_packages: 0,
         pending_work_packages: 0,

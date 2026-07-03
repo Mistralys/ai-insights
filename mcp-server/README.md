@@ -60,7 +60,7 @@ Opens [http://localhost:3420](http://localhost:3420) — a web dashboard for mon
 
 ## Features
 
-- **28 MCP tools** for complete project lifecycle management
+- **30 MCP tools** for complete project lifecycle management
 - **Atomic operations** — write-to-temp-then-rename prevents partial writes
 - **File locking** — distributed locks with stale detection and retry logic
 - **Schema validation** — all data validated with Zod on every read/write
@@ -131,18 +131,22 @@ By default the server auto-detects the VS Code User prompts folder for the curre
 
 ## Available Tools
 
-The server exposes **28 MCP tools** organized by category:
+The server exposes **30 MCP tools** organized by category:
 
 | Category | Tools |
 |----------|-------|
-| **Project Lifecycle** | `ledger_get_project_status`, `ledger_initialize_project`, `ledger_list_projects`, `ledger_detect_project`, `ledger_complete_synthesis` |
+| **Project Lifecycle** | `ledger_get_project_status`, `ledger_initialize_project`, `ledger_list_projects`, `ledger_detect_project`, `ledger_complete_synthesis`, `ledger_import_standalone` |
 | **Repository Context** | `ledger_get_repository_context` |
 | **Work Packages** | `ledger_get_work_package`, `ledger_list_work_packages`, `ledger_create_work_package`, `ledger_claim_work_package`, `ledger_update_work_package_status`, `ledger_reset_rework_count`, `ledger_reopen_cancelled_wp`, `ledger_update_acceptance_criteria` |
 | **Pipelines** | `ledger_begin_work`, `ledger_start_pipeline`, `ledger_complete_pipeline`, `ledger_cancel_pipeline`, `ledger_update_pipeline_progress` |
-| **Knowledge** | `ledger_add_insight`, `ledger_search_insights`, `ledger_list_insights`, `ledger_update_insight` |
+| **Knowledge** | `ledger_add_insight`, `ledger_search_insights`, `ledger_list_insights`, `ledger_update_insight`, `ledger_delete_insight` |
 | **Observations** | `ledger_add_observation`, `ledger_add_project_comment` |
 | **Workflow** | `ledger_get_next_action`, `ledger_get_handoff_status` |
 | **Help** | `ledger_help` |
+
+> **Note:** `ledger_import_standalone` has atypical `cwd_path` semantics — it expects the plan
+> folder path directly (the directory containing `plan.md`/`synthesis.md`), not the workspace
+> root. All other tools use `cwd_path` as the workspace root for auto-project detection.
 
 For detailed API signatures and parameters, see the [API Surface](docs/agents/project-manifest/api-surface.md).
 

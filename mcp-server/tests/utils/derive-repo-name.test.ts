@@ -45,4 +45,15 @@ describe('deriveRepoName', () => {
     // Different project, same 4-level convention
     expect(deriveRepoName('/home/user/ai-persona-builder/docs/agents/plans/2026-04-23-create-comtype')).toBe('ai-persona-builder');
   });
+
+  it('uses the provided resolvedRoot directly, bypassing inferProjectRootFromPlanPath', () => {
+    // A shallow path has no docs/agents anchor → inferProjectRootFromPlanPath returns null → 'unknown'.
+    // Passing an explicit resolvedRoot causes the function to use it directly.
+    expect(deriveRepoName('/some/path', '/projects/my-project')).toBe('my-project');
+  });
+
+  it('returns "unknown" when resolvedRoot is explicitly null', () => {
+    // null resolvedRoot skips the internal call and falls through to the null check.
+    expect(deriveRepoName('/repos/ai-insights/docs/agents/plans/2026-05-01-my-plan', null)).toBe('unknown');
+  });
 });

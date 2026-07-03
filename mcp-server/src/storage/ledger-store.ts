@@ -10,6 +10,7 @@ import { ProjectMetaSchema, type ProjectMeta } from '../schema/project-meta.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
 import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
+import type { RunnerType } from '../utils/runner.js';
 import { SAFE_SLUG_REGEX } from '../utils/constants.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import { computePassedStages, computeProjectProgress } from '../utils/workflow-helpers.js';
@@ -30,6 +31,29 @@ export interface MetaCacheUpdates {
   runner?: string;
   runner_client?: string;
   runner_version?: string;
+}
+
+/**
+ * Parameters for `LedgerStore.importStandaloneProject()`.
+ *
+ * All fields are pre-computed by the caller so that the method is a pure
+ * storage orchestrator, not a business-logic processor.
+ */
+export interface ImportStandaloneDetail {
+  /** Plan file name used as `plan_file` in the root index and as archive source (e.g. `'plan.md'`). */
+  planFile: string;
+  /** Synthesis file name to archive alongside the plan (e.g. `'synthesis.md'`). */
+  synthesisFile: string;
+  /**
+   * ISO 8601 UTC timestamp representing when the standalone plan was created /
+   * executed.  Used as `date_created` on the root index and as `started_at` on
+   * the WP-001 implementation pipeline entry.
+   */
+  dateCreated: string;
+  /** Outcome summary extracted from synthesis.md, or `null` if unavailable. */
+  outcomeSummary: string | null;
+  /** Summary lines for the WP-001 implementation pipeline entry. */
+  pipelineSummary: string[];
 }
 
 /**
@@ -212,6 +236,10 @@ export class LedgerStore {
    *   - `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the
    *     `auto_handoff_depth` counter on every handoff-status response; root-index-only
    *     write with no WP file involvement.
+   *   - `ledger-store.ts`    — `importStandaloneProject()`: writes both WP-001 and the root
+   *     index as a standalone project bootstrap; manages its own `withLock(storageDir)` scope
+   *     and does not route through a sync method because it creates the initial project state
+   *     from scratch (no pre-existing WP or root index to update).
    *
    * All other tool functions and helpers must NOT call this directly — use a sync method
    * instead to guarantee atomic WP+root writes, schema validation, `last_updated`
@@ -246,11 +274,14 @@ export class LedgerStore {
    *
    * @internal This method should only be called from within LedgerStore sync methods
    * (`updateWorkPackageWithSync`, `createWorkPackageWithSync`, `batchUpdateWorkPackagesWithSync`).
-   * As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has NO legitimate
-   * external callers — every code path that previously called it directly (including
-   * `project-reset.ts`) has been migrated to use a sync method. Tool functions and
-   * helpers must NOT call this directly — use a sync method instead to guarantee atomic
-   * WP+root writes, schema validation, `last_updated` auto-stamping, and `.meta.json` sync.
+   * As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate
+   * external callers — every code path outside `LedgerStore` that previously called it directly
+   * (including `project-reset.ts`) has been migrated to use a sync method. The sole approved
+   * internal exception is `importStandaloneProject()`, which bootstraps a standalone project
+   * from scratch inside a single `withLock` scope and has no pre-existing project state to
+   * sync through. Tool functions and helpers must NOT call this directly — use a sync method
+   * instead to guarantee atomic WP+root writes, schema validation, `last_updated`
+   * auto-stamping, and `.meta.json` sync.
    *
    * @param wpId - Work package ID (e.g., "WP-001")
    * @param data - Work package detail data to write
@@ -521,7 +552,7 @@ export class LedgerStore {
       ...(existing.runner !== undefined ? { runner: existing.runner } : {}),
       ...(existing.runner_client !== undefined ? { runner_client: existing.runner_client } : {}),
       ...(existing.runner_version !== undefined ? { runner_version: existing.runner_version } : {}),
-      ...(cacheUpdates !== undefined && 'runner' in cacheUpdates && cacheUpdates.runner !== undefined ? { runner: cacheUpdates.runner as 'vscode' | 'claude-code' | 'orchestrator' | 'unknown' } : {}),
+      ...(cacheUpdates !== undefined && 'runner' in cacheUpdates && cacheUpdates.runner !== undefined ? { runner: cacheUpdates.runner as RunnerType } : {}),
       ...(cacheUpdates !== undefined && 'runner_client' in cacheUpdates ? { runner_client: cacheUpdates.runner_client } : {}),
       ...(cacheUpdates !== undefined && 'runner_version' in cacheUpdates ? { runner_version: cacheUpdates.runner_version } : {}),
     });
@@ -667,6 +698,112 @@ export class LedgerStore {
     }
 
     return { archived, skipped };
+  }
+
+  /**
+   * Imports a standalone developer plan execution into the project ledger.
+   *
+   * Creates a complete project record with a single completed work package
+   * (WP-001) representing the full standalone implementation:
+   *
+   *   - `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`,
+   *     `pending_work_packages: 0`, `synthesis_generated: true`,
+   *     `runner: 'standalone'`.
+   *   - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`,
+   *     `active_pipeline_stages: ['implementation']`, single `implementation`
+   *     pipeline at `PASS`.
+   *   - `.meta.json`: auto-synced via `writeRootIndex()` inside the same lock
+   *     scope.
+   *   - Archives `planFile` and `synthesisFile` from `planPath` to `storageDir`.
+   *
+   * Constraints satisfied:
+   *   - **Constraint 1**: All JSON writes use `atomicWriteJson()` (via the
+   *     `@internal` `writeWorkPackage` and `writeRootIndex` methods).
+   *   - **Constraint 2**: The entire write sequence is performed within a
+   *     single write lock acquired via `withLock(storageDir)`.
+   *   - **Constraint 2c**: Tool code must not call `@internal` storage
+   *     primitives directly; all writes flow through this `LedgerStore` method.
+   *
+   * The produced project structure satisfies all existing lifecycle guards —
+   * `computeHealedStatus` sees `totalWps=1`, `pendingWps=0`,
+   * `synthesis_generated=true` and leaves `status: 'COMPLETE'` unchanged.
+   *
+   * @param detail - Pre-computed fields for the project and WP records.
+   *                 The caller is responsible for reading synthesis.md and
+   *                 extracting `outcomeSummary` and `pipelineSummary` before
+   *                 calling this method.
+   * @returns `{ archived: string[]; skipped: string[] }` — `archived` contains filenames
+   *          successfully copied to `storageDir`; `skipped` contains filenames whose source was
+   *          absent (ENOENT). Non-ENOENT I/O errors are re-thrown. Semantics match
+   *          `archiveDocuments()` directly — this method delegates to it internally.
+   * @throws If any JSON write fails (validation or I/O error).
+   */
+  async importStandaloneProject(
+    detail: ImportStandaloneDetail
+  ): Promise<{ archived: string[]; skipped: string[] }> {
+    const timestamp = now();
+    let archiveResult: { archived: string[]; skipped: string[] } = {
+      archived: [],
+      skipped: [],
+    };
+
+    await withLock(this.storageDir, async () => {
+      const rootIndex: RootIndex = {
+        plan_file: detail.planFile,
+        date_created: detail.dateCreated,
+        last_updated: timestamp,
+        status: 'COMPLETE',
+        total_work_packages: 1,
+        pending_work_packages: 0,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: 'ledger/WP-001.json',
+            active_pipeline_stages: ['implementation'],
+            passed_stages: 1,
+          },
+        ],
+        project_comments: [],
+        synthesis_generated: true,
+        synthesis_generated_at: timestamp,
+        outcome_summary: detail.outcomeSummary,
+        runner: 'standalone',
+      };
+
+      const wpDetail: WorkPackageDetail = {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'COMPLETE',
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Plan implemented and verified', met: true }],
+        active_pipeline_stages: ['implementation'],
+        revision: 0,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: detail.dateCreated,
+            completed_at: timestamp,
+            summary: detail.pipelineSummary,
+          },
+        ],
+        status_changed_at: timestamp,
+        last_updated: timestamp,
+      };
+
+      // Write WP detail first (no meta sync), then root index (auto-syncs .meta.json).
+      await this.writeWorkPackage('WP-001', wpDetail);
+      await this.writeRootIndex(rootIndex);
+
+      // Archive plan and synthesis documents inside the lock scope.
+      archiveResult = await this.archiveDocuments([detail.planFile, detail.synthesisFile]);
+    });
+
+    return archiveResult;
   }
 
   /**
@@ -843,6 +980,7 @@ export class LedgerStore {
     const matches: ProjectMeta[] = [];
     for (const meta of projects) {
       const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      if (projectRoot === null) continue;
       const normalizedRoot = normalizePath(projectRoot);
 
       if (

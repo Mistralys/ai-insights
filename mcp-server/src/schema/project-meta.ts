@@ -17,7 +17,7 @@ export const ProjectMetaSchema = z.object({
   // Synthesis outcome — optional for backward compatibility
   outcome_summary: z.string().nullable().optional(),
   // Runner metadata - optional for backward compatibility
-  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'standalone', 'unknown']).optional(),
   runner_client: z.string().optional(),   // raw clientInfo.name
   runner_version: z.string().optional(),  // raw clientInfo.version
 });
