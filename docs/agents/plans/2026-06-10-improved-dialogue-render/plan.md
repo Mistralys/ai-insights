@@ -2,7 +2,7 @@
 
 ## Plan Audit Cycles
 - Audits: none — Plan Auditor v1.5.0
-- Architectural Reviews: none — Plan Architect Reviewer v1.6.0
+- Architectural Reviews: 3 — Plan Architect Reviewer v1.6.0
 
 ## Prior Project Context
 
@@ -73,8 +73,9 @@ The new renderer follows a three-pass approach on the accumulated message map:
 
 1. **Index pass** — scan all AI messages across all namespaces to build a
    `toolCallId → toolName` lookup map, and scan all ToolMessages to build a
-   `toolCallId → resultContent` map. The intersection gives a
-   `toolCallId → { name, result }` map used in step 3.
+   `toolCallId → { toolName, content }` result map for any tool whose rendering
+   rule needs inline results (currently `execute` and `task`). The result map is
+   keyed by `toolCallId` and consumed in step 2.
 
 2. **Render pass** — iterate messages per namespace in order:
    - `AIMessage` → render text content as plain paragraphs; render each tool call as a
@@ -88,39 +89,52 @@ The new renderer follows a three-pass approach on the accumulated message map:
 3. **Emit** — return the assembled Markdown string. No document header, no role headings, no
    token-usage footer (these are useful in the verbose view but noise here).
 
-**Per-tool rendering rules** (derived from the project specification document):
+**Per-tool rendering rules** (derived from the project specification document).
+The rules are grouped into tool families; implementation should organise the
+formatting logic by family (see Detailed Steps 1e) rather than as a single
+monolithic dispatch block:
 
-| Tool pattern | Header | Detail line |
-|---|---|---|
-| `edit_file` | `Tool call: \`edit_file\`` | `↳ [filename](file_path)` |
-| `write_file` | `Tool call: \`write_file\`` | `↳ [filename](file_path)` |
-| `read_file` | `Tool call: \`read_file\`` | `↳ [filename](file_path)` |
-| `execute` | `Tool call: \`execute\`` | `↳ \`abbreviated_command\`` + `↳ {last_meaningful_result_line} ✓/✗` |
-| `write_todos` | `Tool call: \`write_todos\`` | Compact checklist (`- [x] / - [ ]`) |
-| `task` | `Tool call: \`task\`` | `↳ Sub-agent: **subagent_type**` + `↳ {first line of result}` |
-| `glob`, `grep`, `ls` | `Tool call: \`name\`` | _(no detail line)_ |
-| `ledger_begin_work` | `Tool call: \`ledger_begin_work\`` | `↳ {wp_id} — {type} ({agent_role})` |
-| `ledger_start_pipeline` | `Tool call: \`ledger_start_pipeline\`` | `↳ {wp_id} — {type} ({agent_role})` |
-| `ledger_complete_pipeline` | `Tool call: \`ledger_complete_pipeline\`` | `↳ {wp_id} {type} → {status}` + first summary bullet |
-| `ledger_cancel_pipeline` | `Tool call: \`ledger_cancel_pipeline\`` | `↳ {wp_id} {type} — {reason}` |
-| `ledger_claim_work_package` | `Tool call: \`ledger_claim_work_package\`` | `↳ {wp_id} → {agent}` |
-| `ledger_update_work_package_status` | `Tool call: \`ledger_update_work_package_status\`` | `↳ {wp_id} → {status}` |
-| `ledger_update_pipeline_progress` | `Tool call: \`ledger_update_pipeline_progress\`` | `↳ {wp_id} {type} — {first summary item}` |
-| `ledger_update_acceptance_criteria` | `Tool call: \`ledger_update_acceptance_criteria\`` | `↳ {wp_id} ({N} operations)` |
-| `ledger_add_project_comment` | `Tool call: \`ledger_add_project_comment\`` | `↳ {type} ({priority}): {first line of note}` |
-| `ledger_get_next_action` | `Tool call: \`ledger_get_next_action\`` | `↳ {agent_role}` |
-| `ledger_get_work_package` | `Tool call: \`ledger_get_work_package\`` | `↳ {work_package_id}` |
-| `ledger_get_handoff_status` | `Tool call: \`ledger_get_handoff_status\`` | `↳ {current_agent}` |
-| `ledger_get_project_status` | `Tool call: \`ledger_get_project_status\`` | _(no detail)_ |
-| `ledger_list_work_packages` | `Tool call: \`ledger_list_work_packages\`` | _(no detail)_ |
-| `ledger_search_insights` | `Tool call: \`ledger_search_insights\`` | `↳ "{query}"` |
-| other `ledger_*` | `Tool call: \`ledger_*\`` | _(no detail — tool still shown)_ |
-| Unknown / any other | `Tool call: \`name\`` | _(always shown, no detail)_ |
+| Family | Tool pattern | Header | Detail line |
+|---|---|---|---|
+| File | `edit_file` | `Tool call: \`edit_file\`` | `↳ [filename](file_path)` |
+| File | `write_file` | `Tool call: \`write_file\`` | `↳ [filename](file_path)` |
+| File | `read_file` | `Tool call: \`read_file\`` | `↳ [filename](file_path)` |
+| Execution | `execute` | `Tool call: \`execute\`` | `↳ \`abbreviated_command\`` + `↳ {last_meaningful_result_line} ✓/✗` |
+| Task | `task` | `Tool call: \`task\`` | `↳ Sub-agent: **subagent_type**` + `↳ {first line of result}` |
+| Todo | `write_todos` | `Tool call: \`write_todos\`` | Compact checklist (`- [x] / - [ ]`) |
+| Search | `glob`, `grep`, `ls` | `Tool call: \`name\`` | _(no detail line)_ |
+| Ledger mutation | `ledger_begin_work` | `Tool call: \`ledger_begin_work\`` | `↳ {wp_id} — {type} ({agent_role})` |
+| Ledger mutation | `ledger_start_pipeline` | `Tool call: \`ledger_start_pipeline\`` | `↳ {wp_id} — {type} ({agent_role})` |
+| Ledger mutation | `ledger_complete_pipeline` | `Tool call: \`ledger_complete_pipeline\`` | `↳ {wp_id} {type} → {status}` + first summary bullet |
+| Ledger mutation | `ledger_cancel_pipeline` | `Tool call: \`ledger_cancel_pipeline\`` | `↳ {wp_id} {type} — {reason}` |
+| Ledger mutation | `ledger_claim_work_package` | `Tool call: \`ledger_claim_work_package\`` | `↳ {wp_id} → {agent}` |
+| Ledger mutation | `ledger_update_work_package_status` | `Tool call: \`ledger_update_work_package_status\`` | `↳ {wp_id} → {status}` |
+| Ledger mutation | `ledger_update_pipeline_progress` | `Tool call: \`ledger_update_pipeline_progress\`` | `↳ {wp_id} {type} — {first summary item}` |
+| Ledger mutation | `ledger_update_acceptance_criteria` | `Tool call: \`ledger_update_acceptance_criteria\`` | `↳ {wp_id} ({N} operations)` |
+| Ledger mutation | `ledger_add_project_comment` | `Tool call: \`ledger_add_project_comment\`` | `↳ {type} ({priority}): {first line of note}` |
+| Ledger query | `ledger_get_next_action` | `Tool call: \`ledger_get_next_action\`` | `↳ {agent_role}` |
+| Ledger query | `ledger_get_work_package` | `Tool call: \`ledger_get_work_package\`` | `↳ {work_package_id}` |
+| Ledger query | `ledger_get_handoff_status` | `Tool call: \`ledger_get_handoff_status\`` | `↳ {current_agent}` |
+| Ledger query | `ledger_get_project_status` | `Tool call: \`ledger_get_project_status\`` | _(no detail)_ |
+| Ledger query | `ledger_list_work_packages` | `Tool call: \`ledger_list_work_packages\`` | _(no detail)_ |
+| Ledger query | `ledger_search_insights` | `Tool call: \`ledger_search_insights\`` | `↳ "{query}"` |
+| Ledger (other) | other `ledger_*` | `Tool call: \`ledger_*\`` | _(no detail — tool still shown)_ |
+| Default | Unknown / any other | `Tool call: \`name\`` | _(always shown, no detail)_ |
 
 **`execute` result extraction:** Split the ToolMessage `content` by newlines. Remove the
 `[Command succeeded with exit code N]` / `[Command failed with exit code N]` footer lines.
 Take the last non-empty line as the summary. Append `✓` when the footer contains exit code 0,
 `✗` otherwise. If content is empty or no meaningful line exists, omit the result line.
+
+**`task` result extraction:** Take the first non-empty line of the ToolMessage `content` as
+the summary. If content is empty, omit the result line.
+
+**Result index scope:** The result index stores raw ToolMessage content for any tool whose
+rendering rule consumes inline results — currently `execute` and `task`. Tool-specific
+extraction logic (`extractExecuteResult` for `execute`, first-line extraction for `task`) is
+applied by `getToolDetailLines()` at render time, not during index construction. This keeps
+the index general-purpose so future tools that need inline results only require adding a new
+family formatter — not changing the index.
 
 The new function is then wired into `server.ts` by updating the import and both `/rendered`
 handler calls to use `renderChunksToDialogue` instead of `renderChunksToMarkdown`. The old
@@ -146,9 +160,11 @@ leaves the verbose format available without a migration cost.
 | Decision | Chosen Shape | Alternatives Considered | Trade-Off Summary |
 |---|---|---|---|
 | New function vs. modify existing | New `renderChunksToDialogue` alongside `renderChunksToMarkdown` | Single function with a `mode` parameter | Separate functions have cleaner signatures and separate test surfaces; no mode-dispatch complexity |
-| Replace or augment `/rendered` endpoint | Replace (swap `renderChunksToDialogue` in both callers) | Add a new `/dialogue` endpoint, keep `/rendered` unchanged | Replacing avoids dead-route accumulation and surfaces the improvement immediately in the GUI; the old export is available if needed |
+| Replace or augment `/rendered` endpoint | Replace (swap `renderChunksToDialogue` in both callers) | Add a new `/dialogue` endpoint, keep `/rendered` unchanged; add a `?format=` query parameter | Replacing avoids dead-route accumulation and surfaces the improvement immediately in the GUI; the old export is available if needed. The verbose renderer remains exported from `chunk-renderer.ts` for debugging and tests — losing a server-route debug path is acceptable because the verbose format is a developer diagnostic, not a user-facing contract. |
 | Correlation strategy for execute results | Pre-pass `toolCallId → result` map | Two-pass sequential scan | Pre-pass is O(N) in messages, avoids stateful per-message lookahead, and is easier to test |
-| ToolMessage visibility | Hide all except `execute` | Show all (verbose), show a subset | Hiding non-execute results matches IDE chat conventions; `execute` output is the only result with actionable diagnostic content |
+| Result index scope | General `buildToolResultIndex` storing raw content for `execute` and `task` | Execute-only index; separate per-tool result paths | A general index avoids special-casing and scales to future tools that need inline results; the tool-specific extraction is deferred to the render step, keeping the index simple |
+| ToolMessage visibility | Hide all (results consumed inline for `execute` and `task`, hidden for all others) | Show all (verbose), show a subset | Hiding results matches IDE chat conventions; `execute` and `task` results are the only ones with actionable diagnostic content, and they are shown inline with their tool call rather than as standalone ToolMessage blocks |
+| Tool formatter shape | Per-family helper functions (`formatFileToolDetail`, `formatExecuteDetail`, etc.) coordinated by a thin `getToolDetailLines()` dispatcher | Single monolithic dispatch block; external formatter registry in a separate file | Family helpers keep related formatting logic co-located, prevent a 20+ case dispatch from becoming the hardest part of the module to scan, and require no new files or abstractions |
 
 ---
 
@@ -159,6 +175,7 @@ leaves the verbose format available without a migration cost.
 | Pure data transformation in `chunk-renderer.ts` | Followed — `renderChunksToDialogue` is a pure function with no I/O | `mcp-server/gui/chunk-renderer.ts` module-level docstring |
 | Reuse private accumulation logic | Followed — `accumulateChunks()` called identically | existing `renderChunksToMarkdown()` call site |
 | Single export per public function | Followed — one new named export | existing `export function renderChunksToMarkdown` |
+| Generic renderer shape | Followed — `getToolDetailLines()` delegates to per-family helpers rather than embedding domain logic in the message walker | existing `renderToolCalls()` helper pattern in `chunk-renderer.ts` |
 | Test file co-location | Followed — tests in `mcp-server/tests/gui/chunk-renderer.test.ts` | existing test file |
 | Manifest maintenance | Followed — api-surface.md, file-tree.md updated | `mcp-server/docs/agents/project-manifest/` |
 
@@ -171,10 +188,13 @@ leaves the verbose format available without a migration cost.
    a. Add private helper `buildToolCallIndex(nsMap)` — iterates all AI messages across all
       namespaces and returns `Map<toolCallId, toolName>`.
 
-   b. Add private helper `buildExecuteResultIndex(nsMap, toolCallIndex)` — iterates all
-      ToolMessages, looks up each `tool_call_id` in `toolCallIndex`; when the tool is
-      `execute`, stores the abbreviated result string. Returns
-      `Map<toolCallId, { summary: string; success: boolean }>`.
+   b. Add private helper `buildToolResultIndex(nsMap, toolCallIndex)` — iterates all
+      ToolMessages across all namespaces, looks up each `tool_call_id` in `toolCallIndex`,
+      and stores the raw ToolMessage `content` for any tool whose rendering rule needs
+      inline results (currently `execute` and `task`). Returns
+      `Map<toolCallId, { toolName: string; content: string }>`. Tool-specific extraction
+      (abbreviated output line for `execute`, first line for `task`) is deferred to the
+      rendering step in `getToolDetailLines()`.
 
    c. Add private helper `abbreviateCommand(command: string): string` — strips the leading
       `cd … &&` prefix when present, takes the first meaningful command token, and truncates
@@ -183,16 +203,28 @@ leaves the verbose format available without a migration cost.
    d. Add private helper `extractExecuteResult(content: string): { summary: string; success: boolean } | null` — extracts the last meaningful output line and exit-code success flag from
       a ToolMessage `content` string.
 
-   e. Add private helper `getToolDetailLines(name: string, args: unknown, executeResult?: { summary: string; success: boolean }): string[]` — returns 0–N `↳ …` detail lines for a
-      given tool call. Contains the per-tool dispatch table (file tools, execute, write_todos,
-      task, glob/grep/ls, ledger_*, unknown).
+   e. Add private helper `getToolDetailLines(name: string, args: unknown, resultEntry?: { toolName: string; content: string }): string[]` — returns 0–N `↳ …` detail lines for a
+      given tool call. Delegates to per-family formatter helpers rather than a monolithic
+      dispatch block:
+      - `formatFileToolDetail(args)` — handles `edit_file`, `write_file`, `read_file`.
+      - `formatExecuteDetail(args, resultEntry)` — handles `execute` (calls
+        `extractExecuteResult` on the raw result content).
+      - `formatTaskDetail(args, resultEntry)` — handles `task` (extracts first result line).
+      - `formatLedgerToolDetail(name, args)` — handles all `ledger_*` tools (mutation and
+        query families).
+      - Default: returns empty array (tool header is always emitted by the caller).
 
-   f. Add private helper `renderDialogueMessages(messages: MergedMessage[], executeResultIndex: Map<string, { summary: string; success: boolean }>): string[]` — iterates messages, skips
+      This family-helper structure keeps future tool additions local and prevents
+      `getToolDetailLines()` from becoming a maintenance hotspot as new tools are added.
+
+   f. Add private helper `renderDialogueMessages(messages: MergedMessage[], toolResultIndex: Map<string, { toolName: string; content: string }>): string[]` — iterates messages, skips
       non-AI message types, renders text content as paragraphs, renders tool calls using
       `getToolDetailLines()`, and skips ToolMessages.
 
    g. Add exported function `renderChunksToDialogue(jsonlContent: string): string` — calls
-      `accumulateChunks()`, builds both indexes, calls `renderDialogueMessages()` per
+      `accumulateChunks()`, builds the tool-call index and tool-result index via
+      `buildToolCallIndex()` and `buildToolResultIndex()`, calls
+      `renderDialogueMessages()` per
       namespace in the same main-first / sub-agents-next order as `renderChunksToMarkdown`,
       joins the output, and returns the Markdown string (always ends with `\n`).
       If the accumulated map is empty, returns `*No dialogue recorded.*\n`.
@@ -202,8 +234,10 @@ leaves the verbose format available without a migration cost.
    - Do **not** modify `renderChunksToMarkdown` or any existing private helpers.
 
 3. **Update `mcp-server/gui/server.ts`**
-   - Change the import on line 73 to also import `renderChunksToDialogue`:
-     `import { renderChunksToMarkdown, renderChunksToDialogue } from './chunk-renderer.js';`
+   - Change the import on line 73 to import only `renderChunksToDialogue` (the old
+     `renderChunksToMarkdown` is no longer called from `server.ts` after the swap; it remains
+     exported from `chunk-renderer.ts` for debugging and tests):
+     `import { renderChunksToDialogue } from './chunk-renderer.js';`
    - Update line 582 (deprecated route handler): replace
      `renderChunksToMarkdown(content)` with `renderChunksToDialogue(content)`.
    - Update line 969 (active namespaced route handler): replace
