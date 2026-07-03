@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { LedgerStore, type ImportStandaloneDetail } from '../../src/storage/ledger-store.js';
 import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../../src/utils/constants.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
@@ -630,6 +630,138 @@ describe('LedgerStore', () => {
 
       const meta = await store.readProjectMeta();
       expect(meta.pending_work_packages).toBe(1);
+    });
+  });
+
+  describe('importStandaloneProject', () => {
+    const PLAN_FILE = PLAN_ARCHIVE_FILENAME;       // 'plan.md'
+    const SYNTHESIS_FILE = SYNTHESIS_ARCHIVE_FILENAME; // 'synthesis.md'
+    const DATE_CREATED = '2026-06-01T09:00:00Z';
+
+    function makeDetail(overrides: Partial<ImportStandaloneDetail> = {}): ImportStandaloneDetail {
+      return {
+        planFile: PLAN_FILE,
+        synthesisFile: SYNTHESIS_FILE,
+        dateCreated: DATE_CREATED,
+        outcomeSummary: 'Implemented the feature successfully.',
+        pipelineSummary: ['Analysed codebase', 'Implemented changes', 'Verified manually'],
+        ...overrides,
+      };
+    }
+
+    beforeEach(async () => {
+      // Create the plan folder so archiveDocuments can find source files.
+      const { mkdir, writeFile } = await import('fs/promises');
+      await mkdir(store.planPath, { recursive: true });
+      await writeFile(join(store.planPath, PLAN_FILE), '# Plan\nHello.', 'utf-8');
+      await writeFile(join(store.planPath, SYNTHESIS_FILE), '# Synthesis\nDone.', 'utf-8');
+    });
+
+    afterEach(async () => {
+      const { rm: rmf } = await import('fs/promises');
+      await rmf(store.planPath, { recursive: true, force: true });
+    });
+
+    it('creates project-ledger.json with status COMPLETE, 1 WP, synthesis_generated, and runner standalone', async () => {
+      await store.importStandaloneProject(makeDetail());
+
+      const root = await store.readRootIndex();
+      expect(root.status).toBe('COMPLETE');
+      expect(root.total_work_packages).toBe(1);
+      expect(root.pending_work_packages).toBe(0);
+      expect(root.synthesis_generated).toBe(true);
+      expect(root.runner).toBe('standalone');
+      expect(root.plan_file).toBe(PLAN_FILE);
+      expect(root.date_created).toBe(DATE_CREATED);
+    });
+
+    it('creates WP-001.json with status COMPLETE, assigned_to Developer, active_pipeline_stages implementation, and pipeline PASS', async () => {
+      await store.importStandaloneProject(makeDetail());
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('COMPLETE');
+      expect(wp.assigned_to).toBe('Developer');
+      expect(wp.active_pipeline_stages).toEqual(['implementation']);
+      expect(wp.pipelines).toHaveLength(1);
+      expect(wp.pipelines[0]!.type).toBe('implementation');
+      expect(wp.pipelines[0]!.status).toBe('PASS');
+      expect(wp.pipelines[0]!.started_at).toBe(DATE_CREATED);
+      expect(wp.acceptance_criteria).toEqual([{ criterion: 'Plan implemented and verified', met: true }]);
+    });
+
+    it('writes the pipeline summary from detail.pipelineSummary', async () => {
+      const summary = ['Step one done', 'Step two done'];
+      await store.importStandaloneProject(makeDetail({ pipelineSummary: summary }));
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.pipelines[0]!.summary).toEqual(summary);
+    });
+
+    it('auto-syncs .meta.json with status COMPLETE, runner standalone, and accurate WP counters', async () => {
+      await store.importStandaloneProject(makeDetail());
+
+      const meta = await store.readProjectMeta();
+      expect(meta.status).toBe('COMPLETE');
+      expect(meta.runner).toBe('standalone');
+      expect(meta.total_work_packages).toBe(1);
+      expect(meta.pending_work_packages).toBe(0);
+      expect(meta.progress_pct).toBe(100);
+    });
+
+    it('stores outcome_summary from detail in both root index and .meta.json', async () => {
+      const summary = 'A concise outcome.';
+      await store.importStandaloneProject(makeDetail({ outcomeSummary: summary }));
+
+      const root = await store.readRootIndex();
+      expect(root.outcome_summary).toBe(summary);
+
+      const meta = await store.readProjectMeta();
+      expect(meta.outcome_summary).toBe(summary);
+    });
+
+    it('stores null outcome_summary when detail.outcomeSummary is null', async () => {
+      await store.importStandaloneProject(makeDetail({ outcomeSummary: null }));
+
+      const root = await store.readRootIndex();
+      expect(root.outcome_summary).toBeNull();
+    });
+
+    it('archives plan.md and synthesis.md to storageDir and returns them in archived[]', async () => {
+      const result = await store.importStandaloneProject(makeDetail());
+
+      expect(result.archived).toContain(PLAN_FILE);
+      expect(result.archived).toContain(SYNTHESIS_FILE);
+      expect(result.skipped).toHaveLength(0);
+
+      const planContent = await readFile(join(store.storageDir, PLAN_FILE), 'utf-8');
+      expect(planContent).toBe('# Plan\nHello.');
+
+      const synthesisContent = await readFile(join(store.storageDir, SYNTHESIS_FILE), 'utf-8');
+      expect(synthesisContent).toBe('# Synthesis\nDone.');
+    });
+
+    it('returns synthesis in skipped[] when synthesis.md does not exist in planPath', async () => {
+      // Remove synthesis file to simulate missing file
+      const { rm: rmf } = await import('fs/promises');
+      await rmf(join(store.planPath, SYNTHESIS_FILE), { force: true });
+
+      const result = await store.importStandaloneProject(makeDetail());
+
+      expect(result.archived).toContain(PLAN_FILE);
+      expect(result.skipped).toContain(SYNTHESIS_FILE);
+    });
+
+    it('computeHealedStatus does not alter COMPLETE status (totalWps=1, pendingWps=0, synthesis_generated=true)', async () => {
+      // Import the project-lifecycle tool module to access computeHealedStatus
+      const { computeHealedStatus } = await import('../../src/tools/project-lifecycle.js');
+      await store.importStandaloneProject(makeDetail());
+
+      const root = await store.readRootIndex();
+      const healed = computeHealedStatus(root);
+
+      expect(healed.healedStatus).toBe('COMPLETE');
+      expect(healed.needsWrite).toBe(false);
+      expect(healed.corruptionDetected).toBe(false);
     });
   });
 

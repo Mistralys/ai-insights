@@ -112,4 +112,41 @@ describe('inferProjectRootFromPlanPath', () => {
     const planPath = '/projects/xyz/docs/agents/plans/2026-06-15-cleanup';
     expect(inferProjectRootFromPlanPath(planPath)).toBe(inferProjectRootFromPlanPath(planPath));
   });
+
+  // Anchor-based algorithm: handles arbitrary nesting below docs/agents/plans
+
+  it('returns the project root when the plan.md file path is supplied (standard depth)', () => {
+    const planPath = '/repo/docs/agents/plans/2026-01-01-foo/plan.md';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/repo');
+  });
+
+  it('returns the project root when the plan folder is nested more than 4 levels down', () => {
+    // Old 4-level walk would have returned '/repo/docs/agents' (wrong)
+    const planPath = '/repo/docs/agents/plans/subfolder/2026-01-01-foo/plan.md';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/repo');
+  });
+
+  it('returns the correct root when docs/agents appears after several path components', () => {
+    const planPath = '/a/b/c/d/e/docs/agents/plans/2026-05-01-deep';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/a/b/c/d/e');
+  });
+
+  it('returns null when docs/agents is not present in the path', () => {
+    const planPath = '/some/completely/different/path/2026-01-01-foo';
+    expect(inferProjectRootFromPlanPath(planPath)).toBeNull();
+  });
+
+  it('returns null for an empty string', () => {
+    expect(inferProjectRootFromPlanPath('')).toBeNull();
+  });
+
+  it('returns null when only docs is present but agents is not the next segment', () => {
+    const planPath = '/repo/docs/other/plans/2026-01-01-foo';
+    expect(inferProjectRootFromPlanPath(planPath)).toBeNull();
+  });
+
+  it('handles the filesystem-root edge case where docs/agents is at the root', () => {
+    const planPath = '/docs/agents/plans/2026-01-01-foo';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/');
+  });
 });
