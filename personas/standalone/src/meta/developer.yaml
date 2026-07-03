@@ -5,6 +5,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.2.1 (2026-07-03): Made the archiving step non-optional but not required, as it was skipped too often.
   1.2.0 (2026-07-01): Gained standalone-archiver subagent dispatch for automatic ledger archival after synthesis
   1.1.1 (2026-06-17): Added no-stale-counts constraint to Strict Constraints
   1.1.0 (2026-05-29): Gained browser tool for UI and regression verification

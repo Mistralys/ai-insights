@@ -169,7 +169,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 3. **Update Documentation:** Apply documentation updates as applicable to the implemented changes.
 4. **Verify:** Run build/tests/static analysis as needed and resolve implementation-introduced issues.
 5. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section, including implementation summary, verification summary, and all code insights/comments.
-6. **Archive to Ledger (Optional):** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
+6. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_standalone_archiver}}"`
