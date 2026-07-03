@@ -139,8 +139,9 @@ await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
 - `auto-archive.ts` — sets `status: 'ARCHIVED'` with `preserveLastUpdated: true` (root-index write only; sync methods do not apply)
 - `observations.ts` — appends a project-level comment (root-index write only; no WP file involved)
 - `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the `auto_handoff_depth` counter on every handoff-status response; root-index-only write with no WP file involvement
+- `importStandaloneProject()` (internal `LedgerStore` method) — bootstraps a standalone project from scratch; manages its own `withLock(storageDir)` scope; architecturally equivalent to `initializeProject()`, so listing it in the allowlist prevents it being incorrectly refactored to a sync method
 
-**`writeWorkPackage` — zero external callers (post-WP-002):** As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate external callers. Every previously-direct caller (e.g., `project-reset.ts`) has been migrated to a sync method. The `@internal` boundary for `writeWorkPackage` is now absolute.
+**`writeWorkPackage` — no external callers (post-WP-002); one approved internal exception:** As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate external callers. The sole approved internal exception is `importStandaloneProject()`, which bootstraps a standalone project from scratch inside `LedgerStore` and manages its own lock scope. The `@internal` restriction targets tool code outside `LedgerStore`; internal bootstrap methods that create a complete project state from scratch may call `writeWorkPackage` directly.
 
 **Anti-pattern:**
 ```typescript
