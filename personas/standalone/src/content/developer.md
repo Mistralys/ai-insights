@@ -122,6 +122,10 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 - Status: COMPLETE
 - Completed by: Standalone Developer Agent
 
+### Outcome Summary
+
+{2-3 sentence summary of what was accomplished, the approach taken, and any notable results}
+
 ### Implementation Summary
 - {Brief summary of what was implemented}
 - {Key behavior changes or delivered features}
@@ -165,7 +169,25 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 3. **Update Documentation:** Apply documentation updates as applicable to the implemented changes.
 4. **Verify:** Run build/tests/static analysis as needed and resolve implementation-introduced issues.
 5. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section, including implementation summary, verification summary, and all code insights/comments.
-6. **Finish:** End the response with:
+6. **Archive to Ledger (Optional):** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
+{{#if target_vscode}}
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_standalone_archiver}}"`
+   - `description`: `"Archive completed standalone plan to ledger"`
+   - `prompt`: Pass the absolute path to the plan folder (the directory containing `plan.md` and the newly written `synthesis.md`).
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: "{{agent_standalone_archiver}}"`. Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+{{else if target_deep_agents}}
+   Use the `task` tool with the following arguments:
+   - `subagent_type`: `"{{agent_slug_standalone_archiver}}"`
+   - `task`: Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+{{else}}{{!-- fallback for future or unknown targets --}}
+   Invoke the **{{agent_standalone_archiver}}** subagent with the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+{{/if}}
+
+   > **Non-blocking:** If the subagent fails or reports an error (e.g., the ledger is unavailable), continue to Step 7. Your deliverables — the code changes and `synthesis.md` — are already complete and unaffected.
+
+7. **Finish:** End the response with:
    ```
    AGENT: Standalone Developer
    STATUS: COMPLETE
