@@ -96,11 +96,13 @@ Organize changed files into topic groups based on:
 
 ### 4. Plan Matching
 
-For each topic group, attempt to match it against plan documents:
+For each topic group, attempt to match it against plan documents.
+
+**Plan folder convention:** Only `plan.md` and `synthesis.md` are version-controlled in plan folders. All other files (work-package state, pipeline records, blocker files) are gitignored — ignore them during discovery and staging.
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the entire plan folder for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
+   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md` and `synthesis.md` for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
