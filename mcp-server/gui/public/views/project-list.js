@@ -65,6 +65,7 @@ function renderProjectList(app) {
     'vscode':       'VS Code',
     'claude-code':  'Claude Code',
     'orchestrator': 'Orchestrator',
+    'standalone':   'Standalone',
     'unknown':      'Unknown',
   };
 
@@ -88,7 +89,7 @@ function renderProjectList(app) {
     var counts = runnerCounts || {};
 
     // Canonical ordering for display (determines option order in dropdown)
-    var RUNNER_ORDER = ['orchestrator', 'vscode', 'claude-code', 'unknown'];
+    var RUNNER_ORDER = ['orchestrator', 'vscode', 'claude-code', 'standalone', 'unknown'];
 
     // Collect runner values that have at least one project, in canonical order
     var activeRunners = RUNNER_ORDER.filter(function (r) {
