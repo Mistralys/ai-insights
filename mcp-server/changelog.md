@@ -1,5 +1,13 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.4.0 - Standalone Ledger Import
+- Tools: Added `ledger_import_standalone` to import standalone plan folders into the ledger.
+- Tools: Added synthesis log parser for extracting structured data from standalone run logs.
+- GUI: Added standalone runner display on the project list view.
+- GUI: Fixed silent failure in the Kill button for active orchestrator runs.
+- Tests: Added test coverage for standalone import, synthesis parser, and utility modules.
+- Docs: Updated project manifest for standalone import feature.
+
 ## v2.3.0 - Project Detail Auto-Update
 - GUI: Added 5-second auto-polling for the project detail page with in-place DOM patching.
 - GUI: Snapshot/diff engine and `pollController` state machine drive selective DOM updates.
