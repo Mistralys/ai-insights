@@ -874,9 +874,15 @@ export class LedgerStore {
             const meta = ProjectMetaSchema.parse(data);
             results.push(meta);
           } catch (err) {
-            process.stderr.write(
-              `[LedgerStore.listAllProjects] Skipping "${entry}/${subEntry}": ${(err as Error).message}\n`
-            );
+            // ENOENT simply means the subdirectory has no .meta.json — it is not a
+            // project directory and can be silently skipped.  Only log unexpected
+            // errors (e.g. permission denied, JSON parse failure) that indicate a
+            // real problem with an otherwise-valid project directory.
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+              process.stderr.write(
+                `[LedgerStore.listAllProjects] Skipping "${entry}/${subEntry}": ${(err as Error).message}\n`
+              );
+            }
           }
         }
       }
