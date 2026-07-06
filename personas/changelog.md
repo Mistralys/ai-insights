@@ -2,18 +2,21 @@
 
 ## v3.26.0 - Standalone Archiver and New Curators
 - Build: Replaced hardcoded persona list with a dynamic directory scan.
-- Ledger: WP decomposition and AC setup hardening across the board.
-- Standalone: Plan Architect Reviewer improvements.
-- Standalone: Git Committer now aware that only plan.md and synthesis.md are tracked in plan folders.
-- LedgerSupport: Added standalone-archiver persona for archiving standalone plan folders into the ledger.
-- Ledger: Developer gains subagent archival dispatch for completed standalone work.
-- Standalone: Added Workspace Architect for AI Insights repo onboarding and ecosystem maintenance.
-- Standalone: Added Communications Curator for stakeholder briefs, release notes, and slides.
-- Standalone: Git Committer hardened with upstream integration, edge-case guards, audit compliance.
-- Standalone: Recipe Curator restructured into Operating Modes with preview step and recipe IDs.
-- Ledger: Planner Synthesis Rework triages deferred items; top items promoted into plan steps.
-- Docs: Updated Persona Design Guide to v2.2 with separator-handling guidance.
 - Build: Updated persona-builder dependency.
+- Ledger: WP decomposition and AC setup hardening across the board.
+- Ledger: Developer gains subagent archival dispatch for completed standalone work.
+- Ledger: Planner Synthesis Rework triages deferred items; top items promoted into plan steps.
+- Ledger: Planner handoff now includes a recommended workflow.
+- LedgerSupport: Added the standalone-archiver persona.
+- LedgerSupport: Dependency Sequencer audit compliance and codebase verification.
+- LedgerSupport: WP Decomposer gains codebase verification with Code Observations output.
+- LedgerSupport: Dependency Sequencer consumes upstream Code Observations.
+- Standalone: Added Workspace Architect for repo onboarding and ecosystem maintenance.
+- Standalone: Added Communications Curator for stakeholder briefs and release notes.
+- Standalone: Git Committer hardened with upstream integration and edge-case guards.
+- Standalone: Plan Architect Reviewer improvements.
+- Standalone: Recipe Curator restructured into Operating Modes with preview step.
+- Docs: Updated Persona Design Guide to v2.2 with separator-handling guidance.
 
 ## v3.25.0 - Ledger-Support Suite
 - Build: Introduced `ledger-support` as a dedicated third suite for MCP-dependent support personas.
