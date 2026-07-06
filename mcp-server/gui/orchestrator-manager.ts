@@ -636,9 +636,10 @@ export async function startOrchestrator(
     ? ['--resume', resumeThreadId, resolvedPlan]
     : [resolvedPlan];
   const child = spawn(bin, spawnArgs, {
-    detached: true,
-    stdio:    ['ignore', 'ignore', 'ignore'],
-    env:      { ...process.env, PYTHONUTF8: '1' },
+    detached:    true,
+    stdio:       ['ignore', 'ignore', 'ignore'],
+    env:         { ...process.env, PYTHONUTF8: '1' },
+    windowsHide: true,
   });
   child.unref();
 
