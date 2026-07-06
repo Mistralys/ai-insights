@@ -63,6 +63,7 @@ import {
   getQueue,
   killQueueEntry,
   dismissQueueEntry,
+  deleteQueueEntry,
   startOrchestrator,
   getRunStatus,
 } from './orchestrator-manager.js';
@@ -1713,6 +1714,30 @@ export async function handleOrchestratorDismiss(
 ): Promise<void> {
   assertSafeQueueId(id);
   await dismissQueueEntry({ id, logsDir, ledgerRoot });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/orchestrator/delete/:id
+// ---------------------------------------------------------------------------
+
+/**
+ * Unconditionally removes a queue entry from the queue file.
+ *
+ * Unlike dismiss, this does not check effective status — it is an admin
+ * escape hatch for entries that cannot be removed via Kill or Dismiss
+ * (e.g. when the PID has been recycled on Windows).
+ *
+ * The caller (server.ts) sends HTTP 204 No Content.
+ *
+ * @param id      - Queue entry ID.
+ * @param logsDir - Absolute path to the orchestrator logs directory.
+ */
+export async function handleOrchestratorDelete(
+  id: string,
+  logsDir: string,
+): Promise<void> {
+  assertSafeQueueId(id);
+  await deleteQueueEntry({ id, logsDir });
 }
 
 // ---------------------------------------------------------------------------

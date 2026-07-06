@@ -6,6 +6,10 @@
 - GUI: Added standalone runner display on the project list view.
 - GUI: Fixed silent failure in the Kill button for active orchestrator runs.
 - Tests: Added test coverage for standalone import, synthesis parser, and utility modules.
+- GUI: Preflight now displays the resolved project path.
+- Core: Fixed a Windows-specific LangGraph-induced path issue breaking paths with drive letters.
+- Core: Fixed path mixups between the project and AI Insights.
+- Core: Removed project path fallback when it cannot be auto-detected.
 - Docs: Updated project manifest for standalone import feature.
 
 ## v2.3.0 - Project Detail Auto-Update

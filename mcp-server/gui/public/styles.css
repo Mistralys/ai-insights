@@ -2498,6 +2498,42 @@ th[data-sort="total_work_packages"] {
 .orchestrator-kill-btn  { /* no extra rules */ }
 .orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
 
+/* Admin kebab menu in the run queue — positioned to the right of the primary
+   action button.  Reuses .action-menu-wrapper / .action-menu from the project
+   list, adding queue-specific spacing and a danger-tinted menu item. */
+.orch-admin-menu-wrapper {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.orch-admin-menu-btn {
+  font-size: 16px;
+  padding: 2px 6px;
+}
+
+.orch-admin-menu {
+  min-width: 140px;
+}
+
+.action-menu-section-header {
+  padding: 6px 14px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.action-menu-item--danger {
+  color: var(--color-danger, #c0392b);
+}
+
+.action-menu-item--danger:hover {
+  background: var(--color-bg);
+  color: var(--color-danger, #c0392b);
+}
+
 /* ── Button group ───────────────────────────────────────────
    Fused row of same-size buttons sharing inner borders.
    Usage:  <div class="btn-group"><button class="btn btn-sm …">…</button>…</div>
