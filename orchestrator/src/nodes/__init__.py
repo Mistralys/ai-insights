@@ -855,7 +855,15 @@ def create_stage_node(
             # environment variables to agent subprocesses. Acceptable for local
             # development; curated-env hardening is tracked in
             # docs/agents/deferred-topics.md § Orchestrator.
-            backend = LocalShellBackend(root_dir=target_path or None, inherit_env=True)
+            # virtual_mode=True fixes Windows path resolution: deepagents'
+            # validate_path() rejects Windows drive-letter paths and
+            # _resolve_path() mis-joins root-anchored POSIX paths on Windows
+            # (pathlib replaces the drive path). Virtual mode resolves paths as
+            # root_dir-relative, which works correctly on all platforms.
+            # See docs/agents/research/2026-07-04-windows-path-resolution.md
+            backend = LocalShellBackend(
+                root_dir=target_path or None, virtual_mode=True, inherit_env=True
+            )
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:
