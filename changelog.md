@@ -1,17 +1,18 @@
 # AI Insights Changelog
 
-## v2.4.0 - Standalone Archival and New Curators
-> mcp v2.4.0 · personas v3.26.0
+## v2.4.0 - Standalone Archival, Project Dialogues, and New Curators
+> mcp v2.4.0 · orchestrator v1.2.0 · personas v3.26.0
 
 - MCP: Added `ledger_import_standalone` tool and synthesis log parser for standalone archival.
-- GUI: Added standalone runner display on the project list; fixed Kill button silent failure.
-- GUI: Removed noisy ENOENT CLI messages for folders without metadata.
-- Orchestrator: Running plans from the GUI no longer opens a terminal window (Windows).
+- GUI: Added Project Dialogues section for PM and Synthesis conversation transcripts.
+- GUI: Added standalone runner display and admin queue delete; fixed Kill button and badge colors.
+- GUI: Removed ENOENT log noise; suppressed terminal window when launching orchestrator (Windows).
+- Orchestrator: PM and Synthesis dialogue now captured; Windows path resolution fixed.
 - Scripts: Added `import-standalone` CLI command for single and batch plan folder import.
 - Personas: Added standalone-archiver support persona and Developer subagent archival dispatch.
 - Personas: Added Workspace Architect and Communications Curator standalone personas.
-- Personas: Git Committer hardened with upstream integration, edge cases, and audit compliance.
-- Personas: Recipe Curator restructured with Operating Modes, preview step, and recipe IDs.
+- Personas: Git Committer hardened; Plan Architect Reviewer rewritten with decision analysis.
+- Personas: Recipe Curator restructured into Operating Modes with preview step.
 
 ## v2.3.0 - Ledger-Support Suite and Project Detail Auto-Update
 > mcp v2.3.0 · orchestrator v1.1.0 · personas v3.25.0

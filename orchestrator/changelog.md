@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v1.2.0 - PM Dialogue Capture and Windows Fixes
+- Nodes: PM and Synthesis stages now capture dialogue even when not assigned to a work package.
+- Nodes: Fixed Windows path resolution when running with virtual_mode=True.
+- CLI: Project root is now inferred from the plan file path, removing the need for manual config.
+- Tests: Extended streaming capture and slug-dir path construction test coverage.
+
 ## v1.1.0 - Ledger-Support Suite Resolution
 - Utils: Subagent loading now resolves description and system prompt from `ledger-support` suite
   first, falling back to `standalone` for legacy slugs.

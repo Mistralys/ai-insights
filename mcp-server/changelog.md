@@ -1,11 +1,17 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.4.0 - Standalone Ledger Import
+## v2.4.0 - Standalone Import and Project Dialogues
 - Tools: Added `ledger_import_standalone` to import standalone plan folders into the ledger.
 - Tools: Added synthesis log parser for extracting structured data from standalone run logs.
 - GUI: Added standalone runner display on the project list view.
 - GUI: Fixed silent failure in the Kill button for active orchestrator runs.
+- GUI: Removed noisy ENOENT messages when scanning projects without metadata folders.
+- GUI: Added Project Dialogues section to the project detail view for PM and Synthesis transcripts.
+- GUI: Added admin delete button for queued orchestrator runs.
+- GUI: Suppressed terminal window when launching orchestrator processes on Windows.
+- GUI: Adjusted badge colors to differentiate standalone runner from completed project state.
 - Tests: Added test coverage for standalone import, synthesis parser, and utility modules.
+- Tests: Added Project Dialogues API and view test suites.
 - GUI: Preflight now displays the resolved project path.
 - Core: Fixed a Windows-specific LangGraph-induced path issue breaking paths with drive letters.
 - Core: Fixed path mixups between the project and AI Insights.
