@@ -224,6 +224,7 @@ Module-level helper functions used by the CLI entry point. All are private (pref
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `_derive_repo_name` | `(plan_dir: Path, fallback: str) -> str` | Derives the repository name from a plan directory path. Takes `plan_dir.parents[3].name` (the fourth ancestor, counting from zero), lowercases it to align with TypeScript's `deriveRepoName()` convention in `ledger-root.ts`. Falls back to *fallback* when the path has fewer than four ancestor levels or when the ancestor name is empty. Example: `/workspace/MyRepo/docs/agents/plans/2026-01-01-slug` → `"myrepo"`. Used by `_derive_ledger_log_dir()` and by the queue registration call in `cli.py` to populate `expectedRepo`. |
+| `_infer_project_root` | `(plan_dir: Path) -> Path \| None` | Infers the target project root from a plan directory path using the `parents[3]` convention — plans live at `<project-root>/docs/agents/plans/<slug>`, so `plan_dir.parents[3]` is the project root. Applies a sanity check: `(inferred_root / "docs" / "agents" / "plans").is_dir()` must return `True`. Returns `None` when the path has fewer than four ancestors (`IndexError`) or the sanity check fails; `_run()` treats `None` as a fatal error and exits with `EXIT_ERROR`. Used by `_run()` to populate `target_project_path` / `project_path` when `--project-path` is not provided. Always emits an `INFO`-level log message on success. |
 
 ### Duration field conventions
 
