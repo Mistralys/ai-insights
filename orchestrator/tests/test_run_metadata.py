@@ -258,7 +258,9 @@ class TestTerminalResumeMetadata:
         args.resume = "finished-thread"
         args.dry_run = False
         args.interrupt_on = None
-        args.project_path = None
+        # Set project_path explicitly so _run() bypasses _infer_project_root().
+        # This test exercises the terminal-resume guard, not project-root inference.
+        args.project_path = str(tmp_path)
 
         mock_config = MagicMock()
         mock_config.checkpoint_dir = ckpt_dir
@@ -302,7 +304,8 @@ class TestTerminalResumeMetadata:
         args.resume = "done-thread"
         args.dry_run = False
         args.interrupt_on = None
-        args.project_path = None
+        # Bypass _infer_project_root — this test is about the error field content.
+        args.project_path = str(tmp_path)
 
         mock_config = MagicMock()
         mock_config.checkpoint_dir = ckpt_dir
@@ -343,7 +346,8 @@ class TestTerminalResumeMetadata:
         args.resume = "done-thread"
         args.dry_run = False
         args.interrupt_on = None
-        args.project_path = None
+        # Bypass _infer_project_root — this test is about is_resume metadata.
+        args.project_path = str(tmp_path)
 
         mock_config = MagicMock()
         mock_config.checkpoint_dir = ckpt_dir

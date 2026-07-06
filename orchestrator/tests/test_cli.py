@@ -1012,7 +1012,10 @@ class TestWriteErrorStatusEarlyExits:
         args.resume = None
         args.dry_run = False
         args.interrupt_on = None
-        args.project_path = None
+        # Set project_path explicitly so _run() bypasses _infer_project_root().
+        # These tests exercise lock / terminal-resume early exits — not project-root
+        # inference — and tmp_path does not follow the docs/agents/plans/ convention.
+        args.project_path = str(plan_path.parent)
         return args
 
     def _make_config(self, tmp_path: Path) -> MagicMock:

@@ -921,12 +921,16 @@ describe('dismissQueueEntry — dismiss path (effectively dead entries)', () => 
 
 /**
  * Build a minimal workspace scaffold under tempDir:
- *   orchestrator/.venv/bin/orchestrate  (Unix) — or Scripts/orchestrate.exe (Win)
- *   orchestrator/.env                   — with ANTHROPIC_API_KEY set
- *   orchestrator/logs/                  — empty logs dir
- *   mcp-server/dist/index.js            — sentinel with current mtime
- *   mcp-server/src/                     — empty src dir (no stale files)
- *   plans/2026-05-05-test/plan.md       — plan file
+ *   orchestrator/.venv/bin/orchestrate       (Unix) — or Scripts/orchestrate.exe (Win)
+ *   orchestrator/.env                        — with ANTHROPIC_API_KEY set
+ *   orchestrator/logs/                       — empty logs dir
+ *   mcp-server/dist/index.js                 — sentinel with current mtime
+ *   mcp-server/src/                          — empty src dir (no stale files)
+ *   docs/agents/plans/2026-05-05-test/plan.md — plan file at the canonical path
+ *
+ * The plan is placed at docs/agents/plans/<slug>/plan.md to match the path
+ * structure required by checkProjectRoot(), which walks 4 levels up from the
+ * slug directory and expects docs/agents/plans/ to exist at the inferred root.
  */
 async function scaffoldWorkspace(
   tempDir: string,
@@ -940,7 +944,7 @@ async function scaffoldWorkspace(
   const logsDir   = join(workspaceRoot, 'orchestrator', 'logs');
   const mcpDistDir = join(workspaceRoot, 'mcp-server', 'dist');
   const mcpSrcDir  = join(workspaceRoot, 'mcp-server', 'src');
-  const planDir   = join(workspaceRoot, 'plans', '2026-05-05-test');
+  const planDir   = join(workspaceRoot, 'docs', 'agents', 'plans', '2026-05-05-test');
 
   await mkdir(binDir,     { recursive: true });
   await mkdir(logsDir,    { recursive: true });

@@ -49,4 +49,11 @@ if (typeof document !== 'undefined') {
       clear:      () => { for (const k in store) delete store[k]; },
     };
   }
+
+  // Provide a renderDialoguesSection no-op stub so that project-detail.js
+  // renders correctly in test files that do not load project-detail-dialogues.js.
+  // Tests that DO load the real implementation override this via vm.runInThisContext.
+  if (!(global as Record<string, unknown>)['renderDialoguesSection']) {
+    (global as Record<string, unknown>)['renderDialoguesSection'] = function () {};
+  }
 }

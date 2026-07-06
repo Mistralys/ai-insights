@@ -108,6 +108,9 @@ beforeAll(() => {
     renderLogPreview:    vi.fn().mockReturnValue(vi.fn()), // returns cleanup stub
     renderProgressBadge: vi.fn().mockReturnValue('<span class="badge-neutral">• idle</span>'),
     renderStatusCard:    vi.fn().mockReturnValue('<div>card</div>'),
+    renderAdminMenu:     vi.fn().mockImplementation((_id: string, _cb: () => void) => {
+      return document.createElement('div');
+    }),
   };
 
   // Load the orchestrator view script.
@@ -142,6 +145,10 @@ beforeEach(() => {
     });
   globalThis.OrchestratorWidgets.renderLogPreview = vi.fn()
     .mockReturnValue(vi.fn());
+  globalThis.OrchestratorWidgets.renderAdminMenu = vi.fn()
+    .mockImplementation((_id: string, _cb: () => void) => {
+      return document.createElement('div');
+    });
 });
 
 afterEach(() => {
