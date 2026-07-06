@@ -6,6 +6,7 @@
 - MCP: Added `ledger_import_standalone` tool and synthesis log parser for standalone archival.
 - GUI: Added standalone runner display on the project list; fixed Kill button silent failure.
 - GUI: Removed noisy ENOENT CLI messages for folders without metadata.
+- Orchestrator: Running plans from the GUI no longer opens a terminal window (Windows).
 - Scripts: Added `import-standalone` CLI command for single and batch plan folder import.
 - Personas: Added standalone-archiver support persona and Developer subagent archival dispatch.
 - Personas: Added Workspace Architect and Communications Curator standalone personas.
