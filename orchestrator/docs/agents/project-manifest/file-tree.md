@@ -57,6 +57,7 @@ orchestrator/
 │       ├── filelock.py         # Cross-platform file locking (msvcrt / fcntl)
 │       ├── logging.py          # WorkflowLogger — JSONL + console logger with heartbeat
 │       ├── mcp_parse.py        # parse_tool_response helper
+│       ├── path_middleware.py  # PathNormalizationMiddleware — rewrites Windows paths to virtual /‑rooted paths
 │       ├── persona.py          # load_persona — reads persona Markdown files
 │       ├── persona_models.py   # Persona model configuration types
 │       ├── plan_parser.py      # Plan document parser
@@ -77,7 +78,8 @@ orchestrator/
     ├── test_integration.py          # End-to-end graph execution (ScriptedLedger)
     ├── test_logging.py              # WorkflowLogger: format helpers, all 8 event-type console format patterns
     ├── test_mcp_parse.py            # parse_tool_response helper
-    ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result
+    ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result, middleware wiring
+    ├── test_path_middleware.py      # PathNormalizationMiddleware: path rewriting, passthrough, case-insensitivity, edge cases
     ├── test_persona_models.py       # Persona model configuration types
     ├── test_plan_parser.py          # Plan document parsing
     ├── test_post_completion_guard.py # Post-completion guard logic

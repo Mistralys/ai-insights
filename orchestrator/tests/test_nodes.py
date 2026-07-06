@@ -1943,3 +1943,56 @@ class TestConfigRetryWiring:
         assert captured.get("max_retries") == 0, (
             f"Expected max_retries=0, got {captured.get('max_retries')!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: PathNormalizationMiddleware wiring in create_stage_node
+# ---------------------------------------------------------------------------
+
+
+class TestPathMiddlewareWiring:
+    """Verify that create_stage_node passes PathNormalizationMiddleware to
+    create_deep_agent in the middleware kwarg (AC6 from plan)."""
+
+    async def test_middleware_passed_to_create_deep_agent(self):
+        """create_stage_node must call create_deep_agent with a middleware kwarg
+        containing a PathNormalizationMiddleware instance whose _root matches
+        the normalized target_project_path from state."""
+        from src.nodes import create_stage_node
+        from src.utils.path_middleware import PathNormalizationMiddleware
+
+        captured_kwargs: list[dict] = []
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured_kwargs.append(kwargs)
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        target = "/target/project"
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            await node_fn(base_state(target_project_path=target))
+
+        assert captured_kwargs, "create_deep_agent was not called"
+        kwargs = captured_kwargs[0]
+        assert "middleware" in kwargs, (
+            "create_deep_agent must receive a 'middleware' keyword argument"
+        )
+        mw_list = kwargs["middleware"]
+        assert mw_list, "middleware list must be non-empty"
+        assert any(isinstance(m, PathNormalizationMiddleware) for m in mw_list), (
+            "middleware list must contain a PathNormalizationMiddleware instance"
+        )
+        pnm = next(m for m in mw_list if isinstance(m, PathNormalizationMiddleware))
+        expected_root = target.replace("\\", "/")
+        assert pnm._root == expected_root, (
+            f"PathNormalizationMiddleware._root expected {expected_root!r}, "
+            f"got {pnm._root!r}"
+        )

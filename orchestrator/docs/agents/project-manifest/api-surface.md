@@ -238,6 +238,26 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 ---
 
+### `src/utils/path_middleware.py`
+
+Deep Agents tool-call middleware that rewrites Windows drive-letter paths to virtual
+`/`-rooted paths before `validate_path()` runs inside the Deep Agents sandbox.
+Designed to work in tandem with `LocalShellBackend(virtual_mode=True)`.
+On macOS/Linux, the middleware is a zero-cost no-op (the `_active` flag is `False`
+when `root_dir` does not start with `[a-zA-Z]:`).
+
+See also: [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware).
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `PathNormalizationMiddleware` | `PathNormalizationMiddleware(root_dir: str)` | `AgentMiddleware` subclass. Scans all string arguments of every tool call for Windows drive-letter paths (`^[a-zA-Z]:`). Values whose normalized form case-insensitively starts with `root_dir` are rewritten to `/`-rooted virtual paths; all other values pass through unchanged. |
+| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = bool(WIN_PATH_RE.match(root_dir))`. When `_active` is `False`, all methods are no-ops. |
+| `PathNormalizationMiddleware._to_virtual` | `_to_virtual(value: str) -> str` | Normalizes backslashes in *value* to `/`, then case-insensitively strips the `_root` prefix and prepends `/`. Returns *value* unchanged when it does not start with `_root`. Returns `"/"` when *value* equals `root_dir` exactly. |
+| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those matching `^[a-zA-Z]:`, and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
+| `PathNormalizationMiddleware.awrap_tool_call` | `awrap_tool_call(request, handler) -> ToolMessage \| Command` | Calls `_rewrite_args` on `request.tool_call["args"]`. When changes are needed, creates a new request via `request.override(tool_call={...args: modified})`. Delegates to `handler(request)` in all cases. |
+
+---
+
 ### `src/utils/run_queue.py`
 
 Cross-platform run-queue manager. Called by `cli.py` to self-register and self-unregister

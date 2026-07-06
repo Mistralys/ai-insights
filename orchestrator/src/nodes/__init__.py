@@ -33,6 +33,7 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.chunk_writer import ChunkWriter
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
+from src.utils.path_middleware import PathNormalizationMiddleware
 from src.utils.tool_wrappers import (
     _make_tool_response,
     inject_project_path,
@@ -865,6 +866,16 @@ def create_stage_node(
                 root_dir=target_path or None, virtual_mode=True, inherit_env=True
             )
 
+            # PathNormalizationMiddleware rewrites Windows drive-letter paths
+            # (e.g. F:\Webserver\src\file.ts) to virtual /‑rooted paths
+            # (/src/file.ts) before validate_path() runs inside Deep Agents.
+            # This is complementary to virtual_mode=True: virtual mode resolves
+            # /‑rooted paths; the middleware ensures they reach validation clean.
+            # On macOS/Linux target_path never starts with [a-zA-Z]: so the
+            # middleware is a zero-cost no-op.
+            # See docs/agents/project-manifest/constraints.md §22.
+            path_middleware = PathNormalizationMiddleware(target_path)
+
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:
                 restrict_to_wp(wrapped_tools, _wp_id)
@@ -888,6 +899,7 @@ def create_stage_node(
                 system_prompt=persona_prompt,
                 tools=wrapped_tools,
                 subagents=stage_subagents or None,
+                middleware=[path_middleware],
             )
 
             # Derive slug_dir once; passed to _accumulate_stream for ChunkWriter.

@@ -592,5 +592,51 @@ entry = {
 
 **Rationale:** A dedicated `expectedRepo` field eliminates the need for runtime parsing at every queue consumer site. The alternative (embedding a composite `repo/slug` string in `expectedSlug`) would require every reader to detect, split, and fall back, multiplying fragile parsing logic across 4+ locations. A single nullable field on the 6-field interface is trivially additive and backward compatible — old queue entries written before this schema change have `expectedRepo` absent in JSON, which normalizes to `null` at the read boundary.
 
+---
 
+### 26. All Deep Agents Instantiations Must Include `PathNormalizationMiddleware`
 
+**Rule:** Every `create_deep_agent()` call in `src/nodes/__init__.py` must include
+`middleware=[PathNormalizationMiddleware(target_path)]` in its kwargs. `target_path` must be
+the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
+without the `middleware` parameter, and never pass an empty list.
+
+**Rationale:** Deep Agents' `validate_path()` unconditionally rejects any argument matching
+`^[a-zA-Z]:` before `_resolve_path()` can translate it to a virtual path. Without the
+middleware, any agent on Windows that supplies a file-tool argument such as
+`F:\Webserver\project\src\file.ts` receives "Windows absolute paths are not supported",
+causing every file operation to fail. The middleware is a zero-cost no-op on macOS/Linux
+(where `target_path` never starts with a drive letter), so it is safe to include unconditionally.
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — middleware always present; PathNormalizationMiddleware is a no-op on
+# macOS/Linux when target_path is a POSIX path
+path_middleware = PathNormalizationMiddleware(target_path)
+agent = create_deep_agent(
+    model=resolved_model,
+    backend=backend,
+    system_prompt=persona_prompt,
+    tools=wrapped_tools,
+    subagents=stage_subagents or None,
+    middleware=[path_middleware],
+)
+```
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — no middleware; Windows file tool calls fail at validate_path()
+agent = create_deep_agent(
+    model=resolved_model,
+    backend=backend,
+    system_prompt=persona_prompt,
+    tools=wrapped_tools,
+)
+```
+
+**Complementary dependency:** `LocalShellBackend(virtual_mode=True)` must remain enabled
+alongside the middleware (Constraint 8 / `2026-07-04-windows-path-resolution`).
+`virtual_mode=True` resolves `/`-rooted virtual paths on Windows; the middleware produces
+them. Both are required for Windows file-tool support.
+
+**Source:** `orchestrator/src/utils/path_middleware.py` — `PathNormalizationMiddleware`.

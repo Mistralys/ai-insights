@@ -1,5 +1,12 @@
 # Orchestrator Changelog
 
+## v1.3.0 - Windows Path Normalization Middleware
+- Nodes: Added PathNormalizationMiddleware to rewrite Windows drive-letter paths before Deep Agents
+  validation; zero-cost no-op on macOS and Linux.
+- Nodes: Wired path middleware into all create_deep_agent() calls.
+- Templates: Added project-path-reminder.md partial for path context in stage prompts.
+- Tests: Added 26 tests covering middleware rewriting, passthrough, and node integration.
+
 ## v1.2.0 - PM Dialogue Capture and Windows Fixes
 - Nodes: PM and Synthesis stages now capture dialogue even when not assigned to a work package.
 - Nodes: Fixed Windows path resolution when running with virtual_mode=True.
