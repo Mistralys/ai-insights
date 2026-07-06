@@ -15,6 +15,7 @@ _SOURCE: Test suite directory structure_
         └── gui/
             ├── README.md
             ├── api-client.test.ts
+            ├── api-dialogue-parse.test.ts
             ├── api-knowledge.test.ts
             ├── api-orchestrator.test.ts
             ├── api-repos.test.ts
@@ -41,6 +42,7 @@ _SOURCE: Test suite directory structure_
             ├── orchestrator-view.test.ts
             ├── orchestrator-widgets.test.ts
             ├── project-detail-auto-update.test.ts
+            ├── project-detail-dialogues.test.ts
             ├── project-detail-diff.test.ts
             ├── project-detail-helpers.test.ts
             ├── project-detail-poll-modes.test.ts
@@ -85,6 +87,8 @@ _SOURCE: Test suite directory structure_
             ├── root-index.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
+        └── startup/
+            ├── tool-log-sync.test.ts
         └── storage/
             ├── knowledge-store-exclusion.test.ts
             ├── knowledge-store.test.ts
@@ -114,6 +118,7 @@ _SOURCE: Test suite directory structure_
             ├── rework-circuit-breaker.test.ts
             ├── runner-integration.test.ts
             ├── schema-integrity.test.ts
+            ├── standalone-import.test.ts
             ├── start-pipeline-guards.test.ts
             ├── synthesis-terminal.test.ts
             ├── version-freshness.test.ts
@@ -133,6 +138,7 @@ _SOURCE: Test suite directory structure_
             └── project-reset.test.ts
             └── project-resolver.test.ts
             └── runner.test.ts
+            └── synthesis-parser.test.ts
             └── timestamp.test.ts
             └── workflow-helpers.test.ts
             └── workflow-manifest.test.ts

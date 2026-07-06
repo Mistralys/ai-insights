@@ -75,7 +75,8 @@ mcp-server/
 │       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
 │       ├── views/
 │   │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns, archive/unarchive/delete row buttons, pagination, 10s polling; all project row links and action-menu View links use namespaced `#/projects/{repo}/{slug}` form (WP-009); API delete/archive/unarchive calls pass (repo, slug); projects with null repository_name render as read-only rows (no link, no View action) with a console.warn — action buttons still appear but are silently skipped with console.error on click; ProjectNameCache populated with `repo/slug` key per row; runner filter dropdown (RUNNER_STORAGE key mcp-runner-filter, buildRunnerOptions() dynamically filters runner_counts to count only — fixed: previously hardcoded all 4 types; preserves stale localStorage selections as zero-count entry); runnerBadge() renders .badge.badge-runner.badge-runner-{type} — fixed: previously emitted badge-unknown instead of badge-runner-unknown; runnerLabel() unused — cleanup candidate; sortable Runner column
-│   │   ├── project-detail.js  # extractSynopsis, renderPlan(app, repo, slug), renderSynthesis(app, repo, slug), renderProjectDetail(app, repo, slug); STAGE_ABBREV, buildPipelineTrack; showResetModal(repo, slug, diagnosis, options); archive banner; all API calls and internal links use namespaced (repo, slug) form (WP-013); module-level helpers exposed on globalThis: _findScrollAnchor(el, _getStyle) — walks up the DOM to find the nearest scrollable ancestor (injectable _getStyle for jsdom tests; falls back to document.documentElement), renderRunsList(runsEl, sorted, repo, slug, activeFilename, matchingQueueEntry) — rebuilds orchestrator runs list in-place with scroll preservation and log-preview drain/restart (WP-004)
+│   │   ├── project-detail.js  # extractSynopsis, renderPlan(app, repo, slug), renderSynthesis(app, repo, slug), renderProjectDetail(app, repo, slug); STAGE_ABBREV, buildPipelineTrack; showResetModal(repo, slug, diagnosis, options); archive banner; all API calls and internal links use namespaced (repo, slug) form (WP-013); module-level helpers exposed on globalThis: _findScrollAnchor(el, _getStyle) — walks up the DOM to find the nearest scrollable ancestor (injectable _getStyle for jsdom tests; falls back to document.documentElement), renderRunsList(runsEl, sorted, repo, slug, activeFilename, matchingQueueEntry) — rebuilds orchestrator runs list in-place with scroll preservation and log-preview drain/restart (WP-004); calls renderDialoguesSection() after DOM is set for the project-level Dialogues section
+│   │   ├── project-detail-dialogues.js  # renderDialoguesSection(sectionEl, repo, slug) — fetches all chunks/dialogues (no WP filter), merges (chunks take priority), groups by source+stage, renders overview table with Source/Stage/Dialogue columns and expandable revision buttons; sub-module loaded before project-detail.js
 │   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
 │   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
 │   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
@@ -119,7 +120,7 @@ mcp-server/
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
 │   │   ├── knowledge-store.ts   # KnowledgeStoreManager — all CRUD/query operations for the .knowledge/ store: addInsight, searchInsights, listInsights, updateInsight, deleteInsight, moveInsight; atomic cross-store move via single withLock(knowledgeDir()) span (WP-002); reads are lock-free (WP-001/002)
-│   │   ├── ledger-store.ts      # Central storage abstraction; static methods: listAllProjects() (two-level namespace scan), detectProjectByCwd(), listProjectsByFolderNames(folderNames, ledgerRoot?) — targeted O(folders×projects) scan used by repository-context.ts; instance methods: read/write root index, WP detail, project meta, archiving, atomic sync helpers
+│   │   ├── ledger-store.ts      # Central storage abstraction; exports: ImportStandaloneDetail interface (parameter type for importStandaloneProject), SlugConflictError; static methods: listAllProjects() (two-level namespace scan), detectProjectByCwd(), listProjectsByFolderNames(folderNames, ledgerRoot?) — targeted O(folders×projects) scan used by repository-context.ts; instance methods: read/write root index, WP detail, project meta, archiving, atomic sync helpers; importStandaloneProject(detail) — bootstraps a full COMPLETE standalone project record (root index + WP-001 detail + .meta.json sync + document archival) within a single lock scope
 │   │   ├── migrate-namespaced.ts  # One-shot startup migration: flat {slug}/ → namespaced {repoName}/{slug}/; exports migrateToNamespacedLayout()
 │   │   └── repository-registry.ts  # Plain-function storage module for the central .repositories.json registry; exports loadRegistry(ledgerRoot) — reads and parses the registry, returns { repositories: [] } on absent file, malformed JSON, or schema validation failure (all three error paths silently degrade to an empty registry — intentional lossy-fallback contract); saveRegistry(ledgerRoot, registry) — validates via RepositoryRegistrySchema then writes atomically under withLock(ledgerRoot); findByFolderName(registry, folderName) — pure synchronous O(n×m) lookup, no I/O; getAllFolderNames(entry) — returns a defensive copy of entry.folder_names; consumed by WP-005 (repository-context.ts) and WP-006 (api-repos.ts) via resolveLedgerRoot()
 │   │
@@ -130,6 +131,7 @@ mcp-server/
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
+│   │   ├── standalone-import.ts # ledger_import_standalone — imports a completed standalone developer plan execution into the project ledger; Zod schema (project_path/cwd_path); validation pipeline (path present → basename convention → plan.md → synthesis.md → duplicate slug); delegates writes to LedgerStore.importStandaloneProject(); exports _internal and register()
 │   │   ├── repository-context.ts  # ledger_get_repository_context — returns a compact project timeline with curated outcome summaries, knowledge-base insights, and strategic vision for a repository; exports register(server) and _internal (test-only: GetRepositoryContextSchema, getRepositoryContext, safeListRepositoryInsights); handler: resolves repository name (repository_name takes precedence over cwd_path), consults .repositories.json registry, aggregates projects from all declared folder_names via LedgerStore.listProjectsByFolderNames(), sorts by date_created desc, caps at max_projects, optionally queries global + repository-scoped knowledge store via safeListRepositoryInsights() (slug-validation errors suppressed — returns [] for invalid SLUG_REGEX names and the reserved "global" name; genuine I/O errors are re-thrown); deduplicates combined insights by numeric id (global-first, first-seen wins); field always present in response: relevant_insights[] (empty array when include_insights: false) (WP-005)
 │   │   ├── work-package.ts      # WP CRUD tools
 │   │   ├── workflow.ts          # Thin aggregator
@@ -151,6 +153,7 @@ mcp-server/
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
 │       ├── server-version.ts      # Reads MCP server version from package.json
+│       ├── synthesis-parser.ts    # parseOutcomeSummary() — extracts ### Outcome Summary from a synthesis Markdown string; falls back to first bullet of ### Implementation Summary; returns null when neither section yields content; pure utility, zero dependencies
 │       ├── timestamp.ts           # Timestamp formatting
 │       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
@@ -178,6 +181,8 @@ mcp-server/
     │   ├── client-rendering.test.ts
     │   ├── config.test.ts       # Unit tests for src/gui/config.ts
     │   ├── dialogue-qa.test.ts
+    │   ├── api-dialogue-parse.test.ts  # Unit and integration tests for updated DIALOGUE_PARSE_RE / CHUNK_PARSE_RE (project- prefix support) and wpId="project" filter acceptance in handleListDialogues / handleListChunks; real temp dirs
+    │   ├── project-detail-dialogues.test.ts  # jsdom + vm.runInThisContext tests for renderDialoguesSection(): empty state, project-level Source badge, WP-level source cell, chunk priority over Markdown, expand/collapse interaction, error state, table structure (column headers, grouping)
     │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
     │   ├── log-resolver.test.ts
     │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers: planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
@@ -213,6 +218,9 @@ mcp-server/
     │   ├── validators.test.ts
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
+    ├── startup/                 # Startup-time static analysis tests
+    │   └── tool-log-sync.test.ts  # Asserts the hardcoded startup log in src/index.ts contains exactly the tool names registered via server.registerTool() across all src/tools/*.ts modules; catches drift without bootstrapping the server at runtime
+    │
     ├── storage/                 # Storage layer tests
         ├── knowledge-store-exclusion.test.ts  # Tests that knowledge store paths are excluded from project storage operations
         ├── knowledge-store.test.ts  # KnowledgeStoreManager unit tests
@@ -242,6 +250,7 @@ mcp-server/
     │   ├── rework-circuit-breaker.test.ts
     │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   ├── schema-integrity.test.ts
+    │   ├── standalone-import.test.ts  # 14 tests for ledger_import_standalone: successful import (project creation, WP-001 structure, archival, cwd_path fallback, project_path precedence), all four validation error paths (no path, bad basename, missing plan.md, missing synthesis.md), duplicate slug rejection, outcome summary extraction with fallback, and repo name derivation
     │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
     │   ├── version-freshness.test.ts
@@ -262,6 +271,7 @@ mcp-server/
         ├── progress.test.ts
         ├── project-reset.test.ts
         ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
+        ├── synthesis-parser.test.ts  # 17 unit tests for parseOutcomeSummary(): present (AC-1), fallback to first Implementation Summary bullet (AC-2), both absent returns null (AC-3), malformed input (AC-4), plus edge cases (empty section, multi-paragraph, whitespace-only body, asterisk bullets, h4 sub-headings, no-newline EOF); uses doc() helper to reduce boilerplate
         ├── timestamp.test.ts
         ├── workflow-helpers.test.ts
         ├── workflow-manifest.test.ts  # Structural invariants (34 tests)

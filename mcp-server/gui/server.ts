@@ -52,6 +52,7 @@ import {
   handleGetOrchestratorQueue,
   handleOrchestratorKill,
   handleOrchestratorDismiss,
+  handleOrchestratorDelete,
   handleGetRunStatus,
   handleGetRunMetadata,
   ApiError,
@@ -1656,6 +1657,24 @@ export async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/orchestrator/delete/:id — admin force-remove; responds with 204 No Content
+  if (method === 'POST' && path.startsWith('/api/orchestrator/delete/')) {
+    const id = decodeURIComponent(path.slice('/api/orchestrator/delete/'.length));
+    try {
+      await handleOrchestratorDelete(id, orchestratorLogsDir);
+      res.writeHead(204, { ...corsHeaders(port), ...securityHeaders() });
+      res.end();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/delete/:id: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }

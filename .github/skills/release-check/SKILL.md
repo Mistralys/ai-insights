@@ -33,6 +33,22 @@ Validates `shared/workflow-manifest.json` structure and cross-references (roles,
 
 ### 3. Personas lock file sync
 
+**3a. Check for local file path in lock file**
+
+```bash
+grep '"resolved"' personas/package-lock.json | grep '"file:'
+```
+
+Must return **no output**. If any `resolved` entry points to a local `file:` path (e.g., `file:../../ai-persona-builder/...`), the lock file was generated against a local workspace tarball rather than the npm registry. CI will fail with `ENOENT` because that path does not exist on the runner.
+
+**Fix if it fails:**
+```bash
+cd personas && rm -rf node_modules package-lock.json && npm install
+```
+Then re-run the grep to confirm all `resolved` entries now point to `https://registry.npmjs.org/...`. The regenerated `personas/package-lock.json` must be committed before tagging.
+
+**3b. Lock file / manifest sync**
+
 ```bash
 cd personas && npm ci
 ```
@@ -120,6 +136,7 @@ Compare the latest tag against the root `changelog.md` top entry. The changelog 
 |-------|-----------------|
 | Version sync | Exit 0, "All module versions are in sync" |
 | Manifest validation | Exit 0, roles and pipelines count reported |
+| Personas lock file path | `grep` returns no output — no `file:` resolved paths |
 | Personas `npm ci` | Exit 0, no lock file mismatch error |
 | Persona build `--check` | Exit 0, no stale files detected |
 | MCP server tests | All test files and tests pass |

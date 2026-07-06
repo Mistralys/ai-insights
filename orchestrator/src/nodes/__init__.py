@@ -855,7 +855,15 @@ def create_stage_node(
             # environment variables to agent subprocesses. Acceptable for local
             # development; curated-env hardening is tracked in
             # docs/agents/deferred-topics.md § Orchestrator.
-            backend = LocalShellBackend(root_dir=target_path or None, inherit_env=True)
+            # virtual_mode=True fixes Windows path resolution: deepagents'
+            # validate_path() rejects Windows drive-letter paths and
+            # _resolve_path() mis-joins root-anchored POSIX paths on Windows
+            # (pathlib replaces the drive path). Virtual mode resolves paths as
+            # root_dir-relative, which works correctly on all platforms.
+            # See docs/agents/research/2026-07-04-windows-path-resolution.md
+            backend = LocalShellBackend(
+                root_dir=target_path or None, virtual_mode=True, inherit_env=True
+            )
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:
@@ -884,7 +892,7 @@ def create_stage_node(
 
             # Derive slug_dir once; passed to _accumulate_stream for ChunkWriter.
             _slug_dir: Path | None = None
-            if _app_config.capture_dialogues and _wp_id:
+            if _app_config.capture_dialogues:
                 _slug_dir = _derive_slug_dir(
                     state.get("project_path", ""),  # type: ignore[call-overload]
                     _app_config.workspace_root,
@@ -896,11 +904,15 @@ def create_stage_node(
                         stage,
                     )
 
+            # Use "project" sentinel for stages without a WP ID (PM, Synthesis)
+            # so ChunkWriter receives a valid filename component.
+            _capture_wp_id = _wp_id or "project"
+
             _msgs, _chunk_file_path = await _accumulate_stream(
                 agent,
                 user_prompt,
                 _slug_dir,
-                _wp_id,
+                _capture_wp_id,
                 stage,
                 max_retries=_app_config.stream_max_retries,
                 base_delay_s=_app_config.stream_retry_base_delay_s,
@@ -913,7 +925,7 @@ def create_stage_node(
 
             # ── dialogue capture (optional, non-fatal) ────────────────
             chunk_captured_entry: dict | None = None
-            if _app_config.capture_dialogues and _wp_id and _chunk_file_path is not None:
+            if _app_config.capture_dialogues and _chunk_file_path is not None:
                 try:
                     chunk_captured_entry = {
                         "timestamp": datetime.now(UTC).isoformat(),

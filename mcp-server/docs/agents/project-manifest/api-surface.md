@@ -3955,18 +3955,22 @@ export async function handleGetProjectHealth(
 ): Promise<ProjectHealthSummary>;
 
 // Structured representation of a single dialogue file, parsed from the filename convention
-// {WP_ID}-{stage}-r{N}.md.  wp_id and stage are empty strings for non-conforming names.
+// {WP_ID}-{stage}-r{N}.md or project-{stage}-r{N}.md.  wp_id and stage are empty strings
+// for non-conforming names; revision defaults to 0 for non-conforming names.
 export interface DialogueEntry {
   filename: string;
-  wp_id: string;   // e.g. 'WP-001'
-  stage: string;   // e.g. 'developer'
+  wp_id: string;   // e.g. 'WP-001' or 'project' for PM/Synthesis dialogues
+  stage: string;   // e.g. 'developer' or 'pm'
+  revision: number; // parsed from r{N} suffix; 0 for non-conforming filenames
 }
 
-// GET /api/projects/:slug/dialogues[?wp=WP-001]
+// GET /api/projects/:slug/dialogues[?wp=WP-001|project]
 // Returns an array of structured DialogueEntry objects from the project's orchestrator/dialogues/ directory.
 // Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
 // Returns [] when the project exists but the dialogues/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
+//   Accepted values: 'WP-{digits}' (e.g. 'WP-001') or the literal 'project' (PM/Synthesis dialogues).
+//   Invalid values (e.g. injection attempts) return [].
 // All returned entries are sorted alphabetically by filename.
 // Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListDialogues(
@@ -4005,11 +4009,13 @@ export async function handleGetDialogueFile(
 export const CHUNKS_DIR: 'orchestrator/chunks';
 
 // Structured representation of a single chunk file, parsed from the filename convention
-// {WP_ID}-{stage}-r{N}.jsonl.  wp_id and stage are empty strings for non-conforming names.
+// {WP_ID}-{stage}-r{N}.jsonl or project-{stage}-r{N}.jsonl.  wp_id and stage are empty
+// strings for non-conforming names; revision defaults to 0 for non-conforming names.
 export interface ChunkEntry {
   filename: string;
-  wp_id: string;   // e.g. 'WP-001'
-  stage: string;   // e.g. 'developer'
+  wp_id: string;   // e.g. 'WP-001' or 'project' for PM/Synthesis chunks
+  stage: string;   // e.g. 'developer' or 'pm'
+  revision: number; // parsed from r{N} suffix; 0 for non-conforming filenames
 }
 
 // GET /api/projects/:slug/chunks[?wp=WP-001]
@@ -4018,8 +4024,9 @@ export interface ChunkEntry {
 // wp_id and stage parsed from the {WP_ID}-{stage}-r{N}.jsonl convention.
 // Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
 // Returns [] when the project exists but the chunks/ subdirectory is absent (no error thrown).
-// Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned
-// (wpId validated against WP_ID_RE — invalid values return []).
+// Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
+//   Accepted values: 'WP-{digits}' (e.g. 'WP-001') or the literal 'project' (PM/Synthesis chunks).
+//   Invalid values (e.g. injection attempts) return [].
 // All returned entries are sorted alphabetically by filename.
 // Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListChunks(

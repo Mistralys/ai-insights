@@ -1,49 +1,19 @@
 # Personas Changelog
 
-## v3.26.0 - **WIP Unreleased**
-- Ledger: Verbatim AC Text guidance extended to Security Auditor, Reviewer, Release Engineer, and
-  Documentation operational protocols — all six pipeline-completing personas now carry the exact-match
-  copy instruction for `acceptance_criteria_updates`.
-- `personas/README.md` updated to reflect the current build output: 3 suites (ledger 9, standalone 21,
-  ledger-support 10), 3 targets (vs-code, claude-code, deep-agents), 40 personas × 3 = 120 generated
-  files.
-- `scripts/build-personas.js`: `PERSONA_FILES` hardcoded list replaced with a dynamic directory scan
-  of `personas/ledger/src/meta/` — eliminates manual sync with `shared/workflow-manifest.json`.
-- Ledger: Planner plan output template now uses numbered `AC-{NN}:` prefix format (zero-padded, sequential) with an explanatory instruction for agents.
-- Ledger-Support: WP Decomposer gains Step 3 — Map Plan AC to WPs — with a `Plan AC Coverage` table in the output template and a quality-checklist item ensuring every plan `AC-{NN}` maps to at least one WP. Old Step 3 renumbered to Step 4.
-- Ledger: Developer and QA personas gain explicit verbatim-copy guidance for `acceptance_criteria_updates`: copy criterion text directly from `ledger_get_work_package` output to prevent phantom duplicate creation from inexact text matches.
-- Ledger-Support: Bootstrapper protocol reordered — WPs are now registered in the ledger (Step 3) before spec files are created on disk (Step 4), eliminating the ID mismatch / rename-step failure mode.
-- Ledger-Support: Bootstrapper gains Single-source AC rule: the `acceptance_criteria` array passed to `ledger_create_work_package` and the `## Acceptance Criteria` section written to the spec file must be sourced from the same data — no second transcription from the WP draft.
-- Ledger-Support: Bootstrapper Step 6 gains content-level AC verification: calls `ledger_get_work_package` per WP and compares returned criteria against the spec file using normalized comparison (trim + case-fold), emitting a warning on mismatch without aborting. Step 7 report template includes an AC Check column.
-- Ledger: PM Step 9 gains self-healing AC content fidelity check: compares ledger AC against spec file, updates spec file to match the ledger (ledger is authoritative) on mismatch, and re-reads to confirm the fix. No handoff until consistent.
-- Ledger: PM output format partial gains AC content fidelity verification instruction (normalized comparison: trim + case-fold; spec file updated to match ledger).
-- Standalone: Recipe Curator — recipe identifiers (R1, R2, …) across previews,
-  plan tables, and full recipes for easy back-reference in long conversations.
-- Standalone: Recipe Curator — template fidelity constraint: output templates
-  must preserve exact Markdown structure across languages; field values stay
-  compact.
-- Standalone: Recipe Curator — recipe preview step: Single Recipe workflow
-  now presents a compact summary for chef approval before generating the
-  full recipe (9 steps).
-- Standalone: Recipe Curator — structural audit: merged philosophy (8→6),
-  extracted Operational Protocol, de-duplicated constraints, condensed
-  workflows (Single Recipe 8 steps, Weekly Plan 10 steps).
-- Standalone: Recipe Curator — split unified Workflow into Operating Modes
-  (Single Recipe / Weekly Plan) with dedicated per-mode workflows.
-- Standalone: Added Workspace Architect — orchestrates sub-agents to onboard
-  or upgrade repositories for the AI Insights persona ecosystem.
-- Standalone: Git Committer audit compliance — added pre-execution checklist,
-  fixed placeholders, output location, constraint reframing, style cleanup.
-- Standalone: Git Committer hardened for git edge cases — no-remote/no-tracking
-  guards, default branch detection, detached HEAD handling, pre-staged file
-  handling, stash cleanup after conflict resolution, diff content analysis.
-- Standalone: Git Committer now supports upstream integration (stash-merge-restore workflow).
-- Standalone: Added Communications Curator for user- and stakeholder-facing content
-  writing — release notes, user responses, stakeholder briefs, presentation slides.
-- Standalone: Recipe Curator — canned fish clarified as standalone side, not
-  a recipe ingredient; removed from pantry examples and substitution suggestions.
-- Ledger: Planner Synthesis Rework mode triages deferred items instead of omitting them;
-  most valuable promoted into plan steps, remainder preserved in a Deferred Items table.
+## v3.26.0 - Standalone Archiver and New Curators
+- Build: Replaced hardcoded persona list with a dynamic directory scan.
+- Ledger: WP decomposition and AC setup hardening across the board.
+- Standalone: Plan Architect Reviewer improvements.
+- Standalone: Git Committer now aware that only plan.md and synthesis.md are tracked in plan folders.
+- LedgerSupport: Added standalone-archiver persona for archiving standalone plan folders into the ledger.
+- Ledger: Developer gains subagent archival dispatch for completed standalone work.
+- Standalone: Added Workspace Architect for AI Insights repo onboarding and ecosystem maintenance.
+- Standalone: Added Communications Curator for stakeholder briefs, release notes, and slides.
+- Standalone: Git Committer hardened with upstream integration, edge-case guards, audit compliance.
+- Standalone: Recipe Curator restructured into Operating Modes with preview step and recipe IDs.
+- Ledger: Planner Synthesis Rework triages deferred items; top items promoted into plan steps.
+- Docs: Updated Persona Design Guide to v2.2 with separator-handling guidance.
+- Build: Updated persona-builder dependency.
 
 ## v3.25.0 - Ledger-Support Suite
 - Build: Introduced `ledger-support` as a dedicated third suite for MCP-dependent support personas.

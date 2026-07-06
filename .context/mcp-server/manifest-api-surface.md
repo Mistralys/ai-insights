@@ -23,7 +23,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (28 Total)
+## MCP Tools (30 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -129,6 +129,52 @@ Identifies the active project by cross-referencing the supplied working-director
 Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
 All tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
+
+#### `ledger_import_standalone`
+
+```typescript
+(args: {
+  project_path?: string;  // Absolute path to the standalone plan folder to import. Takes precedence over cwd_path.
+  cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
+  // At least one of project_path or cwd_path is required.
+}) => Promise<MCPResult>
+```
+
+Imports a completed standalone developer plan execution into the project ledger. Designed for use after a standalone (non-ledger-workflow) development session where the developer used the Standalone Developer persona and produced a `plan.md` and `synthesis.md`.
+
+**Validation rules (evaluated in order):**
+1. **Path required** — rejects calls that supply neither `project_path` nor `cwd_path`.
+2. **Plan folder naming** — the folder basename must match the `{YYYY-MM-DD}-{name}` convention (validated by `planFolderBasename()`). Returns a descriptive error on mismatch.
+3. **`plan.md` existence** — rejects with `"Import failed: plan.md not found in …"` when the file is absent.
+4. **`synthesis.md` existence** — rejects with `"Import failed: synthesis.md not found in …"` when the file is absent.
+5. **Duplicate slug** — rejects with `"Import failed: a project with slug "…" already exists."` when the ledger storage directory for the derived slug already exists.
+
+**Repository name derivation:** `deriveRepoName()` (upgraded in WP-001 to use the `docs/agents` anchor algorithm) is called transparently by the `LedgerStore` constructor. Plan folders outside a `docs/agents` directory tree resolve to `'unknown'`.
+
+**Date derivation:** `dateCreated` is extracted from the `YYYY-MM-DD` prefix in the plan folder name (e.g. `2026-06-30-my-feature` → `2026-06-30T00:00:00Z`). Falls back to `now()` for atypically named folders.
+
+**Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
+
+**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives both source files, and auto-syncs `.meta.json`. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
+
+**Produced project record:**
+- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated.
+- `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
+- `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
+- `plan.md` and `synthesis.md` archived to `{ledgerRoot}/{repoName}/{slug}/`.
+
+**Response shape (on success):**
+
+```typescript
+{
+  slug: string;                // Plan folder basename (e.g. "2026-06-30-my-feature")
+  outcome_summary: string | null; // Extracted from synthesis.md; null when not found
+  archived_files: string[];    // Filenames successfully copied to storage dir
+  project_storage_path: string; // Absolute path to the project storage directory
+}
+```
+
+**Implementation:** `src/tools/standalone-import.ts` — registered via `standaloneImportTools.register(server)` in `src/index.ts`.
 
 ---
 
@@ -1178,6 +1224,30 @@ export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Prom
 
 ## Storage API
 
+### `ImportStandaloneDetail`
+
+Named export from `src/storage/ledger-store.ts`. Parameter type for `LedgerStore.importStandaloneProject()`. All fields are pre-computed by the caller so the method is a pure storage orchestrator, not a business-logic processor.
+
+```typescript
+export interface ImportStandaloneDetail {
+  /** Plan file name used as `plan_file` in the root index and as archive source (e.g. `'plan.md'`). */
+  planFile: string;
+  /** Synthesis file name to archive alongside the plan (e.g. `'synthesis.md'`). */
+  synthesisFile: string;
+  /**
+   * ISO 8601 UTC timestamp for when the standalone plan was created/executed.
+   * Used as `date_created` on the root index and `started_at` on the WP-001 pipeline entry.
+   */
+  dateCreated: string;
+  /** Outcome summary extracted from synthesis.md, or `null` if unavailable. */
+  outcomeSummary: string | null;
+  /** Summary lines for the WP-001 implementation pipeline entry. */
+  pipelineSummary: string[];
+}
+```
+
+---
+
 ### `SlugConflictError`
 
 Named export from `src/storage/ledger-store.ts`. Thrown by `LedgerStore.renameSlug()` when the target slug directory already exists on disk.
@@ -1235,11 +1305,14 @@ class LedgerStore {
   //   - auto-archive.ts    — sets status: 'ARCHIVED' with preserveLastUpdated: true
   //   - observations.ts    — appends a project-level comment (root-index write only)
   //   - workflow-handoff.ts — buildHandoffResponse(): increments or caps the auto_handoff_depth counter; root-index-only write with no WP file involvement
+  //   - importStandaloneProject() — bootstraps a from-scratch standalone project; manages its
+  //     own withLock(storageDir) scope; architecturally equivalent to initializeProject()
   //
-  // writeWorkPackage — NO legitimate external callers as of WP-002 migration
-  // (consolidate-wp-writes). Every previously-direct caller (e.g. project-reset.ts) has been
-  // migrated to use a sync method. Use updateWorkPackageWithSync, createWorkPackageWithSync,
-  // or batchUpdateWorkPackagesWithSync instead.
+  // writeWorkPackage — no legitimate external callers as of WP-002 migration
+  // (consolidate-wp-writes). The sole approved internal exception is importStandaloneProject(),
+  // which bootstraps a standalone project from scratch inside LedgerStore and manages its own
+  // lock scope. Tool code outside LedgerStore must still use a sync method instead.
+  // Use updateWorkPackageWithSync, createWorkPackageWithSync, or batchUpdateWorkPackagesWithSync.
   writeRootIndex(data: RootIndex, options?: { preserveLastUpdated?: boolean }): Promise<void>; // @internal — auto-syncs .meta.json
   writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;                      // @internal — zero external callers post-WP-002
 
@@ -1304,6 +1377,19 @@ class LedgerStore {
   // Copies each filename from planPath to storageDir. Missing sources (ENOENT) are silently
   // skipped (warning written to stderr). Returns lists of archived and skipped filenames.
   // Non-ENOENT errors (e.g. EACCES, ENOSPC, EISDIR) are re-thrown to the caller.
+
+  // Standalone project import — bootstraps a full COMPLETE project record from scratch.
+  // Acquires withLock(storageDir), writes WP-001 detail (writeWorkPackage), writes root index
+  // (writeRootIndex — auto-syncs .meta.json), archives planFile + synthesisFile
+  // (archiveDocuments), all within a single lock scope. Produces:
+  //   - project-ledger.json: status 'COMPLETE', total_work_packages: 1,
+  //     pending_work_packages: 0, synthesis_generated: true, runner: 'standalone'
+  //   - WP-001.json: status 'COMPLETE', assigned_to 'Developer',
+  //     active_pipeline_stages: ['implementation'], single PASS implementation pipeline
+  //   - .meta.json: auto-synced via writeRootIndex()
+  // All detail fields are pre-computed by the caller (pure storage orchestrator).
+  // Returns { archived: string[]; skipped: string[] } matching archiveDocuments() semantics.
+  importStandaloneProject(detail: ImportStandaloneDetail): Promise<{ archived: string[]; skipped: string[] }>;
 
   // Meta methods
   // Reads current meta, merges status + optional cacheUpdates (field-preservation: existing cache
@@ -1705,7 +1791,7 @@ interface ProjectMeta {
   total_work_packages?: number;   // Synced by writeRootIndex, createWorkPackageWithSync, and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
-  repository_name?: string | null; // Derived from inferProjectRootFromPlanPath(plan_path); null if not detectable
+  repository_name?: string | null; // Derived via deriveRepoName(plan_path) at initializeProject; 'unknown' when not detectable. Legacy records may hold null.
 }
 ```
 
@@ -2266,18 +2352,30 @@ function resolveLedgerRoot(): string;
 // Delegates to planFolderBasename(). Exported from src/utils/ledger-root.ts
 function projectSlugFromPath(projectPath: string): string;
 
-// Derives the project root from an absolute plan folder path by walking up 4 levels.
-// Normalizes backslashes to forward slashes. Pure — no filesystem access.
-// Convention: {project-root}/docs/agents/plans/{slug}
+// Derives the project root from an absolute plan folder path using an anchor-based
+// algorithm: splits the normalised path into segments, finds the first position i where
+// segments[i]==='docs' and segments[i+1]==='agents', and returns the joined prefix up to
+// index i-1. Returns null when no docs/agents anchor is found (path does not follow the
+// {project-root}/docs/agents/plans/{slug} convention, path is empty, or only 'docs'
+// appears without 'agents' as the next segment). Normalizes backslashes to forward
+// slashes before splitting (cross-platform). Pure — no filesystem access.
+// Handles filesystem-root edge case ('/docs/agents/...'): returns '/' via empty-join.
+// Callers must null-guard: deriveRepoName() returns 'unknown' on null;
+// detectProjectByCwd() skips null-root projects; project-lifecycle.ts skips
+// readProjectName when root is null.
 // Exported from src/utils/ledger-root.ts
-function inferProjectRootFromPlanPath(planPath: string): string;
+function inferProjectRootFromPlanPath(planPath: string): string | null;
 
 // Derives the repo name from an absolute plan folder path.
 // Calls inferProjectRootFromPlanPath(), lowercases the project-root basename, and
 // validates against assertSafeSegment() (alphanumeric + hyphens). Returns 'unknown' on
-// any failure (path too shallow, name fails slug validation, empty input).
-// Pure — no filesystem access. Exported from src/utils/ledger-root.ts
-function deriveRepoName(projectPath: string): string;
+// any failure (null root from inferProjectRootFromPlanPath, name fails slug validation,
+// empty input). Pure — no filesystem access. Exported from src/utils/ledger-root.ts
+//
+// resolvedRoot (optional): pre-resolved project root. When provided (non-undefined),
+// the internal inferProjectRootFromPlanPath() call is skipped. Pass null to indicate
+// no root was found. Omit (or pass undefined) to let the function resolve the root.
+function deriveRepoName(projectPath: string, resolvedRoot?: string | null): string;
 
 // Resolves a project slug (or qualified {repo}/{slug} string) to an absolute storage path.
 // Qualified input (contains '/'): validates repo and slug segments individually against
@@ -2657,6 +2755,64 @@ export async function markProjectComplete(
 ): Promise<MarkProjectCompleteResult>;
 ```
 
+### Runner Classification — `src/utils/runner.ts`
+
+Normalises the raw MCP `clientInfo.name` string from the initialize handshake into a
+stable `RunnerType` enum value. Used by `initializeProject` to stamp `runner`,
+`runner_client`, and `runner_version` metadata on new projects.
+
+```typescript
+// Full set of valid runner values (updated in WP-002 to add 'standalone').
+// This union is the canonical definition — all downstream consumers (Zod schemas in
+// root-index.ts and project-meta.ts, GUI RUNNER_LABELS and RUNNER_ORDER in
+// gui/public/views/project-list.js, CSS badge rules in gui/public/styles.css,
+// and the storage cast in ledger-store.ts) must stay in sync with this type.
+type RunnerType = 'vscode' | 'claude-code' | 'orchestrator' | 'standalone' | 'unknown';
+
+// Classification rules applied by classifyRunner() in priority order
+// (case-insensitive substring match on clientInfo.name):
+//   1. 'vscode'       — name contains 'visual studio code' or 'vscode'
+//   2. 'claude-code'  — name contains 'claude'
+//   3. 'orchestrator' — name contains 'langchain' or 'mcp-adapters', or is exactly 'mcp'
+//   4. 'unknown'      — anything else, or clientInfo is undefined
+//
+// Note: 'standalone' is NOT produced by classifyRunner(). It is a reserved runner
+// value intended to be written directly to storage by an explicit caller (e.g. a
+// future headless standalone executor) rather than inferred from clientInfo.name.
+//
+// GUI display values (RUNNER_LABELS in project-list.js):
+//   vscode       → 'VS Code'
+//   claude-code  → 'Claude Code'
+//   orchestrator → 'Orchestrator'
+//   standalone   → 'Standalone'   (added WP-002)
+//   unknown      → 'Unknown'
+//
+// GUI sort order (RUNNER_ORDER in project-list.js):
+//   orchestrator, vscode, claude-code, standalone, unknown
+//
+// CSS badge class: .badge-runner-{runner-value}  (e.g. .badge-runner-standalone)
+// Each badge has --color-badge-runner-{value}-bg / --color-badge-runner-{value}-fg
+// token pairs in :root and [data-theme=dark] blocks in gui/public/styles.css.
+// standalone uses emerald: light(#d1fae5/#065f46), dark(#064e3b/#6ee7b7).
+
+interface RunnerInfo {
+  runner: RunnerType;
+  runner_client: string;   // raw MCP clientInfo.name, preserved for diagnostics
+  runner_version: string;  // raw MCP clientInfo.version, preserved for diagnostics
+}
+
+interface ClientInfo {
+  name: string;
+  version: string;
+}
+
+// Exported from src/utils/runner.ts.
+// classifyRunner(undefined) returns { runner: 'unknown', runner_client: '', runner_version: '' }.
+function classifyRunner(clientInfo: ClientInfo | undefined): RunnerInfo;
+```
+
+---
+
 ### Workspace Versions — `src/utils/workspace-versions.ts`
 
 Reads the current on-disk version strings for all three workspace components in a single call. Used by the GUI server and any other consumer that needs to display or expose version information without importing from individual `package.json` files.
@@ -2684,6 +2840,33 @@ type WorkspaceVersions = {
 //
 // Exported from src/utils/workspace-versions.ts.
 function captureWorkspaceVersions(): WorkspaceVersions;
+```
+
+---
+
+### Synthesis Parser — `src/utils/synthesis-parser.ts`
+
+Pure string utility that extracts an outcome summary from a synthesis Markdown document.
+Zero imports — no filesystem access, no side effects.
+Used by WP-006 (ledger_complete_synthesis enrichment) to populate `outcome_summary` on the project meta.
+
+```typescript
+// Exported from src/utils/synthesis-parser.ts.
+//
+// Behaviour:
+//   1. Looks for a `### Outcome Summary` section (case-insensitive heading match).
+//      Returns trimmed body text when the section is present and non-empty.
+//   2. Falls back to the first `- …` or `* …` bullet in `### Implementation Summary`
+//      when Outcome Summary is absent or its body is whitespace-only.
+//   3. Returns null when neither section yields usable content.
+//
+// Private helpers (unexported):
+//   extractSection(content, heading)  — returns body between `### <heading>` and
+//     the next `###` heading (or EOF); null when heading is absent. Uses a
+//     case-insensitive regex; `####` sub-headings do NOT match the `^###\s` boundary.
+//   extractFirstBullet(sectionContent) — returns the text of the first `- …` or
+//     `* …` bullet; null when none is found.
+function parseOutcomeSummary(synthesisContent: string): string | null;
 ```
 
 ---
@@ -3791,18 +3974,22 @@ export async function handleGetProjectHealth(
 ): Promise<ProjectHealthSummary>;
 
 // Structured representation of a single dialogue file, parsed from the filename convention
-// {WP_ID}-{stage}-r{N}.md.  wp_id and stage are empty strings for non-conforming names.
+// {WP_ID}-{stage}-r{N}.md or project-{stage}-r{N}.md.  wp_id and stage are empty strings
+// for non-conforming names; revision defaults to 0 for non-conforming names.
 export interface DialogueEntry {
   filename: string;
-  wp_id: string;   // e.g. 'WP-001'
-  stage: string;   // e.g. 'developer'
+  wp_id: string;   // e.g. 'WP-001' or 'project' for PM/Synthesis dialogues
+  stage: string;   // e.g. 'developer' or 'pm'
+  revision: number; // parsed from r{N} suffix; 0 for non-conforming filenames
 }
 
-// GET /api/projects/:slug/dialogues[?wp=WP-001]
+// GET /api/projects/:slug/dialogues[?wp=WP-001|project]
 // Returns an array of structured DialogueEntry objects from the project's orchestrator/dialogues/ directory.
 // Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
 // Returns [] when the project exists but the dialogues/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
+//   Accepted values: 'WP-{digits}' (e.g. 'WP-001') or the literal 'project' (PM/Synthesis dialogues).
+//   Invalid values (e.g. injection attempts) return [].
 // All returned entries are sorted alphabetically by filename.
 // Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListDialogues(
@@ -3841,11 +4028,13 @@ export async function handleGetDialogueFile(
 export const CHUNKS_DIR: 'orchestrator/chunks';
 
 // Structured representation of a single chunk file, parsed from the filename convention
-// {WP_ID}-{stage}-r{N}.jsonl.  wp_id and stage are empty strings for non-conforming names.
+// {WP_ID}-{stage}-r{N}.jsonl or project-{stage}-r{N}.jsonl.  wp_id and stage are empty
+// strings for non-conforming names; revision defaults to 0 for non-conforming names.
 export interface ChunkEntry {
   filename: string;
-  wp_id: string;   // e.g. 'WP-001'
-  stage: string;   // e.g. 'developer'
+  wp_id: string;   // e.g. 'WP-001' or 'project' for PM/Synthesis chunks
+  stage: string;   // e.g. 'developer' or 'pm'
+  revision: number; // parsed from r{N} suffix; 0 for non-conforming filenames
 }
 
 // GET /api/projects/:slug/chunks[?wp=WP-001]
@@ -3854,8 +4043,9 @@ export interface ChunkEntry {
 // wp_id and stage parsed from the {WP_ID}-{stage}-r{N}.jsonl convention.
 // Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
 // Returns [] when the project exists but the chunks/ subdirectory is absent (no error thrown).
-// Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned
-// (wpId validated against WP_ID_RE — invalid values return []).
+// Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
+//   Accepted values: 'WP-{digits}' (e.g. 'WP-001') or the literal 'project' (PM/Synthesis chunks).
+//   Invalid values (e.g. injection attempts) return [].
 // All returned entries are sorted alphabetically by filename.
 // Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListChunks(

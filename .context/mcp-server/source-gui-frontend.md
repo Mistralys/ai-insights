@@ -23,6 +23,7 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
                 └── insights.js
                 └── knowledge.js
                 └── orchestrator.js
+                └── project-detail-dialogues.js
                 └── project-detail-helpers.js
                 └── project-detail-modal.js
                 └── project-detail-orch.js
@@ -432,6 +433,7 @@ var API = (function () {
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
     orchestratorDismiss:     function (id)               { return request('POST',   '/orchestrator/dismiss/'    + encodeURIComponent(id)); },
+    orchestratorDelete:      function (id)               { return request('POST',   '/orchestrator/delete/'     + encodeURIComponent(id)); },
 
     // -- Knowledge -----------------------------------------------------
 
@@ -1138,6 +1140,90 @@ var OrchestratorWidgets = (function () {
   }
 
   // ------------------------------------------------------------------
+  // renderAdminMenu(entryId, onDone) → HTMLElement
+  // ------------------------------------------------------------------
+
+  /**
+   * Creates a kebab-menu button (⋮) that opens an "Admin" dropdown with a
+   * "Delete run" option.  "Delete run" unconditionally removes the entry from
+   * the run queue regardless of its effective status — it is an escape hatch
+   * for entries that cannot be removed via Kill or Dismiss (e.g. when the PID
+   * has been recycled on Windows).
+   *
+   * The menu closes automatically when the user clicks outside it.
+   *
+   * @param {string}   entryId - Queue entry UUID.
+   * @param {Function} onDone  - Callback invoked after a successful delete.
+   * @returns {HTMLElement} Wrapper element containing the button and menu.
+   */
+  function renderAdminMenu(entryId, onDone) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'action-menu-wrapper orch-admin-menu-wrapper';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'action-menu-btn orch-admin-menu-btn';
+    btn.setAttribute('aria-label', 'Admin actions');
+    btn.setAttribute('title', 'Admin');
+    btn.textContent = '⋮';
+
+    var menu = document.createElement('div');
+    menu.className = 'action-menu orch-admin-menu';
+    menu.setAttribute('role', 'menu');
+
+    var sectionHeader = document.createElement('div');
+    sectionHeader.className = 'action-menu-section-header';
+    sectionHeader.textContent = 'Admin';
+
+    var deleteItem = document.createElement('button');
+    deleteItem.type = 'button';
+    deleteItem.className = 'action-menu-item action-menu-item--danger';
+    deleteItem.setAttribute('role', 'menuitem');
+    deleteItem.textContent = 'Delete run';
+
+    menu.appendChild(sectionHeader);
+    menu.appendChild(deleteItem);
+    wrapper.appendChild(btn);
+    wrapper.appendChild(menu);
+
+    // Toggle open/close on button click.
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var isOpen = wrapper.classList.contains('is-open');
+      // Close any other open admin menus first.
+      document.querySelectorAll('.orch-admin-menu-wrapper.is-open').forEach(function (el) {
+        el.classList.remove('is-open');
+      });
+      if (!isOpen) {
+        wrapper.classList.add('is-open');
+      }
+    });
+
+    // Close when clicking outside.
+    document.addEventListener('click', function onOutsideClick() {
+      wrapper.classList.remove('is-open');
+      document.removeEventListener('click', onOutsideClick);
+    });
+
+    deleteItem.addEventListener('click', function () {
+      wrapper.classList.remove('is-open');
+      if (!window.confirm('Force-delete this run from the queue?\n\nThis removes the entry from the queue file immediately, regardless of process state. Use this only when Kill or Dismiss are unavailable (e.g. the PID has been recycled).')) {
+        return;
+      }
+      API.orchestratorDelete(entryId).then(function () {
+        if (typeof onDone === 'function') onDone();
+      }).catch(function (err) {
+        window.alert(
+          'Failed to delete run: ' +
+          ((err && err.message) || String(err))
+        );
+      });
+    });
+
+    return wrapper;
+  }
+
+  // ------------------------------------------------------------------
   // renderCliReference() → string (HTML)
   // ------------------------------------------------------------------
 
@@ -1180,6 +1266,7 @@ var OrchestratorWidgets = (function () {
     renderStatusCard:    renderStatusCard,
     renderKillButton:    renderKillButton,
     renderDismissButton: renderDismissButton,
+    renderAdminMenu:     renderAdminMenu,
     renderLogPreview:    renderLogPreview,
     renderProgressBadge: renderProgressBadge,
     renderCliReference:  renderCliReference,
@@ -2863,6 +2950,12 @@ function renderOrchestrator(app) {
         // avoid constructing a broken bare-slug URL. The entry is still shown
         // in the queue but no navigation link is rendered.
       }
+
+      // Admin menu — always present on every row regardless of status.
+      cell.appendChild(OrchestratorWidgets.renderAdminMenu(id, function () {
+        delete expandedIds[id];
+        refreshQueue();
+      }));
     });
 
     var toggleBtns = container.querySelectorAll('.orch-row-toggle');
@@ -2966,6 +3059,211 @@ function _orchElapsed(startedAt) {
   } catch (_) {
     return '—';
   }
+}
+
+```
+###  Path: `/mcp-server/gui/public/views/project-detail-dialogues.js`
+
+```js
+/* ============================================================
+   views/project-detail-dialogues.js — Project Detail: Dialogues section
+   Sub-module of views/project-detail.js.
+   Depends on: components.js (UI), utils.js (escapeHtml),
+               api-client.js (API)
+               This script must be loaded after project-detail-orch.js
+               and before project-detail.js in index.html.
+
+   Exports:
+     renderDialoguesSection
+   ============================================================ */
+
+/**
+ * Open a full-screen modal showing the rendered content of a single dialogue.
+ *
+ * @param {string}  title      - Modal header text (e.g. "WP-003 · developer-r0")
+ * @param {string}  repo
+ * @param {string}  slug
+ * @param {string}  filename
+ * @param {boolean} useChunks  - true → fetch via getChunkRendered, false → getDialogueContent
+ */
+function _openDialogueModal(title, repo, slug, filename, useChunks) {
+  // Remove any existing dialogue modal
+  var existing = document.getElementById('dialogue-modal-overlay');
+  if (existing) existing.remove();
+
+  var modalHtml =
+    '<div class="dialogue-modal-overlay" id="dialogue-modal-overlay">' +
+      '<div class="dialogue-modal" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '">' +
+        '<div class="dialogue-modal-header">' +
+          '<span class="dialogue-modal-title">' + escapeHtml(title) + '</span>' +
+          '<button class="dialogue-modal-close" id="dialogue-modal-close" aria-label="Close">\u00d7</button>' +
+        '</div>' +
+        '<div class="dialogue-modal-body" id="dialogue-modal-body">' +
+          '<p class="text-muted">Loading\u2026</p>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  var overlay = document.getElementById('dialogue-modal-overlay');
+  var bodyEl  = document.getElementById('dialogue-modal-body');
+
+  function closeModal() {
+    if (overlay) overlay.remove();
+  }
+
+  document.getElementById('dialogue-modal-close').addEventListener('click', closeModal);
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) closeModal();
+  });
+  overlay.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  var fetchPromise = useChunks
+    ? API.getChunkRendered(repo, slug, filename)
+    : API.getDialogueContent(repo, slug, filename);
+
+  fetchPromise.then(function (md) {
+    if (!bodyEl) return;
+    var rendered = (typeof marked !== 'undefined' && marked.parse)
+      ? marked.parse(md)
+      : '<pre>' + escapeHtml(md) + '</pre>';
+    bodyEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
+  }).catch(function (err) {
+    if (!bodyEl) return;
+    bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
+      escapeHtml(err.message || String(err)) + '</p>';
+  });
+}
+
+/**
+ * Render the Dialogues section into `sectionEl`.
+ * Fetches all chunks and dialogues for the project (no WP filter),
+ * merges them (chunks take priority over Markdown), groups by
+ * source + stage, and renders an overview table with expandable
+ * revision buttons.
+ *
+ * @param {HTMLElement} sectionEl  - Placeholder div (#project-dialogues-section)
+ * @param {string}      repo       - Repository name
+ * @param {string}      slug       - Project slug
+ */
+function renderDialoguesSection(sectionEl, repo, slug) {
+  if (!sectionEl) return;
+  sectionEl.innerHTML = '<p class="loading">Loading dialogues\u2026</p>';
+
+  Promise.all([
+    // Fetch all chunks — errors silently swallowed (absent directory is expected).
+    API.getChunks(repo, slug).catch(function () { return []; }),
+    // Fetch all dialogues — no wpId filter returns every dialogue for the project.
+    API.getDialogues(repo, slug),
+  ]).then(function (results) {
+    var chunks    = results[0] || [];
+    var dialogues = results[1] || [];
+
+    if (!sectionEl) return;
+
+    // Choose data source: chunks take priority over Markdown dialogue files
+    // (same strategy as the WP detail page — prefer streaming capture format).
+    var useChunks = chunks.length > 0;
+    var entries   = useChunks ? chunks : dialogues;
+
+    if (!entries || entries.length === 0) {
+      sectionEl.innerHTML = UI.card('Dialogues',
+        '<p class="text-muted">No dialogues available for this project.</p>'
+      );
+      return;
+    }
+
+    // Group by source (wp_id) + stage.
+    // Key format: "{wp_id}:{stage}" — stable insertion-order grouping.
+    var groupMap   = {};
+    var groupOrder = [];
+    entries.forEach(function (entry) {
+      var source = entry.wp_id || 'unknown';
+      var stage  = entry.stage || 'unknown';
+      var key    = source + ':' + stage;
+      if (!groupMap[key]) {
+        groupMap[key] = { source: source, stage: stage, entries: [] };
+        groupOrder.push(key);
+      }
+      groupMap[key].entries.push(entry);
+    });
+
+    // Build table rows.
+    var rowsHtml = groupOrder.map(function (key) {
+      var group   = groupMap[key];
+      var source  = group.source;
+      var stage   = group.stage;
+      var rowEntries = group.entries;
+
+      // Source cell: "Project" label for project-level entries, WP-ID badge otherwise.
+      var sourceHtml;
+      if (source === 'project') {
+        sourceHtml = '<span class="dialogue-source-badge dialogue-source-project">Project</span>';
+      } else {
+        sourceHtml = '<span class="dialogue-source-badge">' + escapeHtml(source) + '</span>';
+      }
+
+      // Revision buttons — one per entry; latest (last index) is visually highlighted.
+      // Clicking opens a full-screen modal; no inline expand.
+      var buttonsHtml = rowEntries.map(function (entry, idx) {
+        var isLatest   = (idx === rowEntries.length - 1);
+        var label      = escapeHtml(stage + '-r' + idx);
+        // Modal title: "SOURCE · stage-rN"
+        var modalTitle = escapeHtml((source === 'project' ? 'Project' : source) + ' \u00b7 ' + stage + '-r' + idx);
+        return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
+          'data-repo="'        + escapeHtml(repo)           + '" ' +
+          'data-slug="'        + escapeHtml(slug)           + '" ' +
+          'data-filename="'    + escapeHtml(entry.filename) + '" ' +
+          'data-use-chunks="'  + (useChunks ? '1' : '0')   + '" ' +
+          'data-modal-title="' + modalTitle                 + '">' +
+          label +
+          '</button>';
+      }).join('');
+
+      return '<tr>' +
+        '<td>' + sourceHtml + '</td>' +
+        '<td><span class="dialogue-stage-label">' + escapeHtml(stage) + '</span></td>' +
+        '<td>' + buttonsHtml + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var tableHtml =
+      '<div class="table-wrapper dialogues-table-wrapper">' +
+        '<table class="dialogues-overview-table">' +
+          '<thead><tr>' +
+            '<th>Source</th>' +
+            '<th>Stage</th>' +
+            '<th>Dialogue</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rowsHtml + '</tbody>' +
+        '</table>' +
+      '</div>';
+
+    sectionEl.innerHTML = UI.card('Dialogues', tableHtml, { id: 'project-dialogues-card' });
+
+    sectionEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('.dialogue-btn');
+      if (!btn) return;
+
+      _openDialogueModal(
+        btn.getAttribute('data-modal-title') || btn.getAttribute('data-filename'),
+        btn.getAttribute('data-repo'),
+        btn.getAttribute('data-slug'),
+        btn.getAttribute('data-filename'),
+        btn.getAttribute('data-use-chunks') === '1'
+      );
+    });
+
+  }).catch(function (err) {
+    if (!sectionEl) return;
+    sectionEl.innerHTML = UI.card('Dialogues',
+      '<p class="text-danger">Failed to load dialogues: ' +
+        escapeHtml(err.message || String(err)) + '</p>'
+    );
+  });
 }
 
 ```
@@ -4546,7 +4844,10 @@ function renderProjectDetail(app, repo, slug) {
         '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
         '<div id="orch-toolbar" class="btn-group"></div>' +
         '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>' +
-      '</div>';
+      '</div>' +
+
+      // Dialogues section — loaded asynchronously after DOM is set
+      '<div id="project-dialogues-section"></div>';
 
     // ── Initial poll state snapshot ─────────────────────────────────────
     // Build the baseline state from the data already fetched above.
@@ -4559,6 +4860,9 @@ function renderProjectDetail(app, repo, slug) {
     // This replaces the previous per-section pollQueue registration so
     // that exactly one interval is active for the duration of this view.
     pollController.startCombinedPolling();
+
+    // Dialogues section — async, non-blocking (loaded once on page render)
+    renderDialoguesSection(document.getElementById('project-dialogues-section'), repo, slug);
 
     // Unarchive banner button handler
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
@@ -5046,6 +5350,7 @@ function renderProjectList(app) {
     'vscode':       'VS Code',
     'claude-code':  'Claude Code',
     'orchestrator': 'Orchestrator',
+    'standalone':   'Standalone',
     'unknown':      'Unknown',
   };
 
@@ -5069,7 +5374,7 @@ function renderProjectList(app) {
     var counts = runnerCounts || {};
 
     // Canonical ordering for display (determines option order in dropdown)
-    var RUNNER_ORDER = ['orchestrator', 'vscode', 'claude-code', 'unknown'];
+    var RUNNER_ORDER = ['orchestrator', 'vscode', 'claude-code', 'standalone', 'unknown'];
 
     // Collect runner values that have at least one project, in canonical order
     var activeRunners = RUNNER_ORDER.filter(function (r) {

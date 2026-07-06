@@ -202,6 +202,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.2.1 (2026-07-03): Made the archiving step non-optional but not required, as it was skipped too often.
+  1.2.0 (2026-07-01): Gained standalone-archiver subagent dispatch for automatic ledger archival after synthesis
   1.1.1 (2026-06-17): Added no-stale-counts constraint to Strict Constraints
   1.1.0 (2026-05-29): Gained browser tool for UI and regression verification
   1.0.0 (2026-03-29): Initial release — plan implementation with code insights, no ledger
@@ -213,6 +215,7 @@ tools:
   - edit
   - search
   - browser
+  - agent
   - todo
 
 cc_tools:
@@ -222,6 +225,9 @@ cc_tools:
   - Grep
   - TodoRead
   - TodoWrite
+
+subagents:
+  - standalone-archiver
 
 ```
 ###  Path: `/personas/standalone/src/meta/documentation-curator.yaml`
@@ -258,6 +264,7 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.2.0 (2026-07-03): Clarified that only plan.md and synthesis.md are version-controlled in plan folders — all other artifacts are gitignored and should be ignored during discovery and staging
   1.1.1 (2026-06-29): Audit compliance — added pre-execution checklist, fixed angle bracket placeholders, removed title suffix, added output location, removed horizontal rules, reframed plan archival constraint
   1.1.0 (2026-06-29): Hardened git edge cases — no-remote/no-tracking guards, default branch detection, detached HEAD handling, pre-staged file handling, stash drop after conflict resolution, discovery terminology, diff content analysis for grouping, constraint clarification for filesystem moves
   1.0.6 (2026-06-29): Upstream integration is now a supported task (stash-merge-restore workflow)
@@ -376,11 +383,12 @@ tools:
 ```yaml
 slug: plan-architect-reviewer
 name: "Plan Architect Reviewer"
-description: "Advisory architectural review of technical plans — challenges design shape, surfaces simplifications, and proposes ecosystem-level alternatives. Runs in parallel with the Plan Auditor; never blocks."
+description: "Decision-level architectural review of technical plans — weighs each design choice against named alternatives with Confirm/Challenge/Reconsider verdicts. Runs in parallel with the Plan Auditor; never blocks."
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.0.0 (2026-07-04): Major rewrite — decision-by-decision analysis replaces holistic shape commentary; Confirm/Challenge/Reconsider verdicts replace Simplification/Concern/Affirmation categories; 3-phase protocol replaces 5-phase; Decision Analysis Table is now the primary deliverable
   1.6.0 (2026-06-05): Improved review philosophy and architectural framing
   1.5.0 (2026-05-29): Gained browser tool for UI verification
   1.4.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters
@@ -517,6 +525,8 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.10.0 (2026-06-29): Recipe identifiers — every recipe gets a short ID (R1, R2, …) that persists across the conversation; IDs appear in previews, weekly plan tables, and full recipe headings for easy back-reference
+  1.9.1 (2026-06-29): Template fidelity constraint — output templates (preview, weekly table, recipe format) must be reproduced with exact Markdown structure; Match the User's Language now defers to Template Fidelity for structural formatting; field values must stay compact
   1.9.0 (2026-06-29): Recipe preview step — Single Recipe workflow now presents a compact summary (name, cuisine, key ingredients, effort) for chef approval before generating the full recipe; new Preview Selection protocol in Operational Protocol; workflow grows from 8 to 9 steps
   1.8.0 (2026-06-29): Structural audit — merged Garden First + Seasonal First into Source Smart philosophy (8→6 principles); extracted Operational Protocol (Culinary Direction, Survey Options, Adapt and Compose, Tinkerer's Notes, Verify Targets); both workflows now reference shared protocol, reducing Single Recipe to 8 steps and Weekly Plan to 10; de-duplicated color diversity targets; added alternative actions to Carb Rotation and Repertoire Rotation constraints; added output location
   1.7.0 (2026-06-29): Operating Modes split — added Single Recipe / Weekly Plan mode table; split unified Workflow into two dedicated mode workflows, each with its own clean step sequence; handoff blocks now include MODE field

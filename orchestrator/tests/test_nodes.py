@@ -1015,11 +1015,18 @@ class TestDialogueCaptured:
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert not dc_entries, "dialogue_captured must not appear when capture_dialogues=False"
 
-    async def test_dialogue_captured_not_emitted_when_wp_id_empty(self):
-        """No dialogue_captured entry when wp_id is empty (even if flag is True)."""
+    async def test_dialogue_captured_emitted_when_wp_id_empty(self):
+        """dialogue_captured entry must appear when wp_id is empty and flag is True.
+
+        The wp_id field in the log entry must be "" (empty string), not the
+        internal "project" sentinel used only for the chunk filename.
+        """
         result = await self._invoke_with_capture(capture=True, wp_id="")
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
+        assert dc_entries, "dialogue_captured must appear even when wp_id is empty"
+        assert dc_entries[0].get("wp_id") == "", (
+            "wp_id in log entry must remain empty string, not the 'project' sentinel"
+        )
 
 
 # ---------------------------------------------------------------------------

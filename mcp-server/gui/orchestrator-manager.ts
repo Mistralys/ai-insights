@@ -7,7 +7,7 @@
  *    module holds `getQueue()`, `readQueueFile()`, `isProcessAlive()`,
  *    `getProjectLedgerStatus()`, and all queue-reading internals.
  *
- * 2. Preflight and launch — validates workspace readiness via 7 preflight checks
+ * 2. Preflight and launch — validates workspace readiness via 8 preflight checks
  *    and optionally spawns a detached orchestrator process (startOrchestrator).
  *
  * Type definitions — delegated to `src/gui/queue/types.ts`:
@@ -236,6 +236,30 @@ export async function dismissQueueEntry(params: {
 
   // Remove from the queue file.
   const updated = entries.filter((_, i) => i !== entryIndex);
+  await writeQueueFileAtomic(logsDir, updated);
+}
+
+/**
+ * Unconditionally removes a queue entry from the queue file on disk.
+ *
+ * Unlike `dismissQueueEntry`, this function does not check the entry's
+ * effective status — it removes the entry regardless of whether the process
+ * is alive, dead, or started.  Intended for admin use when the normal
+ * Kill/Dismiss flow is blocked (e.g. due to PID recycling on Windows).
+ *
+ * Returns without throwing when the entry is not found (idempotent).
+ *
+ * @param params.id      - Queue entry ID to delete.
+ * @param params.logsDir - Absolute path to the orchestrator logs directory.
+ */
+export async function deleteQueueEntry(params: {
+  id: string;
+  logsDir: string;
+}): Promise<void> {
+  const { id, logsDir } = params;
+  const entries = await readQueueFile(logsDir);
+  const updated = entries.filter((e) => e.id !== id);
+  if (updated.length === entries.length) return; // not found — no-op
   await writeQueueFileAtomic(logsDir, updated);
 }
 
@@ -489,6 +513,55 @@ async function checkMcpDist(workspaceRoot: string): Promise<PreflightResult> {
 }
 
 /**
+ * Checks that the project root can be inferred from the plan path.
+ *
+ * Mirrors the Python `_infer_project_root()` logic in `orchestrator/src/cli.py`:
+ * the slug directory must be exactly 4 levels below the project root
+ * (`<project-root>/docs/agents/plans/<slug>`) and the `docs/agents/plans/`
+ * directory must exist at the inferred root.
+ *
+ * Accepts both a file path (`…/plan.md`) and a folder path (`…/2026-01-01-slug`).
+ */
+async function checkProjectRoot(resolvedPlan: string): Promise<PreflightResult> {
+  // Derive the slug directory: strip the filename when resolvedPlan is a file.
+  const slugDir = resolvedPlan.endsWith('.md') ? dirname(resolvedPlan) : resolvedPlan;
+
+  // Walk up 4 levels: plans/ → agents/ → docs/ → project-root
+  let inferred = slugDir;
+  for (let i = 0; i < 4; i++) {
+    const parent = dirname(inferred);
+    if (parent === inferred) {
+      // Reached filesystem root — path too shallow.
+      return {
+        name:   'project-root',
+        pass:   false,
+        detail: 'Cannot infer project root: plan path is too shallow',
+        fix:    'The plan must live at <project-root>/docs/agents/plans/<slug>/plan.md',
+      };
+    }
+    inferred = parent;
+  }
+
+  const sanityDir = join(inferred, 'docs', 'agents', 'plans');
+  try {
+    await stat(sanityDir);
+  } catch {
+    return {
+      name:   'project-root',
+      pass:   false,
+      detail: `docs/agents/plans/ not found at inferred project root: ${inferred}`,
+      fix:    'The plan must live at <project-root>/docs/agents/plans/<slug>/plan.md, or use --project-path',
+    };
+  }
+
+  return {
+    name:   'project-root',
+    pass:   true,
+    detail: `Project root inferred: ${inferred}`,
+  };
+}
+
+/**
  * Checks whether the given plan is already registered in the run queue.
  * Reads the queue file rather than querying the OS process table, so
  * multiple concurrent plans (different slugs) are handled correctly.
@@ -574,8 +647,8 @@ export async function getRunStatus(
  *
  * Preflight checks run unconditionally for environment state (venv, env,
  * mcp-dist). Path-dependent checks (path-prefix, plan-basename, plan-file,
- * no-conflict) run only when the path is determined to be inside the
- * workspace root.
+ * project-root, no-conflict) run only when the path is determined to be
+ * inside the workspace root.
  *
  * - `dryRun: true`  → returns all check results without spawning.
  * - Any check fails → returns results with `started: false`.
@@ -605,6 +678,7 @@ export async function startOrchestrator(
     Promise.all([
       Promise.resolve(checkPlanBasename(resolvedPlan)),
       checkPlanFile(resolvedPlan),
+      checkProjectRoot(resolvedPlan),
       checkNoConflict(resolvedPlan, join(resolvedRoot, 'orchestrator', 'logs')),
     ]),
     Promise.all([checkVenv(resolvedRoot), checkEnv(resolvedRoot), checkMcpDist(resolvedRoot)]),
@@ -636,9 +710,10 @@ export async function startOrchestrator(
     ? ['--resume', resumeThreadId, resolvedPlan]
     : [resolvedPlan];
   const child = spawn(bin, spawnArgs, {
-    detached: true,
-    stdio:    ['ignore', 'ignore', 'ignore'],
-    env:      { ...process.env, PYTHONUTF8: '1' },
+    detached:    true,
+    stdio:       ['ignore', 'ignore', 'ignore'],
+    env:         { ...process.env, PYTHONUTF8: '1' },
+    windowsHide: true,
   });
   child.unref();
 

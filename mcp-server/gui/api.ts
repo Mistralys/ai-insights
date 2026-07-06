@@ -63,6 +63,7 @@ import {
   getQueue,
   killQueueEntry,
   dismissQueueEntry,
+  deleteQueueEntry,
   startOrchestrator,
   getRunStatus,
 } from './orchestrator-manager.js';
@@ -1334,27 +1335,29 @@ export async function handleGetWorkPackageOverview(
 /** Filename allowlist pattern: only alphanumeric, hyphens, underscores + .md */
 const DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/;
 
-/** WP ID allowlist pattern: must be 'WP-' followed by one or more digits */
-const WP_ID_RE = /^WP-\d+$/;
+/** WP ID allowlist pattern: must be 'WP-' followed by one or more digits, or the literal 'project' */
+const WP_ID_RE = /^(WP-\d+|project)$/;
 
 /**
  * Parsed representation of a single dialogue file.
- * Derived from the filename convention `{WP_ID}-{stage}-r{N}.md`.
+ * Derived from the filename convention `{WP_ID}-{stage}-r{N}.md`
+ * or `project-{stage}-r{N}.md` for project-level (PM/Synthesis) dialogues.
  */
 export interface DialogueEntry {
   filename: string;
   wp_id: string;
   stage: string;
+  revision: number;
 }
 
-/** Parses a dialogue filename into a structured entry. */
-const DIALOGUE_PARSE_RE = /^(WP-\d+)-(.+)-r\d+\.md$/;
+/** Parses a dialogue filename into a structured entry. Handles both `WP-\d+` and `project` prefixes. */
+const DIALOGUE_PARSE_RE = /^(WP-\d+|project)-(.+)-r(\d+)\.md$/;
 function parseDialogueFilename(filename: string): DialogueEntry {
   const m = DIALOGUE_PARSE_RE.exec(filename);
   if (m) {
-    return { filename, wp_id: m[1]!, stage: m[2]! };
+    return { filename, wp_id: m[1]!, stage: m[2]!, revision: parseInt(m[3]!, 10) };
   }
-  return { filename, wp_id: '', stage: '' };
+  return { filename, wp_id: '', stage: '', revision: 0 };
 }
 
 /**
@@ -1470,26 +1473,28 @@ export async function handleGetDialogueFile(
 /** Filename allowlist pattern for chunk files: only alphanumeric, hyphens, underscores + .jsonl */
 const CHUNK_FILENAME_RE = /^[A-Za-z0-9_-]+\.jsonl$/;
 
-/** Parse pattern for chunk filenames: `{WP_ID}-{stage}-r{N}.jsonl` */
-const CHUNK_PARSE_RE = /^(WP-\d+)-(.+)-r\d+\.jsonl$/;
+/** Parse pattern for chunk filenames: `{WP_ID}-{stage}-r{N}.jsonl` or `project-{stage}-r{N}.jsonl` */
+const CHUNK_PARSE_RE = /^(WP-\d+|project)-(.+)-r(\d+)\.jsonl$/;
 
 /**
  * Parsed representation of a single chunk file.
- * Derived from the filename convention `{WP_ID}-{stage}-r{N}.jsonl`.
+ * Derived from the filename convention `{WP_ID}-{stage}-r{N}.jsonl`
+ * or `project-{stage}-r{N}.jsonl` for project-level (PM/Synthesis) chunks.
  */
 export interface ChunkEntry {
   filename: string;
   wp_id: string;
   stage: string;
+  revision: number;
 }
 
-/** Parses a chunk filename into a structured entry. */
+/** Parses a chunk filename into a structured entry. Handles both `WP-\d+` and `project` prefixes. */
 function parseChunkFilename(filename: string): ChunkEntry {
   const m = CHUNK_PARSE_RE.exec(filename);
   if (m) {
-    return { filename, wp_id: m[1]!, stage: m[2]! };
+    return { filename, wp_id: m[1]!, stage: m[2]!, revision: parseInt(m[3]!, 10) };
   }
-  return { filename, wp_id: '', stage: '' };
+  return { filename, wp_id: '', stage: '', revision: 0 };
 }
 
 /**
@@ -1709,6 +1714,30 @@ export async function handleOrchestratorDismiss(
 ): Promise<void> {
   assertSafeQueueId(id);
   await dismissQueueEntry({ id, logsDir, ledgerRoot });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/orchestrator/delete/:id
+// ---------------------------------------------------------------------------
+
+/**
+ * Unconditionally removes a queue entry from the queue file.
+ *
+ * Unlike dismiss, this does not check effective status — it is an admin
+ * escape hatch for entries that cannot be removed via Kill or Dismiss
+ * (e.g. when the PID has been recycled on Windows).
+ *
+ * The caller (server.ts) sends HTTP 204 No Content.
+ *
+ * @param id      - Queue entry ID.
+ * @param logsDir - Absolute path to the orchestrator logs directory.
+ */
+export async function handleOrchestratorDelete(
+  id: string,
+  logsDir: string,
+): Promise<void> {
+  assertSafeQueueId(id);
+  await deleteQueueEntry({ id, logsDir });
 }
 
 // ---------------------------------------------------------------------------

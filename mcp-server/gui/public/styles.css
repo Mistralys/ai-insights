@@ -56,8 +56,8 @@
   --color-badge-runner-claude-code-fg:  #92400e;
   --color-badge-runner-unknown-bg:      #f3f4f6;
   --color-badge-runner-unknown-fg:      #6b7280;
-  --color-badge-runner-standalone-bg:   #d1fae5;
-  --color-badge-runner-standalone-fg:   #065f46;
+  --color-badge-runner-standalone-bg:   #d0f5ea;
+  --color-badge-runner-standalone-fg:   #054b50;
   --color-badge-dry-run-bg:             #f3e8ff;
   --color-badge-dry-run-fg:             #7c3aed;
   --color-badge-dry-run-border:         #c4b5fd;
@@ -172,8 +172,8 @@
   --color-badge-runner-claude-code-fg:  #fcd34d;
   --color-badge-runner-unknown-bg:      #374151;
   --color-badge-runner-unknown-fg:      #9ca3af;
-  --color-badge-runner-standalone-bg:   #064e3b;
-  --color-badge-runner-standalone-fg:   #6ee7b7;
+  --color-badge-runner-standalone-bg:   #054b50;
+  --color-badge-runner-standalone-fg:   #29c587;
   --color-badge-dry-run-bg:             #3b0764;
   --color-badge-dry-run-fg:             #d8b4fe;
   --color-badge-dry-run-border:         #7e22ce;
@@ -2110,6 +2110,136 @@ th[data-sort="total_work_packages"] {
 }
 
 /* ----------------------------------------------------------
+   Dialogue full-screen modal (project detail page)
+   ---------------------------------------------------------- */
+
+.dialogue-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 24px;
+}
+
+.dialogue-modal {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.28);
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dialogue-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.dialogue-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.dialogue-modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.dialogue-modal-close:hover {
+  color: var(--color-text);
+}
+
+.dialogue-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* ----------------------------------------------------------
+   Dialogues overview table (project detail page)
+   ---------------------------------------------------------- */
+
+.dialogues-table-wrapper {
+  margin-top: 4px;
+}
+
+.dialogues-overview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dialogues-overview-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dialogues-overview-table td {
+  padding: 6px 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dialogues-overview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Source column badge — smaller than .badge, styled for source display */
+.dialogue-source-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Project-level source badge gets a distinct accent colour */
+.dialogue-source-badge.dialogue-source-project {
+  background: color-mix(in srgb, var(--color-ready) 12%, transparent);
+  border-color: var(--color-ready);
+  color: var(--color-ready);
+}
+
+[data-theme="dark"] .dialogue-source-badge {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .dialogue-source-badge.dialogue-source-project {
+  background: color-mix(in srgb, var(--color-ready) 18%, transparent);
+  border-color: var(--color-ready);
+  color: var(--color-ready);
+}
+
+/* ----------------------------------------------------------
    Orchestrator View (WP-011)
    ---------------------------------------------------------- */
 
@@ -2367,6 +2497,42 @@ th[data-sort="total_work_packages"] {
    these selectors exist only so all class names referenced in markup resolve. */
 .orchestrator-kill-btn  { /* no extra rules */ }
 .orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
+
+/* Admin kebab menu in the run queue — positioned to the right of the primary
+   action button.  Reuses .action-menu-wrapper / .action-menu from the project
+   list, adding queue-specific spacing and a danger-tinted menu item. */
+.orch-admin-menu-wrapper {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.orch-admin-menu-btn {
+  font-size: 16px;
+  padding: 2px 6px;
+}
+
+.orch-admin-menu {
+  min-width: 140px;
+}
+
+.action-menu-section-header {
+  padding: 6px 14px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.action-menu-item--danger {
+  color: var(--color-danger, #c0392b);
+}
+
+.action-menu-item--danger:hover {
+  background: var(--color-bg);
+  color: var(--color-danger, #c0392b);
+}
 
 /* ── Button group ───────────────────────────────────────────
    Fused row of same-size buttons sharing inner borders.

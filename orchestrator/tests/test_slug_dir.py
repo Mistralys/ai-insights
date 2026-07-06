@@ -8,6 +8,10 @@ the form ``{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}``.
 Also covers the ``_derive_ledger_log_dir()`` function extracted from ``cli.py``
 (``TestLedgerLogCopyPath``), which uses the same ``plan_dir.parents[3].name or "unknown"``
 pattern.
+
+Also covers ``_infer_project_root()`` (``TestInferProjectRoot``), which infers
+the target project root from a plan directory using the ``parents[3]``
+convention with a ``docs/agents/plans/`` sanity check.
 """
 
 from __future__ import annotations
@@ -16,9 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from src.cli import _derive_ledger_log_dir
+from src.cli import _derive_ledger_log_dir, _infer_project_root
 from src.nodes import _derive_slug_dir
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,3 +231,49 @@ class TestLedgerLogCopyPath:
         result = _derive_ledger_log_dir(plan_dir, WORKSPACE)
         assert result.parts[-1] == "logs"
         assert result.parts[-2] == "orchestrator"
+
+# ---------------------------------------------------------------------------
+# _infer_project_root() — project root inference from plan path
+# ---------------------------------------------------------------------------
+
+
+class TestInferProjectRoot:
+    """
+    Unit tests for _infer_project_root().
+
+    Uses ``tmp_path`` fixtures so the ``is_dir()`` sanity check has a real
+    filesystem to probe.
+    """
+
+    def test_standard_plan_path_returns_inferred_root(self, tmp_path: Path) -> None:
+        """Returns the inferred project root when docs/agents/plans/ exists."""
+        # Build:  <tmp_path>/docs/agents/plans/<slug>
+        slug_dir = tmp_path / "docs" / "agents" / "plans" / "2026-07-04-my-feature"
+        slug_dir.mkdir(parents=True)
+        result = _infer_project_root(slug_dir)
+        assert result == tmp_path
+
+    def test_sanity_check_fails_returns_none(self, tmp_path: Path) -> None:
+        """Returns None when docs/agents/plans/ does NOT exist at the inferred root."""
+        # Build a plan path at the right depth but without the sanity-check dir.
+        slug_dir = tmp_path / "some" / "other" / "path" / "my-slug"
+        slug_dir.mkdir(parents=True)
+        # tmp_path/docs/agents/plans/ does NOT exist.
+        result = _infer_project_root(slug_dir)
+        assert result is None
+
+    def test_shallow_path_returns_none(self, tmp_path: Path) -> None:
+        """Returns None when the plan directory has fewer than 4 ancestors."""
+        # Only 3 ancestors: tmp_path / a / b / slug → parents[3] raises IndexError.
+        slug_dir = tmp_path / "a" / "b" / "slug"
+        slug_dir.mkdir(parents=True)
+        result = _infer_project_root(slug_dir)
+        assert result is None
+
+    def test_same_project_returns_workspace_root(self, tmp_path: Path) -> None:
+        """Same-project plans: inferred root equals the workspace root."""
+        # tmp_path acts as the workspace root.
+        slug_dir = tmp_path / "docs" / "agents" / "plans" / "2026-07-04-same-project"
+        slug_dir.mkdir(parents=True)
+        result = _infer_project_root(slug_dir)
+        assert result == tmp_path
