@@ -107,6 +107,9 @@ vs_file_name: ledger-dependency-sequencer.agent.md
 id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
 changelog: |
+  1.3.0 (2026-07-06): Step 1 now consumes Code Observations from upstream WP Decomposer to avoid redundant codebase reads
+  1.2.0 (2026-07-06): Added codebase verification capability; Step 2 now includes code-level coupling checks for import graphs, shared types, and module boundaries
+  1.1.0 (2026-07-06): Audit compliance — agent name variables, section reorder, capabilities, strengthened constraints, separator cleanup
   1.0.4 (2026-05-18): Gains missing write step; subagent handoff precision improved
   1.0.3 (2026-04-30): Overall improvements
   1.0.0 (2026-04-11): Initial release — Work Package dependency mapping and ordering
@@ -269,6 +272,8 @@ vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
 changelog: |
+  1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
+  1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
   1.0.7 (2026-06-04): Minor output format tweaks
   1.0.6 (2026-06-03): Minor refinements
   1.0.5 (2026-05-19): Added Plan Context, Rationale, Rejected Approaches; improved handoff

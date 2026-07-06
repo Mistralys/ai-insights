@@ -78,6 +78,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 * **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include ancillary or out-of-scope improvements you made while working, not just the primary WP deliverables.
 * **No Stale Counts:** Avoid embedding specific counts in documentation, summaries, or pipeline comments (e.g., "12 unit tests," "5 helper classes," "refactored 3 methods"). Counts go stale immediately and any reader — human or agent — can query current values on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
 * **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
+* **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase, abbreviate, or reformat — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 * **Environment Incident Logging:** {{> incident-logging}}
 
 ```
@@ -91,6 +92,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
 4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
 5. **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include documentation files, READMEs, and any other files touched during this pipeline, even ancillary changes.
+6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
 **Documentation Quality — No Stale Counts:** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
 
@@ -121,9 +123,10 @@ The PM orchestrates four sub-agents to produce the project ledger. Your direct o
    - To the **Pipeline Configurator**: WP definitions + dependency graph from sequencer.
    - To the **Ledger Bootstrapper**: WP definitions + ordering + pipeline configs + absolute project path.
 
-2. **Verification (your direct ledger call):**
+2. **Verification (your direct ledger calls):**
    - Call `ledger_get_project_status` after the Ledger Bootstrapper completes.
    - Verify: WP count matches expectations, statuses are READY/BLOCKED as expected, dependency graph is correct.
+   - **AC content fidelity:** For each WP, call `ledger_get_work_package` and compare the returned `acceptance_criteria` array against the `## Acceptance Criteria` section of `work/<WP-ID>.md` using normalized comparison (trim + case-fold). If a mismatch is found, update the spec file to match the ledger — the ledger is authoritative. Do not hand off until all spec files are AC-consistent with the ledger.
 
 3. **File layout** (created by sub-agents, verified by you):
    ```
@@ -163,6 +166,7 @@ You must execute the following "Verification Stack" in order:
 2. **AC Verification:** Systematically check every single **Acceptance Criteria** in the Work Package. For each AC, perform a manual or automated test.
 3. **Regression Testing:** Run the existing test suite for the entire module to ensure the new changes didn't break legacy functionality.
 4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
+5. **Verbatim AC Text:** When populating `acceptance_criteria_updates`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
 ```
 ###  Path: `/personas/shared/partials/qa-output-format.md`
@@ -209,6 +213,7 @@ Perform release engineering tasks using the following methodology:
    - Dependencies are locked/pinned at the correct versions.
    - Release notes summary is complete and accurate.
 8. **Self-Rework:** If any of the above steps cannot be completed (e.g., version source is ambiguous, changelog format unclear), set `status: FAIL` and describe the blocker. Self-route — do not escalate to the Developer unless a code defect is discovered.
+9. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
 ```
 ###  Path: `/personas/shared/partials/release-engineer-output-format.md`
@@ -295,6 +300,10 @@ The `note` field **must** begin with `[documentation-forward]` so the Documentat
 
 Do not apply documentation changes yourself — the Documentation agent owns that scope.
 
+##### Verbatim AC Text
+
+When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase, abbreviate, or reformat — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+
 ```
 ###  Path: `/personas/shared/partials/reviewer-output-format.md`
 
@@ -339,6 +348,7 @@ Perform a structured Security Review using the following methodology:
    - A concise **description** of the vulnerability.
    - The **OWASP category** it maps to.
    - A concrete, actionable **remediation recommendation**.
+6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
 ```
 ###  Path: `/personas/shared/partials/security-auditor-output-format.md`

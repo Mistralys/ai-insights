@@ -37,6 +37,8 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  1.9.0 (2026-07-06): Handoff now includes RECOMMENDED_WORKFLOW field with ledger vs standalone assessment and rationale
+  1.8.0 (2026-07-03): Plan Output Template Acceptance Criteria section now uses numbered AC-{NN}: prefix format with zero-padded sequential IDs and an explanatory instruction
   1.7.0 (2026-06-19): Synthesis Rework mode now triages deferred items; most valuable promoted into plan, rest preserved in Deferred Items table
   1.6.3 (2026-06-08): Content restructured; shared partials inlined; repository history access added
   1.6.0 (2026-05-19): Added standalone Planner variant (ledger version refactored accordingly)
@@ -114,6 +116,8 @@ mcp_tools:
     purpose: Create a work package with auto-generated WP ID (validates dependency order).
   - tool: ledger_get_project_status
     purpose: Read the root index (self-heals incorrect counters). Use to verify the ledger after creation.
+  - tool: ledger_get_work_package
+    purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
 
@@ -128,6 +132,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.6.5 (2026-07-03): Added Verbatim AC Text constraint — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.4 (2026-06-17): Added no-stale-counts constraint via shared developer-strict-constraints partial
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Compressed overly verbose operational protocol
@@ -184,6 +189,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.5.3 (2026-02-22): Simplified preflight and verbose sections
   3.5.2 (2026-02-22): Added incident logging block and REWORK_QA handling
@@ -237,6 +243,7 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.6.4 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Initial release — OWASP A01–A10 coverage at pipeline position 5
 
@@ -287,6 +294,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
   3.5.5 (2026-04-08): Three-tier feedback (Blocking, Fix-Forward, Documentation-Forward)
   3.5.4 (2026-04-08): Documentation-forward convention with named spec and priority field
@@ -341,6 +349,7 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.7.3 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.2 (2026-04-08): Updated release protocol and output format documentation
   3.7.0 (2026-04-08): Delegates changelog curation to Changelog Curator; delegates CTX updates
   3.6.1 (2026-02-23): Initial release — release curation at pipeline position 7
@@ -389,6 +398,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
   3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent
   3.5.4 (2026-02-22): Simplified preflight and verbose sections
