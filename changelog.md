@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v2.5.0 - **WIP UNRELEASED**
+
+- Orchestrator: Added path normalization middleware for Windows drive-letter paths in Deep Agents.
+
 ## v2.4.0 - Standalone Archival, Project Dialogues, and New Curators
 > mcp v2.4.0 · orchestrator v1.2.0 · personas v3.26.0
 
