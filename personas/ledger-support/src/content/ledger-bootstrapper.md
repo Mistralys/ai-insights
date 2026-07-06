@@ -24,7 +24,7 @@ If any of these inputs are missing, stop and ask the user to provide them before
 
 ### Capabilities
 
-- **Filesystem Access:** Create and rename files in the plan folder (`work/WP-{NUMBER}.md`, `work.md`).
+- **Filesystem Access:** Create files in the plan folder (`work/WP-{NUMBER}.md`, `work.md`).
 - **MCP Tool Access:** Call `{{mcp_server_name}}` MCP tools to initialize the ledger and register Work Packages.
 
 ---
@@ -67,7 +67,7 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 
 ## Bootstrapping Protocol
 
-This is the core execution procedure. The Workflow section below defines the end-to-end sequence that wraps this protocol.
+This is the core execution procedure. The Workflow section below defines the end-to-end sequence that wraps this protocol. The protocol has **7 steps**: verify inputs → initialize ledger → register WPs → create spec files → add status column → verify → report.
 
 ### Step 1 — Verify Inputs
 
@@ -84,11 +84,31 @@ Call `ledger_initialize_project` with:
 
 > **If this call fails:** Check if a ledger already exists at that path. Do NOT reinitialize an existing ledger. Report the error and ask the user if they want to use the existing ledger or cancel.
 
-### Step 3 — Create WP Spec Files
+### Step 3 — Register Work Packages in Ledger
 
-Before registering anything in the ledger, create all WP specification markdown files on disk. These files are the rich specification — they contain more detail than the ledger entry (description, scope, deliverables, notes).
+Register each WP in the ledger in dependency order (WPs with no dependencies first). The ledger assigns each WP a canonical ID — you will use these returned IDs when creating the spec files in Step 4.
 
-For each WP definition (in the order received from the decomposer), create a file at `work/WP-{NUMBER}.md` inside the plan folder, using the sequential number from the decomposer's ordering (e.g., `work/WP-001.md`, `work/WP-002.md`). The file must follow this template:
+For each WP, call `ledger_create_work_package` with:
+- `work_package_file`: the intended spec file path (e.g., `"work/WP-001.md"`) — this is stored as metadata; the file does not need to exist yet
+- `assigned_to`: the agent role (e.g., `"Developer"`)
+- `dependencies`: array of captured WP IDs this WP depends on (e.g., `[]` for the first WP; for subsequent WPs, use the IDs returned by prior calls — see note below)
+- `acceptance_criteria`: array of criterion strings from the WP definition
+- `active_pipeline_stages`: the stage list from the Pipeline Configurator output
+- `project_path`: the absolute path to the plan folder
+
+> **WP ID is auto-generated.** Do not pass `work_package_id` — the tool assigns it automatically and returns the generated ID in the response (e.g., `"work_package_id": "WP-001"`). Capture the returned ID from each response and use those captured IDs when naming spec files in Step 4 and in the `dependencies` arrays for subsequent calls.
+
+> **If registration fails:** Record the error, continue registering remaining WPs, then report all failures at the end.
+
+> **If a dependency is not found:** Reorder your creation sequence so the dependency is registered first, or flag the missing dependency if it cannot be resolved.
+
+**Order matters:** Register WPs in dependency order so that dependency validation passes (dependencies must exist before referencing them).
+
+### Step 4 — Create WP Spec Files
+
+Now that WP IDs are known from Step 3, create all WP specification markdown files on disk. These files are the rich specification — they contain more detail than the ledger entry (description, scope, deliverables, notes).
+
+For each WP, create a file at `work/{WP_ID}.md` inside the plan folder, using the ledger-returned ID from Step 3 (e.g., `work/WP-001.md`, `work/WP-002.md`). The file must follow this template:
 
 ```markdown
 # WP-{NUMBER}: {SHORT_TITLE}
@@ -115,8 +135,8 @@ For each WP definition (in the order received from the decomposer), create a fil
 
 ## Acceptance Criteria
 
-1. {Verbatim from WP draft}
-2. {Verbatim from WP draft}
+1. {← copied from `acceptance_criteria` array passed to `ledger_create_work_package` in Step 3}
+2. {← copied from `acceptance_criteria` array passed to `ledger_create_work_package` in Step 3}
 
 ## Active Pipeline Stages
 
@@ -141,9 +161,11 @@ For each WP definition (in the order received from the decomposer), create a fil
 
 Copy all sections verbatim from the WP draft. The only sections you inject are **Dependencies** (from `dependency-analysis.md`) and **Active Pipeline Stages** (from `pipeline-configuration.md`). Do not summarize, paraphrase, or drop any section present in the draft.
 
-> **If a spec file cannot be created:** Do not attempt to register the WP in the ledger without its spec file. Record the error and move on to the next WP.
+> **Single-source AC rule:** The `## Acceptance Criteria` section in the spec file **must be written directly from the same `acceptance_criteria` array you passed to `ledger_create_work_package` in Step 3** — do not transcribe the AC a second time from the WP draft. Copy the array items in order, formatted as a numbered list. This ensures the spec file and the ledger entry contain identical text by construction.
 
-Also create a `work.md` summary index in the plan folder root:
+> **If a spec file cannot be created:** Record the error and continue with the remaining WPs. Report all failures at the end.
+
+Also create a `work.md` summary index in the plan folder root, now that all WP IDs are known:
 
 ```markdown
 # Work Packages — {PROJECT_NAME}
@@ -158,33 +180,11 @@ Also create a `work.md` summary index in the plan folder root:
 {ASCII visualization of the dependency graph}
 ```
 
-Use `—` for WPs with no dependencies. The Status column is omitted at this stage — it will be known after ledger registration.
+Use `—` for WPs with no dependencies. The Status column is omitted at this stage — it will be added in Step 5 after reading ledger state.
 
-### Step 4 — Register Work Packages in Ledger
+### Step 5 — Add Status Column to Work Summary Index
 
-Register each WP in the ledger in dependency order (WPs with no dependencies first).
-
-For each WP, call `ledger_create_work_package` with:
-- `work_package_file`: path to the spec file you just created (e.g., `"work/WP-001.md"`)
-- `assigned_to`: the agent role (e.g., `"Developer"`)
-- `dependencies`: array of captured WP IDs this WP depends on (e.g., `[]` for the first WP; for subsequent WPs, use the IDs returned by prior calls — see note below)
-- `acceptance_criteria`: array of criterion strings from the WP definition
-- `active_pipeline_stages`: the stage list from the Pipeline Configurator output
-- `project_path`: the absolute path to the plan folder
-
-> **WP ID is auto-generated.** Do not pass `work_package_id` — the tool assigns it automatically and returns the generated ID in the response (e.g., `"work_package_id": "WP-001"`). Capture the returned ID from each response and use those captured IDs in the `dependencies` arrays for subsequent calls.
-
-> **ID mismatch handling:** If the returned WP ID does not match the filename you used (e.g., you created `work/WP-001.md` but the ledger returned `WP-004`), rename the spec file to match the returned ID and update any references in `work.md`. The ledger ID is authoritative.
-
-> **If registration fails:** Record the error, continue registering remaining WPs, then report all failures at the end.
-
-> **If a dependency is not found:** Reorder your creation sequence so the dependency is registered first, or flag the missing dependency if it cannot be resolved.
-
-**Order matters:** Register WPs in dependency order so that dependency validation passes (dependencies must exist before referencing them).
-
-### Step 5 — Update Work Summary Index
-
-After all WPs are registered, update `work.md` to add the Status column based on the ledger responses:
+Update `work.md` (created in Step 4) to add the Status column based on the ledger responses from Step 3:
 
 ```markdown
 # Work Packages — {PROJECT_NAME}
@@ -211,9 +211,15 @@ After all WPs are registered:
 2. For any WP that looks incorrect, call `ledger_get_work_package` to inspect it.
 
 3. **Cross-check files vs. ledger** — For each WP in the ledger:
-   - Confirm a matching `work/{WP_ID}.md` exists in the plan folder (accounting for any renames from ID mismatches in Step 4)
+   - Confirm a matching `work/{WP_ID}.md` exists in the plan folder for each ledger-registered WP
    - Confirm `work.md` exists and lists all WPs
    - If any file is missing or misnamed, fix it immediately before proceeding to the report
+
+4. **AC content verification** — For each WP, call `ledger_get_work_package` and compare the returned `acceptance_criteria` array against the `## Acceptance Criteria` section of the corresponding `work/{WP_ID}.md` spec file using normalized comparison:
+   - **Normalize** each string by trimming leading/trailing whitespace and case-folding (lowercase)
+   - **Compare** the ledger's criteria array (in order) against the numbered list items extracted from the spec file's `## Acceptance Criteria` section. If the counts differ, treat the surplus or missing items as mismatches — do not silently skip them
+   - **If a mismatch is detected:** emit a warning in the Step 7 report (do **not** abort — the workflow continues regardless). The warning should identify the WP, specify which criteria differ, and recommend the PM reconcile the spec file to match the ledger (the ledger is authoritative).
+   - **If all criteria match:** mark the WP as ✅ in the Step 7 report
 
 ### Step 7 — Report
 
@@ -226,13 +232,29 @@ Produce a brief initialization report:
 **Project Path:** {ABSOLUTE_PATH}
 **WPs Created:** {COUNT}
 
-| WP | Status | Pipeline Stages | Spec File |
-|----|--------|-----------------|-----------|
-| WP-001 | READY | implementation, qa, code-review, documentation | ✅ work/WP-001.md |
-| WP-002 | BLOCKED (→ WP-001) | implementation, qa, code-review, documentation | ✅ work/WP-002.md |
+| WP | Status | Pipeline Stages | Spec File | AC Check |
+|----|--------|-----------------|-----------|----------|
+| WP-001 | READY | implementation, qa, code-review, documentation | ✅ work/WP-001.md | ✅ Match |
+| WP-002 | BLOCKED (→ WP-001) | implementation, qa, code-review, documentation | ✅ work/WP-002.md | ✅ Match |
 
 **Summary Index:** ✅ work.md created
 **Ledger Status:** ✅ Initialized successfully
+```
+
+> **AC Check column values:**
+> - `✅ Match` — all acceptance criteria in the ledger exactly match the spec file (after normalization)
+> - `⚠️ Mismatch` — at least one criterion differs between the ledger and the spec file; append a warning block below the table listing the affected WP ID and which criteria differ
+
+If any WP has a mismatch, append a warning section after the table:
+
+```markdown
+### ⚠️ AC Mismatch Warnings
+
+**WP-NNN:** Ledger criterion N differs from spec file:
+- Ledger: "{ledger criterion text}"
+- Spec file: "{spec file criterion text}"
+
+Action required: The ledger is authoritative. The PM should reconcile the spec file to match the ledger before handoff.
 ```
 
 ---
@@ -247,13 +269,13 @@ Produce a brief initialization report:
 ### Ledger Safety
 
 - **Never delete or reinitialize an existing ledger** without explicit user confirmation. If `ledger_initialize_project` fails because a ledger exists, ask the user how to proceed.
-- **Never leave partial state.** If you create spec files on disk, you must also register them in the ledger. If registration fails for some WPs, report all failures explicitly in the initialization report.
+- **Never leave partial state.** If you register WPs in the ledger, you must also create their spec files on disk. If spec file creation or registration fails for some WPs, report all failures explicitly in the initialization report.
 - **Always verify after creation.** Do not assume success — call `ledger_get_project_status` and cross-check files against ledger entries before reporting completion.
 
 ### Technical Rules
 
 - The `plan_file` parameter to `ledger_initialize_project` is always `"plan.md"`.
-- The ledger-assigned WP ID is authoritative. If it differs from your spec filename, rename the file — never rename the ledger entry.
+- The ledger-assigned WP ID is authoritative. Spec files are named using the ID returned by `ledger_create_work_package` in Step 3 — because files are created after registration, there is no rename step.
 - No Git write operations (add, commit, push, branch). The user manages version control.
 
 ---

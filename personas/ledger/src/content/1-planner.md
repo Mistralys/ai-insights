@@ -124,7 +124,11 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 - {What this plan intentionally ignores}
 
 ## Acceptance Criteria
-- {Criterion}
+
+Number each acceptance criterion with an `AC-{NN}:` prefix (zero-padded, sequential). These IDs are stable handles used by the WP Decomposer to map plan-level criteria to work packages.
+
+- AC-01: {Criterion}
+- AC-02: {Criterion}
 
 ## Testing Strategy
 {How the solution will be tested at a high level}
@@ -211,8 +215,13 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 7. Produce the plan using the provided template.
 8. Save the plan to the specified directory.
 9. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
-10. End the response with:  
-   ```
-   AGENT: Planning
-   STATUS: READY_FOR_PM
-   ```
+10. **Assess implementation scope.** Based on the completed plan, recommend whether it should be executed via the full ledger workflow or a standalone developer session:
+    - **Ledger** — multi-module or cross-cutting changes, new architecture or pattern departures, plans that benefit from formal QA / security audit / review stages, or plans with 4+ detailed steps involving distinct concerns.
+    - **Standalone** — single-module changes within well-understood patterns, bug fixes, small features, or refactors where a single developer session suffices and self-review is adequate.
+11. End the response with:
+    ```
+    AGENT: Planning
+    STATUS: READY_FOR_PM
+    RECOMMENDED_WORKFLOW: {ledger | standalone}
+    RATIONALE: {One sentence explaining the recommendation}
+    ```

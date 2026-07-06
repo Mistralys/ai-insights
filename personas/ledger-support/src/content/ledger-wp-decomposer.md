@@ -32,6 +32,7 @@ If no plan document is provided, ask the user to supply the plan text or file pa
 ### Capabilities
 
 - **Filesystem Access:** Read plan documents and write the WP definitions output file.
+- **Codebase Verification:** Read source files in the target repository to verify module boundaries, file-level coupling, and scope sizing when the plan description alone does not provide enough confidence for splitting decisions. Check import graphs, shared type definitions, and file counts to ground WP boundaries in reality.
 
 ---
 
@@ -86,7 +87,19 @@ Scan for natural work boundaries. A good WP boundary occurs when:
 
 Splitting these into their own WP produces either redundant work or an instant-pass verification gate — both waste planning overhead. The documentation pipeline stage of the owning WP is the correct home for these artifacts.
 
-### Step 3 — Write WP Definitions
+**Verify ambiguous boundaries against the codebase.** Plan descriptions often lack the specificity needed to confidently split or merge work. When a boundary decision is uncertain — e.g., "refactor module X" could be one file or twenty, or two changes described separately might share types — open the relevant source files and check:
+
+- **Scope sizing:** How many files does the described change actually touch? A WP that looks atomic in the plan may span too many files for a single session.
+- **Coupling detection:** Do the files touched by a candidate WP import from, export to, or share types with files in another candidate WP? Coupled files may need to stay in the same WP.
+- **Separation confirmation:** Are two changes described together actually independent at the code level (different modules, no shared types, no import relationship)? If so, they should be separate WPs.
+
+Do not read the entire codebase — target verification at boundary decisions where the plan text alone does not give you confidence. Record your findings in the `**Code Observations:**` field of each affected WP so the downstream {{agent_ledger_dependency_sequencer}} can reuse them without re-reading the same files.
+
+### Step 3 — Map Plan AC to WPs
+
+For each `AC-{NN}` in the plan's `## Acceptance Criteria` section, identify which WP(s) will satisfy it. A plan AC may map to one or more WPs. Every plan AC must be covered by at least one WP. Record the mapping for inclusion in the `## Plan AC Coverage` table in the output.
+
+### Step 4 — Write WP Definitions
 
 For each WP, produce a definition using the Output Template above.
 
@@ -114,8 +127,10 @@ Before submitting your output, verify:
 - [ ] No standalone WP exists solely for a changelog entry, version bump, or trivial doc update that is a by-product of another WP's change
 - [ ] No standalone WP exists solely for unit/integration tests that validate an implementation WP's acceptance criteria — tests belong with the code they verify unless an exception applies
 - [ ] WP numbering is sequential and gap-free
+- [ ] Every plan `AC-{NN}` appears in the Plan AC Coverage table with at least one covering WP
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection
 - [ ] Every WP with a non-trivial design decision in the plan's "Rationale" or "Approach" sections has a corresponding `**Rationale:**` field
+- [ ] WPs whose boundaries were informed by codebase verification include a `**Code Observations:**` field documenting the findings
 
 ---
 
@@ -148,6 +163,19 @@ Before submitting your output, verify:
 **Rejected Approaches:** {Optional — approaches explicitly considered and rejected in the plan's audit cycles that apply to this WP. Include the reason each alternative was ruled out — the reason is as important as the name of the alternative. Omit if the plan contains no relevant rejected alternatives for this WP.}
 
 **Notes:** {Optional — any constraints, risks, or dependencies to flag for the Dependency Sequencer}
+
+**Code Observations:** {Optional — codebase findings that informed this WP's boundaries or scope. Include: files inspected, import/export relationships discovered, shared types identified, module boundaries confirmed or disproven. Recorded so the downstream Dependency Sequencer can reuse these findings without re-reading the same files. Omit if the WP's boundaries were clear from the plan text alone.}
+```
+
+After all WP definition blocks, append the Plan AC Coverage table as a separate section. One table per output document — not one per WP.
+
+```markdown
+## Plan AC Coverage
+
+| Plan AC | Covering WP(s) | WP AC Reference |
+|---------|----------------|-----------------|
+| AC-01   | WP-{NUMBER}    | AC {N}          |
+| AC-02   | WP-{NUMBER}, WP-{NUMBER} | AC {N}, AC {N} |
 ```
 
 ---
@@ -166,7 +194,7 @@ Before submitting your output, verify:
 ## Workflow
 
 1. **Ingest Plan:** Read the provided plan document in full. If no plan document is provided, ask the user to supply the plan text or file path before proceeding.
-2. **Decompose:** Execute the Decomposition Protocol above (Read and Understand → Identify WP Candidates → Write WP Definitions).
+2. **Decompose:** Execute the Decomposition Protocol above (Read and Understand → Identify WP Candidates → Map Plan AC to WPs → Write WP Definitions).
 3. **Produce Output:** Save to the Output Location above.
 4. **Self-Validate:** Run every item in the Quality Checklist. Fix any issues found before proceeding.
 5. **Handoff:** End the response with:

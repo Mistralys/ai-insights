@@ -3,10 +3,10 @@
     "number": 1,
     "id": "ledger-1-planner",
     "role": "Planner",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "vscode": {
       "file_name": "1-planner.agent.md",
-      "agent_name": "1 - Planner v1.7.0"
+      "agent_name": "1 - Planner v1.8.0"
     },
     "claude_code": {
       "file_name": "1-planner.md",
@@ -39,10 +39,10 @@
     "number": 3,
     "id": "ledger-3-dev",
     "role": "Developer",
-    "version": "3.6.4",
+    "version": "3.6.5",
     "vscode": {
       "file_name": "3-dev.agent.md",
-      "agent_name": "3 - Developer v3.6.4"
+      "agent_name": "3 - Developer v3.6.5"
     },
     "claude_code": {
       "file_name": "3-developer.md",
@@ -57,10 +57,10 @@
     "number": 4,
     "id": "ledger-4-qa",
     "role": "QA",
-    "version": "3.6.2",
+    "version": "3.6.3",
     "vscode": {
       "file_name": "4-qa.agent.md",
-      "agent_name": "4 - QA v3.6.2"
+      "agent_name": "4 - QA v3.6.3"
     },
     "claude_code": {
       "file_name": "4-qa.md",
@@ -75,10 +75,10 @@
     "number": 5,
     "id": "ledger-5-security-auditor",
     "role": "Security Auditor",
-    "version": "3.6.3",
+    "version": "3.6.4",
     "vscode": {
       "file_name": "5-security-auditor.agent.md",
-      "agent_name": "5 - Security Auditor v3.6.3"
+      "agent_name": "5 - Security Auditor v3.6.4"
     },
     "claude_code": {
       "file_name": "5-security-auditor.md",
@@ -93,10 +93,10 @@
     "number": 6,
     "id": "ledger-6-reviewer",
     "role": "Reviewer",
-    "version": "3.6.1",
+    "version": "3.6.2",
     "vscode": {
       "file_name": "6-reviewer.agent.md",
-      "agent_name": "6 - Reviewer v3.6.1"
+      "agent_name": "6 - Reviewer v3.6.2"
     },
     "claude_code": {
       "file_name": "6-reviewer.md",
@@ -111,10 +111,10 @@
     "number": 7,
     "id": "ledger-7-release-engineer",
     "role": "Release Engineer",
-    "version": "3.7.2",
+    "version": "3.7.3",
     "vscode": {
       "file_name": "7-release-engineer.agent.md",
-      "agent_name": "7 - Release Engineer v3.7.2"
+      "agent_name": "7 - Release Engineer v3.7.3"
     },
     "claude_code": {
       "file_name": "7-release-engineer.md",
@@ -129,10 +129,10 @@
     "number": 8,
     "id": "ledger-8-docs",
     "role": "Documentation",
-    "version": "3.7.1",
+    "version": "3.7.2",
     "vscode": {
       "file_name": "8-docs.agent.md",
-      "agent_name": "8 - Documentation v3.7.1"
+      "agent_name": "8 - Documentation v3.7.2"
     },
     "claude_code": {
       "file_name": "8-documentation.md",

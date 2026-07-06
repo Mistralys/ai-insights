@@ -84,19 +84,16 @@ if (!CHECK) {
   const metaDir = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
   const outPath = path.join(ROOT, 'personas', 'name-mapping.json');
 
-  // This list must stay in sync with the 9 ledger roles in shared/workflow-manifest.json.
-  // When a new persona is added to the workflow, update this list accordingly.
-  const PERSONA_FILES = [
-    '1-planner.yaml',
-    '2-project-manager.yaml',
-    '3-developer.yaml',
-    '4-qa.yaml',
-    '5-security-auditor.yaml',
-    '6-reviewer.yaml',
-    '7-release-engineer.yaml',
-    '8-documentation.yaml',
-    '9-synthesis.yaml',
-  ];
+  // Dynamically derive persona filenames from the filesystem — all files matching
+  // /^\d+-.*\.yaml$/ in personas/ledger/src/meta/, sorted by leading digit.
+  // This eliminates manual synchronization with shared/workflow-manifest.json.
+  const PERSONA_FILES = fs.readdirSync(metaDir)
+    .filter(f => /^\d+-.*\.yaml$/.test(f))
+    .sort((a, b) => {
+      const numA = parseInt(a.match(/^(\d+)/)[1], 10);
+      const numB = parseInt(b.match(/^(\d+)/)[1], 10);
+      return numA - numB;
+    });
 
   const SCALAR_FIELDS = ['number', 'role', 'id', 'version', 'vs_file_name', 'cc_file_name', 'da_file_name'];
 
@@ -104,10 +101,6 @@ if (!CHECK) {
    * Extracts simple scalar (string/number) fields from a YAML file without
    * external dependencies. Only top-level key: value lines are parsed; nested
    * structures and lists are ignored.
-   *
-   * Limitation: trailing inline YAML comments are NOT stripped — a value like
-   * `role: Developer # note` will be parsed as `"Developer # note"`. Persona
-   * YAML files must not use trailing inline comments on scalar fields.
    */
   function parseYamlScalars(text, fields) {
 
@@ -122,6 +115,10 @@ if (!CHECK) {
       if ((val.startsWith('"') && val.endsWith('"')) ||
           (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
+      } else {
+        // Strip trailing inline YAML comments from unquoted scalar values
+        // e.g. `role: Developer # note` → `Developer`
+        val = val.replace(/\s+#.*$/, '').trim();
       }
       result[key] = val;
     }
