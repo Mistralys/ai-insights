@@ -394,6 +394,7 @@ var API = (function () {
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
     orchestratorDismiss:     function (id)               { return request('POST',   '/orchestrator/dismiss/'    + encodeURIComponent(id)); },
+    orchestratorDelete:      function (id)               { return request('POST',   '/orchestrator/delete/'     + encodeURIComponent(id)); },
 
     // -- Knowledge -----------------------------------------------------
 

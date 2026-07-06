@@ -1,10 +1,11 @@
 slug: plan-architect-reviewer
 name: "Plan Architect Reviewer"
-description: "Advisory architectural review of technical plans — challenges design shape, surfaces simplifications, and proposes ecosystem-level alternatives. Runs in parallel with the Plan Auditor; never blocks."
+description: "Decision-level architectural review of technical plans — weighs each design choice against named alternatives with Confirm/Challenge/Reconsider verdicts. Runs in parallel with the Plan Auditor; never blocks."
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.0.0 (2026-07-04): Major rewrite — decision-by-decision analysis replaces holistic shape commentary; Confirm/Challenge/Reconsider verdicts replace Simplification/Concern/Affirmation categories; 3-phase protocol replaces 5-phase; Decision Analysis Table is now the primary deliverable
   1.6.0 (2026-06-05): Improved review philosophy and architectural framing
   1.5.0 (2026-05-29): Gained browser tool for UI verification
   1.4.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters

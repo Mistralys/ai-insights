@@ -377,6 +377,12 @@ function renderOrchestrator(app) {
         // avoid constructing a broken bare-slug URL. The entry is still shown
         // in the queue but no navigation link is rendered.
       }
+
+      // Admin menu — always present on every row regardless of status.
+      cell.appendChild(OrchestratorWidgets.renderAdminMenu(id, function () {
+        delete expandedIds[id];
+        refreshQueue();
+      }));
     });
 
     var toggleBtns = container.querySelectorAll('.orch-row-toggle');

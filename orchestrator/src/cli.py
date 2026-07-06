@@ -147,6 +147,39 @@ def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
     )
 
 
+def _infer_project_root(plan_dir: Path) -> Path | None:
+    """Infer the target project root from a plan directory path.
+
+    Uses the established ``plan_dir.parents[3]`` convention — plans live at
+    ``<project-root>/docs/agents/plans/<slug>``, so the fourth ancestor
+    (index 3) is the project root.
+
+    A sanity check verifies that ``docs/agents/plans/`` exists at the inferred
+    root before accepting the result.  Without this directory the project does
+    not follow the AI Insights convention and the orchestrator cannot run
+    reliably.
+
+    Returns ``None`` when:
+
+    * The path has fewer than four ancestors (``IndexError``).
+    * The sanity check directory does not exist at the inferred root.
+
+    Parameters
+    ----------
+    plan_dir:
+        Resolved absolute path to the plan slug directory (e.g.
+        ``/workspace/MyRepo/docs/agents/plans/2026-01-01-slug``).
+    """
+    try:
+        inferred_root = plan_dir.parents[3]
+    except IndexError:
+        return None
+
+    if (inferred_root / "docs" / "agents" / "plans").is_dir():
+        return inferred_root
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Signal handling
 # ---------------------------------------------------------------------------
@@ -237,7 +270,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Override the target project/codebase path. "
-            "Defaults to the workspace root inferred from the plan directory."
+            "Defaults to the project root inferred from the plan directory "
+            "(4 levels up from the plan slug directory)."
         ),
     )
 
@@ -687,7 +721,19 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     plan_dir = plan_path.parent if plan_path.is_file() else plan_path
     plan_file = plan_path.name if plan_path.is_file() else "plan.md"
 
-    project_path = Path(args.project_path).resolve() if args.project_path else config.workspace_root
+    if args.project_path:
+        project_path = Path(args.project_path).resolve()
+    else:
+        inferred = _infer_project_root(plan_dir)
+        if inferred is None:
+            sys.stderr.write(
+                f"orchestrate: error: cannot infer project root from plan path: {plan_dir}\n"
+                f"  Expected the plan to live at <project-root>/docs/agents/plans/<slug>.\n"
+                f"  Use --project-path to specify the project root explicitly.\n"
+            )
+            return EXIT_ERROR
+        project_path = inferred
+        log.info("Inferred target project root from plan path: %s", project_path)
 
     # ── Acquire process lock (prevent concurrent runs on same plan) ──────
     lock_path = plan_dir / ".orchestrator.lock"
