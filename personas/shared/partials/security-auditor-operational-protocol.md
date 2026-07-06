@@ -30,3 +30,4 @@ Perform a structured Security Review using the following methodology:
    - A concise **description** of the vulnerability.
    - The **OWASP category** it maps to.
    - A concrete, actionable **remediation recommendation**.
+6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.

@@ -8,9 +8,10 @@ The PM orchestrates four sub-agents to produce the project ledger. Your direct o
    - To the **Pipeline Configurator**: WP definitions + dependency graph from sequencer.
    - To the **Ledger Bootstrapper**: WP definitions + ordering + pipeline configs + absolute project path.
 
-2. **Verification (your direct ledger call):**
+2. **Verification (your direct ledger calls):**
    - Call `ledger_get_project_status` after the Ledger Bootstrapper completes.
    - Verify: WP count matches expectations, statuses are READY/BLOCKED as expected, dependency graph is correct.
+   - **AC content fidelity:** For each WP, call `ledger_get_work_package` and compare the returned `acceptance_criteria` array against the `## Acceptance Criteria` section of `work/<WP-ID>.md` using normalized comparison (trim + case-fold). If a mismatch is found, update the spec file to match the ledger — the ledger is authoritative. Do not hand off until all spec files are AC-consistent with the ledger.
 
 3. **File layout** (created by sub-agents, verified by you):
    ```

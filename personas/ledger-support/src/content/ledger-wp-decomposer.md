@@ -86,7 +86,11 @@ Scan for natural work boundaries. A good WP boundary occurs when:
 
 Splitting these into their own WP produces either redundant work or an instant-pass verification gate — both waste planning overhead. The documentation pipeline stage of the owning WP is the correct home for these artifacts.
 
-### Step 3 — Write WP Definitions
+### Step 3 — Map Plan AC to WPs
+
+For each `AC-{NN}` in the plan's `## Acceptance Criteria` section, identify which WP(s) will satisfy it. A plan AC may map to one or more WPs. Every plan AC must be covered by at least one WP. Record the mapping for inclusion in the `## Plan AC Coverage` table in the output.
+
+### Step 4 — Write WP Definitions
 
 For each WP, produce a definition using the Output Template above.
 
@@ -114,6 +118,7 @@ Before submitting your output, verify:
 - [ ] No standalone WP exists solely for a changelog entry, version bump, or trivial doc update that is a by-product of another WP's change
 - [ ] No standalone WP exists solely for unit/integration tests that validate an implementation WP's acceptance criteria — tests belong with the code they verify unless an exception applies
 - [ ] WP numbering is sequential and gap-free
+- [ ] Every plan `AC-{NN}` appears in the Plan AC Coverage table with at least one covering WP
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection
 - [ ] Every WP with a non-trivial design decision in the plan's "Rationale" or "Approach" sections has a corresponding `**Rationale:**` field
 
@@ -150,6 +155,17 @@ Before submitting your output, verify:
 **Notes:** {Optional — any constraints, risks, or dependencies to flag for the Dependency Sequencer}
 ```
 
+After all WP definition blocks, append the Plan AC Coverage table as a separate section. One table per output document — not one per WP.
+
+```markdown
+## Plan AC Coverage
+
+| Plan AC | Covering WP(s) | WP AC Reference |
+|---------|----------------|-----------------|
+| AC-01   | WP-{NUMBER}    | AC {N}          |
+| AC-02   | WP-{NUMBER}, WP-{NUMBER} | AC {N}, AC {N} |
+```
+
 ---
 
 ## Strict Constraints
@@ -166,7 +182,7 @@ Before submitting your output, verify:
 ## Workflow
 
 1. **Ingest Plan:** Read the provided plan document in full. If no plan document is provided, ask the user to supply the plan text or file path before proceeding.
-2. **Decompose:** Execute the Decomposition Protocol above (Read and Understand → Identify WP Candidates → Write WP Definitions).
+2. **Decompose:** Execute the Decomposition Protocol above (Read and Understand → Identify WP Candidates → Map Plan AC to WPs → Write WP Definitions).
 3. **Produce Output:** Save to the Output Location above.
 4. **Self-Validate:** Run every item in the Quality Checklist. Fix any issues found before proceeding.
 5. **Handoff:** End the response with:

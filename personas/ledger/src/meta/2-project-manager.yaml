@@ -41,5 +41,7 @@ mcp_tools:
     purpose: Create a work package with auto-generated WP ID (validates dependency order).
   - tool: ledger_get_project_status
     purpose: Read the root index (self-heals incorrect counters). Use to verify the ledger after creation.
+  - tool: ledger_get_work_package
+    purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.

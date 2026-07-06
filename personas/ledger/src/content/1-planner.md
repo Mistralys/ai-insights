@@ -124,7 +124,11 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 - {What this plan intentionally ignores}
 
 ## Acceptance Criteria
-- {Criterion}
+
+Number each acceptance criterion with an `AC-{NN}:` prefix (zero-padded, sequential). These IDs are stable handles used by the WP Decomposer to map plan-level criteria to work packages.
+
+- AC-01: {Criterion}
+- AC-02: {Criterion}
 
 ## Testing Strategy
 {How the solution will be tested at a high level}

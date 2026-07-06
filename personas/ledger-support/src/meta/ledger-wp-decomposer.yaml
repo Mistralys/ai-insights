@@ -5,6 +5,7 @@ vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
 changelog: |
+  1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
   1.0.7 (2026-06-04): Minor output format tweaks
   1.0.6 (2026-06-03): Minor refinements
   1.0.5 (2026-05-19): Added Plan Context, Rationale, Rejected Approaches; improved handoff

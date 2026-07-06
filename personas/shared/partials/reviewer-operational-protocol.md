@@ -62,3 +62,7 @@ The `note` field **must** begin with `[documentation-forward]` so the Documentat
 * `"[documentation-forward] Module-level docstring in src/nodes/reviewer.py still references the old review tiers; update to reflect current three-tier model"`
 
 Do not apply documentation changes yourself — the Documentation agent owns that scope.
+
+##### Verbatim AC Text
+
+When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase, abbreviate, or reformat — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.

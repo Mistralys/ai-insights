@@ -1,6 +1,22 @@
 # Personas Changelog
 
 ## v3.26.0 - **WIP Unreleased**
+- Ledger: Verbatim AC Text guidance extended to Security Auditor, Reviewer, Release Engineer, and
+  Documentation operational protocols — all six pipeline-completing personas now carry the exact-match
+  copy instruction for `acceptance_criteria_updates`.
+- `personas/README.md` updated to reflect the current build output: 3 suites (ledger 9, standalone 21,
+  ledger-support 10), 3 targets (vs-code, claude-code, deep-agents), 40 personas × 3 = 120 generated
+  files.
+- `scripts/build-personas.js`: `PERSONA_FILES` hardcoded list replaced with a dynamic directory scan
+  of `personas/ledger/src/meta/` — eliminates manual sync with `shared/workflow-manifest.json`.
+- Ledger: Planner plan output template now uses numbered `AC-{NN}:` prefix format (zero-padded, sequential) with an explanatory instruction for agents.
+- Ledger-Support: WP Decomposer gains Step 3 — Map Plan AC to WPs — with a `Plan AC Coverage` table in the output template and a quality-checklist item ensuring every plan `AC-{NN}` maps to at least one WP. Old Step 3 renumbered to Step 4.
+- Ledger: Developer and QA personas gain explicit verbatim-copy guidance for `acceptance_criteria_updates`: copy criterion text directly from `ledger_get_work_package` output to prevent phantom duplicate creation from inexact text matches.
+- Ledger-Support: Bootstrapper protocol reordered — WPs are now registered in the ledger (Step 3) before spec files are created on disk (Step 4), eliminating the ID mismatch / rename-step failure mode.
+- Ledger-Support: Bootstrapper gains Single-source AC rule: the `acceptance_criteria` array passed to `ledger_create_work_package` and the `## Acceptance Criteria` section written to the spec file must be sourced from the same data — no second transcription from the WP draft.
+- Ledger-Support: Bootstrapper Step 6 gains content-level AC verification: calls `ledger_get_work_package` per WP and compares returned criteria against the spec file using normalized comparison (trim + case-fold), emitting a warning on mismatch without aborting. Step 7 report template includes an AC Check column.
+- Ledger: PM Step 9 gains self-healing AC content fidelity check: compares ledger AC against spec file, updates spec file to match the ledger (ledger is authoritative) on mismatch, and re-reads to confirm the fix. No handoff until consistent.
+- Ledger: PM output format partial gains AC content fidelity verification instruction (normalized comparison: trim + case-fold; spec file updated to match ledger).
 - Standalone: Recipe Curator — recipe identifiers (R1, R2, …) across previews,
   plan tables, and full recipes for easy back-reference in long conversations.
 - Standalone: Recipe Curator — template fidelity constraint: output templates
