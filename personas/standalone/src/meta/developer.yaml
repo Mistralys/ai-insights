@@ -5,6 +5,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.3.1 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
+  1.3.0 (2026-07-06): New step 1 renames plan folder date prefix to today before implementation
   1.2.1 (2026-07-03): Made the archiving step non-optional but not required, as it was skipped too often.
   1.2.0 (2026-07-01): Gained standalone-archiver subagent dispatch for automatic ledger archival after synthesis
   1.1.1 (2026-06-17): Added no-stale-counts constraint to Strict Constraints

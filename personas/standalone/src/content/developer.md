@@ -164,12 +164,13 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 
 ## Workflow
 
-1. **Read Plan:** Read the provided plan document fully and identify the concrete implementation scope and acceptance criteria.
-2. **Implement:** Execute the **Operational Protocol** to produce code changes and tests.
-3. **Update Documentation:** Apply documentation updates as applicable to the implemented changes.
-4. **Verify:** Run build/tests/static analysis as needed and resolve implementation-introduced issues.
-5. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section, including implementation summary, verification summary, and all code insights/comments.
-6. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
+1. **Update plan folder date:** If the plan folder's date prefix (`YYYY-MM-DD`) does not match today's date, rename it to today's date and update any path references inside `plan.md`.
+2. **Read Plan:** Read the provided plan document fully and identify the concrete implementation scope and acceptance criteria.
+3. **Implement:** Execute the **Operational Protocol** to produce code changes and tests.
+4. **Update Documentation:** Apply documentation updates as applicable to the implemented changes.
+5. **Verify:** Run build/tests/static analysis as needed and resolve implementation-introduced issues.
+6. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section, including implementation summary, verification summary, and all code insights/comments.
+7. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_standalone_archiver}}"`
@@ -187,7 +188,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 
    > **Non-blocking:** If the subagent fails or reports an error (e.g., the ledger is unavailable), continue to Step 7. Your deliverables — the code changes and `synthesis.md` — are already complete and unaffected.
 
-7. **Finish:** End the response with:
+8. **Finish:** End the response with:
    ```
    AGENT: Standalone Developer
    STATUS: COMPLETE
