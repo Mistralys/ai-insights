@@ -1,24 +1,26 @@
 """
-path_middleware — Deep Agents tool-call middleware for Windows path normalization.
+path_middleware — Deep Agents tool-call middleware for cross-platform path normalization.
 
-On Windows, Deep Agents' ``validate_path()`` unconditionally rejects paths that
-match ``^[a-zA-Z]:`` before ``_resolve_path()`` can translate them to virtual
-``/``-rooted paths.  This middleware intercepts every tool call and rewrites
-Windows drive-letter paths to their virtual equivalents *before* validation runs.
+Deep Agents' ``validate_path()`` unconditionally rejects Windows drive-letter paths
+(``^[a-zA-Z]:``) before ``_resolve_path()`` can translate them to virtual ``/``-rooted
+paths.  On all platforms, agents may receive absolute host paths in their context (e.g.
+via ``project_path`` variables) and pass them directly as tool arguments.  This middleware
+intercepts every tool call and rewrites absolute host paths to their virtual equivalents
+*before* validation runs.
 
 :class:`PathNormalizationMiddleware`
-    Scans all string arguments of every tool call.  Any value whose normalized
-    form starts with the known ``root_dir`` prefix (case-insensitive) is rewritten
-    to a ``/``-rooted virtual path.  Values that do not match are passed through
-    unchanged.
+    Scans all string arguments of every tool call.  Any value whose normalized form
+    starts with the known ``root_dir`` prefix (case-insensitive) is rewritten to a
+    ``/``-rooted virtual path.  Values that do not match are passed through unchanged.
 
-On macOS / Linux ``root_dir`` never starts with ``[a-zA-Z]:`` so the middleware
-is an inert no-op — every ``awrap_tool_call`` call delegates directly to the
-handler without inspecting arguments.
+Active on all platforms when ``root_dir`` is a non-trivial absolute path:
+- **Windows**: ``root_dir`` starts with a drive letter (e.g. ``C:``).
+- **macOS / Linux**: ``root_dir`` starts with ``/`` and has length > 1.
+- **Inactive**: ``root_dir`` is empty or equals bare ``/`` (would rewrite all virtual paths).
 
 Designed to work in tandem with ``LocalShellBackend(virtual_mode=True)``:
-- ``virtual_mode=True`` handles *resolution* of ``/``-rooted paths on Windows.
-- This middleware handles *validation* rejection of Windows drive-letter paths.
+- ``virtual_mode=True`` handles *resolution* of ``/``-rooted paths on all platforms.
+- This middleware handles *validation* rejection of absolute host paths.
 
 Context
 -------
@@ -43,7 +45,7 @@ _WIN_PATH_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z]:")
 
 
 class PathNormalizationMiddleware(AgentMiddleware):
-    """Rewrite Windows drive-letter paths in tool call arguments to virtual paths.
+    """Rewrite absolute host paths in tool call arguments to virtual ``/``-rooted paths.
 
     Parameters
     ----------
@@ -53,29 +55,39 @@ class PathNormalizationMiddleware(AgentMiddleware):
 
     Behaviour
     ---------
-    - When ``root_dir`` starts with a Windows drive letter the middleware is
-      *active*: it rewrites matching paths in ``awrap_tool_call``.
-    - Otherwise (POSIX ``root_dir``) the middleware is *inactive*: it is a
-      zero-cost pass-through.
-    - Only string values whose normalized form case-insensitively matches the
-      ``root_dir`` prefix are rewritten.  Paths outside the project root are
-      left unchanged.
+    - When ``root_dir`` is any non-trivial absolute path the middleware is *active*:
+      it rewrites matching paths in ``awrap_tool_call``.  This covers both Windows
+      drive-letter roots (e.g. ``C:\\project``) and POSIX roots (e.g.
+      ``/Users/dev/project``).
+    - When ``root_dir`` is empty or equals bare ``/`` the middleware is *inactive*:
+      it is a zero-cost pass-through.  Bare ``/`` is excluded because activating
+      on it would rewrite every virtual ``/``-rooted path.
+    - Only string values whose normalized form case-insensitively starts with the
+      ``root_dir`` prefix are rewritten.  Paths outside the project root and
+      virtual ``/``-rooted paths that do not match the full prefix are left
+      unchanged.
     - Backslash separators in the input are normalized to forward slashes before
       comparison and in the output.
     """
 
     def __init__(self, root_dir: str) -> None:
         self._root: str = root_dir.replace("\\", "/")
-        # Active only when root_dir is a Windows absolute path.
-        self._active: bool = bool(_WIN_PATH_RE.match(root_dir))
+        # Active when root_dir is any absolute path (Windows drive letter or POSIX).
+        # Bare "/" is excluded: it would rewrite every virtual path.
+        self._active: bool = bool(
+            _WIN_PATH_RE.match(root_dir)
+            or (root_dir.startswith("/") and len(root_dir) > 1)
+        )
 
     def _to_virtual(self, value: str) -> str:
-        """Convert a Windows path rooted at ``_root`` to a ``/``-rooted virtual path.
+        """Convert an absolute host path rooted at ``_root`` to a ``/``-rooted virtual path.
+
+        Works for both Windows drive-letter paths and POSIX absolute paths.
 
         Parameters
         ----------
         value:
-            A string that has already been confirmed to match ``^[a-zA-Z]:``.
+            A string that has been confirmed as a rewritable absolute path.
 
         Returns
         -------
@@ -92,8 +104,20 @@ class PathNormalizationMiddleware(AgentMiddleware):
             return "/" + stripped if stripped else "/"
         return value
 
+    def _is_rewritable(self, value: str) -> bool:
+        """Return ``True`` when *value* looks like an absolute host path matching ``root_dir``.
+
+        Virtual ``/``-rooted paths that do not start with the full ``root_dir`` prefix
+        (e.g. ``/src/file.ts`` when root is ``/Users/dev/project``) are **not** rewritten.
+        """
+        if _WIN_PATH_RE.match(value):
+            return True
+        # POSIX absolute path: only rewrite if it matches the root prefix.
+        norm = value.replace("\\", "/")
+        return norm.startswith("/") and norm.lower().startswith(self._root.lower())
+
     def _rewrite_args(self, args: dict[str, Any]) -> dict[str, Any] | None:
-        """Scan *args* for Windows paths and rewrite matching ones.
+        """Scan *args* for absolute host paths and rewrite matching ones.
 
         Parameters
         ----------
@@ -112,7 +136,7 @@ class PathNormalizationMiddleware(AgentMiddleware):
 
         changed: dict[str, Any] = {}
         for key, val in args.items():
-            if isinstance(val, str) and _WIN_PATH_RE.match(val):
+            if isinstance(val, str) and self._is_rewritable(val):
                 rewritten = self._to_virtual(val)
                 if rewritten != val:
                     changed[key] = rewritten
@@ -124,7 +148,7 @@ class PathNormalizationMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
-        """Intercept a tool call, rewrite Windows paths, and delegate to *handler*.
+        """Intercept a tool call, rewrite absolute host paths, and delegate to *handler*.
 
         Parameters
         ----------

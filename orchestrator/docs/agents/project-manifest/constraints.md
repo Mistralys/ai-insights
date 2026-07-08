@@ -601,17 +601,20 @@ entry = {
 the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
 without the `middleware` parameter, and never pass an empty list.
 
-**Rationale:** Deep Agents' `validate_path()` unconditionally rejects any argument matching
-`^[a-zA-Z]:` before `_resolve_path()` can translate it to a virtual path. Without the
-middleware, any agent on Windows that supplies a file-tool argument such as
-`F:\Webserver\project\src\file.ts` receives "Windows absolute paths are not supported",
-causing every file operation to fail. The middleware is a zero-cost no-op on macOS/Linux
-(where `target_path` never starts with a drive letter), so it is safe to include unconditionally.
+**Rationale:** Deep Agents' `validate_path()` unconditionally rejects Windows drive-letter
+paths (`^[a-zA-Z]:`) before `_resolve_path()` can translate them to virtual paths. On all
+platforms, agents may receive absolute host paths in their context (via `project_path`
+variables) and pass them directly as file-tool arguments. Without the middleware, any agent
+that supplies an absolute path (e.g. `F:\Webserver\project\src\file.ts` on Windows or
+`/Users/dev/project/src/file.ts` on macOS) receives a validation error, causing every file
+operation to fail. The middleware is active for any non-trivial absolute `root_dir`
+(Windows drive-letter **or** POSIX path with length > 1), and is a zero-cost pass-through
+only when `root_dir` is empty or equals bare `/`.
 
 **Correct pattern:**
 ```python
-# ✅ CORRECT — middleware always present; PathNormalizationMiddleware is a no-op on
-# macOS/Linux when target_path is a POSIX path
+# ✅ CORRECT — middleware always present; active on all platforms when
+# target_path is a non-trivial absolute path
 path_middleware = PathNormalizationMiddleware(target_path)
 agent = create_deep_agent(
     model=resolved_model,
@@ -625,7 +628,7 @@ agent = create_deep_agent(
 
 **Anti-pattern:**
 ```python
-# ❌ WRONG — no middleware; Windows file tool calls fail at validate_path()
+# ❌ WRONG — no middleware; absolute-path file tool calls fail at validate_path()
 agent = create_deep_agent(
     model=resolved_model,
     backend=backend,
@@ -636,7 +639,7 @@ agent = create_deep_agent(
 
 **Complementary dependency:** `LocalShellBackend(virtual_mode=True)` must remain enabled
 alongside the middleware (Constraint 8 / `2026-07-04-windows-path-resolution`).
-`virtual_mode=True` resolves `/`-rooted virtual paths on Windows; the middleware produces
-them. Both are required for Windows file-tool support.
+`virtual_mode=True` resolves `/`-rooted virtual paths; the middleware produces them from
+absolute host paths. Both are required for cross-platform file-tool support.
 
 **Source:** `orchestrator/src/utils/path_middleware.py` — `PathNormalizationMiddleware`.

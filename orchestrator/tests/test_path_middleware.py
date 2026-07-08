@@ -3,17 +3,20 @@ test_path_middleware.py — Unit tests for PathNormalizationMiddleware.
 
 Tests cover:
 - Basic Windows path rewriting (drive-letter path → virtual /\u2011rooted path)
+- Basic POSIX path rewriting (macOS/Linux absolute path → virtual /‑rooted path)
 - Case-insensitive root matching
 - Backslash normalization
 - Paths outside root_dir pass through unchanged
-- POSIX paths pass through unchanged (AC5: no-op on macOS/Linux)
+- Virtual /‑rooted paths that do not match root_dir pass through unchanged
 - Plain strings pass through unchanged
 - _rewrite_args returns None when no changes are needed
 - Multiple args in one call — only matching ones are rewritten
 - Empty args dict handled gracefully
 - Root-dir-only path rewrites to /
 - Full middleware flow: awrap_tool_call rewrites then delegates
-- Full middleware flow: awrap_tool_call passes through without modification- Smoke tests with a real ToolCallRequest dataclass (catches API drift in override())"""
+- Full middleware flow: awrap_tool_call passes through without modification
+- Smoke tests with a real ToolCallRequest dataclass (catches API drift in override())
+"""
 
 from __future__ import annotations
 
@@ -105,11 +108,36 @@ class TestToVirtual:
         assert result == value
 
     def test_posix_path_returned_unchanged(self):
-        """A POSIX path does not start with root_dir and is returned unchanged."""
+        """A POSIX path that doesn't match root_dir prefix is returned unchanged."""
         mw = PathNormalizationMiddleware(r"F:\Webserver\project")
         value = "/usr/local/bin"
         result = mw._to_virtual(value)
         assert result == value
+
+    def test_basic_posix_path_rewrite(self):
+        """POSIX path within root_dir is rewritten to a virtual /‑rooted path."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._to_virtual("/Users/dev/project/src/file.ts")
+        assert result == "/src/file.ts"
+
+    def test_posix_root_dir_only_rewrites_to_slash(self):
+        """A POSIX path equal to root_dir rewrites to '/'."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._to_virtual("/Users/dev/project")
+        assert result == "/"
+
+    def test_posix_path_outside_root_unchanged(self):
+        """A POSIX path that does not start with root_dir is not modified."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        value = "/other/path/file.ts"
+        result = mw._to_virtual(value)
+        assert result == value
+
+    def test_posix_case_insensitive_match(self):
+        """POSIX matching is case-insensitive — macOS APFS scenario."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._to_virtual("/users/dev/project/file.ts")
+        assert result == "/file.ts"
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +165,7 @@ class TestRewriteArgs:
         assert result is None
 
     def test_posix_path_returns_none(self):
-        """A POSIX path arg returns None (no changes)."""
+        """A POSIX path that does NOT match root_dir returns None (no changes)."""
         mw = PathNormalizationMiddleware(r"F:\Webserver\project")
         result = mw._rewrite_args({"path": "/home/user/file.py"})
         assert result is None
@@ -170,11 +198,46 @@ class TestRewriteArgs:
         assert result["posix"] == "/home/user/notes.md"
 
     def test_inactive_on_posix_root_returns_none(self):
-        """When root_dir is a POSIX path, middleware is inactive — always returns None."""
+        """When root_dir is a POSIX path, middleware IS active but only rewrites matching paths."""
         mw = PathNormalizationMiddleware("/home/user/project")
-        assert not mw._active
-        result = mw._rewrite_args({"path": "/home/user/project/file.py"})
+        assert mw._active
+        # A path that does NOT match the root prefix should return None
+        result = mw._rewrite_args({"path": "/other/dir/file.py"})
         assert result is None
+
+    def test_posix_matching_arg_is_rewritten(self):
+        """A macOS path matching root_dir is rewritten."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._rewrite_args({"path": "/Users/dev/project/src/app.py"})
+        assert result is not None
+        assert result["path"] == "/src/app.py"
+
+    def test_posix_non_matching_arg_unchanged(self):
+        """POSIX path NOT matching root returns None."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._rewrite_args({"path": "/tmp/scratch/file.py"})
+        assert result is None
+
+    def test_posix_virtual_path_passes_through(self):
+        """/src/file.ts is not rewritten when root is /Users/dev/project."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._rewrite_args({"path": "/src/file.ts"})
+        assert result is None
+
+    def test_posix_mixed_args(self):
+        """Only matching POSIX args are rewritten; others pass through unchanged."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        result = mw._rewrite_args({
+            "path": "/Users/dev/project/src/module.py",
+            "query": "*.py",
+            "outside": "/tmp/other/file.ts",
+            "virtual": "/src/existing.ts",
+        })
+        assert result is not None
+        assert result["path"] == "/src/module.py"
+        assert result["query"] == "*.py"
+        assert result["outside"] == "/tmp/other/file.ts"
+        assert result["virtual"] == "/src/existing.ts"
 
     def test_non_string_values_ignored(self):
         """Non-string arg values are not inspected and do not cause errors."""
@@ -207,9 +270,19 @@ class TestActiveFlag:
         mw = PathNormalizationMiddleware(r"c:\users\dev\project")
         assert mw._active is True
 
-    def test_inactive_for_posix_root(self):
-        """_active is False when root_dir is a POSIX path."""
+    def test_active_for_macos_root(self):
+        """_active is True when root_dir is a macOS POSIX path."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        assert mw._active is True
+
+    def test_active_for_linux_root(self):
+        """_active is True when root_dir is a Linux POSIX path."""
         mw = PathNormalizationMiddleware("/home/user/project")
+        assert mw._active is True
+
+    def test_inactive_for_bare_slash(self):
+        """_active is False when root_dir is bare '/' to avoid rewriting all virtual paths."""
+        mw = PathNormalizationMiddleware("/")
         assert mw._active is False
 
     def test_inactive_for_empty_root(self):
@@ -258,7 +331,7 @@ class TestAwrapToolCall:
         assert received_requests[0] is request
 
     async def test_awrap_tool_call_inactive_on_posix_root(self):
-        """awrap_tool_call is a no-op pass-through when root_dir is a POSIX path."""
+        """awrap_tool_call rewrites matching POSIX paths (middleware is active on POSIX)."""
         mw = PathNormalizationMiddleware("/home/user/project")
         request = _make_request({"path": "/home/user/project/file.py"})
 
@@ -271,6 +344,40 @@ class TestAwrapToolCall:
         await mw.awrap_tool_call(request, _handler)
 
         assert received_requests, "handler was not called"
+        # The path matched the root prefix and should have been rewritten
+        assert received_requests[0].tool_call["args"]["path"] == "/file.py"
+
+    async def test_awrap_tool_call_rewrites_posix_path(self):
+        """awrap_tool_call rewrites macOS absolute path to virtual path."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        request = _make_request({"path": "/Users/dev/project/src/app.py"})
+
+        received_requests: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received_requests.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received_requests, "handler was not called"
+        assert received_requests[0].tool_call["args"]["path"] == "/src/app.py"
+
+    async def test_awrap_tool_call_posix_virtual_path_passes_through(self):
+        """awrap_tool_call does not rewrite a virtual /src/file.ts path with POSIX root."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        request = _make_request({"path": "/src/file.ts"})
+
+        received_requests: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received_requests.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received_requests, "handler was not called"
+        # Virtual path does not match the root prefix — passes through unchanged
         assert received_requests[0] is request
 
     async def test_awrap_tool_call_returns_handler_result(self):
@@ -354,3 +461,19 @@ class TestAwrapToolCallWithRealRequest:
 
         assert received, "handler was not called"
         assert isinstance(received[0], ToolCallRequest)
+
+    async def test_real_request_rewrites_posix_path(self):
+        """awrap_tool_call rewrites a POSIX path inside a real ToolCallRequest."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        request = _make_real_request({"path": "/Users/dev/project/src/file.ts"})
+
+        received: list[ToolCallRequest] = []
+
+        async def _handler(req: ToolCallRequest) -> str:
+            received.append(req)
+            return "ok"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        assert received[0].tool_call["args"]["path"] == "/src/file.ts"
