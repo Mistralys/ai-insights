@@ -20,28 +20,7 @@ import pytest
 from langchain_core.messages import AIMessageChunk
 
 from src.utils.chunk_writer import ChunkWriter
-from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
-
-# ---------------------------------------------------------------------------
-# Minimal config stub
-# ---------------------------------------------------------------------------
-
-class _FakeConfig:
-    """Minimal Config-like object for test injection."""
-    stage_models = {
-        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
-        "reviewer": "claude-test", "security_auditor": "claude-test",
-        "docs": "claude-test", "release_engineer": "claude-test",
-        "synthesis": "claude-test", "planner": "claude-test",
-    }
-    workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
-    capture_dialogues = False  # Default off; override in specific test classes
-    stream_max_retries = 0
-    stream_retry_base_delay_s = 10.0
-
-    def resolve_model_for_stage(self, stage: str) -> str:
-        return self.stage_models.get(stage, "claude-test")
-
+from tests.conftest import _CaptureConfig, _FakeConfig, _NoCaptureConfig  # noqa: F401
 
 FAKE_CONFIG = _FakeConfig()
 FAKE_TOOLS: list[Any] = []  # MCP tools not needed for unit tests of nodes

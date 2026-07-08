@@ -47,7 +47,11 @@ select = ["E", "F", "I", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:langchain_core",
+]
 markers = [
     "integration: end-to-end graph execution tests (no real MCP or LLM required)",
     "live: requires a built MCP server and a real LLM API key",
+    "deepagent: deep agent integration tests using fake LLM (no API key required)",
 ]

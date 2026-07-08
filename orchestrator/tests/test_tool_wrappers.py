@@ -1221,6 +1221,11 @@ class TestRestrictToWpInCreateStageNode:
 
         from src.nodes import create_stage_node
 
+        # Intentional local stub — not the shared conftest._FakeConfig.
+        # These tests require `stage_models` as a concrete dict attribute (the
+        # conftest fixture does not expose it). Consolidating with the conftest
+        # class would require widening its interface without benefit to other
+        # consumers.
         class _FakeConfig:
             stage_models = {
                 "developer": "claude-test",
@@ -1270,6 +1275,9 @@ class TestRestrictToWpInCreateStageNode:
 
         from src.nodes import create_stage_node
 
+        # Intentional local stub — not the shared conftest._FakeConfig.
+        # Same reasoning as above: `stage_models` dict attribute is required here
+        # and is absent from the conftest fixture interface.
         class _FakeConfig:
             stage_models = {
                 "developer": "claude-test",

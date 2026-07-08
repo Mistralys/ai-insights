@@ -66,11 +66,12 @@ orchestrator/
 │       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
 │       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
 │
-└── tests/                      # pytest test suite (988 collected)
+└── tests/                      # pytest test suite (1107 collected)
     ├── conftest.py                  # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
     ├── test_chunk_writer.py         # ChunkWriter JSONL write contract
     ├── test_cli.py                  # Argument parsing, interrupt mapping, exit codes, TestRunQueueIntegration (run-queue CLI integration)
     ├── test_config.py               # Manifest-derived config constants
+    ├── test_deep_agent_integration.py # @pytest.mark.deepagent tests: real create_deep_agent pipeline, inject_project_path end-to-end, restrict_to_wp cross-WP guard; ToolCallableFakeChatModel (no API key). @pytest.mark.live smoke tests (real LLM + mock MCP tools): test_developer_stage_live (≥1 ledger_begin_work call), test_pm_stage_live (≥1 ledger_create_work_package call); skip gracefully when no API key is set.
     ├── test_dialogue_writer.py      # write_dialogue / serialize_messages_to_markdown
     ├── test_error_helpers.py        # Error helper utilities
     ├── test_filelock.py             # Cross-platform file locking (acquire, contention, double-unlock)
@@ -94,6 +95,10 @@ orchestrator/
     ├── test_subprocess_encoding.py  # Cross-platform subprocess encoding fix
     ├── test_supervisor.py           # Supervisor routing paths, circuit-breaker, enriched events
     ├── test_tool_wrappers.py        # inject_project_path, restrict_to_wp, log_tool_calls
+    ├── helpers/                     # Shared test helpers (no pytest discovery)
+    │   ├── __init__.py              # Empty package marker
+    │   ├── fake_chat_model.py       # ToolCallableFakeChatModel — scripted fake chat model preserving tool_calls through streaming; used by deepagent integration tests
+    │   └── mock_tools.py            # _MockTool / make_mock_tool / make_ledger_tools — plain Python mock tools compatible with inject_project_path / restrict_to_wp / log_tool_calls wrappers (NOT BaseTool — not for create_deep_agent)
     └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```
 

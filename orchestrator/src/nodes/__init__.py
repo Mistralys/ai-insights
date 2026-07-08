@@ -866,14 +866,13 @@ def create_stage_node(
                 root_dir=target_path or None, virtual_mode=True, inherit_env=True
             )
 
-            # PathNormalizationMiddleware rewrites Windows drive-letter paths
-            # (e.g. F:\Webserver\src\file.ts) to virtual /‑rooted paths
-            # (/src/file.ts) before validate_path() runs inside Deep Agents.
-            # This is complementary to virtual_mode=True: virtual mode resolves
-            # /‑rooted paths; the middleware ensures they reach validation clean.
-            # On macOS/Linux target_path never starts with [a-zA-Z]: so the
-            # middleware is a zero-cost no-op.
-            # See docs/agents/project-manifest/constraints.md §22.
+            # PathNormalizationMiddleware rewrites absolute host paths
+            # (e.g. F:\Webserver\src\file.ts or /Users/dev/project/src/file.ts)
+            # to virtual /‑rooted paths (/src/file.ts) before validate_path()
+            # runs inside Deep Agents. This is complementary to virtual_mode=True:
+            # virtual mode resolves /‑rooted paths; the middleware ensures they
+            # reach validation clean.
+            # See docs/agents/project-manifest/constraints.md §26.
             path_middleware = PathNormalizationMiddleware(target_path)
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)

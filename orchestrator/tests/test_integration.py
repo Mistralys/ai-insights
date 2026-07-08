@@ -849,19 +849,21 @@ async def test_in_memory_state_isolated_between_runs():
 
 
 @pytest.mark.live
-@pytest.mark.skip(reason="Requires built MCP server and LLM API key. Run with -m live.")
 def test_live_happy_path_with_real_mcp():
     """
     End-to-end smoke test against a real MCP server and LLM model.
 
     Prerequisites
     -------------
-    1. Build the MCP server: ``cd mcp-server && npm run build``
-    2. Set ``ANTHROPIC_API_KEY`` or ``GOOGLE_API_KEY`` in ``orchestrator/.env``
-    3. Set ``MODEL_NAME`` appropriately
-    4. Run: ``python -m pytest tests/test_integration.py -m live -v``
+    1. Set ``ANTHROPIC_API_KEY`` or ``GOOGLE_API_KEY`` in ``orchestrator/.env``
+    2. Set ``MODEL_NAME`` appropriately
+    3. Run: ``python -m pytest tests/test_integration.py -m live -v``
+
+    The MCP server is auto-built by the CLI menu when live tests are selected.
 
     This test is intentionally left as a skeleton.  Fill in with a real plan
     document path and expected outcomes once environment is configured.
     """
-    pytest.skip("Live test — requires real MCP server and LLM API key.")
+    import os
+    if not (os.environ.get("ANTHROPIC_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()):
+        pytest.skip("No LLM API key found — set ANTHROPIC_API_KEY or GOOGLE_API_KEY to run live tests")
