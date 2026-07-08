@@ -107,3 +107,8 @@
 - Using a dedicated agent to curate knowledge.
 - Adding project-specific stategy and vision to the planner agent.
 - Not mixing topics in an LLM discussion is even more critical than I thought.
+
+### July 2026
+
+- Because of token cache expiry, it's best to start and finish a conversation in one go. Some caches live only 5 minutes, others up to an hour in Claude.
+- When designing MCP tools, it's best to build them around use-cases, and avoid mapping around APIs (see Gmail vs JIRA MCP).
