@@ -1356,6 +1356,60 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+async function cmdOrchestratorTests(args) {
+  const pytest = venvBin('python');
+  let marker = 'integration or deepagent';
+
+  if (args.includes('--live')) {
+    marker = 'integration or deepagent or live';
+    args = args.filter((a) => a !== '--live');
+  } else if (!args.some((a) => a === '-m' || a === '--markers')) {
+    const answer = await askCleanInput('  Include live MCP tests? (requires API key) [y/N] ');
+    if (answer.trim().toLowerCase() === 'y') {
+      marker = 'integration or deepagent or live';
+    }
+  }
+
+  // Auto-build MCP server dist when live tests are included
+  if (marker.includes('live')) {
+    const sentinel = path.join(MCP_SERVER_DIR, 'dist', 'index.js');
+    const srcDir   = path.join(MCP_SERVER_DIR, 'src');
+    let needBuild  = !fs.existsSync(sentinel);
+    if (!needBuild) {
+      const sentinelMtime = fs.statSync(sentinel).mtimeMs;
+      needBuild = latestMtime(srcDir) > sentinelMtime;
+    }
+    if (needBuild) {
+      log('  MCP server dist is stale — rebuilding…', 'dim');
+      if (sh(NPM, ['run', 'build'], { cwd: MCP_SERVER_DIR }) !== 0) {
+        log('  ✗ MCP server build failed', 'red');
+        process.exit(1);
+      }
+    }
+  }
+
+  const testArgs = ['-m', 'pytest', 'tests/', '-v', '-m', marker, ...args];
+  const code = runScript(pytest, testArgs, { cwd: ORCHESTRATOR_DIR });
+  if (code !== 0) process.exit(code);
+  await waitForKey();
+}
+
+/**
+ * Recursively find the latest mtime (ms) of any file under `dir`.
+ */
+function latestMtime(dir) {
+  let latest = -Infinity;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      latest = Math.max(latest, latestMtime(full));
+    } else if (entry.isFile()) {
+      latest = Math.max(latest, fs.statSync(full).mtimeMs);
+    }
+  }
+  return latest;
+}
+
 // --- Command registry ---
 
 const COMMANDS = [
@@ -1535,6 +1589,18 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Verify changelog vs manifest versions',
     run:         cmdCheckVersions,
+  },
+  {
+    id:           'orchestrator-tests',
+    key:          't',
+    label:        'Integration tests',
+    category:     'Validation & Utilities',
+    description:  'Run integration & deep-agent tests (optionally live)',
+    helpVariants: [
+      ['orchestrator-tests',        'Run integration + deepagent tests (prompts for live)'],
+      ['orchestrator-tests --live',  'Include live MCP tests (auto-builds, needs API key)'],
+    ],
+    run:          cmdOrchestratorTests,
   },
 ];
 

@@ -382,7 +382,7 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
 | `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`), raw-chunk JSONL writer (`chunk_writer.py`), run-queue manager (`run_queue.py`) |
-| `tests/` | 988 tests — unit, integration (ScriptedLedger), and live marks |
+| `tests/` | 1107 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 | `dist/stage-prompts/` | Gitignored build output — rendered stage prompt previews written by `scripts/preview-prompts.py` |
 
@@ -505,10 +505,13 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 987 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required)
 python -m pytest tests/ -v
 
-# Integration tests only (ScriptedLedger — no MCP server or LLM required)
+# Deep Agent integration tests only (no API key required)
+python -m pytest tests/test_deep_agent_integration.py -v -m deepagent
+
+# ScriptedLedger integration tests only
 python -m pytest tests/test_integration.py -m integration -v
 
 # Integration + unit tests together
@@ -529,6 +532,7 @@ Tests are structured as:
 | `test_config.py` | Manifest-derived config constants: `WP_TERMINAL_STATUSES`, `VALID_STAGES`, `PIPELINE_TYPES`, `ROLE_IDS`, `PIPELINE_ROLE_NAMES`, `FAIL_ROUTING_AGENT_MAP`, and `PIPELINE_AGENT_MAP` — structural assertions (type, non-emptiness, key membership, ordering) that tolerate future manifest additions; guards for orchestrating-role exclusion (Planner, Synthesis) and Release Engineer ID normalisation; `TestPipelineAgentMap` pins all pipeline-type-to-agent mappings and cross-validates against `PIPELINE_ROLE_NAMES` |
 | `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard); `TestDialogueCaptured` (5 tests — event emitted when `capture_dialogues=True`, required fields present, event omitted when flag is `False`, event omitted when `wp_id` is empty, `write_dialogue` failure does not affect `stage_success`) |
 | `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool; `restrict_to_wp` contracts: empty-`wp_id` no-op, matching-`wp_id` pass-through, mismatched-`wp_id` raises `ValueError`, idempotency, integration with `inject_project_path`, wiring in `create_stage_node`; `log_tool_calls` contracts: signature and return-value identity, event emission (`tool_name`, `stage`, `wp_id`, `tool_wp_id`), idempotency (sentinel `_orig_ainvoke_log`), `None`-logger no-op, privacy constraint (argument payload excluded), return-value forwarding, edge cases |
+| `test_deep_agent_integration.py` | `@pytest.mark.deepagent` tests exercising the real `create_deep_agent` pipeline with `ToolCallableFakeChatModel` — no LLM API key required: `test_stage_node_completes_with_fake_model` (stage-node → scripted tool loop → `stage_success=True`); `test_path_middleware_rewrites_through_deep_agent` (path rewriting through `PathNormalizationMiddleware`); `test_project_path_injected_through_deep_agent` (`inject_project_path` middleware end-to-end — verifies absent `project_path` is injected from state before the tool coroutine is invoked); `test_restrict_to_wp_blocks_cross_wp_through_deep_agent` (`restrict_to_wp` middleware — verifies cross-WP write-tool calls are blocked, underlying coroutine never reached); `test_post_completion_guard_through_deep_agent` (post-completion guard — `ledger_get_next_action` is intercepted after `ledger_complete_pipeline`, synthetic WAIT returned, original coroutine never called); `test_error_rollback_cancels_pipeline_through_deep_agent` (error rollback — `RuntimeError` from a tool propagates to `create_stage_node`'s exception handler; `_handle_rollback` calls `ledger_cancel_pipeline` with `auto_cancelled=True`). `@pytest.mark.live` smoke tests (real LLM + mock MCP tools, skip when no API key): `test_developer_stage_live` (≥1 `ledger_begin_work` call, no unhandled exception); `test_pm_stage_live` (≥1 `ledger_create_work_package` call, no unhandled exception). **Note:** the error-rollback test relies on `RuntimeError` propagating uncaught from Deep Agents' `ToolNode` — behavior confirmed with Deep Agents 0.5.2; see test module docstring. See `tests/README.md` for the mock tool selection guide. |
 | `test_graph.py` | Graph topology, edges, compilation |
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes; `TestRunQueueIntegration` (4 tests — `register()` called after `run_start`, `unregister()` in finally on normal exit, `unregister()` in finally on error exit, `register()` failure leaves `entry_id=None` with no `NameError`) |
 | `test_state.py` | WorkflowState schema and reducer semantics |
@@ -559,7 +563,15 @@ Integration tests run the real LangGraph supervisor against scripted MCP-tool mo
 | Mark | Purpose | Run with |
 |------|---------|----------|
 | `@pytest.mark.integration` | ScriptedLedger tests (fast, no external services) | `-m integration` |
+| `@pytest.mark.deepagent` | Real `create_deep_agent` pipeline tests (no API key) | `-m deepagent` |
 | `@pytest.mark.live` | Real MCP server + LLM — skipped by default | `-m live` |
+
+> **`LIVE_TEST_MODEL`:** Override the model slug used by `@pytest.mark.live` tests. When
+> unset, live tests default to `claude-sonnet-4-6` (Anthropic) or `gemini-2.0-flash`
+> (Google), chosen based on whichever API key is present in the environment. If you set
+> `LIVE_TEST_MODEL`, the value **must** match the active provider — supplying a Claude slug
+> when only `GOOGLE_API_KEY` is set will pass an invalid model name to
+> `ChatGoogleGenerativeAI` and the test will fail.
 
 ---
 

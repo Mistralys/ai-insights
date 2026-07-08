@@ -384,6 +384,26 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 ---
 
+### `src/utils/path_middleware.py`
+
+Deep Agents tool-call middleware that rewrites Windows drive-letter paths to virtual
+`/`-rooted paths before `validate_path()` runs inside the Deep Agents sandbox.
+Designed to work in tandem with `LocalShellBackend(virtual_mode=True)`.
+On macOS/Linux, the middleware is a zero-cost no-op (the `_active` flag is `False`
+when `root_dir` does not start with `[a-zA-Z]:`).
+
+See also: [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware).
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `PathNormalizationMiddleware` | `PathNormalizationMiddleware(root_dir: str)` | `AgentMiddleware` subclass. Scans all string arguments of every tool call for Windows drive-letter paths (`^[a-zA-Z]:`). Values whose normalized form case-insensitively starts with `root_dir` are rewritten to `/`-rooted virtual paths; all other values pass through unchanged. |
+| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = bool(WIN_PATH_RE.match(root_dir))`. When `_active` is `False`, all methods are no-ops. |
+| `PathNormalizationMiddleware._to_virtual` | `_to_virtual(value: str) -> str` | Normalizes backslashes in *value* to `/`, then case-insensitively strips the `_root` prefix and prepends `/`. Returns *value* unchanged when it does not start with `_root`. Returns `"/"` when *value* equals `root_dir` exactly. |
+| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those matching `^[a-zA-Z]:`, and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
+| `PathNormalizationMiddleware.awrap_tool_call` | `awrap_tool_call(request, handler) -> ToolMessage \| Command` | Calls `_rewrite_args` on `request.tool_call["args"]`. When changes are needed, creates a new request via `request.override(tool_call={...args: modified})`. Delegates to `handler(request)` in all cases. |
+
+---
+
 ### `src/utils/run_queue.py`
 
 Cross-platform run-queue manager. Called by `cli.py` to self-register and self-unregister
@@ -1104,8 +1124,57 @@ entry = {
 
 **Rationale:** A dedicated `expectedRepo` field eliminates the need for runtime parsing at every queue consumer site. The alternative (embedding a composite `repo/slug` string in `expectedSlug`) would require every reader to detect, split, and fall back, multiplying fragile parsing logic across 4+ locations. A single nullable field on the 6-field interface is trivially additive and backward compatible — old queue entries written before this schema change have `expectedRepo` absent in JSON, which normalizes to `null` at the read boundary.
 
+---
 
+### 26. All Deep Agents Instantiations Must Include `PathNormalizationMiddleware`
 
+**Rule:** Every `create_deep_agent()` call in `src/nodes/__init__.py` must include
+`middleware=[PathNormalizationMiddleware(target_path)]` in its kwargs. `target_path` must be
+the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
+without the `middleware` parameter, and never pass an empty list.
+
+**Rationale:** Deep Agents' `validate_path()` unconditionally rejects Windows drive-letter
+paths (`^[a-zA-Z]:`) before `_resolve_path()` can translate them to virtual paths. On all
+platforms, agents may receive absolute host paths in their context (via `project_path`
+variables) and pass them directly as file-tool arguments. Without the middleware, any agent
+that supplies an absolute path (e.g. `F:\Webserver\project\src\file.ts` on Windows or
+`/Users/dev/project/src/file.ts` on macOS) receives a validation error, causing every file
+operation to fail. The middleware is active for any non-trivial absolute `root_dir`
+(Windows drive-letter **or** POSIX path with length > 1), and is a zero-cost pass-through
+only when `root_dir` is empty or equals bare `/`.
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — middleware always present; active on all platforms when
+# target_path is a non-trivial absolute path
+path_middleware = PathNormalizationMiddleware(target_path)
+agent = create_deep_agent(
+    model=resolved_model,
+    backend=backend,
+    system_prompt=persona_prompt,
+    tools=wrapped_tools,
+    subagents=stage_subagents or None,
+    middleware=[path_middleware],
+)
+```
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — no middleware; absolute-path file tool calls fail at validate_path()
+agent = create_deep_agent(
+    model=resolved_model,
+    backend=backend,
+    system_prompt=persona_prompt,
+    tools=wrapped_tools,
+)
+```
+
+**Complementary dependency:** `LocalShellBackend(virtual_mode=True)` must remain enabled
+alongside the middleware (Constraint 8 / `2026-07-04-windows-path-resolution`).
+`virtual_mode=True` resolves `/`-rooted virtual paths; the middleware produces them from
+absolute host paths. Both are required for cross-platform file-tool support.
+
+**Source:** `orchestrator/src/utils/path_middleware.py` — `PathNormalizationMiddleware`.
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`
@@ -1355,6 +1424,7 @@ orchestrator/
 │       ├── filelock.py         # Cross-platform file locking (msvcrt / fcntl)
 │       ├── logging.py          # WorkflowLogger — JSONL + console logger with heartbeat
 │       ├── mcp_parse.py        # parse_tool_response helper
+│       ├── path_middleware.py  # PathNormalizationMiddleware — rewrites Windows paths to virtual /‑rooted paths
 │       ├── persona.py          # load_persona — reads persona Markdown files
 │       ├── persona_models.py   # Persona model configuration types
 │       ├── plan_parser.py      # Plan document parser
@@ -1363,11 +1433,12 @@ orchestrator/
 │       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
 │       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
 │
-└── tests/                      # pytest test suite (988 collected)
+└── tests/                      # pytest test suite (1107 collected)
     ├── conftest.py                  # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
     ├── test_chunk_writer.py         # ChunkWriter JSONL write contract
     ├── test_cli.py                  # Argument parsing, interrupt mapping, exit codes, TestRunQueueIntegration (run-queue CLI integration)
     ├── test_config.py               # Manifest-derived config constants
+    ├── test_deep_agent_integration.py # @pytest.mark.deepagent tests: real create_deep_agent pipeline, inject_project_path end-to-end, restrict_to_wp cross-WP guard; ToolCallableFakeChatModel (no API key). @pytest.mark.live smoke tests (real LLM + mock MCP tools): test_developer_stage_live (≥1 ledger_begin_work call), test_pm_stage_live (≥1 ledger_create_work_package call); skip gracefully when no API key is set.
     ├── test_dialogue_writer.py      # write_dialogue / serialize_messages_to_markdown
     ├── test_error_helpers.py        # Error helper utilities
     ├── test_filelock.py             # Cross-platform file locking (acquire, contention, double-unlock)
@@ -1375,7 +1446,8 @@ orchestrator/
     ├── test_integration.py          # End-to-end graph execution (ScriptedLedger)
     ├── test_logging.py              # WorkflowLogger: format helpers, all 8 event-type console format patterns
     ├── test_mcp_parse.py            # parse_tool_response helper
-    ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result
+    ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result, middleware wiring
+    ├── test_path_middleware.py      # PathNormalizationMiddleware: path rewriting, passthrough, case-insensitivity, edge cases
     ├── test_persona_models.py       # Persona model configuration types
     ├── test_plan_parser.py          # Plan document parsing
     ├── test_post_completion_guard.py # Post-completion guard logic
@@ -1390,6 +1462,10 @@ orchestrator/
     ├── test_subprocess_encoding.py  # Cross-platform subprocess encoding fix
     ├── test_supervisor.py           # Supervisor routing paths, circuit-breaker, enriched events
     ├── test_tool_wrappers.py        # inject_project_path, restrict_to_wp, log_tool_calls
+    ├── helpers/                     # Shared test helpers (no pytest discovery)
+    │   ├── __init__.py              # Empty package marker
+    │   ├── fake_chat_model.py       # ToolCallableFakeChatModel — scripted fake chat model preserving tool_calls through streaming; used by deepagent integration tests
+    │   └── mock_tools.py            # _MockTool / make_mock_tool / make_ledger_tools — plain Python mock tools compatible with inject_project_path / restrict_to_wp / log_tool_calls wrappers (NOT BaseTool — not for create_deep_agent)
     └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```
 

@@ -82,6 +82,9 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
+  3.7.5 (2026-07-06): Extracted spec file verification into Operational Protocol to reduce workflow density
+  3.7.4 (2026-07-06): New step 2 renames plan folder date prefix to today before decomposition
   3.7.3 (2026-05-19): Verification gate enumerates all WP fields, catching stripped spec files
   3.7.2 (2026-04-08): Improved subagent invocations; deep-agents handoffs declare all targets
   3.5.1 (2026-02-22): Simplified preflight and verbose sections

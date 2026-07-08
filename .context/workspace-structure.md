@@ -36,6 +36,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-28-ce-framework-audit.md
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
+    │   │   └── 2026-07-07-deep-agent-integration-tests.md
+    │   │   └── 2026-07-07-macos-path-middleware.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
@@ -380,6 +382,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── filelock.py
     │   │   └── logging.py
     │   │   └── mcp_parse.py
+    │   │   └── path_middleware.py
     │   │   └── persona.py
     │   │   └── persona_models.py
     │   │   └── plan_parser.py
@@ -388,11 +391,17 @@ _SOURCE: Top-level directory tree_
     │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
     ├── tests/
+    │   └── README.md
     │   └── __init__.py
     │   └── conftest.py
+    │   └── helpers/
+    │       ├── __init__.py
+    │       ├── fake_chat_model.py
+    │       ├── mock_tools.py
     │   └── test_chunk_writer.py
     │   └── test_cli.py
     │   └── test_config.py
+    │   └── test_deep_agent_integration.py
     │   └── test_dialogue_writer.py
     │   └── test_error_helpers.py
     │   └── test_filelock.py
@@ -401,6 +410,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_logging.py
     │   └── test_mcp_parse.py
     │   └── test_nodes.py
+    │   └── test_path_middleware.py
     │   └── test_persona_models.py
     │   └── test_plan_parser.py
     │   └── test_post_completion_guard.py
