@@ -53,9 +53,8 @@ log = logging.getLogger(__name__)
 # HTTP status codes that indicate an unrecoverable authorisation failure.
 # When an LLM provider raises one of these, the orchestrator should terminate
 # immediately instead of burning through all remaining iterations.
-# Note: 401 is intentionally excluded — providers (notably Anthropic) can
-# return transient 401s during infrastructure hiccups.  401 is treated as
-# retryable; a genuinely invalid key will still fail after retries exhaust.
+# Note: 401 is intentionally excluded — providers occasionally return transient
+# 401s (e.g. token-refresh races), so it is treated as retryable.
 _FATAL_HTTP_STATUSES: frozenset[int] = frozenset({403})
 
 
@@ -88,11 +87,10 @@ def _is_retryable_api_error(exc: BaseException, visited: set[int] | None = None)
 
     Classifies the following as retryable:
 
-    * Authentication errors — HTTP 401 (transient; providers can return these
-      during infrastructure hiccups even with a valid key)
     * Anthropic ``overloaded_error`` — HTTP 529
     * Rate-limit errors — HTTP 429
     * Generic server errors — HTTP 5xx (status >= 500)
+    * Transient authentication errors — HTTP 401 (e.g. token-refresh races)
     * Network-layer errors from ``httpx`` (connection failures, timeouts) that
       carry no ``status_code`` attribute
 
