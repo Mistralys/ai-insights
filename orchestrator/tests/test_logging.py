@@ -464,6 +464,21 @@ class TestExistingEventTypes:
         assert "stage_error" in line
         assert "→ FAIL" in line
 
+    def test_stage_error_with_error_and_duration(self):
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "stage_error",
+            "result": "FAIL",
+            "error": "Error code: 401 - invalid x-api-key",
+            "duration_s": 1.2,
+        }
+        line = _build_stream_console_line(entry)
+        assert "[pm]" in line
+        assert "stage_error → FAIL" in line
+        assert "1s" in line
+        assert "401" in line
+
     def test_safety_limit_event(self):
         entry = {"stage": "supervisor", "wp_id": "", "action": "safety_limit"}
         line = _build_stream_console_line(entry)
@@ -699,3 +714,48 @@ class TestToolCallRendering:
         assert "[developer] WP-002 🔧" in line, (
             f"stage prefix + wp_id + wrench must appear in order in: {line!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# stage_retry event formatting
+# ---------------------------------------------------------------------------
+
+
+class TestStageRetry:
+    """Verify _build_stream_console_line renders stage_retry events."""
+
+    def test_format_full(self):
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "stage_retry",
+            "attempt": 1,
+            "max_attempts": 3,
+            "error": "Error code: 401 - invalid x-api-key",
+            "delay_s": 5.2,
+            "level": "WARNING",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[pm]" in line
+        assert "⟳ retry 1/3" in line
+        assert "backoff 5.2s" in line
+        assert "401" in line
+
+    def test_with_wp_id(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "stage_retry",
+            "attempt": 2,
+            "max_attempts": 3,
+            "delay_s": 10.0,
+            "error": "Server overloaded",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "WP-003" in line
+        assert "⟳ retry 2/3" in line
+
+    def test_missing_fields_no_crash(self):
+        line = _build_stream_console_line({"action": "stage_retry"})
+        assert "⟳ retry" in line

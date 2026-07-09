@@ -50,10 +50,13 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Fatal error detection
 # ---------------------------------------------------------------------------
-# HTTP status codes that indicate an unrecoverable authentication/authorisation
-# failure.  When an LLM provider raises one of these, the orchestrator should
-# terminate immediately instead of burning through all remaining iterations.
-_FATAL_HTTP_STATUSES: frozenset[int] = frozenset({401, 403})
+# HTTP status codes that indicate an unrecoverable authorisation failure.
+# When an LLM provider raises one of these, the orchestrator should terminate
+# immediately instead of burning through all remaining iterations.
+# Note: 401 is intentionally excluded — providers (notably Anthropic) can
+# return transient 401s during infrastructure hiccups.  401 is treated as
+# retryable; a genuinely invalid key will still fail after retries exhaust.
+_FATAL_HTTP_STATUSES: frozenset[int] = frozenset({403})
 
 
 def _is_fatal_error(exc: BaseException, visited: set[int] | None = None) -> bool:
@@ -85,13 +88,15 @@ def _is_retryable_api_error(exc: BaseException, visited: set[int] | None = None)
 
     Classifies the following as retryable:
 
+    * Authentication errors — HTTP 401 (transient; providers can return these
+      during infrastructure hiccups even with a valid key)
     * Anthropic ``overloaded_error`` — HTTP 529
     * Rate-limit errors — HTTP 429
     * Generic server errors — HTTP 5xx (status >= 500)
     * Network-layer errors from ``httpx`` (connection failures, timeouts) that
       carry no ``status_code`` attribute
 
-    Fatal errors (401, 403) detected by :func:`_is_fatal_error` are always
+    Fatal errors (403) detected by :func:`_is_fatal_error` are always
     classified as **non-retryable**, even when they arrive wrapped in another
     exception.
 
@@ -113,7 +118,7 @@ def _is_retryable_api_error(exc: BaseException, visited: set[int] | None = None)
     status = getattr(exc, "status_code", None)
     if status is not None:
         status_int = int(status)
-        if status_int >= 500 or status_int == 429:
+        if status_int >= 500 or status_int in (401, 429):
             return True
 
     # Detect httpx transport-level errors (ConnectError, TimeoutException,
