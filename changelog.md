@@ -3,6 +3,7 @@
 ## v2.5.0 - **WIP UNRELEASED**
 
 - Orchestrator: Added path normalization middleware for Windows drive-letter paths in Deep Agents.
+- MCP: Added multi-term support to searching insights.
 
 ## v2.4.0 - Standalone Archival, Project Dialogues, and New Curators
 > mcp v2.4.0 · orchestrator v1.2.0 · personas v3.26.0

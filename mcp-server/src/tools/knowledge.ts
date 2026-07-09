@@ -97,7 +97,7 @@ const SearchInsightsSchema = z.object({
   query: z
     .string()
     .describe(
-      'Search string — case-insensitive substring match against title, content, and tags.'
+      'Space-separated search terms; an insight matches if any term appears in its title, content, or tags (OR logic). Results are ranked by number of matched terms.'
     ),
   scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "repository".'),
   category: z.string().optional().describe('Optional. Filter by category.'),

@@ -289,6 +289,15 @@ describe('ledger_search_insights', () => {
     const data = parseResult(result as any);
     expect(data).toHaveLength(0);
   });
+
+  it('multi-term query returns insights matching any term via OR logic — AC-01', async () => {
+    // 'atomic' matches the first insight; 'convention' matches the repository insight
+    const result = await searchInsights({ query: 'atomic convention' });
+    const data = parseResult(result as any);
+    expect(data.length).toBeGreaterThanOrEqual(2);
+    expect(data.some((i: { title: string }) => i.title.includes('Atomic'))).toBe(true);
+    expect(data.some((i: { title: string }) => i.title.includes('convention'))).toBe(true);
+  });
 });
 
 // ─── ledger_list_insights ─────────────────────────────────────────────────
