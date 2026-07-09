@@ -83,11 +83,12 @@ class TestIsRetryableApiError:
         assert _is_retryable_api_error(_httpx_transport_error()) is True
 
     # ------------------------------------------------------------------
-    # AC-2: Fatal HTTP status codes are never retryable
+    # AC-2: 401 is retryable (transient provider hiccups); 403 is fatal
     # ------------------------------------------------------------------
 
-    def test_status_401_is_not_retryable(self):
-        assert _is_retryable_api_error(_exc_with_status(401)) is False
+    def test_status_401_is_retryable(self):
+        """401 can be transient (provider infra hiccups) — must be retried."""
+        assert _is_retryable_api_error(_exc_with_status(401)) is True
 
     def test_status_403_is_not_retryable(self):
         assert _is_retryable_api_error(_exc_with_status(403)) is False
@@ -140,12 +141,12 @@ class TestIsRetryableApiError:
         outer.__cause__ = inner
         assert _is_retryable_api_error(outer) is True
 
-    def test_wrapped_401_via_cause_is_not_retryable(self):
-        """A fatal error wrapped in RuntimeError must still be non-retryable."""
+    def test_wrapped_401_via_cause_is_retryable(self):
+        """A transient 401 wrapped in RuntimeError must still be retryable."""
         inner = _exc_with_status(401)
         outer = RuntimeError("wrapper")
         outer.__cause__ = inner
-        assert _is_retryable_api_error(outer) is False
+        assert _is_retryable_api_error(outer) is True
 
     def test_deeply_wrapped_httpx_error_is_retryable(self):
         httpx_err = _httpx_transport_error()

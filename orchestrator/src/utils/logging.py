@@ -211,6 +211,44 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         parts.append(f"pipeline: {detail_str}")
         return " ".join(parts)
 
+    if action == "stage_retry":
+        attempt = entry.get("attempt") or "?"
+        max_attempts = entry.get("max_attempts") or "?"
+        delay = entry.get("delay_s")
+        error = entry.get("error") or ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"⟳ retry {attempt}/{max_attempts}")
+        detail: list[str] = []
+        if delay is not None:
+            detail.append(f"backoff {delay}s")
+        if error:
+            # Show only the first line / first 80 chars of the error.
+            short_error = error.split("\n")[0][:80]
+            detail.append(short_error)
+        if detail:
+            parts.append(f"({', '.join(detail)})")
+        return " ".join(parts)
+
+    if action == "stage_error":
+        result = entry.get("result") or "FAIL"
+        duration = _format_duration(entry.get("duration_s"))
+        error = entry.get("error") or ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"stage_error → {result}")
+        detail_parts: list[str] = []
+        if duration:
+            detail_parts.append(duration)
+        if error:
+            short_error = error.split("\n")[0][:80]
+            detail_parts.append(short_error)
+        if detail_parts:
+            parts.append(f"({', '.join(detail_parts)})")
+        return " ".join(parts)
+
     if action == "dialogue_captured":
         file_path = entry.get("file_path") or ""
         filename = file_path.split("/")[-1] if file_path else ""
