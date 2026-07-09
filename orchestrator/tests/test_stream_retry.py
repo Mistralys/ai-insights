@@ -136,6 +136,22 @@ class TestRetryableErrors:
         mock_sleep.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_retry_on_401(self) -> None:
+        """HTTP 401 is treated as transient and should trigger a retry."""
+        error_401 = _make_error_with_status(401)
+        chunk = AIMessageChunk(content="Recovered", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error_401, [chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0,
+            )
+
+        assert msgs[0].content == "Recovered"
+        mock_sleep.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_sleep_delay_uses_base_delay(self) -> None:
         """Sleep delay on first retry (attempt=0) must be base_delay * 2^0 * jitter,
         which is within [base_delay * 0.5, base_delay * 1.0)."""
@@ -189,21 +205,6 @@ class TestRetryableErrors:
 
 class TestFatalErrors:
     """AC2: Fatal errors propagate immediately without retrying."""
-
-    @pytest.mark.asyncio
-    async def test_401_propagates_immediately(self) -> None:
-        """HTTP 401 must propagate immediately, no retry."""
-        error_401 = _make_error_with_status(401)
-        agent = _make_agent_always_fail(error_401)
-
-        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-            with pytest.raises(Exception, match="HTTP 401"):
-                await _accumulate_stream(
-                    agent, "prompt", None, "WP-001", "developer",
-                    max_retries=3, base_delay_s=1.0,
-                )
-
-        mock_sleep.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_403_propagates_immediately(self) -> None:
