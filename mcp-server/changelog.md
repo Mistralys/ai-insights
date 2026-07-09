@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.4.1 - Insight Search
+- Tools: Added multi-term support to searching insights.
+
 ## v2.4.0 - Standalone Import and Project Dialogues
 - Tools: Added `ledger_import_standalone` to import standalone plan folders into the ledger.
 - Tools: Added synthesis log parser for extracting structured data from standalone run logs.

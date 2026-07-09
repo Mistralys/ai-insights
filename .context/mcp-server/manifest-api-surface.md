@@ -706,7 +706,7 @@ Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.a
 
 ```typescript
 (args: {
-  query: string;                       // Case-insensitive substring match against title, content, and tags
+  query: string;                       // Space-separated search terms; OR logic — matches if any term appears in title, content, or tags. Results ranked by match count.
   scope?: 'global' | 'repository';     // Optional. Filter by scope.
   category?: string;                   // Optional. Filter by category.
   tags?: string[];                     // Optional. Filter to insights containing ALL specified tags (AND semantics).
@@ -715,9 +715,9 @@ Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.a
 }) => Promise<MCPResult>
 ```
 
-Searches insights for the query string (case-insensitive substring match against `title`, `content`, and `tags`). Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found. Store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
+Searches insights using OR semantics: the `query` string is tokenized on whitespace and an insight matches if any token appears (case-insensitive) in its `title`, `content`, or `tags`. Multi-token results are ranked by descending match count so insights matching more terms surface first. Single-token queries produce identical results to the previous substring behavior. An empty or whitespace-only query returns all insights. Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found. Store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
 
-**Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned.
+**Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned. Use `query` for free-text OR filtering and `tags` for structured AND filtering — they complement each other.
 
 #### `ledger_list_insights`
 

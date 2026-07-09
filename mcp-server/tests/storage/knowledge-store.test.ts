@@ -434,6 +434,51 @@ describe('KnowledgeStoreManager', () => {
         r.tags.some((t) => t.toLowerCase().includes('config'))
       )).toBe(true);
     });
+
+    // ── Multi-term search (OR semantics + ranking) ────────────────────────
+
+    it('multi-term query returns insights matching any term (OR logic) — AC-01', async () => {
+      // 'path' matches "Path joining strategy"; 'error' matches "Error handling patterns"
+      const results = await manager.searchInsights('path error');
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      expect(results.some((r) => r.title.includes('Path'))).toBe(true);
+      expect(results.some((r) => r.title.includes('Error'))).toBe(true);
+    });
+
+    it('multi-term query ranks insight matching more terms first — AC-02', async () => {
+      // Add an insight that matches both 'path' and 'error'
+      await manager.addInsight(makeInsightInput({
+        title: 'Path error recovery',
+        content: 'Handle path errors gracefully.',
+        tags: ['filesystem'],
+        scope: 'global',
+      }));
+      // "Path error recovery" matches 2 tokens; "Path joining strategy" matches 1; "Error handling patterns" matches 1
+      const results = await manager.searchInsights('path error');
+      expect(results[0].title).toBe('Path error recovery');
+    });
+
+    it('single-term query result set and order is unchanged (backward compat) — AC-03', async () => {
+      const singleTerm = await manager.searchInsights('path');
+      expect(singleTerm.length).toBeGreaterThan(0);
+      expect(singleTerm.every((r) =>
+        r.title.toLowerCase().includes('path') ||
+        r.content.toLowerCase().includes('path') ||
+        r.tags.some((t) => t.toLowerCase().includes('path'))
+      )).toBe(true);
+      // Verify no 'error'-only insight leaks in
+      expect(singleTerm.every((r) => !r.title.toLowerCase().startsWith('error handling'))).toBe(true);
+    });
+
+    it('empty query returns all insights — AC-04', async () => {
+      const all = await manager.searchInsights('');
+      expect(all.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('whitespace-only query returns all insights — AC-05', async () => {
+      const all = await manager.searchInsights('   ');
+      expect(all.length).toBeGreaterThanOrEqual(3);
+    });
   });
 
   // ─── listInsights ──────────────────────────────────────────────────────

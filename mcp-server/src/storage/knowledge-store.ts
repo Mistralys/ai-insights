@@ -217,11 +217,17 @@ export class KnowledgeStoreManager {
   /**
    * Searches insights across all (or filtered) stores for the query string.
    *
-   * Applies a case-insensitive substring match against title, content, and every
-   * entry in the tags array. Optionally narrows by tags (intersection), then
-   * applies offset/limit pagination — in that order.
+   * Tokenizes `query` on whitespace and applies OR semantics — an insight matches if any
+   * token appears in its title, content, or tags (case-insensitive). Multi-token results are
+   * ranked by descending match count so insights matching more terms surface first.
    *
-   * @param query - Substring to search for (case-insensitive)
+   * Single-token queries produce identical results to the previous substring behavior.
+   * An empty or whitespace-only query returns all insights (same as `''.includes('')`).
+   *
+   * Optionally narrows by tags (intersection), then applies offset/limit pagination — in that order.
+   *
+   * @param query - Space-separated search terms; an insight matches if any term appears in its
+   *   title, content, or tags (OR logic). Results ranked by number of matched terms.
    * @param filters - Optional scope/category/repository_name filters to narrow the stores searched,
    *   plus optional tags (intersection filter), limit, and offset for pagination.
    *   - `filters.tags` — Case-sensitive intersection filter; every tag in this array must be
@@ -244,14 +250,44 @@ export class KnowledgeStoreManager {
     const { tags: tagFilter, limit, offset = 0, ...loadFilters } = filters ?? {};
 
     const allInsights = await this._loadInsights(loadFilters);
-    const q = query.toLowerCase();
+    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
 
-    let results = allInsights.filter(
-      (insight) =>
-        insight.title.toLowerCase().includes(q) ||
-        insight.content.toLowerCase().includes(q) ||
-        insight.tags.some((tag) => tag.toLowerCase().includes(q))
-    );
+    let results: Insight[];
+    if (tokens.length === 0) {
+      // Empty or whitespace-only query — return all insights (mirrors '' .includes('') behaviour)
+      results = allInsights;
+    } else if (tokens.length === 1) {
+      // Single-token path: preserves existing behaviour exactly (no sort, stable insertion order)
+      const q = tokens[0]!;
+      results = allInsights.filter(
+        (insight) =>
+          insight.title.toLowerCase().includes(q) ||
+          insight.content.toLowerCase().includes(q) ||
+          insight.tags.some((tag) => tag.toLowerCase().includes(q))
+      );
+    } else {
+      // Multi-token OR: keep insights that match at least one token, ranked by match count
+      const scored = allInsights
+        .map((insight) => {
+          const titleL = insight.title.toLowerCase();
+          const contentL = insight.content.toLowerCase();
+          const tagsL = insight.tags.map((t) => t.toLowerCase());
+          const matchCount = tokens.reduce((count, token) => {
+            if (
+              titleL.includes(token) ||
+              contentL.includes(token) ||
+              tagsL.some((tag) => tag.includes(token))
+            ) {
+              return count + 1;
+            }
+            return count;
+          }, 0);
+          return { insight, matchCount };
+        })
+        .filter(({ matchCount }) => matchCount > 0);
+      scored.sort((a, b) => b.matchCount - a.matchCount);
+      results = scored.map(({ insight }) => insight);
+    }
 
     if (tagFilter && tagFilter.length > 0) {
       results = results.filter((insight) =>
