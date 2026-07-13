@@ -17,11 +17,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
 import { _internal } from '../../src/tools/standalone-import.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 
-const { importStandalone } = _internal;
+const { importStandalone, updateSynthesis } = _internal;
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -272,5 +272,192 @@ describe('ledger_import_standalone — uses deriveRepoName (AC6)', () => {
     // planDir has no docs/agents anchor → repoName = 'unknown'
     expect(parsed.project_storage_path).toContain(PLAN_FOLDER_NAME);
     expect(parsed.project_storage_path).toContain(tempLedgerRoot);
+  });
+});
+
+// ─── ledger_update_synthesis — successful update ──────────────────────────
+
+const SYNTHESIS_UPDATED = `
+# Synthesis
+
+### Completion Status
+
+Complete.
+
+### Outcome Summary
+
+Updated outcome summary after post-import edits. All deferred improvements addressed.
+
+### Implementation Summary
+
+- Added the core feature module
+- Wrote unit and integration tests
+- Addressed deferred improvements
+`;
+
+describe('ledger_update_synthesis — successful update', () => {
+  beforeEach(async () => {
+    // Import the project first so it exists in the ledger.
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+  });
+
+  it('updates outcome_summary when synthesis is edited (AC-01)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.outcome_summary).toContain('Updated outcome summary after post-import edits');
+    expect(parsed.outcome_summary).toContain('Updated outcome summary after post-import edits');
+  });
+
+  it('re-archives synthesis.md to the storage directory (AC-02)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.archived_files).toContain('synthesis.md');
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const archivedContent = await readFile(join(store.storageDir, 'synthesis.md'), 'utf-8');
+    expect(archivedContent).toContain('Updated outcome summary after post-import edits');
+  });
+
+  it('syncs outcome_summary to .meta.json (AC-01)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    await updateSynthesis({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const { readFile: fsReadFile } = await import('fs/promises');
+    const metaRaw = await fsReadFile(join(store.storageDir, '.meta.json'), 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    expect(meta.outcome_summary).toContain('Updated outcome summary after post-import edits');
+  });
+
+  it('response includes slug, outcome_summary, archived_files, project_storage_path', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed).toMatchObject({
+      slug: PLAN_FOLDER_NAME,
+      outcome_summary: expect.any(String),
+      archived_files: expect.arrayContaining(['synthesis.md']),
+      project_storage_path: expect.any(String),
+    });
+  });
+
+  it('accepts cwd_path as a fallback when project_path is not provided', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ cwd_path: planDir });
+    const { isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+  });
+});
+
+// ─── ledger_update_synthesis — guard errors ───────────────────────────────
+
+describe('ledger_update_synthesis — guard errors', () => {
+  it('rejects when neither project_path nor cwd_path is provided', async () => {
+    const result = await updateSynthesis({});
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('Either project_path or cwd_path is required');
+  });
+
+  it('rejects when project does not exist in ledger (AC-03)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    // No prior importStandalone — project does not exist.
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('no project with slug');
+  });
+
+  it('rejects when project status is not COMPLETE (AC-04)', async () => {
+    // Import the project, then manually overwrite the root index to set status to IN_PROGRESS.
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    (root as any).status = 'IN_PROGRESS';
+    await store.writeRootIndex(root as any);
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('status is "IN_PROGRESS"');
+  });
+
+  it('rejects when runner is not standalone (AC-05)', async () => {
+    // Import the project, then manually set runner to something else.
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    root.runner = 'orchestrator';
+    await store.writeRootIndex(root);
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('runner is "orchestrator"');
+  });
+
+  it('rejects when project is older than 90 days (AC-06)', async () => {
+    // Import the project, then backdate synthesis_generated_at to 91 days ago.
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    const ninetyOneDaysAgo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+    root.synthesis_generated_at = ninetyOneDaysAgo.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    await store.writeRootIndex(root);
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('updates are only allowed within 90 days of import');
+  });
+
+  it('rejects when synthesis.md is missing from plan folder (AC-07)', async () => {
+    // Import the project first.
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+
+    // Delete synthesis.md from plan folder.
+    await rm(join(planDir, 'synthesis.md'), { force: true });
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('synthesis.md not found');
   });
 });
