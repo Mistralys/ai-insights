@@ -13,6 +13,12 @@ intercepts every tool call and rewrites absolute host paths to their virtual equ
     starts with the known ``root_dir`` prefix (case-insensitive) is rewritten to a
     ``/``-rooted virtual path.  Values that do not match are passed through unchanged.
 
+    MCP tools must receive absolute host paths (they call the MCP server directly and
+    have no concept of virtual paths).  Pass their names via the ``skip_tools`` parameter
+    to exempt them from rewriting.  In ``create_stage_node`` this set is derived
+    dynamically from the ``mcp_tools`` objects — every MCP tool, present and future, is
+    excluded by construction.
+
 Active on all platforms when ``root_dir`` is a non-trivial absolute path:
 - **Windows**: ``root_dir`` starts with a drive letter (e.g. ``C:``).
 - **macOS / Linux**: ``root_dir`` starts with ``/`` and has length > 1.
@@ -52,6 +58,13 @@ class PathNormalizationMiddleware(AgentMiddleware):
     root_dir:
         The project root directory as passed to ``LocalShellBackend(root_dir=…)``.
         Used as the prefix to strip when computing the virtual path.
+    skip_tools:
+        An optional frozenset of tool names that must be exempted from path
+        rewriting.  When a tool call's name appears in this set, the request is
+        forwarded to the handler unchanged.  Pass the names of all MCP tools here
+        (derived from ``mcp_tools`` in ``create_stage_node``) because MCP tools
+        call the MCP server directly and require absolute host paths.  Defaults to
+        ``frozenset()`` (no tools skipped) to preserve backward compatibility.
 
     Behaviour
     ---------
@@ -68,9 +81,11 @@ class PathNormalizationMiddleware(AgentMiddleware):
       unchanged.
     - Backslash separators in the input are normalized to forward slashes before
       comparison and in the output.
+    - Tools listed in ``skip_tools`` are always forwarded unchanged, regardless of
+      whether ``_active`` is ``True`` or ``False``.
     """
 
-    def __init__(self, root_dir: str) -> None:
+    def __init__(self, root_dir: str, *, skip_tools: frozenset[str] = frozenset()) -> None:
         self._root: str = root_dir.replace("\\", "/")
         # Active when root_dir is any absolute path (Windows drive letter or POSIX).
         # Bare "/" is excluded: it would rewrite every virtual path.
@@ -78,6 +93,9 @@ class PathNormalizationMiddleware(AgentMiddleware):
             _WIN_PATH_RE.match(root_dir)
             or (root_dir.startswith("/") and len(root_dir) > 1)
         )
+        # Tool names whose arguments must not be rewritten (e.g. MCP tools that
+        # require absolute host paths rather than virtual /‑rooted paths).
+        self._skip_tools: frozenset[str] = skip_tools
 
     def _to_virtual(self, value: str) -> str:
         """Convert an absolute host path rooted at ``_root`` to a ``/``-rooted virtual path.
@@ -164,6 +182,11 @@ class PathNormalizationMiddleware(AgentMiddleware):
         ToolMessage or Command
             The result returned by *handler*.
         """
+        # Short-circuit for MCP tools and any other explicitly excluded tools:
+        # they require absolute host paths and must not be rewritten.
+        if self._skip_tools and request.tool_call.get("name") in self._skip_tools:
+            return await handler(request)
+
         args: dict[str, Any] = request.tool_call.get("args", {})
         modified = self._rewrite_args(args)
         if modified is not None:

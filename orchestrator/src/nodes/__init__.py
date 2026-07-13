@@ -875,8 +875,12 @@ def create_stage_node(
             # runs inside Deep Agents. This is complementary to virtual_mode=True:
             # virtual mode resolves /‑rooted paths; the middleware ensures they
             # reach validation clean.
+            # MCP tools are excluded from rewriting via skip_tools: they call the
+            # MCP server directly and require absolute host paths. The skip set is
+            # derived from mcp_tools so new MCP tools are excluded automatically.
             # See docs/agents/project-manifest/constraints.md §26.
-            path_middleware = PathNormalizationMiddleware(target_path)
+            mcp_tool_names = frozenset(t.name for t in mcp_tools)
+            path_middleware = PathNormalizationMiddleware(target_path, skip_tools=mcp_tool_names)
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:

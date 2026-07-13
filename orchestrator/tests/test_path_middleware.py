@@ -477,3 +477,127 @@ class TestAwrapToolCallWithRealRequest:
 
         assert received, "handler was not called"
         assert received[0].tool_call["args"]["path"] == "/src/file.ts"
+
+
+# ---------------------------------------------------------------------------
+# Tests: skip_tools (MCP tool exemption)
+# ---------------------------------------------------------------------------
+
+class TestSkipTools:
+    async def test_skipped_tool_passes_through_unchanged(self):
+        """A tool in skip_tools has its args forwarded unchanged, even when they match root_dir."""
+        mw = PathNormalizationMiddleware(
+            "/Users/dev/project",
+            skip_tools=frozenset({"ledger_initialize_project"}),
+        )
+        request = _make_request(
+            {"project_path": "/Users/dev/project/plans/my-plan"},
+            name="ledger_initialize_project",
+        )
+
+        received: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        # The original request object must be passed through without any override.
+        assert received[0] is request
+        assert received[0].tool_call["args"]["project_path"] == "/Users/dev/project/plans/my-plan"
+
+    async def test_non_skipped_tool_still_rewritten(self):
+        """A tool NOT in skip_tools is rewritten as normal (regression guard)."""
+        mw = PathNormalizationMiddleware(
+            "/Users/dev/project",
+            skip_tools=frozenset({"ledger_initialize_project"}),
+        )
+        request = _make_request(
+            {"path": "/Users/dev/project/src/app.py"},
+            name="read_file",
+        )
+
+        received: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        assert received[0].tool_call["args"]["path"] == "/src/app.py"
+
+    async def test_default_skip_tools_empty(self):
+        """Default skip_tools=frozenset() — all tools are rewritten as before."""
+        mw = PathNormalizationMiddleware("/Users/dev/project")
+        assert mw._skip_tools == frozenset()
+        request = _make_request(
+            {"path": "/Users/dev/project/src/app.py"},
+            name="ledger_initialize_project",
+        )
+
+        received: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        # Default: no skip_tools set, so the path is rewritten even for MCP-named tools.
+        assert received[0].tool_call["args"]["path"] == "/src/app.py"
+
+    async def test_skipped_tool_with_posix_path(self):
+        """POSIX variant: a skipped MCP tool with a macOS absolute path is not rewritten."""
+        mw = PathNormalizationMiddleware(
+            "/Users/smordziol/Webserver/Workspaces/ai-insights/DEV/ai-insights",
+            skip_tools=frozenset({"ledger_initialize_project", "ledger_create_work_package"}),
+        )
+        host_path = (
+            "/Users/smordziol/Webserver/Workspaces/ai-insights/DEV/ai-insights"
+            "/docs/agents/plans/2026-07-13-example"
+        )
+        request = _make_request(
+            {"project_path": host_path},
+            name="ledger_initialize_project",
+        )
+
+        received: list[Any] = []
+
+        async def _handler(req: Any) -> str:
+            received.append(req)
+            return "result"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        assert received[0] is request
+        assert received[0].tool_call["args"]["project_path"] == host_path
+
+    async def test_skip_tools_with_real_request(self):
+        """Smoke test: skipped tool forwarded unchanged with a real ToolCallRequest."""
+        mw = PathNormalizationMiddleware(
+            "/Users/dev/project",
+            skip_tools=frozenset({"ledger_initialize_project"}),
+        )
+        host_path = "/Users/dev/project/docs/agents/plans/my-plan"
+        request = _make_real_request(
+            {"project_path": host_path},
+            name="ledger_initialize_project",
+        )
+
+        received: list[ToolCallRequest] = []
+
+        async def _handler(req: ToolCallRequest) -> str:
+            received.append(req)
+            return "ok"
+
+        await mw.awrap_tool_call(request, _handler)
+
+        assert received, "handler was not called"
+        assert received[0] is request
+        assert received[0].tool_call["args"]["project_path"] == host_path

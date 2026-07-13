@@ -597,16 +597,24 @@ entry = {
 ### 26. All Deep Agents Instantiations Must Include `PathNormalizationMiddleware`
 
 **Rule:** Every `create_deep_agent()` call in `src/nodes/__init__.py` must include
-`middleware=[PathNormalizationMiddleware(target_path)]` in its kwargs. `target_path` must be
-the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
-without the `middleware` parameter, and never pass an empty list.
+`middleware=[PathNormalizationMiddleware(target_path, skip_tools=mcp_tool_names)]` in its
+kwargs. `target_path` must be the same value passed to `LocalShellBackend(root_dir=…)`.
+`mcp_tool_names` must be `frozenset(t.name for t in mcp_tools)` — the names of all MCP
+tools available to the stage.  Never call `create_deep_agent()` without the `middleware`
+parameter, and never pass an empty list.
 
-**Subagent scope:** The same `path_middleware` instance must also be injected into every
-subagent spec dict returned by `load_subagents()` before they are passed to
-`create_deep_agent()`. Inject via `sub_spec.setdefault("middleware", []).append(path_middleware)`
-for each spec. If the spec already carries a `middleware` key, the instance is **appended**,
-never replaced. If `load_subagents()` returns an empty list, no injection occurs and
-`create_deep_agent()` receives `subagents=None` as before.
+**MCP tool exemption:** MCP tools call the MCP server directly and require absolute host
+paths.  The `skip_tools` parameter exempts them from path rewriting by name.  Derive the
+skip set dynamically from the `mcp_tools` objects so every MCP tool, present and future,
+is excluded automatically without any list maintenance.
+
+**Subagent scope:** The same `path_middleware` instance (already constructed with
+`skip_tools`) must also be injected into every subagent spec dict returned by
+`load_subagents()` before they are passed to `create_deep_agent()`. Inject via
+`sub_spec.setdefault("middleware", []).append(path_middleware)` for each spec. If the spec
+already carries a `middleware` key, the instance is **appended**, never replaced. If
+`load_subagents()` returns an empty list, no injection occurs and `create_deep_agent()`
+receives `subagents=None` as before.
 
 **Rationale:** Deep Agents' `validate_path()` unconditionally rejects Windows drive-letter
 paths (`^[a-zA-Z]:`) before `_resolve_path()` can translate them to virtual paths. On all
@@ -618,11 +626,17 @@ operation to fail. The middleware is active for any non-trivial absolute `root_d
 (Windows drive-letter **or** POSIX path with length > 1), and is a zero-cost pass-through
 only when `root_dir` is empty or equals bare `/`.
 
+The `skip_tools` exemption fixes a second failure mode: without it, the middleware
+rewrites MCP `project_path` values to virtual paths before the MCP server receives them,
+causing every MCP call that injects or passes a `project_path` to fail (the MCP server
+cannot resolve virtual paths).
+
 **Correct pattern:**
 ```python
-# ✅ CORRECT — middleware always present; active on all platforms when
-# target_path is a non-trivial absolute path
-path_middleware = PathNormalizationMiddleware(target_path)
+# ✅ CORRECT — middleware always present with skip_tools derived from mcp_tools;
+# active on all platforms when target_path is a non-trivial absolute path
+mcp_tool_names = frozenset(t.name for t in mcp_tools)
+path_middleware = PathNormalizationMiddleware(target_path, skip_tools=mcp_tool_names)
 agent = create_deep_agent(
     model=resolved_model,
     backend=backend,
@@ -642,6 +656,10 @@ agent = create_deep_agent(
     system_prompt=persona_prompt,
     tools=wrapped_tools,
 )
+
+# ❌ WRONG — middleware present but skip_tools omitted; MCP tool calls receive
+# virtual paths and fail to resolve
+path_middleware = PathNormalizationMiddleware(target_path)
 ```
 
 **Known limitation — `general_purpose` subagent:** The auto-created `general_purpose`
