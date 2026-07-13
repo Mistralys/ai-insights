@@ -2,14 +2,15 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.2.
-**Last Updated:** 2026-06-29
+**Version:** 2.3
+**Last Updated:** 2026-07-13
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v2.3 - 2026-07-13: Added positive-framing rule and litmus test to Operating Philosophy; added "Philosophy reads like constraints" pitfall; added checklist item for philosophy tone.
 - v2.2 - 2026-06-29: Added Markdown separator handling; added License, Author and Source metadata to the header.
 - v2.1 - 2026-04-29: Added "Lead with a verb, not You" guidance to the Mission section; documented second-person voice as an anti-pattern.
 - v2.0 - 2026-04-11: Major revision — expanded section-by-section guides with templates; added Placeholder Syntax with curly braces (`{}`).
@@ -176,8 +177,18 @@ Or, when a unifying metaphor applies:
 
 - **Name each principle.** Bold term + explanation sentence. This makes principles scannable and referenceable (e.g., “Apply the 30-Second Rule here”).
 - **Encode judgment, not procedure.** Principles describe *how to think*, not *what to do*. Steps belong in the Workflow.
-- **Keep it short.** 3–6 principles is the sweet spot. More than that and the agent can’t hold them all in working memory.
+- **Frame positively — values over prohibitions.** Philosophy principles express what the agent *prioritizes*, *prefers*, or *values* — not what it must avoid. Use language like "Prefer X over Y", "Value X", "Favor X when…". If a principle starts with "Do not" or "Never", it is a constraint and belongs in Rules & Constraints.
+- **Keep it short.** 3–6 principles is the sweet spot. More than that and the agent can't hold them all in working memory.
 - **Use when the agent faces frequent ambiguity.** Not every persona needs a philosophy. A mechanical agent (like a Ledger Initializer) can operate entirely from its workflow. A judgment-heavy agent (like a README Writer or Documentation Curator) needs principles to navigate the gray areas.
+
+**Philosophy vs. Constraint — Litmus Test:**
+
+| If the principle… | It belongs in… | Example |
+|---|---|---|
+| Describes what the agent *values or prioritizes* | Operating Philosophy | "**Structure Before Content:** A well-structured document with average prose outperforms brilliant prose in a disorganized layout." |
+| Expresses a *preference between two valid approaches* | Operating Philosophy | "**Depth Over Breadth:** Prefer thorough coverage of fewer items over shallow coverage of many." |
+| States what the agent *must not do* | Rules & Constraints | "Do not modify files outside the current work package." |
+| Defines a *hard boundary with an alternative action* | Rules & Constraints | "Never invent APIs — verify existence using filesystem tools before referencing." |
 
 **Examples:**
 
@@ -672,6 +683,7 @@ Before shipping a new persona, verify:
 - [ ] **Mission opens with `Identity: {TITLE}.`** — bold, professional role, period at the end.
 - [ ] **Single responsibility.** The mission describes one clear outcome.
 - [ ] **Operating Philosophy is present** if the role requires judgment in ambiguous situations.
+- [ ] **Operating Philosophy uses positive framing.** Principles express values and preferences, not prohibitions. Any "Do not" / "Never" statements belong in Constraints.
 - [ ] **Inputs are specific.** Each input names its source and format.
 - [ ] **Capabilities sub-section exists** if the agent needs to run tests, execute commands, or write files.
 - [ ] **Outputs have a defined location.** The agent knows exactly where to save its work.
@@ -925,6 +937,7 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Rework re-runs the full workflow** | Agent wastes time and context re-doing work that was fine | Add a Rework Handling section that narrows focus to flagged issues |
 | **Shared content is copy-pasted** | Inconsistencies creep in across personas when one is updated | Extract shared instructions into reusable partials |
 | **No Operating Philosophy** | Agent makes inconsistent judgment calls across sessions | Add named guiding principles that encode how to think |
+| **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive values ("Prefer X over Y"); move prohibitions into Rules & Constraints |
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
 | **Tool instructions mixed into workflow** | Agent confuses tool mechanics with task logic | Extract tool integration into its own section |
