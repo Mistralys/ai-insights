@@ -1,5 +1,16 @@
 # Orchestrator Changelog
 
+## v1.4.0 - Subagent Path Middleware Propagation and Pre-Run Folder Rename
+- Nodes: PathNormalizationMiddleware is now injected into every subagent spec returned by
+  load_subagents(), ensuring subagent file operations are path-normalised on all platforms.
+- CLI: Added _maybe_rename_plan_dir() to rename plan folders with outdated date prefixes to
+  today's date before lock acquisition; _plan_hash and _run_status_path are computed from the
+  pre-rename path and are never recomputed, preserving GUI run-status polling compatibility.
+- CLI: Added import re and date to datetime imports to support the rename logic.
+- Tests: Added TestMaybeRenamePlanDir (7 tests) and TestRunFlow._plan_hash_stability (1 test).
+- Docs: Added Constraint §27 documenting the pre-run rename behaviour and _plan_hash stability
+  rule; added _maybe_rename_plan_dir entry to api-surface.md; added note to data-flows.md Flow 5.
+
 ## v1.3.0 - Windows Path Normalization Middleware
 - Nodes: Added PathNormalizationMiddleware to rewrite Windows drive-letter paths before Deep Agents
   validation; zero-cost no-op on macOS and Linux.

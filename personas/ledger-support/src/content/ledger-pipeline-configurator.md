@@ -100,7 +100,8 @@ Apply these rules to determine `active_pipeline_stages` for each WP:
 ### Use verification-only chain `["qa", "code-review"]` when the WP:
 - Performs ONLY validation, testing, or auditing
 - Makes no code or doc changes (e.g., a WP that only runs checks)
-- **Pre-requisite:** All methods, functions, and classes referenced in the WP's scope must already exist in production code. If any required symbol does not exist, the WP must include `implementation` — reclassify to the standard chain
+- **Pre-requisite (symbols):** All methods, functions, and classes referenced in the WP's scope must already exist in production code. If any required symbol does not exist, the WP must include `implementation` — reclassify to the standard chain
+- **Pre-requisite (state-changing operations):** No deliverable requires authoring code, config, templates, or scripts. Executing existing CLI tools or build commands does not require `implementation` provided that explicit acceptance criteria cover both the command execution and its side-effect verification. If the WP's ACs do not cover a state-changing deliverable's output, flag it in Guardrail Notes for PM review — the ACs are likely incomplete
 
 ### Use standard chain `["implementation", "qa", "code-review", "documentation"]` for:
 - Typical code-change WPs with no security surface and no release artifacts
@@ -135,6 +136,7 @@ The canonical full sequence: `implementation → qa → security-audit → code-
    - Does it produce a release artifact or require versioning? → flag for `release-engineering`
    - Is it documentation-only? → use documentation-only chain
    - Is it validation-only (no changes)? → use verification-only chain
+   - Do any verification-only WPs include deliverables with state-changing commands (builds, migrations, data writes)? → verify the ACs cover the command's direct output; if not, flag in Guardrail Notes
    - Otherwise → use standard chain, then apply flags from above
 3. **Assemble stage lists:** For each WP, start with the applicable base chain, then insert optional stages at their canonical positions.
 4. **Document rationale:** For every non-standard configuration, write a concise rationale explaining why the default chain was overridden.
@@ -159,3 +161,4 @@ Before submitting your output, verify:
 - [ ] Release-artifact WPs explicitly include `release-engineering`
 - [ ] Documentation-only WPs do not include `implementation`
 - [ ] Non-implementation WPs (test-only, verification-only, documentation-only) only reference methods/functions that already exist in production code
+- [ ] Verification-only WPs whose deliverables include CLI command execution have ACs that verify the command's side effects (not just downstream behavior)

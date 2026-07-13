@@ -983,6 +983,187 @@ class TestRunQueueIntegration:
 # _write_error_status() — early-exit tombstone writes
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# _maybe_rename_plan_dir() tests
+# ---------------------------------------------------------------------------
+
+class TestMaybeRenamePlanDir:
+    """Unit tests for the pre-run plan folder rename helper."""
+
+    def _call(self, plan_dir: Path) -> Path:
+        from src.cli import _maybe_rename_plan_dir
+        return _maybe_rename_plan_dir(plan_dir)
+
+    def test_outdated_date_renames_folder(self, tmp_path: Path) -> None:
+        """A folder with an outdated date prefix is renamed to today's date."""
+        from datetime import date
+
+        old_dir = tmp_path / "2020-01-01-my-plan"
+        old_dir.mkdir()
+        (old_dir / "plan.md").write_text("# plan")
+
+        result = self._call(old_dir)
+
+        today_str = date.today().isoformat()
+        expected = tmp_path / f"{today_str}-my-plan"
+        assert result == expected
+        assert expected.is_dir()
+        assert not old_dir.exists()
+
+    def test_current_date_no_op(self, tmp_path: Path) -> None:
+        """A folder whose date prefix already matches today is not renamed."""
+        from datetime import date
+
+        today_str = date.today().isoformat()
+        current_dir = tmp_path / f"{today_str}-my-plan"
+        current_dir.mkdir()
+
+        result = self._call(current_dir)
+
+        assert result == current_dir
+        assert current_dir.is_dir()
+
+    def test_no_date_prefix_no_op(self, tmp_path: Path) -> None:
+        """A folder with no ISO date prefix is returned unchanged."""
+        plain_dir = tmp_path / "my-plan-without-date"
+        plain_dir.mkdir()
+
+        result = self._call(plain_dir)
+
+        assert result == plain_dir
+        assert plain_dir.is_dir()
+
+    def test_collision_skips_rename(self, tmp_path: Path) -> None:
+        """When the target folder already exists the rename is skipped."""
+        from datetime import date
+
+        old_dir = tmp_path / "2020-01-01-my-plan"
+        old_dir.mkdir()
+        today_str = date.today().isoformat()
+        collision = tmp_path / f"{today_str}-my-plan"
+        collision.mkdir()
+
+        result = self._call(old_dir)
+
+        assert result == old_dir
+        assert old_dir.is_dir()
+        assert collision.is_dir()
+
+    def test_non_iso_prefix_no_op(self, tmp_path: Path) -> None:
+        """A name like '202-01-01-slug' (malformed) is not treated as a date prefix."""
+        malformed_dir = tmp_path / "202-01-01-slug"
+        malformed_dir.mkdir()
+
+        result = self._call(malformed_dir)
+
+        assert result == malformed_dir
+
+    def test_return_value_is_new_path(self, tmp_path: Path) -> None:
+        """Return value after a successful rename is the new (renamed) path."""
+        from datetime import date
+
+        old_dir = tmp_path / "2020-06-15-feature-x"
+        old_dir.mkdir()
+
+        result = self._call(old_dir)
+
+        today_str = date.today().isoformat()
+        assert result == tmp_path / f"{today_str}-feature-x"
+
+    def test_oserror_returns_original(self, tmp_path: Path) -> None:
+        """When Path.rename() raises OSError a warning is logged and the
+        original path is returned unchanged."""
+        old_dir = tmp_path / "2020-01-01-my-plan"
+        old_dir.mkdir()
+
+        with patch("pathlib.Path.rename", side_effect=OSError("permission denied")):
+            result = self._call(old_dir)
+
+        assert result == old_dir
+        assert old_dir.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# TestRunFlow — _plan_hash stability after pre-run rename
+# ---------------------------------------------------------------------------
+
+class TestRunFlow:
+    """Verifies that _plan_hash is derived from the pre-rename plan path and
+    that the run-status tombstone uses that hash (not the post-rename hash)."""
+
+    _LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
+    def _hash_for(self, plan_path: Path) -> str:
+        import hashlib
+        return hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+
+    async def test_plan_hash_stability_after_rename(self, tmp_path: Path) -> None:
+        """The run-status tombstone is written at the pre-rename hash path, not
+        the post-rename hash path, matching what TypeScript computed before
+        spawning the orchestrator process."""
+        import json
+
+        from src.cli import EXIT_ERROR, _run
+
+        # Create a plan folder with an obviously outdated date.
+        old_plan_dir = (tmp_path / "2020-01-01-stability-test").resolve()
+        old_plan_dir.mkdir(parents=True)
+        plan_file = old_plan_dir / "plan.md"
+        plan_file.write_text("# plan")
+
+        # Pre-compute the hash TypeScript would have used (from the original path).
+        pre_rename_hash = self._hash_for(plan_file)
+        pre_rename_status_path = self._LOGS_DIR / f"{pre_rename_hash}-run-status.json"
+
+        # Also pre-compute the post-rename hash so we can verify it is NOT used.
+        from datetime import date
+        today_str = date.today().isoformat()
+        post_rename_file = old_plan_dir.parent / f"{today_str}-stability-test" / "plan.md"
+        post_rename_hash = self._hash_for(post_rename_file)
+        post_rename_status_path = self._LOGS_DIR / f"{post_rename_hash}-run-status.json"
+
+        args = MagicMock()
+        args.plan = str(plan_file)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        # Provide explicit project_path so _infer_project_root is bypassed
+        # (tmp_path does not follow the docs/agents/plans/ convention).
+        args.project_path = str(tmp_path)
+
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = tmp_path / "checkpoints"
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+        mock_config.max_iterations = 100
+
+        try:
+            # Trigger lock contention to force an early exit that writes the tombstone.
+            with patch(
+                "src.cli.lock_exclusive",
+                side_effect=OSError("Resource temporarily unavailable"),
+            ):
+                result = await _run(args, mock_config)
+
+            assert result == EXIT_ERROR
+
+            # The tombstone must exist at the PRE-rename hash path.
+            assert pre_rename_status_path.exists(), (
+                f"Expected tombstone at pre-rename path: {pre_rename_status_path}"
+            )
+            status = json.loads(pre_rename_status_path.read_text())
+            assert status["result"] == "ERROR"
+
+            # The tombstone must NOT exist at the POST-rename hash path.
+            assert not post_rename_status_path.exists(), (
+                f"Tombstone incorrectly written at post-rename path: {post_rename_status_path}"
+            )
+        finally:
+            pre_rename_status_path.unlink(missing_ok=True)
+            post_rename_status_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 class TestWriteErrorStatusEarlyExits:
     """Regression tests for the _write_error_status() helper called at
     early-exit paths in _run().

@@ -601,6 +601,13 @@ entry = {
 the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
 without the `middleware` parameter, and never pass an empty list.
 
+**Subagent scope:** The same `path_middleware` instance must also be injected into every
+subagent spec dict returned by `load_subagents()` before they are passed to
+`create_deep_agent()`. Inject via `sub_spec.setdefault("middleware", []).append(path_middleware)`
+for each spec. If the spec already carries a `middleware` key, the instance is **appended**,
+never replaced. If `load_subagents()` returns an empty list, no injection occurs and
+`create_deep_agent()` receives `subagents=None` as before.
+
 **Rationale:** Deep Agents' `validate_path()` unconditionally rejects Windows drive-letter
 paths (`^[a-zA-Z]:`) before `_resolve_path()` can translate them to virtual paths. On all
 platforms, agents may receive absolute host paths in their context (via `project_path`
@@ -637,9 +644,69 @@ agent = create_deep_agent(
 )
 ```
 
+**Known limitation — `general_purpose` subagent:** The auto-created `general_purpose`
+subagent (injected by Deep Agents when no matching name exists in the spec list) does not
+accept per-instance middleware via the spec mechanism. Middleware injection only covers
+explicitly declared subagents returned by `load_subagents()`. If `general_purpose` performs
+file operations with absolute host paths, path doubling may occur. Risk is low because
+`general_purpose` is rarely used for direct file writes. Resolution requires an upstream
+Deep Agents API change to support per-instance middleware on auto-created subagents.
+
 **Complementary dependency:** `LocalShellBackend(virtual_mode=True)` must remain enabled
 alongside the middleware (Constraint 8 / `2026-07-04-windows-path-resolution`).
 `virtual_mode=True` resolves `/`-rooted virtual paths; the middleware produces them from
 absolute host paths. Both are required for cross-platform file-tool support.
 
 **Source:** `orchestrator/src/utils/path_middleware.py` — `PathNormalizationMiddleware`.
+
+---
+
+### 27. Pre-Run Folder Rename and `_plan_hash` Stability
+
+**Rule:** On fresh runs (no `--resume`), `_maybe_rename_plan_dir()` is called between
+`plan_dir` assignment and lock acquisition to update an outdated `YYYY-MM-DD` date prefix to
+today's date. The rename updates `plan_dir` and `plan_path` so all downstream state (lock
+file, JSONL logger, sidecar `.orchestrator-run.json`) uses the renamed location.
+`_plan_hash` and `_run_status_path` are computed **before** the rename and must **not** be
+recomputed afterwards.
+
+**Rationale:** TypeScript's `runStatusFilename()` (in `orchestrator-manager.ts`) hashes the
+plan path before spawning the orchestrator process, and the GUI polls that exact filename for
+run-status updates. If the orchestrator recomputed `_plan_hash` from the post-rename path,
+the tombstone file would be written at a different filename than the GUI is polling, causing
+the GUI to hang indefinitely waiting for a status that will never appear.
+
+**Skip conditions for `_maybe_rename_plan_dir()`:**
+- Folder name has no `YYYY-MM-DD` prefix.
+- Prefix already matches today's date.
+- Target folder (`{today}-{suffix}`) already exists — original path is returned.
+- `Path.rename()` raises `OSError` — a warning is logged and the original path is returned.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — recomputes _plan_hash after rename; GUI polls wrong filename
+plan_dir = _maybe_rename_plan_dir(plan_dir)
+plan_path = plan_dir / plan_file
+_plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — _plan_hash and _run_status_path are computed BEFORE the rename
+_plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+_run_status_path = _logs_dir / f"{_plan_hash}-run-status.json"
+# ... early-exit checks (plan_path.exists(), etc.) ...
+plan_dir = plan_path.parent if plan_path.is_file() else plan_path
+plan_file = plan_path.name if plan_path.is_file() else "plan.md"
+if not args.resume:
+    plan_dir = _maybe_rename_plan_dir(plan_dir)
+    plan_path = plan_dir / plan_file
+# Lock acquisition and all subsequent state uses post-rename plan_dir/plan_path.
+# _plan_hash and _run_status_path are never touched again.
+```
+
+**`--resume` exemption:** The rename is skipped when `--resume` is provided. On resume runs
+the folder already has a current date prefix (it was renamed on the first run), so renaming
+again would be incorrect.
+
+**Source:** `orchestrator/src/cli.py` — `_maybe_rename_plan_dir()`, `_SLUG_DATE_RE`.

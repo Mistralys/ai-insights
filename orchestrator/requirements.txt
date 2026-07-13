@@ -7,7 +7,7 @@ aiosqlite>=0.19.0
 langchain-core>=1.2.22
 langchain-mcp-adapters>=0.2
 langgraph>=1.1,<2.0
-deepagents>=0.3
+deepagents>=0.6,<1  # subagent spec["middleware"] API requires >=0.3; profiles restructured in 0.6; <1 guards against upstream API changes
 python-dotenv>=1.0
 langgraph-checkpoint-sqlite
 

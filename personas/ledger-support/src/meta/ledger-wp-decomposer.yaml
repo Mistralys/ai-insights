@@ -5,6 +5,7 @@ vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
 changelog: |
+  1.3.0 (2026-07-09): Deliverable-AC parity enforcement; Step 4 gains coverage test for state-changing operations; two quality checklist items added; strict constraint added requiring every deliverable to trace to a covering AC
   1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
   1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
   1.0.7 (2026-06-04): Minor output format tweaks

@@ -112,6 +112,10 @@ For each WP, produce a definition using the Output Template above.
 
 These fields exist so that an agent working in isolation — with no access to the plan document, audit reports, or architectural review notes — understands the full design intent, not just the implementation steps.
 
+**Deliverable-AC parity:** After writing each WP's deliverables and acceptance criteria, apply the coverage test: for each deliverable, ask "Can all existing ACs pass without this deliverable being fulfilled?" If the answer is yes, the deliverable lacks an AC — add one that verifies the deliverable's side effect.
+
+This is especially critical for **state-changing operations** — deliverables containing verbs like "build", "migrate", "create", "seed", "deploy", "trigger", "execute", or "update". These operations produce side effects (generated files, database state, build artifacts) that must be verified independently. An AC that only checks preconditions or downstream behavior is insufficient — the AC must verify the operation's direct output.
+
 ---
 
 ## Quality Checklist
@@ -131,6 +135,8 @@ Before submitting your output, verify:
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection
 - [ ] Every WP with a non-trivial design decision in the plan's "Rationale" or "Approach" sections has a corresponding `**Rationale:**` field
 - [ ] WPs whose boundaries were informed by codebase verification include a `**Code Observations:**` field documenting the findings
+- [ ] Every deliverable has at least one AC that cannot pass unless that deliverable is fulfilled (deliverable-AC parity)
+- [ ] Every deliverable describing a state-changing operation (build, migrate, seed, deploy, execute) has an AC that verifies the operation's direct side effect — not just its preconditions or downstream consequences
 
 ---
 
@@ -188,6 +194,7 @@ After all WP definition blocks, append the Plan AC Coverage table as a separate 
 - **No Git write operations:** Do not use `git add`, `git commit`, `git push`, or branch creation. The user manages version control.
 - **Single output file:** Produce exactly one `work-packages-draft.md` file. Source code edits or creating additional files is out of scope.
 - **Scope boundary:** Your territory ends at WP definitions. Dependency sequencing, pipeline configuration, and ledger initialization belong to downstream agents — note dependencies in the Notes field but do not attempt to resolve ordering.
+- **Deliverable-AC parity:** Every deliverable must be traceable to at least one acceptance criterion that directly verifies the deliverable's outcome. A deliverable without a covering AC is a decomposition defect. State-changing operations (builds, migrations, data mutations) require ACs that verify their side effects — not merely that subsequent steps succeed.
 
 ---
 
