@@ -252,6 +252,7 @@ vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
 changelog: |
+  1.1.0 (2026-07-09): Verification-only chain gains state-changing operation pre-requisite; Workflow Step 2 adds AC coverage check for CLI commands; quality checklist item added for side-effect verification
   1.0.2 (2026-05-18): Write step references Output Location; subagent handoff precision improved
   1.0.1 (2026-04-30): Overall improvements
   1.0.0 (2026-04-11): Initial release — pipeline stage activation per Work Package type
@@ -272,6 +273,7 @@ vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
 changelog: |
+  1.3.0 (2026-07-09): Deliverable-AC parity enforcement; Step 4 gains coverage test for state-changing operations; two quality checklist items added; strict constraint added requiring every deliverable to trace to a covering AC
   1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
   1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
   1.0.7 (2026-06-04): Minor output format tweaks

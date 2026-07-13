@@ -225,6 +225,8 @@ Module-level helper functions used by the CLI entry point. All are private (pref
 |--------|-----------|-------------|
 | `_derive_repo_name` | `(plan_dir: Path, fallback: str) -> str` | Derives the repository name from a plan directory path. Takes `plan_dir.parents[3].name` (the fourth ancestor, counting from zero), lowercases it to align with TypeScript's `deriveRepoName()` convention in `ledger-root.ts`. Falls back to *fallback* when the path has fewer than four ancestor levels or when the ancestor name is empty. Example: `/workspace/MyRepo/docs/agents/plans/2026-01-01-slug` → `"myrepo"`. Used by `_derive_ledger_log_dir()` and by the queue registration call in `cli.py` to populate `expectedRepo`. |
 | `_infer_project_root` | `(plan_dir: Path) -> Path \| None` | Infers the target project root from a plan directory path using the `parents[3]` convention — plans live at `<project-root>/docs/agents/plans/<slug>`, so `plan_dir.parents[3]` is the project root. Applies a sanity check: `(inferred_root / "docs" / "agents" / "plans").is_dir()` must return `True`. Returns `None` when the path has fewer than four ancestors (`IndexError`) or the sanity check fails; `_run()` treats `None` as a fatal error and exits with `EXIT_ERROR`. Used by `_run()` to populate `target_project_path` / `project_path` when `--project-path` is not provided. Always emits an `INFO`-level log message on success. |
+| `_SLUG_DATE_RE` | `re.Pattern[str]` | Module-level compiled regex constant: `re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")`. Matches folder names of the form `YYYY-MM-DD-<suffix>`, capturing the date prefix and suffix as groups 1 and 2. Used exclusively by `_maybe_rename_plan_dir()` — the pattern is not inlined in the function body. |
+| `_maybe_rename_plan_dir` | `(plan_dir: Path) -> Path` | Renames the plan folder to use today's date prefix when the existing prefix is outdated. Matches folder names of the form `YYYY-MM-DD-<suffix>` via the companion constant `_SLUG_DATE_RE`. Returns the post-rename path on success; returns *plan_dir* unchanged when the prefix already matches today, the folder has no date prefix, the target already exists (collision), or `Path.rename()` raises `OSError` (warning logged). Called by `_run()` on fresh runs only (skipped when `--resume` is set), between `plan_dir` assignment and lock acquisition. `_plan_hash` and `_run_status_path` are computed before this call and must not be recomputed afterwards — see [Constraint 27](constraints.md#27-pre-run-folder-rename-and-_plan_hash-stability). |
 
 ### Duration field conventions
 
@@ -235,6 +237,16 @@ Module-level helper functions used by the CLI entry point. All are private (pref
 | `total_duration_s` | Entire run | `run_end` |
 
 All duration values are floats rounded to 1 decimal place.
+
+---
+
+## Node Factory (`src/nodes/__init__.py`)
+
+Generic LangGraph node factory consumed by all stage modules.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `create_stage_node` | `create_stage_node(stage, build_prompt, config, mcp_tools) -> Callable` | Returns an async `node_fn` closure for *stage*. Resolves the API model slug (via `Config.resolve_model_for_stage`), wraps `mcp_tools` with four defensive layers (`inject_project_path` → `restrict_to_wp` → begin-work tracker → `log_tool_calls`), loads subagents via `load_subagents()`, and injects a single `PathNormalizationMiddleware` instance into every subagent spec via `sub_spec.setdefault("middleware", []).append(path_middleware)` before calling `create_deep_agent()` with `middleware=[path_middleware]` and `subagents=stage_subagents or None`. Subagent injection is a no-op when `load_subagents()` returns `[]`. Error-path rollback cancels any orphaned IN_PROGRESS pipeline via `_handle_rollback`. See [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware) for the middleware mandate. |
 
 ---
 
@@ -386,20 +398,22 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 ### `src/utils/path_middleware.py`
 
-Deep Agents tool-call middleware that rewrites Windows drive-letter paths to virtual
+Deep Agents tool-call middleware that rewrites absolute host paths to virtual
 `/`-rooted paths before `validate_path()` runs inside the Deep Agents sandbox.
 Designed to work in tandem with `LocalShellBackend(virtual_mode=True)`.
-On macOS/Linux, the middleware is a zero-cost no-op (the `_active` flag is `False`
-when `root_dir` does not start with `[a-zA-Z]:`).
+Active on all platforms when `root_dir` is a non-trivial absolute path — Windows
+drive-letter root (e.g. `C:\project`) or POSIX root with length > 1 (e.g.
+`/Users/dev/project`). Inactive (zero-cost pass-through) only when `root_dir`
+is empty or equals bare `/`.
 
 See also: [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware).
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `PathNormalizationMiddleware` | `PathNormalizationMiddleware(root_dir: str)` | `AgentMiddleware` subclass. Scans all string arguments of every tool call for Windows drive-letter paths (`^[a-zA-Z]:`). Values whose normalized form case-insensitively starts with `root_dir` are rewritten to `/`-rooted virtual paths; all other values pass through unchanged. |
-| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = bool(WIN_PATH_RE.match(root_dir))`. When `_active` is `False`, all methods are no-ops. |
+| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = True` when `root_dir` is a Windows drive-letter path (`_WIN_PATH_RE` match) or a POSIX path with `len > 1`. When `_active` is `False`, all methods are no-ops. |
 | `PathNormalizationMiddleware._to_virtual` | `_to_virtual(value: str) -> str` | Normalizes backslashes in *value* to `/`, then case-insensitively strips the `_root` prefix and prepends `/`. Returns *value* unchanged when it does not start with `_root`. Returns `"/"` when *value* equals `root_dir` exactly. |
-| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those matching `^[a-zA-Z]:`, and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
+| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those identified as rewritable (Windows drive-letter paths or POSIX paths case-insensitively matching the `_root` prefix), and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
 | `PathNormalizationMiddleware.awrap_tool_call` | `awrap_tool_call(request, handler) -> ToolMessage \| Command` | Calls `_rewrite_args` on `request.tool_call["args"]`. When changes are needed, creates a new request via `request.override(tool_call={...args: modified})`. Delegates to `handler(request)` in all cases. |
 
 ---
@@ -1133,6 +1147,13 @@ entry = {
 the same value passed to `LocalShellBackend(root_dir=…)`. Never call `create_deep_agent()`
 without the `middleware` parameter, and never pass an empty list.
 
+**Subagent scope:** The same `path_middleware` instance must also be injected into every
+subagent spec dict returned by `load_subagents()` before they are passed to
+`create_deep_agent()`. Inject via `sub_spec.setdefault("middleware", []).append(path_middleware)`
+for each spec. If the spec already carries a `middleware` key, the instance is **appended**,
+never replaced. If `load_subagents()` returns an empty list, no injection occurs and
+`create_deep_agent()` receives `subagents=None` as before.
+
 **Rationale:** Deep Agents' `validate_path()` unconditionally rejects Windows drive-letter
 paths (`^[a-zA-Z]:`) before `_resolve_path()` can translate them to virtual paths. On all
 platforms, agents may receive absolute host paths in their context (via `project_path`
@@ -1169,12 +1190,72 @@ agent = create_deep_agent(
 )
 ```
 
+**Known limitation — `general_purpose` subagent:** The auto-created `general_purpose`
+subagent (injected by Deep Agents when no matching name exists in the spec list) does not
+accept per-instance middleware via the spec mechanism. Middleware injection only covers
+explicitly declared subagents returned by `load_subagents()`. If `general_purpose` performs
+file operations with absolute host paths, path doubling may occur. Risk is low because
+`general_purpose` is rarely used for direct file writes. Resolution requires an upstream
+Deep Agents API change to support per-instance middleware on auto-created subagents.
+
 **Complementary dependency:** `LocalShellBackend(virtual_mode=True)` must remain enabled
 alongside the middleware (Constraint 8 / `2026-07-04-windows-path-resolution`).
 `virtual_mode=True` resolves `/`-rooted virtual paths; the middleware produces them from
 absolute host paths. Both are required for cross-platform file-tool support.
 
 **Source:** `orchestrator/src/utils/path_middleware.py` — `PathNormalizationMiddleware`.
+
+---
+
+### 27. Pre-Run Folder Rename and `_plan_hash` Stability
+
+**Rule:** On fresh runs (no `--resume`), `_maybe_rename_plan_dir()` is called between
+`plan_dir` assignment and lock acquisition to update an outdated `YYYY-MM-DD` date prefix to
+today's date. The rename updates `plan_dir` and `plan_path` so all downstream state (lock
+file, JSONL logger, sidecar `.orchestrator-run.json`) uses the renamed location.
+`_plan_hash` and `_run_status_path` are computed **before** the rename and must **not** be
+recomputed afterwards.
+
+**Rationale:** TypeScript's `runStatusFilename()` (in `orchestrator-manager.ts`) hashes the
+plan path before spawning the orchestrator process, and the GUI polls that exact filename for
+run-status updates. If the orchestrator recomputed `_plan_hash` from the post-rename path,
+the tombstone file would be written at a different filename than the GUI is polling, causing
+the GUI to hang indefinitely waiting for a status that will never appear.
+
+**Skip conditions for `_maybe_rename_plan_dir()`:**
+- Folder name has no `YYYY-MM-DD` prefix.
+- Prefix already matches today's date.
+- Target folder (`{today}-{suffix}`) already exists — original path is returned.
+- `Path.rename()` raises `OSError` — a warning is logged and the original path is returned.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — recomputes _plan_hash after rename; GUI polls wrong filename
+plan_dir = _maybe_rename_plan_dir(plan_dir)
+plan_path = plan_dir / plan_file
+_plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — _plan_hash and _run_status_path are computed BEFORE the rename
+_plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+_run_status_path = _logs_dir / f"{_plan_hash}-run-status.json"
+# ... early-exit checks (plan_path.exists(), etc.) ...
+plan_dir = plan_path.parent if plan_path.is_file() else plan_path
+plan_file = plan_path.name if plan_path.is_file() else "plan.md"
+if not args.resume:
+    plan_dir = _maybe_rename_plan_dir(plan_dir)
+    plan_path = plan_dir / plan_file
+# Lock acquisition and all subsequent state uses post-rename plan_dir/plan_path.
+# _plan_hash and _run_status_path are never touched again.
+```
+
+**`--resume` exemption:** The rename is skipped when `--resume` is provided. On resume runs
+the folder already has a current date prefix (it was renamed on the first run), so renaming
+again would be incorrect.
+
+**Source:** `orchestrator/src/cli.py` — `_maybe_rename_plan_dir()`, `_SLUG_DATE_RE`.
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`
@@ -1303,6 +1384,11 @@ Return ChunkEntry[]   ([] when directory is absent — no error)
 ## Flow 5: Run Metadata Sidecar Write (`.orchestrator-run.json`)
 
 **Entry Point:** `_run()` in `src/cli.py`, after lock acquisition and thread ID resolution
+
+> **Note:** On fresh runs `_maybe_rename_plan_dir()` is called before lock acquisition and may
+> rename `plan_dir` (and update `plan_path`) to use today's date prefix. `_plan_hash` and
+> `_run_status_path` are computed from the pre-rename path and are never recomputed (see
+> [Constraint 27](constraints.md#27-pre-run-folder-rename-and-_plan_hash-stability)).
 
 **Write — initial (result=null, before graph execution):**
 
