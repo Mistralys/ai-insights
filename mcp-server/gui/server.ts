@@ -1098,12 +1098,13 @@ function matchRoute(
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
         throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
       }
-      // logsDir uses the URL segments (which locate the directory on disk); repoName
-      // is resolved from .meta.json so it comes from the stored repository_name, not
-      // a raw URL param (AC3). resolveRepoName also enforces 404 for unknown projects.
+      // logsDir uses the URL segments to locate the directory. Unlike other namespaced
+      // routes, we do NOT call resolveRepoName here — log files must be readable for
+      // active runs whose project ledger hasn't been initialised yet (no .meta.json).
+      // repoUrlParam is already validated by SAFE_SLUG_REGEX above, which satisfies
+      // the assertSafeSlug guard inside handleListRunLogs.
       const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleListRunLogs(slug, repoName, logsDir, orchestratorLogsDir);
+      return handleListRunLogs(slug, repoUrlParam, logsDir, orchestratorLogsDir);
     };
   }
 
@@ -1163,12 +1164,13 @@ function matchRoute(
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
         throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
       }
-      // logsDir uses the URL segments (which locate the directory on disk); repoName
-      // is resolved from .meta.json so it comes from the stored repository_name, not
-      // a raw URL param (AC3). resolveRepoName also enforces 404 for unknown projects.
+      // logsDir uses the URL segments to locate the directory. Unlike other namespaced
+      // routes, we do NOT call resolveRepoName here — log files must be readable for
+      // active runs whose project ledger hasn't been initialised yet (no .meta.json).
+      // repoUrlParam is already validated by SAFE_SLUG_REGEX above, which satisfies
+      // the assertSafeSlug guard inside handleGetRunLog.
       const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetRunLog(slug, repoName, filename, logsDir, orchestratorLogsDir, afterLine);
+      return handleGetRunLog(slug, repoUrlParam, filename, logsDir, orchestratorLogsDir, afterLine);
     };
   }
 
