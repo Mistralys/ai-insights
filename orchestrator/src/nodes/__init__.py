@@ -895,6 +895,13 @@ def create_stage_node(
             # Returns an empty list (→ None) for stages with no subagent config.
             stage_subagents = load_subagents(stage, workspace_root=_app_config.workspace_root)
 
+            # Propagate PathNormalizationMiddleware to each subagent spec so
+            # subagent file-tool calls are also rewritten to virtual /-rooted
+            # paths before validate_path() runs inside Deep Agents.
+            # See docs/agents/project-manifest/constraints.md §26.
+            for sub_spec in stage_subagents:
+                sub_spec.setdefault("middleware", []).append(path_middleware)
+
             agent = create_deep_agent(
                 model=resolved_model,
                 backend=backend,

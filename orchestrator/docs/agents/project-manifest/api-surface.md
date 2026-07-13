@@ -79,6 +79,8 @@ Module-level helper functions used by the CLI entry point. All are private (pref
 |--------|-----------|-------------|
 | `_derive_repo_name` | `(plan_dir: Path, fallback: str) -> str` | Derives the repository name from a plan directory path. Takes `plan_dir.parents[3].name` (the fourth ancestor, counting from zero), lowercases it to align with TypeScript's `deriveRepoName()` convention in `ledger-root.ts`. Falls back to *fallback* when the path has fewer than four ancestor levels or when the ancestor name is empty. Example: `/workspace/MyRepo/docs/agents/plans/2026-01-01-slug` → `"myrepo"`. Used by `_derive_ledger_log_dir()` and by the queue registration call in `cli.py` to populate `expectedRepo`. |
 | `_infer_project_root` | `(plan_dir: Path) -> Path \| None` | Infers the target project root from a plan directory path using the `parents[3]` convention — plans live at `<project-root>/docs/agents/plans/<slug>`, so `plan_dir.parents[3]` is the project root. Applies a sanity check: `(inferred_root / "docs" / "agents" / "plans").is_dir()` must return `True`. Returns `None` when the path has fewer than four ancestors (`IndexError`) or the sanity check fails; `_run()` treats `None` as a fatal error and exits with `EXIT_ERROR`. Used by `_run()` to populate `target_project_path` / `project_path` when `--project-path` is not provided. Always emits an `INFO`-level log message on success. |
+| `_SLUG_DATE_RE` | `re.Pattern[str]` | Module-level compiled regex constant: `re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")`. Matches folder names of the form `YYYY-MM-DD-<suffix>`, capturing the date prefix and suffix as groups 1 and 2. Used exclusively by `_maybe_rename_plan_dir()` — the pattern is not inlined in the function body. |
+| `_maybe_rename_plan_dir` | `(plan_dir: Path) -> Path` | Renames the plan folder to use today's date prefix when the existing prefix is outdated. Matches folder names of the form `YYYY-MM-DD-<suffix>` via the companion constant `_SLUG_DATE_RE`. Returns the post-rename path on success; returns *plan_dir* unchanged when the prefix already matches today, the folder has no date prefix, the target already exists (collision), or `Path.rename()` raises `OSError` (warning logged). Called by `_run()` on fresh runs only (skipped when `--resume` is set), between `plan_dir` assignment and lock acquisition. `_plan_hash` and `_run_status_path` are computed before this call and must not be recomputed afterwards — see [Constraint 27](constraints.md#27-pre-run-folder-rename-and-_plan_hash-stability). |
 
 ### Duration field conventions
 
@@ -89,6 +91,16 @@ Module-level helper functions used by the CLI entry point. All are private (pref
 | `total_duration_s` | Entire run | `run_end` |
 
 All duration values are floats rounded to 1 decimal place.
+
+---
+
+## Node Factory (`src/nodes/__init__.py`)
+
+Generic LangGraph node factory consumed by all stage modules.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `create_stage_node` | `create_stage_node(stage, build_prompt, config, mcp_tools) -> Callable` | Returns an async `node_fn` closure for *stage*. Resolves the API model slug (via `Config.resolve_model_for_stage`), wraps `mcp_tools` with four defensive layers (`inject_project_path` → `restrict_to_wp` → begin-work tracker → `log_tool_calls`), loads subagents via `load_subagents()`, and injects a single `PathNormalizationMiddleware` instance into every subagent spec via `sub_spec.setdefault("middleware", []).append(path_middleware)` before calling `create_deep_agent()` with `middleware=[path_middleware]` and `subagents=stage_subagents or None`. Subagent injection is a no-op when `load_subagents()` returns `[]`. Error-path rollback cancels any orphaned IN_PROGRESS pipeline via `_handle_rollback`. See [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware) for the middleware mandate. |
 
 ---
 
@@ -240,20 +252,22 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 ### `src/utils/path_middleware.py`
 
-Deep Agents tool-call middleware that rewrites Windows drive-letter paths to virtual
+Deep Agents tool-call middleware that rewrites absolute host paths to virtual
 `/`-rooted paths before `validate_path()` runs inside the Deep Agents sandbox.
 Designed to work in tandem with `LocalShellBackend(virtual_mode=True)`.
-On macOS/Linux, the middleware is a zero-cost no-op (the `_active` flag is `False`
-when `root_dir` does not start with `[a-zA-Z]:`).
+Active on all platforms when `root_dir` is a non-trivial absolute path — Windows
+drive-letter root (e.g. `C:\project`) or POSIX root with length > 1 (e.g.
+`/Users/dev/project`). Inactive (zero-cost pass-through) only when `root_dir`
+is empty or equals bare `/`.
 
 See also: [Constraint 26](constraints.md#26-all-deep-agents-instantiations-must-include-pathnormalizationmiddleware).
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `PathNormalizationMiddleware` | `PathNormalizationMiddleware(root_dir: str)` | `AgentMiddleware` subclass. Scans all string arguments of every tool call for Windows drive-letter paths (`^[a-zA-Z]:`). Values whose normalized form case-insensitively starts with `root_dir` are rewritten to `/`-rooted virtual paths; all other values pass through unchanged. |
-| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = bool(WIN_PATH_RE.match(root_dir))`. When `_active` is `False`, all methods are no-ops. |
+| `PathNormalizationMiddleware.__init__` | `__init__(root_dir: str) -> None` | Stores `self._root = root_dir.replace("\\", "/")` and sets `self._active = True` when `root_dir` is a Windows drive-letter path (`_WIN_PATH_RE` match) or a POSIX path with `len > 1`. When `_active` is `False`, all methods are no-ops. |
 | `PathNormalizationMiddleware._to_virtual` | `_to_virtual(value: str) -> str` | Normalizes backslashes in *value* to `/`, then case-insensitively strips the `_root` prefix and prepends `/`. Returns *value* unchanged when it does not start with `_root`. Returns `"/"` when *value* equals `root_dir` exactly. |
-| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those matching `^[a-zA-Z]:`, and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
+| `PathNormalizationMiddleware._rewrite_args` | `_rewrite_args(args: dict[str, Any]) -> dict[str, Any] \| None` | Iterates string values in *args*, applies `_to_virtual` to those identified as rewritable (Windows drive-letter paths or POSIX paths case-insensitively matching the `_root` prefix), and returns a new dict with changed values when at least one was rewritten. Returns `None` when no changes were needed (fast path). Always returns `None` when `_active` is `False`. |
 | `PathNormalizationMiddleware.awrap_tool_call` | `awrap_tool_call(request, handler) -> ToolMessage \| Command` | Calls `_rewrite_args` on `request.tool_call["args"]`. When changes are needed, creates a new request via `request.override(tool_call={...args: modified})`. Delegates to `handler(request)` in all cases. |
 
 ---

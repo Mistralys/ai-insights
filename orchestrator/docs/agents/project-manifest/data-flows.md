@@ -122,6 +122,11 @@ Return ChunkEntry[]   ([] when directory is absent — no error)
 
 **Entry Point:** `_run()` in `src/cli.py`, after lock acquisition and thread ID resolution
 
+> **Note:** On fresh runs `_maybe_rename_plan_dir()` is called before lock acquisition and may
+> rename `plan_dir` (and update `plan_path`) to use today's date prefix. `_plan_hash` and
+> `_run_status_path` are computed from the pre-rename path and are never recomputed (see
+> [Constraint 27](constraints.md#27-pre-run-folder-rename-and-_plan_hash-stability)).
+
 **Write — initial (result=null, before graph execution):**
 
 ```

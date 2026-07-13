@@ -49,13 +49,14 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import sys
 import time
 import uuid
 import warnings
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,68 @@ def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
     )
+
+
+# Matches plan folder names like "2026-07-09-my-plan" and captures the date
+# prefix and the suffix separately.  Non-ISO names (e.g. "my-plan") do not
+# match and are left untouched.
+_SLUG_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")
+
+
+def _maybe_rename_plan_dir(plan_dir: Path) -> Path:
+    """Rename the plan folder if its date prefix is outdated.
+
+    Checks whether *plan_dir*'s name starts with a ``YYYY-MM-DD`` prefix that
+    differs from today's date.  If so, renames the folder to use today's date
+    before lock acquisition so that all downstream state (lock path, logger
+    paths, sidecar file) refers to the renamed location.
+
+    Skip conditions (return *plan_dir* unchanged):
+
+    * The folder name has no ``YYYY-MM-DD`` prefix (non-ISO prefix).
+    * The prefix already matches today's date.
+    * The target folder (today's date + suffix) already exists.
+    * ``Path.rename()`` raises ``OSError`` — a warning is logged and the
+      original path is returned.
+
+    Parameters
+    ----------
+    plan_dir:
+        Resolved absolute path to the plan slug directory.
+
+    Returns
+    -------
+    Path
+        The post-rename path (may equal *plan_dir* when no rename occurred).
+    """
+    match = _SLUG_DATE_RE.match(plan_dir.name)
+    if match is None:
+        return plan_dir
+
+    slug_date_str, suffix = match.groups()
+    today_str = date.today().isoformat()  # "YYYY-MM-DD"
+    if slug_date_str == today_str:
+        return plan_dir
+
+    new_name = f"{today_str}-{suffix}"
+    new_dir = plan_dir.parent / new_name
+    if new_dir.exists():
+        log.info(
+            "Plan folder rename skipped — target already exists: %s", new_dir
+        )
+        return plan_dir
+
+    try:
+        plan_dir.rename(new_dir)
+        log.info("Pre-run rename: %s → %s", plan_dir.name, new_name)
+        return new_dir
+    except OSError as exc:
+        log.warning(
+            "Pre-run rename failed (%s); using original path: %s",
+            exc,
+            plan_dir,
+        )
+        return plan_dir
 
 
 def _infer_project_root(plan_dir: Path) -> Path | None:
@@ -720,6 +783,14 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
     plan_dir = plan_path.parent if plan_path.is_file() else plan_path
     plan_file = plan_path.name if plan_path.is_file() else "plan.md"
+
+    # ── Pre-run rename: update folder date prefix to today (fresh runs only) ──
+    # _plan_hash and _run_status_path are intentionally NOT recomputed; they
+    # retain the pre-rename path values so the GUI can poll the exact filename
+    # that TypeScript's runStatusFilename() computed before spawning this process.
+    if not args.resume:
+        plan_dir = _maybe_rename_plan_dir(plan_dir)
+        plan_path = plan_dir / plan_file
 
     if args.project_path:
         project_path = Path(args.project_path).resolve()

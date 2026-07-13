@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
+
+from langchain_core.runnables import RunnableConfig
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -82,7 +84,7 @@ def _make_dryrun_node(stage: str):
     """
     from src.utils.logging import get_run_logger
 
-    def _stub(state: Any, config: Any = None) -> dict:
+    def _stub(state: Any, config: Optional[RunnableConfig] = None) -> dict:  # noqa: UP045
         ts = datetime.now(UTC).isoformat()
         wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
         log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "\u2014")

@@ -1822,6 +1822,127 @@ class TestSubagentWiring:
         )
 
 
+# ---------------------------------------------------------------------------
+# Tests: subagent middleware propagation (subagent-path-middleware-gap)
+# ---------------------------------------------------------------------------
+
+class TestSubagentMiddlewarePropagation:
+    """Verify PathNormalizationMiddleware is injected into subagent spec dicts
+    after load_subagents() returns and before create_deep_agent() is called."""
+
+    async def test_subagent_specs_receive_path_middleware(self):
+        """AC-1: Each subagent spec has a middleware list containing a
+        PathNormalizationMiddleware instance before create_deep_agent() is called."""
+        from src.nodes import create_stage_node
+        from src.utils.path_middleware import PathNormalizationMiddleware
+
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Decompose plan into WPs.",
+            "system_prompt": "# WP Decomposer",
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        subagents = captured.get("subagents") or []
+        assert len(subagents) == 1, "Expected one subagent spec"
+        spec = subagents[0]
+        assert "middleware" in spec, "Subagent spec must have a 'middleware' key"
+        assert any(
+            isinstance(m, PathNormalizationMiddleware) for m in spec["middleware"]
+        ), "middleware list must contain a PathNormalizationMiddleware instance"
+
+    async def test_empty_subagents_list_causes_no_injection(self):
+        """AC-2: When load_subagents() returns [], no injection occurs and
+        create_deep_agent receives subagents=None (existing behaviour preserved)."""
+        from src.nodes import create_stage_node
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[]):
+            await node_fn(base_state(current_wp_id=""))
+
+        assert captured.get("subagents") is None, (
+            "When no subagents are configured, create_deep_agent must receive "
+            f"subagents=None; got {captured.get('subagents')!r}"
+        )
+
+    async def test_existing_middleware_is_preserved_and_appended(self):
+        """AC-3: If a subagent spec already has middleware entries, the
+        PathNormalizationMiddleware is appended — not replaced."""
+        from src.nodes import create_stage_node
+        from src.utils.path_middleware import PathNormalizationMiddleware
+
+        pre_existing = MagicMock(name="pre_existing_middleware")
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Decompose plan into WPs.",
+            "system_prompt": "# WP Decomposer",
+            "middleware": [pre_existing],
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        subagents = captured.get("subagents") or []
+        assert len(subagents) == 1
+        spec = subagents[0]
+        middleware = spec.get("middleware", [])
+        assert pre_existing in middleware, "Pre-existing middleware entry must be preserved"
+        assert any(
+            isinstance(m, PathNormalizationMiddleware) for m in middleware
+        ), "PathNormalizationMiddleware must be appended to existing entries"
+        assert middleware[0] is pre_existing, (
+            "Pre-existing middleware must remain at index 0 (appended, not replaced)"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tests: WP-008 — Config retry values wired into _accumulate_stream via node_fn
