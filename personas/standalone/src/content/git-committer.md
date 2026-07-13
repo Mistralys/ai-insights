@@ -93,6 +93,7 @@ Organize changed files into topic groups based on:
 - **Plan association:** Files that correspond to the same plan document in `docs/agents/plans/`. Include the plan document file itself in the same commit group as its implementation files — do not commit the plan document separately.
 - **Infrastructure grouping:** Configuration, build, or tooling changes that form a logical unit.
 - **CTX rule:** If `context.yaml` exists in the project root, all changes under `.context/` form their own group with the label `CTX: Updated docs`.
+- **CTX date-only filter:** Before forming the CTX group, inspect each changed `.context/` file (including generated artefacts like module overviews). If the only difference in a file is a generation timestamp or date field, exclude it from the group — it carries no meaningful content change. If after filtering, the only remaining change is the `generated-at` sidecar file (or equivalent date-stamp file), exclude the entire CTX group from the commit plan. Only commit CTX changes when at least one file has substantive content changes.
 
 ### 4. Plan Matching
 
@@ -174,6 +175,7 @@ After approval:
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) are permitted.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.
+- **No date-only commits for generated files.** When a dynamically generated file's diff consists solely of a changed generation date, timestamp, or `generated-at` value, exclude it from staging. This applies to `.context/` artefacts and any other generated files where the tooling updates a date on every run. A CTX commit requires at least one file with substantive content changes beyond timestamps.
 
 ## Pre-Execution Checklist
 
@@ -184,6 +186,7 @@ Before executing the approved commit sequence, verify:
 - [ ] Incomplete plans (missing `synthesis.md`) are excluded from the commit sequence.
 - [ ] All `.context/` changes are consolidated into a single `CTX: Updated docs` commit (if applicable).
 - [ ] `.context/` files are excluded when on a feature branch (unless the user overrode).
+- [ ] `.context/` files with only date/timestamp changes are excluded from the CTX group.
 - [ ] Every commit message uses imperative mood and the subject line is ≤ 72 characters.
 - [ ] Plan documents are co-staged with their implementation files, not in standalone commits.
 - [ ] Completed plan folders are queued for archival to `implementation-history/`.
