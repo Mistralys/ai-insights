@@ -6,7 +6,8 @@ gui/
 ├── api.ts                       # REST API handlers (projects, work packages, orchestrator, config)
 ├── api-knowledge.ts             # REST API handlers (knowledge CRUD, promote, move)
 ├── orchestrator-manager.ts      # Queue reader, preflight checks, process spawn/kill/dismiss
-├── chunk-renderer.ts            # JSONL chunk → Markdown renderer (pure function, no I/O)
+├── chunk-accumulator.ts         # Shared accumulation layer: all types (JsonValue, ToolCallChunk, MergedToolCall, ContentBlock, MergedMessage, NamespaceKey), JSONL parsing (isValidHeader, parseChunkLine), chunk merging (chunkId, chunkType, mergeContent, mergeToolCallChunks, mergeUsageMetadata), namespace helpers (namespaceKey, namespaceLabel), and accumulateChunks(); pure-function module, no I/O
+├── chunk-renderer.ts            # Rendering layer: imports all types and accumulateChunks() from chunk-accumulator.ts; exports renderChunksToMarkdown (verbose, ## Role headings + JSON tool-call blocks) and renderChunksToDialogue (compact chat-like, plain paragraphs, per-tool summary lines, hidden ToolMessages); pure-function module, no I/O
 ├── docs/
 │   └── agents/
 │       └── project-manifest/    # This manifest
@@ -54,7 +55,7 @@ gui/
 | `api.ts` | ~900 | Project/WP/config handlers |
 | `api-knowledge.ts` | ~350 | Knowledge CRUD handlers |
 | `orchestrator-manager.ts` | ~400 | Queue + preflight + spawn |
-| `chunk-renderer.ts` | ~350 | Pure JSONL → Markdown |
+| `chunk-renderer.ts` | ~1000 | Pure JSONL → Markdown (renderChunksToMarkdown + renderChunksToDialogue) |
 | `public/styles.css` | ~2670 | Complete CSS component library |
 | `public/api-client.js` | ~350 | All API methods |
 | `public/utils.js` | ~200 | Shared utility functions |

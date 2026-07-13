@@ -1,107 +1,38 @@
 /**
- * chunk-renderer.ts — Chunk-to-Markdown renderer for streaming dialogue capture.
+ * chunk-renderer.ts — Rendering layer for streaming dialogue capture.
  *
- * Public API
- * ----------
+ * This module builds on the shared accumulation layer in `chunk-accumulator.ts`
+ * and exposes two pure renderers:
+ *
  * renderChunksToMarkdown(jsonlContent: string): string
- *   Parses a JSONL chunk file produced by the Python `ChunkWriter`, merges
- *   token-level `AIMessageChunk` data into complete messages, groups messages
- *   by namespace (main agent vs. sub-agents), and renders Markdown consistent
- *   with the orchestrator's `serialize_messages_to_markdown()` output format.
+ *   Verbose format: `## Role` headings, JSON fenced tool-call blocks, and a
+ *   token-usage footer.  Retained for debugging and diff-based consumers.
  *
- * JSONL format (chunk_format: 1)
- * --------------------------------
- * Line 0 (header):
- *   {"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"}
+ * renderChunksToDialogue(jsonlContent: string): string
+ *   Compact chat-like format: plain-paragraph AI text, per-tool single-line
+ *   summaries, hidden ToolMessages (execute/task results shown inline), and
+ *   sub-agent `### Subagent:` headings.  Primary renderer used in production.
  *
- * Lines 1-N (chunks):
- *   Each chunk represents one streaming event and can arrive in either of two
- *   wire shapes — both are parsed identically:
+ * Types, parsing, merging, and `accumulateChunks()` live in `chunk-accumulator.ts`.
  *
- *   Object shape (default Python serialisation):
- *     {"ns": namespace, "msg": AIMessageChunk.model_dump(), "metadata": {...}}
- *
- *   Array shape (tuple serialisation):
- *     [namespace, AIMessageChunk.model_dump(), metadata]
- *
- *   In both shapes, `namespace` is an array of strings (e.g. [] for the main
- *   agent or ["subgraph_name", "node_name"] for sub-agents).  The two shapes
- *   are fully interchangeable; `parseChunkLine()` normalises them to a common
- *   internal representation before any further processing.
- *
- * Merge semantics
- * ---------------
- * LangGraph streams `AIMessageChunk` objects — one per token / tool-call fragment.
- * Chunks sharing the same `id` field belong to the same logical message.  We
- * accumulate them in order and merge fields as follows:
- *   - `content`:    if string, concatenate; if list, merge by index/id
- *   - `tool_calls`: accumulate by index; merge `name`, `args` (string-concat), `id`
- *   - `usage_metadata`: sum numeric fields (input_tokens, output_tokens, …)
- *
- * The rendering step mirrors `serialize_messages_to_markdown()` in
- * `orchestrator/src/utils/dialogue_writer.py`:
- *   - Document heading + metadata table
- *   - Per-message `## Role` section with content and tool-call blocks
- *   - Token-usage footer (horizontal rule + `## Token Usage` table)
- *
- * Pure data transformation: no I/O, no side effects, easily testable.
+ * Pure data transformation: no I/O, no side effects, no imports from
+ * `mcp-server/src/`.
  */
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Raw JSON value accepted in chunk payloads. */
-type JsonValue = string | number | boolean | null | JsonValue[] | { [k: string]: JsonValue };
-
-/** A single tool-call fragment as it appears in an AIMessageChunk. */
-interface ToolCallChunk {
-  /** Numeric index (used when merging multi-fragment tool calls). */
-  index?: number;
-  /** Tool call id (set on the first fragment). */
-  id?: string | null;
-  /** Tool name (set on the first fragment). */
-  name?: string | null;
-  /** Partial JSON-encoded args string. */
-  args?: string | null;
-}
-
-/** Accumulated tool-call state keyed by index. */
-interface MergedToolCall {
-  id: string;
-  name: string;
-  /** Accumulated JSON-encoded args string — may be partial if chunks are malformed. */
-  args: string;
-}
-
-/** Content block from an AIMessageChunk / AIMessage. */
-interface ContentBlock {
-  type: string;
-  text?: string;
-  [key: string]: JsonValue | undefined;
-}
-
-/** Merged/reconstructed message ready for rendering. */
-interface MergedMessage {
-  /** LangChain message type: "ai", "human", "tool", "system", … */
-  type: string;
-  /** Message ID (for grouping chunks). */
-  id: string;
-  /** Reconstructed text or list-of-block content. */
-  content: string | ContentBlock[];
-  /** Merged tool calls (AI messages only). */
-  tool_calls: MergedToolCall[];
-  /** Aggregated token usage metadata. */
-  usage_metadata: Record<string, number>;
-  /** Tool message correlation id. */
-  tool_call_id?: string;
-}
-
-/** Namespace key: empty string for the main agent, "subgraph/node" for sub-agents. */
-type NamespaceKey = string;
+import {
+  type JsonValue,
+  type MergedToolCall,
+  type ContentBlock,
+  type MergedMessage,
+  type NamespaceKey,
+  accumulateChunks,
+  isValidHeader,
+  namespaceLabel,
+  parseChunkLine,
+} from './chunk-accumulator.js';
 
 // ---------------------------------------------------------------------------
-// Internal helpers — chunk merging
+// Internal rendering helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -194,328 +125,6 @@ function renderToolCalls(toolCalls: MergedToolCall[]): string {
     blocks.push(`${header}\n\n${body}`);
   }
   return blocks.join('\n\n');
-}
-
-/**
- * Extracts a stable string id from a chunk payload.
- * LangChain's `AIMessageChunk.model_dump()` places the message id in the
- * top-level `id` field.  Falls back to an empty string when absent.
- */
-function chunkId(chunk: Record<string, JsonValue>): string {
-  return typeof chunk['id'] === 'string' ? chunk['id'] : '';
-}
-
-/**
- * Returns the message type from a chunk payload.
- * LangChain's message dumps use the `type` field (e.g. "AIMessageChunk").
- */
-function chunkType(chunk: Record<string, JsonValue>): string {
-  return typeof chunk['type'] === 'string' ? chunk['type'] : 'ai';
-}
-
-/**
- * Merges a new content value into an existing accumulated content value.
- * Both string-concatenation (token streaming) and block-list merging are
- * supported.
- */
-function mergeContent(
-  acc: string | ContentBlock[],
-  incoming: string | ContentBlock[] | null | undefined,
-): string | ContentBlock[] {
-  if (incoming === null || incoming === undefined) return acc;
-
-  // String + string → concatenate.
-  if (typeof acc === 'string' && typeof incoming === 'string') {
-    return acc + incoming;
-  }
-
-  // Array + array → merge blocks by index or by id.
-  if (Array.isArray(acc) && Array.isArray(incoming)) {
-    const result: ContentBlock[] = [...acc];
-    for (let i = 0; i < incoming.length; i++) {
-      const block = incoming[i];
-      if (!block) continue;
-      if (i < result.length && result[i]) {
-        const existing = result[i]!;
-        if (existing.type === 'text' && block.type === 'text') {
-          result[i] = { ...existing, text: (existing.text ?? '') + (block.text ?? '') };
-        } else {
-          result[i] = { ...existing, ...block };
-        }
-      } else {
-        result.push({ ...block });
-      }
-    }
-    return result;
-  }
-
-  // String + array → upgrade accumulator to array, reprocess.
-  if (typeof acc === 'string' && Array.isArray(incoming)) {
-    const upgraded: ContentBlock[] = acc ? [{ type: 'text', text: acc }] : [];
-    return mergeContent(upgraded, incoming);
-  }
-
-  // Array + string → append as text block.
-  if (Array.isArray(acc) && typeof incoming === 'string') {
-    if (!incoming) return acc;
-    return [...acc, { type: 'text', text: incoming }];
-  }
-
-  return acc;
-}
-
-/**
- * Merges a `tool_call_chunks` array from a new chunk into the accumulated
- * tool-calls map (keyed by integer index).
- */
-function mergeToolCallChunks(
-  acc: Map<number, MergedToolCall>,
-  chunks: ToolCallChunk[],
-): void {
-  for (const tc of chunks) {
-    const idx = typeof tc.index === 'number' ? tc.index : 0;
-    const existing = acc.get(idx);
-    if (!existing) {
-      acc.set(idx, {
-        id: tc.id ?? '',
-        name: tc.name ?? '',
-        args: tc.args ?? '',
-      });
-    } else {
-      acc.set(idx, {
-        id: existing.id || (tc.id ?? ''),
-        name: existing.name || (tc.name ?? ''),
-        args: existing.args + (tc.args ?? ''),
-      });
-    }
-  }
-}
-
-/**
- * Merges usage_metadata from a new chunk into the accumulator.
- */
-function mergeUsageMetadata(
-  acc: Record<string, number>,
-  incoming: Record<string, number> | null | undefined,
-): Record<string, number> {
-  if (!incoming) return acc;
-  const result: Record<string, number> = { ...acc };
-  for (const [key, value] of Object.entries(incoming)) {
-    if (typeof value === 'number') {
-      result[key] = (result[key] ?? 0) + value;
-    }
-  }
-  return result;
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers — JSONL parsing
-// ---------------------------------------------------------------------------
-
-/**
- * Validates that the first JSONL line is a valid chunk_format:1 header.
- */
-function isValidHeader(line: string): boolean {
-  try {
-    const obj = JSON.parse(line);
-    return obj !== null
-      && typeof obj === 'object'
-      && !Array.isArray(obj)
-      && obj.chunk_format === 1;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Parses a single JSONL data line.
- *
- * The Python side writes each chunk as:
- *   json.dumps({"ns": ns, "msg": msg.model_dump(), "metadata": metadata})
- *
- * or equivalently as a tuple/array:
- *   json.dumps([ns, msg.model_dump(), metadata])
- *
- * Both shapes are accepted.  Returns null on parse errors or unrecognised
- * shapes (the caller skips null lines gracefully).
- */
-function parseChunkLine(line: string): {
-  namespace: string[];
-  msg: Record<string, JsonValue>;
-  metadata: Record<string, JsonValue>;
-} | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return null;
-  }
-
-  // Array shape: [namespace, msg_dump, metadata]
-  if (Array.isArray(parsed)) {
-    const [ns, msg, meta] = parsed as [unknown, unknown, unknown];
-    if (!Array.isArray(ns)) return null;
-    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return null;
-    return {
-      namespace: ns.filter((n): n is string => typeof n === 'string'),
-      msg: msg as Record<string, JsonValue>,
-      metadata: (meta && typeof meta === 'object' && !Array.isArray(meta))
-        ? meta as Record<string, JsonValue>
-        : {},
-    };
-  }
-
-  // Object shape: {ns, msg, metadata}
-  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    const obj = parsed as Record<string, unknown>;
-    const ns = obj['ns'];
-    const msg = obj['msg'];
-    const meta = obj['metadata'];
-    if (!Array.isArray(ns)) return null;
-    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return null;
-    return {
-      namespace: ns.filter((n): n is string => typeof n === 'string'),
-      msg: msg as Record<string, JsonValue>,
-      metadata: (meta && typeof meta === 'object' && !Array.isArray(meta))
-        ? meta as Record<string, JsonValue>
-        : {},
-    };
-  }
-
-  return null;
-}
-
-/**
- * Converts a raw namespace array to a display key.
- * An empty array → "" (main agent); otherwise → joined string.
- */
-function namespaceKey(ns: string[]): NamespaceKey {
-  return ns.join('/');
-}
-
-/**
- * Returns a human-readable label for a namespace key.
- */
-function namespaceLabel(key: NamespaceKey): string {
-  return key === '' ? 'Main Agent' : key;
-}
-
-// ---------------------------------------------------------------------------
-// Core accumulation logic
-// ---------------------------------------------------------------------------
-
-/**
- * Accumulates a sequence of parsed chunk records into a map of
- * namespace → list-of-merged-messages.
- *
- * Within each namespace, messages with the same `id` are merged
- * (token-by-token accumulation).  Messages without an id are each
- * treated as a standalone message.
- */
-function accumulateChunks(
-  records: Array<{
-    namespace: string[];
-    msg: Record<string, JsonValue>;
-  }>,
-): Map<NamespaceKey, MergedMessage[]> {
-  // namespace → (messageId → {mergedMessage, toolCallAcc})
-  const nsMap = new Map<NamespaceKey, Map<string, {
-    merged: MergedMessage;
-    toolCallAcc: Map<number, MergedToolCall>;
-  }>>();
-  // namespace → ordered list of message ids (for output ordering)
-  const nsOrder = new Map<NamespaceKey, string[]>();
-  // Counter for anonymous messages (no id)
-  let anonCounter = 0;
-
-  for (const { namespace, msg } of records) {
-    const nsKey = namespaceKey(namespace);
-
-    if (!nsMap.has(nsKey)) {
-      nsMap.set(nsKey, new Map());
-      nsOrder.set(nsKey, []);
-    }
-    const msgMap = nsMap.get(nsKey)!;
-    const orderList = nsOrder.get(nsKey)!;
-
-    const rawId = chunkId(msg);
-    // Assign a synthetic id for anonymous chunks so each gets its own slot.
-    const msgId = rawId || `__anon_${anonCounter++}`;
-
-    const rawContent = msg['content'];
-    const incomingContent: string | ContentBlock[] | null | undefined =
-      typeof rawContent === 'string' ? rawContent
-      : Array.isArray(rawContent) ? (rawContent as ContentBlock[])
-      : null;
-
-    const incomingToolChunks: ToolCallChunk[] = Array.isArray(msg['tool_call_chunks'])
-      ? (msg['tool_call_chunks'] as ToolCallChunk[])
-      : [];
-
-    const incomingUsage = msg['usage_metadata'];
-    const usageMap: Record<string, number> | null =
-      incomingUsage && typeof incomingUsage === 'object' && !Array.isArray(incomingUsage)
-        ? incomingUsage as Record<string, number>
-        : null;
-
-    if (!msgMap.has(msgId)) {
-      // First chunk for this message.
-      const initialContent: string | ContentBlock[] =
-        incomingContent !== null && incomingContent !== undefined
-          ? incomingContent
-          : '';
-      const toolCallAcc = new Map<number, MergedToolCall>();
-      mergeToolCallChunks(toolCallAcc, incomingToolChunks);
-
-      const merged: MergedMessage = {
-        type: chunkType(msg),
-        id: rawId,
-        content: initialContent,
-        tool_calls: [],
-        usage_metadata: mergeUsageMetadata({}, usageMap),
-        ...(msg['tool_call_id'] !== undefined && {
-          tool_call_id: typeof msg['tool_call_id'] === 'string'
-            ? msg['tool_call_id']
-            : String(msg['tool_call_id']),
-        }),
-      };
-
-      msgMap.set(msgId, { merged, toolCallAcc });
-      orderList.push(msgId);
-    } else {
-      // Subsequent chunk — merge into existing.
-      const existing = msgMap.get(msgId)!;
-
-      if (incomingContent !== null && incomingContent !== undefined) {
-        existing.merged.content = mergeContent(existing.merged.content, incomingContent);
-      }
-      mergeToolCallChunks(existing.toolCallAcc, incomingToolChunks);
-      existing.merged.usage_metadata = mergeUsageMetadata(
-        existing.merged.usage_metadata,
-        usageMap,
-      );
-    }
-  }
-
-  // Finalise: convert toolCallAcc maps to sorted arrays on each merged message.
-  const result = new Map<NamespaceKey, MergedMessage[]>();
-  for (const [nsKey, orderList] of nsOrder.entries()) {
-    const msgMap = nsMap.get(nsKey)!;
-    const messages: MergedMessage[] = [];
-    for (const msgId of orderList) {
-      const entry = msgMap.get(msgId);
-      if (!entry) continue;
-      const { merged, toolCallAcc } = entry;
-      // Convert tool call accumulator to sorted array.
-      merged.tool_calls = [...toolCallAcc.entries()]
-        .sort(([a], [b]) => a - b)
-        .map(([, tc]) => tc);
-      messages.push(merged);
-    }
-    result.set(nsKey, messages);
-  }
-
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +273,575 @@ export function renderChunksToMarkdown(jsonlContent: string): string {
       lines.push(`| ${label} | ${usage[key]} |`);
     }
     lines.push('');
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue rendering — private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a map from toolCallId → toolName by scanning all AI messages across
+ * all namespaces in the accumulated message map.
+ */
+function buildToolCallIndex(
+  nsMap: Map<NamespaceKey, MergedMessage[]>,
+): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const messages of nsMap.values()) {
+    for (const msg of messages) {
+      for (const tc of msg.tool_calls) {
+        if (tc.id) {
+          index.set(tc.id, tc.name);
+        }
+      }
+    }
+  }
+  return index;
+}
+
+/**
+ * Builds a map from toolCallId → { toolName, content } by scanning all
+ * ToolMessages across all namespaces.  Only stores entries for tools whose
+ * rendering rule needs inline results (currently `execute` and `task`).
+ */
+function buildToolResultIndex(
+  nsMap: Map<NamespaceKey, MergedMessage[]>,
+  toolCallIndex: Map<string, string>,
+): Map<string, { toolName: string; content: string }> {
+  const INLINE_RESULT_TOOLS = new Set(['execute', 'task']);
+  const index = new Map<string, { toolName: string; content: string }>();
+
+  for (const messages of nsMap.values()) {
+    for (const msg of messages) {
+      const msgType = msg.type.toLowerCase();
+      if (msgType !== 'tool' && msgType !== 'toolmessage') continue;
+      const tcId = msg.tool_call_id;
+      if (!tcId) continue;
+
+      const toolName = toolCallIndex.get(tcId);
+      if (!toolName || !INLINE_RESULT_TOOLS.has(toolName)) continue;
+
+      const content = renderContent(msg.content);
+      index.set(tcId, { toolName, content });
+    }
+  }
+  return index;
+}
+
+/**
+ * Strips a leading `cd … &&` prefix from a shell command, takes the first
+ * meaningful command token, and truncates to ≤ 80 characters with `…`.
+ */
+function abbreviateCommand(command: string): string {
+  // Strip leading `cd <dir> &&` or `cd "<dir>" &&` prefix (possibly chained).
+  let cmd = command.trim();
+  cmd = cmd.replace(/^(cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*)+/i, '').trim();
+
+  // Truncate to 80 chars with ellipsis if needed.
+  if (cmd.length > 80) {
+    return cmd.slice(0, 79) + '…';
+  }
+  return cmd;
+}
+
+/**
+ * Extracts the last meaningful output line and exit-code success flag from a
+ * ToolMessage content string produced by `execute`.
+ *
+ * Content format (approximate):
+ *   <output lines…>
+ *   [Command succeeded with exit code 0]   ← or "failed with exit code N"
+ *
+ * Returns null if content is empty or no meaningful line exists.
+ *
+ * @remarks
+ * **Default-success behaviour.**
+ * When no `[Command succeeded/failed…]` footer line is found in the content,
+ * the function defaults to `success = true`.  This is intentional: commands
+ * that produce output without a footer line are assumed to have succeeded (e.g.
+ * tools that emit a result without a trailing exit-code annotation).  The
+ * sibling formatter `formatExecuteDetail` renders ✓ or ✗ based on this value.
+ *
+ * **Summary truncation.**
+ * The returned `summary` string is capped at 120 characters (with a trailing
+ * `…` when truncated) to prevent unwieldy `↳` lines in the dialogue output.
+ * The full content is always available in the raw JSONL.
+ */
+function extractExecuteResult(
+  content: string,
+): { summary: string; success: boolean } | null {
+  const lines = content.split('\n').map(l => l.trim());
+
+  // Find the exit-code footer line.
+  let footerIdx = -1;
+  let success = true;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? '';
+    const match = line.match(/^\[Command\s+(succeeded|failed)\s+with\s+exit\s+code\s+(\d+)\]$/i);
+    if (match) {
+      footerIdx = i;
+      success = match[1]?.toLowerCase() === 'succeeded';
+      break;
+    }
+  }
+
+  // Collect all non-empty, non-footer lines.
+  const outputLines = lines.filter(
+    (l, i) => l && i !== footerIdx,
+  );
+
+  if (outputLines.length === 0) return null;
+
+  let summary = outputLines[outputLines.length - 1]!;
+  const MAX_SUMMARY_LENGTH = 120;
+  if (summary.length > MAX_SUMMARY_LENGTH) {
+    summary = summary.slice(0, MAX_SUMMARY_LENGTH - 1) + '…';
+  }
+  return { summary, success };
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue rendering — per-family formatter helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Formats a `↳ [filename](file_path)` detail line for file tools
+ * (`edit_file`, `write_file`, `read_file`).
+ */
+function formatFileToolDetail(args: unknown): string[] {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
+  const a = args as Record<string, unknown>;
+
+  // edit_file / write_file use `file_path`; read_file also uses `file_path`.
+  const filePath =
+    typeof a['file_path'] === 'string' ? a['file_path'] :
+    typeof a['path'] === 'string' ? a['path'] :
+    null;
+
+  if (!filePath) return [];
+
+  const filename = filePath.split('/').pop() ?? filePath;
+  return [`↳ [${filename}](${filePath})`];
+}
+
+/**
+ * Formats `↳ \`abbreviated_command\`` and an optional result line for `execute`.
+ */
+function formatExecuteDetail(
+  args: unknown,
+  resultEntry?: { toolName: string; content: string },
+): string[] {
+  const lines: string[] = [];
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    const command = (args as Record<string, unknown>)['command'];
+    if (typeof command === 'string') {
+      lines.push('↳ `' + abbreviateCommand(command) + '`');
+    }
+  }
+  if (resultEntry) {
+    const extracted = extractExecuteResult(resultEntry.content);
+    if (extracted) {
+      const tick = extracted.success ? '✓' : '✗';
+      // extracted.summary is guaranteed ≤ 120 chars (truncated by extractExecuteResult).
+      lines.push(`↳ ${extracted.summary} ${tick}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Formats `↳ Sub-agent: **subagent_type**` and an optional first-result-line for `task`.
+ */
+function formatTaskDetail(
+  args: unknown,
+  resultEntry?: { toolName: string; content: string },
+): string[] {
+  const lines: string[] = [];
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    const subagentType = (args as Record<string, unknown>)['subagent_type'];
+    if (typeof subagentType === 'string') {
+      lines.push(`↳ Sub-agent: **${subagentType}**`);
+    }
+  }
+  if (resultEntry) {
+    const firstLine = resultEntry.content
+      .split('\n')
+      .map(l => l.trim())
+      .find(l => l.length > 0);
+    if (firstLine) {
+      lines.push(`↳ ${firstLine}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Formats `write_todos` as a compact checklist.
+ *
+ * The args `todos` field is an array of `{ content: string; status: string }`
+ * objects.  Each item is rendered as `- [x] content` (completed) or
+ * `- [ ] content` (pending / in_progress).
+ *
+ * @remarks
+ * **Return-shape divergence from sibling formatters.**
+ * Unlike `formatFileToolDetail`, `formatExecuteDetail`, `formatTaskDetail`, and
+ * `formatLedgerToolDetail` — which all return `'↳ …'`-prefixed strings —
+ * this function returns raw Markdown list items (`'- [x] …'` / `'- [ ] …'`).
+ *
+ * This is intentional: `write_todos` renders a visual checklist, not a
+ * summary line.  The `getToolDetailLines` dispatcher pushes return values
+ * verbatim into the output line buffer, so the rendered Markdown is correct.
+ *
+ * If you add a new formatter to this family, follow the `'↳ …'` convention
+ * unless the tool's output is inherently list-shaped.  Do **not** model a new
+ * formatter on `formatWriteTodosDetail` for the general case.
+ */
+function formatWriteTodosDetail(args: unknown): string[] {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
+  const a = args as Record<string, unknown>;
+  const todos = a['todos'];
+  if (!Array.isArray(todos) || todos.length === 0) return [];
+
+  return todos.map((todo: unknown) => {
+    if (!todo || typeof todo !== 'object' || Array.isArray(todo)) return '- [ ] (unknown)';
+    const t = todo as Record<string, unknown>;
+    const content = typeof t['content'] === 'string' ? t['content'] : '(unknown)';
+    const status = typeof t['status'] === 'string' ? t['status'] : '';
+    const checked = status === 'completed' ? 'x' : ' ';
+    return `- [${checked}] ${content}`;
+  });
+}
+
+/**
+ * Formats contextual `↳ …` detail lines for `ledger_*` tools.
+ *
+ * Tools are split into mutation and query families; each has its own detail
+ * format.  Unrecognised ledger tools emit no detail line (but the header is
+ * always emitted by the caller).
+ */
+function formatLedgerToolDetail(name: string, args: unknown): string[] {
+  const a = (args && typeof args === 'object' && !Array.isArray(args))
+    ? (args as Record<string, unknown>)
+    : {};
+
+  const wp = typeof a['work_package_id'] === 'string' ? a['work_package_id'] : '';
+
+  switch (name) {
+    // --- Mutation tools ---
+    case 'ledger_begin_work':
+    case 'ledger_start_pipeline': {
+      const type = typeof a['type'] === 'string' ? a['type'] : '';
+      const role = typeof a['agent_role'] === 'string' ? a['agent_role'] : '';
+      if (!wp) return [];
+      return [`↳ ${wp} — ${type} (${role})`];
+    }
+
+    case 'ledger_complete_pipeline': {
+      const type = typeof a['type'] === 'string' ? a['type'] : '';
+      const status = typeof a['status'] === 'string' ? a['status'] : '';
+      if (!wp) return [];
+      const detail = [`↳ ${wp} ${type} → ${status}`];
+      // Append first summary bullet if available.
+      const summary = a['summary'];
+      let firstItem: string | null = null;
+      if (typeof summary === 'string' && summary.trim()) {
+        firstItem = summary.trim().split('\n')[0] ?? null;
+      } else if (Array.isArray(summary) && summary.length > 0) {
+        const first = summary[0];
+        if (typeof first === 'string' && first.trim()) firstItem = first.trim();
+      }
+      if (firstItem) detail.push(`↳ ${firstItem}`);
+      return detail;
+    }
+
+    case 'ledger_cancel_pipeline': {
+      const type = typeof a['type'] === 'string' ? a['type'] : '';
+      const reason = typeof a['reason'] === 'string' ? a['reason'] : '';
+      if (!wp) return [];
+      return [`↳ ${wp} ${type} — ${reason}`];
+    }
+
+    case 'ledger_claim_work_package': {
+      const agent = typeof a['agent'] === 'string' ? a['agent'] : '';
+      if (!wp) return [];
+      return [`↳ ${wp} → ${agent}`];
+    }
+
+    case 'ledger_update_work_package_status': {
+      const status = typeof a['status'] === 'string' ? a['status'] : '';
+      if (!wp) return [];
+      return [`↳ ${wp} → ${status}`];
+    }
+
+    case 'ledger_update_pipeline_progress': {
+      const type = typeof a['type'] === 'string' ? a['type'] : '';
+      const summary = a['summary'];
+      let firstItem = '';
+      if (typeof summary === 'string') firstItem = summary.trim().split('\n')[0] ?? '';
+      else if (Array.isArray(summary) && summary.length > 0) {
+        const first = summary[0];
+        if (typeof first === 'string') firstItem = first.trim();
+      }
+      if (!wp) return [];
+      return [`↳ ${wp} ${type} — ${firstItem}`];
+    }
+
+    case 'ledger_update_acceptance_criteria': {
+      const ops = a['operations'];
+      const n = Array.isArray(ops) ? ops.length : 0;
+      if (!wp) return [];
+      return [`↳ ${wp} (${n} operations)`];
+    }
+
+    case 'ledger_add_project_comment': {
+      const type = typeof a['type'] === 'string' ? a['type'] : '';
+      const priority = typeof a['priority'] === 'string' ? a['priority'] : '';
+      const note = typeof a['note'] === 'string' ? a['note'] : '';
+      const firstNoteLine = note.split('\n')[0] ?? '';
+      return [`↳ ${type} (${priority}): ${firstNoteLine}`];
+    }
+
+    // --- Query tools ---
+    case 'ledger_get_next_action': {
+      const role = typeof a['agent_role'] === 'string' ? a['agent_role'] : '';
+      return role ? [`↳ ${role}`] : [];
+    }
+
+    case 'ledger_get_work_package': {
+      return wp ? [`↳ ${wp}`] : [];
+    }
+
+    case 'ledger_get_handoff_status': {
+      const agent = typeof a['current_agent'] === 'string' ? a['current_agent'] : '';
+      return agent ? [`↳ ${agent}`] : [];
+    }
+
+    case 'ledger_search_insights': {
+      const query = typeof a['query'] === 'string' ? a['query'] : '';
+      return query ? [`↳ "${query}"`] : [];
+    }
+
+    // --- No-detail query tools ---
+    case 'ledger_get_project_status':
+    case 'ledger_list_work_packages':
+      return [];
+
+    // --- Other ledger_* tools (no detail, but always shown via header) ---
+    default:
+      return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue rendering — tool detail dispatcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns 0–N `↳ …` detail lines for a given tool call.  Dispatches to the
+ * appropriate per-family formatter helper.
+ *
+ * @param name         Tool name.
+ * @param args         Parsed tool arguments (object or null).
+ * @param resultEntry  Optional result index entry for tools needing inline results.
+ */
+function getToolDetailLines(
+  name: string,
+  args: unknown,
+  resultEntry?: { toolName: string; content: string },
+): string[] {
+  // File family
+  if (name === 'edit_file' || name === 'write_file' || name === 'read_file') {
+    return formatFileToolDetail(args);
+  }
+  // Execution family
+  if (name === 'execute') {
+    return formatExecuteDetail(args, resultEntry);
+  }
+  // Task family
+  if (name === 'task') {
+    return formatTaskDetail(args, resultEntry);
+  }
+  // Todo family
+  if (name === 'write_todos') {
+    return formatWriteTodosDetail(args);
+  }
+  // Search family — no detail line
+  if (name === 'glob' || name === 'grep' || name === 'ls') {
+    return [];
+  }
+  // Ledger family
+  if (name.startsWith('ledger_')) {
+    return formatLedgerToolDetail(name, args);
+  }
+  // Default / unknown — no detail line, header always shown by caller
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue rendering — message walker
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a list of merged messages in dialogue style.
+ *
+ * - AI messages: text content as plain paragraphs; tool calls as `Tool call: \`name\`` lines.
+ * - ToolMessages: skipped (results already consumed inline for `execute` and `task`).
+ * - All other message types (Human, System, …): skipped silently.
+ */
+function renderDialogueMessages(
+  messages: MergedMessage[],
+  toolResultIndex: Map<string, { toolName: string; content: string }>,
+): string[] {
+  const lines: string[] = [];
+
+  for (const msg of messages) {
+    const msgType = msg.type.toLowerCase();
+
+    // Only AI messages contribute dialogue output.
+    if (
+      msgType !== 'ai' &&
+      msgType !== 'aimessage' &&
+      msgType !== 'aimessagechunk'
+    ) {
+      continue; // Skip Human, System, ToolMessage, etc.
+    }
+
+    // Render text content as plain paragraphs.
+    const contentStr = renderContent(msg.content).trim();
+    if (contentStr) {
+      lines.push(contentStr);
+      lines.push('');
+    }
+
+    // Render each tool call as a `Tool call: \`name\`` header + detail lines.
+    for (const tc of msg.tool_calls) {
+      const toolName = tc.name || 'unknown_tool';
+      lines.push(`Tool call: \`${toolName}\``);
+
+      // Parse args once.
+      let parsedArgs: unknown = null;
+      try {
+        parsedArgs = tc.args ? JSON.parse(tc.args) : null;
+      } catch {
+        parsedArgs = null;
+      }
+
+      // Look up result entry (only populated for `execute` and `task`).
+      const resultEntry = tc.id ? toolResultIndex.get(tc.id) : undefined;
+
+      const detailLines = getToolDetailLines(toolName, parsedArgs, resultEntry);
+      lines.push(...detailLines);
+      lines.push('');
+    }
+  }
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Dialogue rendering — sub-agent section wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a namespace block in dialogue style.
+ *
+ * For sub-agents a `### Subagent: {label}` heading is prepended.
+ * For the main agent (nsKey === '') no heading is added.
+ */
+function renderDialogueNamespaceBlock(
+  nsKey: NamespaceKey,
+  messages: MergedMessage[],
+  toolResultIndex: Map<string, { toolName: string; content: string }>,
+  isSubagent: boolean,
+): string[] {
+  const lines: string[] = [];
+
+  if (isSubagent) {
+    lines.push(`### Subagent: ${namespaceLabel(nsKey)}`);
+    lines.push('');
+  }
+
+  lines.push(...renderDialogueMessages(messages, toolResultIndex));
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Public API — dialogue renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses a JSONL chunk file and renders its contents in a clean, chat-like
+ * dialogue format.
+ *
+ * Differences from `renderChunksToMarkdown`:
+ * - No `# Dialogue` document header or metadata table.
+ * - No `## Role` headings — AI text appears as plain paragraphs.
+ * - Tool calls are rendered as `Tool call: \`name\`` with a compact detail line
+ *   instead of a full JSON fenced block.
+ * - ToolMessages are hidden; `execute` and `task` results are shown inline with
+ *   their tool call.
+ * - No token-usage footer.
+ *
+ * @param jsonlContent  Raw JSONL string (e.g. the content of a `.jsonl` chunk file).
+ * @returns             A Markdown string (always ends with a trailing `\n`).
+ *                      Returns `*No dialogue recorded.*\n` for empty or header-only input.
+ */
+export function renderChunksToDialogue(jsonlContent: string): string {
+  const rawLines = jsonlContent.split('\n');
+  const nonEmptyLines = rawLines.map(l => l.trim()).filter(Boolean);
+
+  // --- Header validation (same as renderChunksToMarkdown) ---
+  let dataLines: string[];
+  if (nonEmptyLines.length === 0) {
+    dataLines = [];
+  } else {
+    const firstLine = nonEmptyLines[0]!;
+    dataLines = isValidHeader(firstLine)
+      ? nonEmptyLines.slice(1)
+      : nonEmptyLines;
+  }
+
+  // --- Parse chunk lines ---
+  const records: Array<{ namespace: string[]; msg: Record<string, JsonValue> }> = [];
+  for (const line of dataLines) {
+    const parsed = parseChunkLine(line);
+    if (parsed) {
+      records.push({ namespace: parsed.namespace, msg: parsed.msg });
+    }
+  }
+
+  // --- Accumulate chunks into merged messages per namespace ---
+  const nsMap = accumulateChunks(records);
+
+  if (nsMap.size === 0) {
+    return '*No dialogue recorded.*\n';
+  }
+
+  // --- Build correlation indexes ---
+  const toolCallIndex = buildToolCallIndex(nsMap);
+  const toolResultIndex = buildToolResultIndex(nsMap, toolCallIndex);
+
+  // --- Render per namespace (main agent first, sub-agents next) ---
+  const lines: string[] = [];
+
+  const mainMessages = nsMap.get('');
+  if (mainMessages && mainMessages.length > 0) {
+    lines.push(...renderDialogueNamespaceBlock('', mainMessages, toolResultIndex, false));
+  }
+
+  for (const [nsKey, messages] of nsMap.entries()) {
+    if (nsKey === '') continue;
+    if (messages.length > 0) {
+      lines.push(...renderDialogueNamespaceBlock(nsKey, messages, toolResultIndex, true));
+    }
+  }
+
+  // Remove any trailing blank lines before adding the final newline.
+  while (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
   }
 
   return lines.join('\n') + '\n';

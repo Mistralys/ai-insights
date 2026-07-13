@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { renderChunksToMarkdown } from '../../gui/chunk-renderer.js';
+import { renderChunksToMarkdown, renderChunksToDialogue } from '../../gui/chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // JSONL builder helpers
@@ -542,5 +542,596 @@ describe('renderChunksToMarkdown — missing header', () => {
     );
     const result = renderChunksToMarkdown(content);
     expect(result).toContain('No header present');
+  });
+});
+
+// ===========================================================================
+// renderChunksToDialogue tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Additional builder helpers for dialogue tests
+// ---------------------------------------------------------------------------
+
+function systemMsg(id: string, text: string): Record<string, unknown> {
+  return { type: 'SystemMessage', id, content: text };
+}
+
+function aiChunkWithNamedToolCall(
+  msgId: string,
+  toolName: string,
+  toolId: string,
+  argsJson: string,
+): Record<string, unknown> {
+  return {
+    type: 'AIMessageChunk',
+    id: msgId,
+    content: '',
+    tool_call_chunks: [{ index: 0, id: toolId, name: toolName, args: argsJson }],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// describe: empty input
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — empty input', () => {
+  it('returns a non-empty string ending in \\n for empty JSONL', () => {
+    const result = renderChunksToDialogue('');
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.endsWith('\n')).toBe(true);
+  });
+
+  it('returns no-messages sentinel for empty JSONL', () => {
+    const result = renderChunksToDialogue('');
+    expect(result).toContain('*No dialogue recorded.*');
+  });
+
+  it('returns sentinel for header-only input', () => {
+    const result = renderChunksToDialogue(HEADER + '\n');
+    expect(result).toContain('*No dialogue recorded.*');
+    expect(result.endsWith('\n')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: text rendering
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — text rendering', () => {
+  it('renders AI text content as plain paragraphs with no ## heading', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Hello, this is a plain paragraph.'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Hello, this is a plain paragraph.');
+    expect(result).not.toContain('## Assistant');
+    expect(result).not.toContain('## ');
+    expect(result).not.toContain('# Dialogue');
+  });
+
+  it('skips HumanMessage content from output', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'This is a human message'), {}),
+      chunkLine([], aiChunk('a1', 'AI response here'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).not.toContain('This is a human message');
+    expect(result).toContain('AI response here');
+  });
+
+  it('skips SystemMessage content from output', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], systemMsg('s1', 'System prompt here'), {}),
+      chunkLine([], aiChunk('a1', 'AI reply'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).not.toContain('System prompt here');
+    expect(result).toContain('AI reply');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: file tools
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — file tools', () => {
+  it('edit_file renders Tool call header with file link and no JSON block', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'edit_file', 'tc-1', '{"file_path":"/src/foo.ts","old_string":"x","new_string":"y"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `edit_file`');
+    expect(result).toContain('↳ [foo.ts](/src/foo.ts)');
+    expect(result).not.toContain('```json');
+  });
+
+  it('write_file renders Tool call header with file link', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'write_file', 'tc-2', '{"file_path":"/out/bar.md","content":"hello"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `write_file`');
+    expect(result).toContain('↳ [bar.md](/out/bar.md)');
+    expect(result).not.toContain('```json');
+  });
+
+  it('read_file renders Tool call header with file link', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'read_file', 'tc-3', '{"file_path":"/data/baz.json"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `read_file`');
+    expect(result).toContain('↳ [baz.json](/data/baz.json)');
+    expect(result).not.toContain('```json');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: execute tool
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — execute tool', () => {
+  it('renders abbreviated command in a ↳ backtick line', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'execute', 'tc-ex', '{"command":"npm test"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `execute`');
+    expect(result).toContain('↳ `npm test`');
+  });
+
+  it('strips leading cd … && prefix before abbreviating command', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'execute', 'tc-cd', '{"command":"cd /project && npm run build"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('↳ `npm run build`');
+    expect(result).not.toContain('cd /project');
+  });
+
+  it('appends last output line with ✓ for exit code 0', () => {
+    const toolResult = toolResultMsg('t1', 'BUILD SUCCESS\nAll tests passed\n[Command succeeded with exit code 0]', 'tc-ex');
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'execute', 'tc-ex', '{"command":"npm test"}'), {}),
+      chunkLine([], toolResult, {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('All tests passed ✓');
+  });
+
+  it('appends last output line with ✗ for non-zero exit code', () => {
+    const toolResult = toolResultMsg('t1', 'Error: build failed\n[Command failed with exit code 1]', 'tc-ex2');
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'execute', 'tc-ex2', '{"command":"npm run build"}'), {}),
+      chunkLine([], toolResult, {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Error: build failed ✗');
+  });
+
+  it('omits result line when execute has no matching ToolMessage', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'execute', 'tc-noResult', '{"command":"ls -la"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `execute`');
+    expect(result).toContain('↳ `ls -la`');
+    // No second ↳ line with ✓ or ✗
+    const lines = result.split('\n');
+    const arrowLines = lines.filter(l => l.startsWith('↳'));
+    expect(arrowLines).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: tool results hidden
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — tool results hidden', () => {
+  it('a non-execute ToolMessage produces no visible output', () => {
+    const tcId = 'tc-read';
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'read_file', tcId, '{"file_path":"/x.ts"}'), {}),
+      chunkLine([], toolResultMsg('t1', 'FILE CONTENT HERE: sensitive data', tcId), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).not.toContain('FILE CONTENT HERE');
+    expect(result).not.toContain('sensitive data');
+    // The tool call header should still appear.
+    expect(result).toContain('Tool call: `read_file`');
+  });
+
+  it('a non-task non-execute ToolMessage is not shown even as a block', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'glob', 'tc-g', '{"pattern":"**/*.ts"}'), {}),
+      chunkLine([], toolResultMsg('t1', '["/src/a.ts","/src/b.ts"]', 'tc-g'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).not.toContain('/src/a.ts');
+    expect(result).not.toContain('/src/b.ts');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: write_todos tool
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — write_todos tool', () => {
+  it('renders compact checklist with - [x] / - [ ] markers', () => {
+    const todos = JSON.stringify({
+      todos: [
+        { content: 'Task A', status: 'completed' },
+        { content: 'Task B', status: 'in_progress' },
+        { content: 'Task C', status: 'pending' },
+      ],
+    });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'write_todos', 'tc-wt', todos), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `write_todos`');
+    expect(result).toContain('- [x] Task A');
+    expect(result).toContain('- [ ] Task B');
+    expect(result).toContain('- [ ] Task C');
+    expect(result).not.toContain('```json');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: task tool
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — task tool', () => {
+  it('renders Sub-agent type from args', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'task', 'tc-task', '{"subagent_type":"general-purpose","description":"Do research"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `task`');
+    expect(result).toContain('↳ Sub-agent: **general-purpose**');
+  });
+
+  it('renders first line of result when matching ToolMessage exists', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'task', 'tc-task2', '{"subagent_type":"general-purpose","description":"Search"}'), {}),
+      chunkLine([], toolResultMsg('t1', 'Found 5 relevant files.\nSee /src/utils.ts for the main entry.', 'tc-task2'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('↳ Sub-agent: **general-purpose**');
+    expect(result).toContain('↳ Found 5 relevant files.');
+  });
+
+  it('omits result line when task has no matching ToolMessage', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'task', 'tc-task3', '{"subagent_type":"general-purpose","description":"X"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    const lines = result.split('\n');
+    const arrowLines = lines.filter(l => l.startsWith('↳'));
+    // Only the sub-agent type line, no result line.
+    expect(arrowLines).toHaveLength(1);
+    expect(arrowLines[0]).toContain('Sub-agent:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: minimal tools (glob, grep, ls)
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — minimal tools', () => {
+  it('glob renders only Tool call header with no ↳ detail line', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'glob', 'tc-gl', '{"pattern":"**/*.ts"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `glob`');
+    expect(result).not.toContain('↳');
+  });
+
+  it('grep renders only Tool call header with no ↳ detail line', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'grep', 'tc-gr', '{"pattern":"TODO"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `grep`');
+    expect(result).not.toContain('↳');
+  });
+
+  it('ls renders only Tool call header with no ↳ detail line', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ls', 'tc-ls', '{"path":"/src"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ls`');
+    expect(result).not.toContain('↳');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: ledger workflow tools (mutations)
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — ledger workflow tools', () => {
+  it('ledger_begin_work renders WP, type, and agent_role', () => {
+    const args = JSON.stringify({ work_package_id: 'WP-001', type: 'implementation', agent_role: 'Developer' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_begin_work', 'tc-bw', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_begin_work`');
+    expect(result).toContain('↳ WP-001 — implementation (Developer)');
+  });
+
+  it('ledger_complete_pipeline renders WP, type, status, and first summary item', () => {
+    const args = JSON.stringify({
+      work_package_id: 'WP-002',
+      type: 'qa',
+      status: 'PASS',
+      agent_role: 'QA',
+      summary: ['All tests passed.', 'No regressions found.'],
+    });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_complete_pipeline', 'tc-cp', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_complete_pipeline`');
+    expect(result).toContain('↳ WP-002 qa → PASS');
+    expect(result).toContain('↳ All tests passed.');
+  });
+
+  it('ledger_cancel_pipeline renders WP, type, and reason', () => {
+    const args = JSON.stringify({ work_package_id: 'WP-003', type: 'implementation', reason: 'Stale pipeline detected' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_cancel_pipeline', 'tc-cpl', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_cancel_pipeline`');
+    expect(result).toContain('↳ WP-003 implementation — Stale pipeline detected');
+  });
+
+  it('ledger_claim_work_package renders WP → agent', () => {
+    const args = JSON.stringify({ work_package_id: 'WP-004', agent: 'Developer' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_claim_work_package', 'tc-cwp', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_claim_work_package`');
+    expect(result).toContain('↳ WP-004 → Developer');
+  });
+
+  it('ledger_update_work_package_status renders WP → status', () => {
+    const args = JSON.stringify({ work_package_id: 'WP-005', status: 'COMPLETE', agent: 'Documentation' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_update_work_package_status', 'tc-uwps', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_update_work_package_status`');
+    expect(result).toContain('↳ WP-005 → COMPLETE');
+  });
+
+  it('ledger_add_project_comment renders type, priority, and first note line', () => {
+    const args = JSON.stringify({ type: 'incident', priority: 'high', agent: 'Developer', note: 'File write failed silently.\nNo error was thrown.' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_add_project_comment', 'tc-apc', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_add_project_comment`');
+    expect(result).toContain('↳ incident (high): File write failed silently.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: ledger query tools
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — ledger query tools', () => {
+  it('ledger_get_next_action renders agent_role', () => {
+    const args = JSON.stringify({ agent_role: 'Developer' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_get_next_action', 'tc-gna', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_get_next_action`');
+    expect(result).toContain('↳ Developer');
+  });
+
+  it('ledger_get_work_package renders work_package_id', () => {
+    const args = JSON.stringify({ work_package_id: 'WP-001' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_get_work_package', 'tc-gwp', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_get_work_package`');
+    expect(result).toContain('↳ WP-001');
+  });
+
+  it('ledger_get_handoff_status renders current_agent', () => {
+    const args = JSON.stringify({ current_agent: 'QA' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_get_handoff_status', 'tc-ghs', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_get_handoff_status`');
+    expect(result).toContain('↳ QA');
+  });
+
+  it('ledger_get_project_status renders header only (no ↳ line)', () => {
+    const args = JSON.stringify({ cwd_path: '/some/path' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_get_project_status', 'tc-gps', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_get_project_status`');
+    expect(result).not.toContain('↳');
+  });
+
+  it('ledger_list_work_packages renders header only (no ↳ line)', () => {
+    const args = JSON.stringify({ cwd_path: '/some/path' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_list_work_packages', 'tc-lwp', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_list_work_packages`');
+    expect(result).not.toContain('↳');
+  });
+
+  it('ledger_search_insights renders the query string', () => {
+    const args = JSON.stringify({ query: 'testing patterns TypeScript' });
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'ledger_search_insights', 'tc-si', args), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `ledger_search_insights`');
+    expect(result).toContain('↳ "testing patterns TypeScript"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: unknown tool
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — unknown tool', () => {
+  it('unknown tool renders Tool call header and is always visible', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'some_mystery_tool', 'tc-unk', '{"x":1}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `some_mystery_tool`');
+  });
+
+  it('unknown tool produces no ↳ detail line', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithNamedToolCall('a1', 'future_tool', 'tc-ft', '{"a":"b"}'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).not.toContain('↳');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: token merging
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — token merging', () => {
+  it('reassembles multi-chunk tool call args correctly before rendering', () => {
+    // Two AIMessageChunk lines with same id and partial args (input_json_delta).
+    const chunk1: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a-merge',
+      content: '',
+      tool_call_chunks: [{ index: 0, id: 'tc-merge', name: 'edit_file', args: '{"file_path":"/src/u' }],
+    };
+    const chunk2: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a-merge',
+      content: '',
+      tool_call_chunks: [{ index: 0, id: null, name: null, args: 'tils.ts","old_string":"a","new_string":"b"}' }],
+    };
+    const content = jsonl(HEADER, chunkLine([], chunk1), chunkLine([], chunk2));
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Tool call: `edit_file`');
+    // Full path must be reconstructed correctly.
+    expect(result).toContain('[utils.ts](/src/utils.ts)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: sub-agents
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — sub-agents', () => {
+  it('renders sub-agent block with ### Subagent: namespace heading', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['subgraph_a', 'node_1'], aiChunk('s1', 'Sub-agent output here'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('### Subagent: subgraph_a/node_1');
+    expect(result).toContain('Sub-agent output here');
+  });
+
+  it('renders main agent content before sub-agent content', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['sub'], aiChunk('s1', 'Sub output'), {}),
+      chunkLine([], aiChunk('m1', 'Main output'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result.indexOf('Main output')).toBeLessThan(result.indexOf('Sub output'));
+  });
+
+  it('renders multiple distinct sub-agent namespaces with separate headings', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['agent_a'], aiChunk('a1', 'From A'), {}),
+      chunkLine(['agent_b'], aiChunk('b1', 'From B'), {}),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('### Subagent: agent_a');
+    expect(result).toContain('### Subagent: agent_b');
+    expect(result).toContain('From A');
+    expect(result).toContain('From B');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: regression — renderChunksToMarkdown is unaffected
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — regression', () => {
+  it('does not affect renderChunksToMarkdown output', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Test message'), {}),
+    );
+    const dialogueResult = renderChunksToDialogue(content);
+    const markdownResult = renderChunksToMarkdown(content);
+    // Outputs must differ.
+    expect(dialogueResult).not.toBe(markdownResult);
+    // renderChunksToMarkdown still produces verbose format with ## headings.
+    expect(markdownResult).toContain('## Assistant');
+    expect(markdownResult).toContain('# Dialogue');
+    // Dialogue result has no ## headings.
+    expect(dialogueResult).not.toContain('## Assistant');
+    expect(dialogueResult).not.toContain('# Dialogue');
+    // Both contain the message text.
+    expect(dialogueResult).toContain('Test message');
+    expect(markdownResult).toContain('Test message');
   });
 });

@@ -71,7 +71,7 @@ import {
   handleUpdateRepo,
   handleDeleteRepo,
 } from './api-repos.js';
-import { renderChunksToMarkdown } from './chunk-renderer.js';
+import { renderChunksToDialogue } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -580,7 +580,7 @@ function matchRoute(
     const filename = decodeURIComponent(rest[3]!);
     return () =>
       handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
-        content: renderChunksToMarkdown(content),
+        content: renderChunksToDialogue(content),
       }));
   }
 
@@ -967,7 +967,7 @@ function matchRoute(
       }
       const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
       return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
-        content: renderChunksToMarkdown(content),
+        content: renderChunksToDialogue(content),
       }));
     };
   }
