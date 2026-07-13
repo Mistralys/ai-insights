@@ -1,9 +1,15 @@
 # AI Insights Changelog
 
-## v2.5.0 - **WIP UNRELEASED**
+## v2.5.0 - Path Middleware, Plan Rename, and Multi-Term Search
+> mcp v2.4.1 · orchestrator v1.3.0 · personas v3.27.0
 
-- Orchestrator: Added path normalization middleware for Windows drive-letter paths in Deep Agents.
-- MCP: Added multi-term support to searching insights.
+- MCP: Added multi-term support to `ledger_search_insights` for broader knowledge queries.
+- Orchestrator: Added cross-platform PathNormalizationMiddleware for Deep Agents tool calls.
+- Orchestrator: Reclassified HTTP 401 as retryable; added pre-run plan folder date-rename.
+- Orchestrator: Added Deep Agent integration test tier with fake LLM driver.
+- Scripts: Added `orchestrator-tests` CLI command for integration and deepagent test tiers.
+- Personas: PM and Developer gain a plan-folder date-rename step before work begins.
+- Personas: WP Decomposer and Pipeline Configurator gain enforcement hardening for WP quality.
 
 ## v2.4.0 - Standalone Archival, Project Dialogues, and New Curators
 > mcp v2.4.0 · orchestrator v1.2.0 · personas v3.26.0

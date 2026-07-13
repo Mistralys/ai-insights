@@ -1,22 +1,16 @@
 # Orchestrator Changelog
 
-## v1.4.0 - Subagent Path Middleware Propagation and Pre-Run Folder Rename
-- Nodes: PathNormalizationMiddleware is now injected into every subagent spec returned by
+## v1.3.0 - Cross-Platform Path Middleware, Plan Rename, and Retry Fix
+- Nodes: Added cross-platform PathNormalizationMiddleware; rewrites absolute host paths to
+  virtual equivalents before Deep Agents validation on Windows, macOS, and Linux.
+- Nodes: PathNormalizationMiddleware injected into every subagent spec returned by
   load_subagents(), ensuring subagent file operations are path-normalised on all platforms.
-- CLI: Added _maybe_rename_plan_dir() to rename plan folders with outdated date prefixes to
-  today's date before lock acquisition; _plan_hash and _run_status_path are computed from the
-  pre-rename path and are never recomputed, preserving GUI run-status polling compatibility.
-- CLI: Added import re and date to datetime imports to support the rename logic.
-- Tests: Added TestMaybeRenamePlanDir (7 tests) and TestRunFlow._plan_hash_stability (1 test).
-- Docs: Added Constraint §27 documenting the pre-run rename behaviour and _plan_hash stability
-  rule; added _maybe_rename_plan_dir entry to api-surface.md; added note to data-flows.md Flow 5.
-
-## v1.3.0 - Windows Path Normalization Middleware
-- Nodes: Added PathNormalizationMiddleware to rewrite Windows drive-letter paths before Deep Agents
-  validation; zero-cost no-op on macOS and Linux.
-- Nodes: Wired path middleware into all create_deep_agent() calls.
 - Templates: Added project-path-reminder.md partial for path context in stage prompts.
-- Tests: Added 26 tests covering middleware rewriting, passthrough, and node integration.
+- Nodes: Reclassified HTTP 401 as retryable; 403 is now the sole fatal authentication code.
+- CLI: Added pre-run plan folder date-rename; preserves GUI run-status polling compatibility.
+- Tests: Added Deep Agent integration test tier with fake LLM driver and mock tools.
+- Tests: Added coverage for path middleware, plan rename, and stream retry behaviors.
+- Docs: Updated constraints, api-surface, and data-flows for all new behaviors.
 
 ## v1.2.0 - PM Dialogue Capture and Windows Fixes
 - Nodes: PM and Synthesis stages now capture dialogue even when not assigned to a work package.

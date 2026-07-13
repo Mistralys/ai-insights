@@ -1,6 +1,6 @@
 # Personas Changelog
 
-## v3.27.0 - **WIP UNRELEASED**
+## v3.27.0 - Plan Folder Date-Rename and WP Enforcement Hardening
 - Ledger: PM gains step 2 to rename plan folder date prefix to today before decomposition.
 - Standalone: Developer gains step 1 to rename plan folder date prefix to today before implementation.
 - LedgerSupport: WP Decomposer gains deliverable-AC parity enforcement for state-changing operations.
