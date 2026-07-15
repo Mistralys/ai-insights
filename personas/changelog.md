@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.28.0 - Planner Research Phase and Archiver Modes
+- Standalone: Changelog Curator gains release summary — optional prose paragraph with house style rules.
+- Ledger: Planner gains a dedicated codebase research phase before plan design begins.
+- Standalone: Planner gains same dedicated codebase research phase.
+- LedgerSupport: Standalone Archiver gains Import/Update operating modes.
+- LedgerSupport: Standalone Archiver integrates `ledger_update_synthesis` in Update mode.
+- Standalone: Git Committer gains timestamp guard for generated-file commit filtering.
+
 ## v3.27.0 - Plan Folder Date-Rename and WP Enforcement Hardening
 - Ledger: PM gains step 2 to rename plan folder date prefix to today before decomposition.
 - Standalone: Developer gains step 1 to rename plan folder date prefix to today before implementation.

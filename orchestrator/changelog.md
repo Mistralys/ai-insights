@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v1.3.1 - MCP Tool Path Rewriting Exemption
+- Nodes: PathNormalizationMiddleware now skips MCP tools that require absolute host paths.
+- Nodes: Skip set derived dynamically from `mcp_tools` list in `create_stage_node()`.
+- Tests: Added coverage for MCP tool exemption behavior in the path middleware.
+- Docs: Updated constraints to document the required MCP tool skip pattern.
+
 ## v1.3.0 - Cross-Platform Path Middleware, Plan Rename, and Retry Fix
 - Nodes: Added cross-platform PathNormalizationMiddleware; rewrites absolute host paths to
   virtual equivalents before Deep Agents validation on Windows, macOS, and Linux.

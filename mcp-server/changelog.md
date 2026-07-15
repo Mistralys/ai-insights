@@ -1,5 +1,13 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.5.0 - Synthesis Update Tool and Dialogue Renderer
+- Tools: Added `ledger_update_synthesis` to refresh archived synthesis after post-import edits.
+- Tools: Guarded by status check, runner check, and 90-day staleness window.
+- GUI: Introduced `renderChunksToDialogue()` for chat-style WP chunk panel rendering.
+- GUI: Extracted chunk-accumulation logic into standalone `chunk-accumulator.ts` module.
+- GUI: Fixed tool call list not rendering in the orchestrator run log view.
+- Dependencies: Updated packages to resolve security warnings.
+
 ## v2.4.1 - Insight Search
 - Tools: Added multi-term support to searching insights.
 

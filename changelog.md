@@ -1,5 +1,20 @@
 # AI Insights Changelog
 
+## v2.6.0 - Orchestrator Fix, Persona Improvements
+> mcp v2.5.0 · orchestrator v1.3.1 · personas v3.28.0
+
+**This release fixes the Orchestrator's path handling issues.** Additionally, the Planner now opens with a dedicated codebase research phase, keeping exploration separate from plan design for more grounded results. The Standalone Archiver gains distinct Import and Update modes to be able to add updates to an already archived synthesis. 
+
+- MCP: Added `ledger_update_synthesis` tool to refresh archived synthesis post-import.
+- MCP: Introduced chat-style dialogue renderer for WP chunk panel views.
+- MCP: Fixed tool call list not rendering in the orchestrator run log.
+- Orchestrator: PathNormalizationMiddleware now exempts MCP tools from path rewriting.
+- Personas: Planner gains a dedicated codebase research phase before plan design.
+- Personas: Standalone Archiver gains Import/Update modes with synthesis update support.
+- Personas: Git Committer gains timestamp guard to skip commits with no content change.
+- Personas: Changelog curator will now generate a short summary of changes.
+- Scripts: Improved orchestrator build staleness detection in the health check system.
+
 ## v2.5.0 - Path Middleware, Plan Rename, and Multi-Term Search
 > mcp v2.4.1 · orchestrator v1.3.0 · personas v3.27.0
 
