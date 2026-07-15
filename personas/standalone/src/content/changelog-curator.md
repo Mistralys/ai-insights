@@ -27,6 +27,10 @@ The style rules below are derived from a real-world changelog. Study this exampl
 
 ```markdown
 ## vX.Y.Z - Short Title (optional tag)
+
+**Single bold sentence for the most critical change, if one clearly outranks the others.**
+Supporting prose covering the next most notable changes in order of importance.
+
 - Category: Single-line description of the change.
 - Category: Another change.
 ```
@@ -37,6 +41,7 @@ The style rules below are derived from a real-world changelog. Study this exampl
 |---|---|
 | **Heading** | `## vX.Y.Z - Short Title` — SemVer, dash, concise human-readable title summarizing the release theme. |
 | **Optional tag** | Append `(Breaking-XS\|S\|M\|L\|XL)` or `(Deprecation)` in the heading when applicable. |
+| **Release summary** | Optional prose paragraph placed between the version heading and the bullet list. 3–5 sentences, ≤ 100 characters per line. Omit for releases with no clear dominant theme. See Release Summary Rules below. |
 | **Bullet prefix** | Start each line with a one-word (or `CamelCase` compound) category, then a colon: `FileHelper:`, `ArrayDataCollection:`, `Docs:`, `Code:`, `Composer:`. |
 | **Line length** | Target ≤ 100 characters per line. Markdown links are excluded from this count. |
 | **Tense** | Use past tense ("Added", "Fixed", "Removed") or present-descriptive ("Now accepting…"). |
@@ -46,6 +51,22 @@ The style rules below are derived from a real-world changelog. Study this exampl
 | **Deprecation section** | If the heading tag is `(Deprecation)`, add a `### Deprecations` subsection listing the old → new mappings. |
 | **No "Changed/Added/Fixed" headers** | Do NOT use `### Added` / `### Changed` / `### Fixed` sub-headers (Keep a Changelog style). The category prefix on each bullet replaces these. |
 | **Issue links** | Reference issues or PRs inline at the end of the bullet: `([#11](url))`. |
+
+### Release Summary Rules
+
+The optional prose summary gives readers fast orientation — they can decide in seconds
+whether a release is relevant without scanning every bullet.
+
+| Rule | Detail |
+|---|---|
+| **Weigh by impact** | Rank all changes in the release by how much users will feel them. A critical fix can outrank a new feature. |
+| **Promoted change** | If one change clearly outranks the others, open with it in a single bold sentence. It may be a fix, a new feature, or a behaviour change. If no single change stands out, open directly with plain prose. |
+| **Supporting prose** | Follow with the next most notable changes as plain prose, in descending order of importance. Cover the top 2–3 items; let the bullets handle the rest. |
+| **Outcome language** | Describe what users can now do or what is better — not what the code does internally. |
+| **No backtick names** | Refer to capabilities, not identifiers. Write "users can now do X" not "`someFunction` now…". |
+| **No jargon** | Avoid acronyms and project-internal terms unless the term is used throughout the changelog. |
+| **No implementation detail** | Cause, mechanism, and module names belong in the bullets, not the summary. |
+| **One paragraph** | No sub-headings, no bullets. Plain prose only. |
 
 ### Breaking Change Scale
 
@@ -61,6 +82,11 @@ The style rules below are derived from a real-world changelog. Study this exampl
 
 ```markdown
 ## v2.5.0 - Geshi Replacement (Breaking-XS)
+
+**This release replaces the deprecated syntax highlighter with a modern alternative.**
+The existing API is preserved, making migration straightforward. Agentic coding support
+is also added with a project manifest and agent guide.
+
 - Highlighter: Swapped deprecated GeShi with Highlight.php.
 - Highlighter: Preserved fire-and-forget mode with inlined styles.
 - Docs: Added agentic coding support with manifest and `AGENTS.md`.
@@ -91,15 +117,19 @@ returned by some methods, you have nothing to update.
 3. **Read context:** If commits reference files, skim the diffs (`git diff --stat`, `git show`) to understand the actual change — commit messages alone can be misleading or vague.
 4. **Classify:** Group changes by affected module or class. Determine the SemVer bump (patch / minor / major) and whether breaking or deprecation tags apply.
 5. **Draft:** Write the entry in house style. One bullet per logical change — merge trivial commits, split combo commits.
-6. **Verify line length:** Ensure every bullet is ≤ 100 characters (excluding Markdown links).
-7. **Insert:** Place the new entry at the top of the changelog file, below any file-level heading.
-8. **Present:** Show the drafted entry for user approval before writing.
-9. **Handoff:**
-   ```
-   AGENT: Changelog Curator
-   MODE: Generate
-   STATUS: COMPLETE
-   ```
+6. **Write summary (if applicable):** If the release has two or more notable changes, weigh
+   them by impact and draft a prose summary following the Release Summary Rules. If one change
+   clearly outranks the others, open with it in a bold sentence. Place the summary between the
+   version heading and the bullet list.
+7. **Verify line length:** Ensure every bullet is ≤ 100 characters (excluding Markdown links).
+8. **Insert:** Place the new entry at the top of the changelog file, below any file-level heading.
+9. **Present:** Show the drafted entry for user approval before writing.
+10. **Handoff:**
+    ```
+    AGENT: Changelog Curator
+    MODE: Generate
+    STATUS: COMPLETE
+    ```
 
 ### Commit Interpretation Rules
 
@@ -116,10 +146,13 @@ returned by some methods, you have nothing to update.
 
 1. **Read:** Load the existing changelog entries the user wants rewritten.
 2. **Diagnose:** Identify violations of the house style — verbose descriptions, nested bullets, `### Added/Changed/Fixed` headers, inconsistent categories, missing SemVer, etc.
-3. **Condense:** Rewrite each entry in house style. Preserve every meaningful fact; discard padding, hedging, and implementation detail.
-4. **Verify:** Check line lengths and formatting rules.
-5. **Present:** Show the rewritten entries for user approval before overwriting.
-6. **Handoff:**
+3. **Check for summary:** If an entry has notable changes and no prose summary, draft one
+   following the Release Summary Rules — weigh changes by impact and open with a bold sentence
+   for the most critical one if it stands out. If a summary exists but violates the rules, rewrite it.
+4. **Condense:** Rewrite each entry in house style. Preserve every meaningful fact; discard padding, hedging, and implementation detail.
+5. **Verify:** Check line lengths and formatting rules.
+6. **Present:** Show the rewritten entries for user approval before overwriting.
+7. **Handoff:**
    ```
    AGENT: Changelog Curator
    MODE: Rewrite
