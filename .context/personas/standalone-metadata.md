@@ -266,6 +266,7 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.3.0 (2026-07-13): Added date-only CTX filtering — excludes generated files whose only change is a timestamp, and drops the entire CTX group when no substantive content changes remain
   1.2.0 (2026-07-03): Clarified that only plan.md and synthesis.md are version-controlled in plan folders — all other artifacts are gitignored and should be ignored during discovery and staging
   1.1.1 (2026-06-29): Audit compliance — added pre-execution checklist, fixed angle bracket placeholders, removed title suffix, added output location, removed horizontal rules, reframed plan archival constraint
   1.1.0 (2026-06-29): Hardened git edge cases — no-remote/no-tracking guards, default branch detection, detached HEAD handling, pre-staged file handling, stash drop after conflict resolution, discovery terminology, diff content analysis for grouping, constraint clarification for filesystem moves
@@ -477,6 +478,7 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.0.0 (2026-07-15): Three-phase workflow (Scope Sketch → Research Brief → Plan) replaces interleaved research-and-plan approach; adds research-brief.md output artifact
   1.0.0 (2026-06-08): Initial release — ledger-independent planning for non-ledger workflows
 
 tools:

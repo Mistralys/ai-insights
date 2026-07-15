@@ -40,6 +40,7 @@ _SOURCE: MCP server source directory tree_
         ├── api-knowledge.ts
         ├── api-repos.ts
         ├── api.ts
+        ├── chunk-accumulator.ts
         ├── chunk-renderer.ts
         ├── docs/
         │   ├── agents/

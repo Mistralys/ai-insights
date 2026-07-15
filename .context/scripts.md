@@ -1416,9 +1416,9 @@ const COMMANDS = [
   {
     id:           'setup',
     key:          's',
-    label:        'First-time setup',
+    label:        'Setup & Refresh',
     category:     'Setup & Configuration',
-    description:  'Full workspace setup wizard',
+    description:  'Full workspace setup & refresh wizard',
     helpVariants: [
       ['setup --all',              'Non-interactive full setup'],
       ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
@@ -3070,7 +3070,8 @@ const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '../..');
 const MCP_DIST_DIR      = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist');
 const MCP_DIST_SENTINEL = path.join(MCP_DIST_DIR, 'index.js');
 const MCP_SRC_DIR       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
-const VENV_DIR          = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv');
+const ORCHESTRATOR_DIR  = path.join(WORKSPACE_ROOT, 'orchestrator');
+const VENV_DIR          = path.join(ORCHESTRATOR_DIR, '.venv');
 const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
 const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
 
@@ -3245,6 +3246,26 @@ export const HEALTH_CHECKS = [
       return lockfileFresh(MCP_SERVER_DIR);
     },
     fix: 'cd mcp-server && npm install',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'orchestrator-deps-fresh',
+    label: 'Orchestrator Python dependencies up to date',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      const pyproject  = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
+      const reqsTxt    = path.join(ORCHESTRATOR_DIR, 'requirements.txt');
+      const eggInfo    = path.join(ORCHESTRATOR_DIR, 'ai_insights_orchestrator.egg-info', 'requires.txt');
+      if (!fs.existsSync(eggInfo)) return false;
+      const eggMtime = fs.statSync(eggInfo).mtimeMs;
+      const srcMtime = Math.max(
+        fs.existsSync(pyproject) ? fs.statSync(pyproject).mtimeMs : 0,
+        fs.existsSync(reqsTxt)   ? fs.statSync(reqsTxt).mtimeMs   : 0,
+      );
+      return srcMtime <= eggMtime;
+    },
   },
 
   // ── slow tier (100 ms – 2 s — subprocess spawns) ─────────────────────────

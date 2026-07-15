@@ -38,13 +38,16 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
     │   │   └── 2026-07-07-deep-agent-integration-tests.md
     │   │   └── 2026-07-07-macos-path-middleware.md
+    │   │   └── 2026-07-15-deepagents-browser-tool.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
     │   ├── 2026-06-30-token-cost-fallacies.md
+    │   ├── 2026-07-15-planning-research-split.md
     │   ├── documentation-audit.md
     │   ├── loading-mcp-tools-explained.md
     │   ├── prompt-clarity.md
+    │   ├── task-separation.md
     ├── history/
     │   ├── 2026-03-25-implementation-comparison.html
     │   ├── error-ledger.md
@@ -130,6 +133,7 @@ _SOURCE: Top-level directory tree_
     │   ├── api-knowledge.ts
     │   ├── api-repos.ts
     │   ├── api.ts
+    │   ├── chunk-accumulator.ts
     │   ├── chunk-renderer.ts
     │   ├── orchestrator-manager.ts
     │   ├── public/
