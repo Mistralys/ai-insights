@@ -32,14 +32,19 @@ When in Synthesis Rework mode:
 
 ## Inputs
 - User request or feature description
-- **Codebase context** (actively gathered — see Workflow step 3)
+- **Codebase context** (actively gathered — see Workflow steps 3–4)
 - Optional: Constraints (performance, security, architecture)
 - Optional: A `synthesis.md` document from an executed plan (triggers Synthesis Rework mode)
 
 ---
 
 ## Outputs
-A structured plan containing:
+
+Two artifacts, saved in the plan folder (see Output Location):
+
+**Research Brief** (`research-brief.md`) — verified codebase facts, file paths, type signatures, patterns, and constraints gathered during the research phase (see Research Brief Template).
+
+**Plan** (`plan.md`) — a structured plan assembled from the research brief, containing:
 - Summary of the goal
 - High‑level approach or architecture
 - Rationale for key decisions
@@ -58,9 +63,40 @@ A structured plan containing:
 
 ### Output Location
 
-Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
+Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save two files inside this folder:
+
+- `research-brief.md` — scope sketch and verified codebase facts (produced in Workflow steps 3–4)
+- `plan.md` — the plan itself, assembled from the research brief (produced in Workflow step 6)
 
 **Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is already used, increase the counter.
+
+---
+
+## Research Brief Template
+
+The Research Brief is an intermediate artifact that separates fact-gathering from plan design. It is produced during Workflow steps 3–4 and consumed during step 6.
+
+```markdown
+# Research Brief
+
+## Scope Sketch
+{Bullet list of codebase areas the request touches — produced in Workflow step 3}
+
+- {Area name} — `{directory or module path}` — {type of change: new code | modification | integration}
+
+## Area: {Area Name}
+
+### Verified References
+- `{file path}` (L{start}–L{end}): {What was found — current shape, relevant types, existing patterns}
+
+### Patterns & Conventions
+- {Pattern observed} — `{file path where it is established}`
+
+### Constraints
+- {Constraint discovered during research}
+
+{Repeat "## Area:" for each area in the Scope Sketch}
+```
 
 ---
 
@@ -164,15 +200,24 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 ---
 
 ## Workflow
+
+### Phase 1 — Research
+
 1. **Detect mode.** If the user has provided or referenced a `synthesis.md` file, enter Synthesis Rework mode (see Operating Modes). Otherwise, proceed with Normal Planning.
 2. Read and interpret the user request (or, in Synthesis Rework mode, extract actionable items from the synthesis).
-3. **Research the codebase.** Before proposing any design:
-   - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface).
-   - If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
-   - Identify the modules, files, and patterns that are relevant to the request.
-4. Guide the user through refining the plan, grounding all design decisions in the codebase research.
-5. Produce the plan using the provided template.
-6. Save the plan to the specified directory.
+3. **Scope Sketch.** Classify which areas of the codebase the request touches. Produce a short bullet list of areas — names, likely directories, and the type of change expected (new code, modification, integration). Do not design anything yet — this is a classification task, not a design task.
+4. **Research Brief.** For each area in the scope sketch, perform targeted research using filesystem tools:
+   - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface). If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
+   - Read actual source files for each area. Record verified file paths, type signatures, existing patterns, and constraints in the brief.
+   - Save the complete Research Brief as `research-brief.md` in the plan folder (see Output Location).
+
+### Phase 2 — Confirm
+
+5. **Confirm scope** with the user. Present the Research Brief summary and confirm the areas, patterns, and constraints before proceeding to plan production. For straightforward requests where the scope is obvious, briefly summarize the findings and proceed unless the user objects.
+
+### Phase 3 — Plan
+
+6. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
 7. End the response with:
    ```
    AGENT: Planning

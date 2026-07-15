@@ -35,14 +35,19 @@ When in Synthesis Rework mode:
 
 ## Inputs
 - User request or feature description
-- **Codebase context** (actively gathered — see Workflow step 4)
+- **Codebase context** (actively gathered — see Workflow steps 4–5)
 - Optional: Constraints (performance, security, architecture)
 - Optional: A `synthesis.md` document from an executed plan (triggers Synthesis Rework mode)
 
 ---
 
 ## Outputs
-A structured plan containing:
+
+Two artifacts, saved in the plan folder (see Output Location):
+
+**Research Brief** (`research-brief.md`) — verified codebase facts, file paths, type signatures, patterns, and constraints gathered during the research phase (see Research Brief Template).
+
+**Plan** (`plan.md`) — a structured plan assembled from the research brief, containing:
 - Summary of the goal
 - High‑level approach or architecture
 - Rationale for key decisions
@@ -61,9 +66,43 @@ A structured plan containing:
 
 ### Output Location
 
-Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
+Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save two files inside this folder:
+
+- `research-brief.md` — scope sketch and verified codebase facts (produced in Workflow steps 4–5)
+- `plan.md` — the plan itself, assembled from the research brief (produced in Workflow step 7)
 
 **Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is already used, increase the counter.
+
+---
+
+## Research Brief Template
+
+The Research Brief is an intermediate artifact that separates fact-gathering from plan design. It is produced during Workflow steps 4–5 and consumed during step 7.
+
+```markdown
+# Research Brief
+
+## Scope Sketch
+{Bullet list of codebase areas the request touches — produced in Workflow step 4}
+
+- {Area name} — `{directory or module path}` — {type of change: new code | modification | integration}
+
+## Area: {Area Name}
+
+### Verified References
+- `{file path}` (L{start}–L{end}): {What was found — current shape, relevant types, existing patterns}
+
+### Patterns & Conventions
+- {Pattern observed} — `{file path where it is established}`
+
+### Constraints
+- {Constraint discovered during research}
+
+{Repeat "## Area:" for each area in the Scope Sketch}
+
+## Strategic Context
+{Optional — omit if no MCP results. Findings from ledger_get_repository_context and ledger_search_insights: strategic alignment, prior outcomes, relevant insights.}
+```
 
 ---
 
@@ -203,22 +242,31 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 ---
 
 ## Workflow
+
+### Phase 1 — Research
+
 1. **Detect mode.** If the user has provided or referenced a `synthesis.md` file, enter Synthesis Rework mode (see Operating Modes). Otherwise, proceed with Normal Planning.
 2. Read and interpret the user request (or, in Synthesis Rework mode, extract actionable items from the synthesis).
 3. **Gather strategy & project history.** Call `ledger_get_repository_context` to retrieve the repository's strategic vision and prior project history (timeline, outcome summaries). If a strategic vision is present, use it to validate that your plan aligns with the declared direction. If the tool returns an empty result, proceed without this context. If the tool returns an error, halt planning and report the error to the user for resolution.
-4. **Research the codebase.** Before proposing any design:
-   - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface).
-   - If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
-   - Identify the modules, files, and patterns that are relevant to the request.
-5. **Search for relevant insights.** Now that you know the specific technologies, modules, and patterns involved, call `ledger_search_insights` with targeted queries for each distinct area of the plan (e.g., separate searches for frontend patterns vs. backend architecture vs. testing conventions). Use retrieved insights to inform design decisions, avoid repeating past mistakes, and align with established patterns. If the tool returns an empty result, proceed without insights. If the tool returns an error, halt planning and report the error to the user for resolution.
-6. Guide the user through refining the plan, grounding all design decisions in the codebase research.
-7. Produce the plan using the provided template.
-8. Save the plan to the specified directory.
-9. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
-10. **Assess implementation scope.** Based on the completed plan, recommend whether it should be executed via the full ledger workflow or a standalone developer session:
+4. **Scope Sketch.** Classify which areas of the codebase the request touches. Produce a short bullet list of areas — names, likely directories, and the type of change expected (new code, modification, integration). Do not design anything yet — this is a classification task, not a design task.
+5. **Research Brief.** For each area in the scope sketch, perform targeted research using filesystem tools:
+   - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface). If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
+   - Read actual source files for each area. Record verified file paths, type signatures, existing patterns, and constraints in the brief.
+   - After all areas are researched, call `ledger_search_insights` with targeted queries for each distinct area (e.g., separate searches for frontend patterns vs. backend architecture vs. testing conventions). Use retrieved insights to inform design decisions and avoid repeating past mistakes. If the tool returns an empty result, proceed without insights. If the tool returns an error, halt planning and report the error to the user for resolution.
+   - Save the complete Research Brief as `research-brief.md` in the plan folder (see Output Location).
+
+### Phase 2 — Confirm
+
+6. **Confirm scope** with the user. Present the Research Brief summary and confirm the areas, patterns, and constraints before proceeding to plan production. For straightforward requests where the scope is obvious, briefly summarize the findings and proceed unless the user objects.
+
+### Phase 3 — Plan
+
+7. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
+8. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
+9. **Assess implementation scope.** Based on the completed plan, recommend whether it should be executed via the full ledger workflow or a standalone developer session:
     - **Ledger** — multi-module or cross-cutting changes, new architecture or pattern departures, plans that benefit from formal QA / security audit / review stages, or plans with 4+ detailed steps involving distinct concerns.
     - **Standalone** — single-module changes within well-understood patterns, bug fixes, small features, or refactors where a single developer session suffices and self-review is adequate.
-11. End the response with:
+10. End the response with:
     ```
     AGENT: Planning
     STATUS: READY_FOR_PM
