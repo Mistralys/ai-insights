@@ -598,9 +598,9 @@ const COMMANDS = [
   {
     id:           'setup',
     key:          's',
-    label:        'First-time setup',
+    label:        'Setup & Refresh',
     category:     'Setup & Configuration',
-    description:  'Full workspace setup wizard',
+    description:  'Full workspace setup & refresh wizard',
     helpVariants: [
       ['setup --all',              'Non-interactive full setup'],
       ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
