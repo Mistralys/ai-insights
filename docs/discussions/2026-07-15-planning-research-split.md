@@ -10,75 +10,9 @@
 
 > What do you think, any ideas / thoughts? 
 
-Let me look at the current Planner persona and the Plan Refiner workflow to understand what's already in place before giving you a well-grounded answer.
-
-Read planner and refiner personas
-
-Searched for files matching `**/personas/**/meta/*planner*`, 2 matches
-
-Searched for files matching `**/personas/**/meta/*refiner*`, 1 match
-
-Searched for files matching `**/personas/**/meta/*auditor*`, 3 matches
-
-Searched for files matching `**/personas/**/meta/*architect*`, 4 matches
-
-Read memory
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/meta/planner.yaml)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/ledger/src/meta/1-planner.yaml)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/meta/plan-refiner.yaml)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/meta/plan-auditor.yaml)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/meta/plan-architect-reviewer.yaml)
-
-Searched for files matching `**/personas/ledger/src/content/*planner*`, 1 match
-
-Searched for files matching `**/personas/standalone/src/content/*planner*`, 1 match
-
-Searched for files matching `**/personas/standalone/src/content/*refiner*`, 1 match
-
-Searched for files matching `**/personas/standalone/src/content/*auditor*`, 2 matches
-
-Searched for files matching `**/personas/standalone/src/content/*architect-reviewer*`, 1 match
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/ledger/src/content/1-planner.md)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/content/planner.md)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/content/plan-auditor.md)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/content/plan-refiner.md)
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/content/plan-architect-reviewer.md)
-
-Searched for regex `{{>|{{#if|{{agent_|{{mcp_` (`**/personas/ledger/src/content/1-planner.md`), 8 results
-
-Searched for regex `{{>|{{#if|{{agent_|{{mcp_` (`**/personas/standalone/src/content/plan-refiner.md`), 22 results
-
-Searched for regex `{{>|{{#if|{{agent_|{{mcp_` (`**/personas/standalone/src/content/plan-architect-reviewer.md`), 3 results
-
 Good question. Let me dig deeper into the Planner's actual instructions and research known patterns for improving first-pass generation quality.
 
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/ledger/src/content/1-planner.md#1-1), lines 1 to 200
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/standalone/src/content/planner.md)
-
-Now let me research known techniques for improving first-pass LLM planning quality.
-
-
-
-Fetched 2 resources
-
-Read [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/personas/ledger/src/content/1-planner.md#200-200), lines 200 to 228
-
-Now I have a thorough understanding of the current Planner, the Plan Refiner pipeline, and the relevant research literature. Let me write the report.
-
-Created [](file:///Users/smordziol/Webserver/Workspaces/ai-insights/STABLE/ai-insights/docs/agents/research/2026-07-15-first-pass-plan-quality.md)
-
-The full report is at 2026-07-15-first-pass-plan-quality.md. Here's the executive summary:
+Here's the executive summary:
 
 **Your Plan Refiner already implements the research-backed approach.** Kambhampati et al. (ICML 2024) formally argue that autoregressive LLMs *cannot* reliably self-verify — external verification loops are necessary, not a workaround. Your architecture is the LLM-Modulo pattern. The errors you see in first drafts are the expected behaviour of any generator in such a system.
 
