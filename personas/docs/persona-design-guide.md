@@ -2,14 +2,15 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.3
-**Last Updated:** 2026-07-13
+**Version:** 2.4
+**Last Updated:** 2026-07-15
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v2.4 - 2026-07-15: Added Pattern 14 (Task Separation); added workflow design rule, quality checklist item, and common pitfall for phase homogeneity.
 - v2.3 - 2026-07-13: Added positive-framing rule and litmus test to Operating Philosophy; added "Philosophy reads like constraints" pitfall; added checklist item for philosophy tone.
 - v2.2 - 2026-06-29: Added Markdown separator handling; added License, Author and Source metadata to the header.
 - v2.1 - 2026-04-29: Added "Lead with a verb, not You" guidance to the Mission section; documented second-person voice as an anti-pattern.
@@ -379,6 +380,7 @@ N. **Handoff:** End the response with:
 - **End with a handoff.** Every workflow terminates with a structured status block that signals completion to the user or the next agent in the chain.
 - **Keep it high-level.** The workflow is an outline, not a tutorial. If a step requires a detailed procedure, extract it into a separate **Operational Protocol** section and reference it from the workflow step (e.g., "Execute the Verification Stack (see Operational Protocol above).").
 - **Include repeat/loop instructions when applicable.** If the agent should process multiple items (e.g., multiple Work Packages), include an explicit "Repeat" step.
+- **Separate research from production.** Do not combine fact-gathering and deliverable-writing in the same workflow step. Split them into distinct phases — gather and verify first, then produce the output. See Pattern 14 (Task Separation) for rationale and structure.
 
 **When to extract an Operational Protocol:**
 
@@ -674,6 +676,47 @@ When a persona interacts with an external system (coordination server, test runn
 - **Document the tool's response format** when the agent must parse or act on responses.
 - **Include fallback instructions** for when the tool is unavailable or returns errors.
 
+### Pattern 14: Task Separation
+
+LLMs generate text one word at a time, always moving forward. Once a sentence is written, the model cannot revise it — even if later information contradicts it. This architectural property (autoregressive generation) means that mixing different cognitive tasks in the same workflow step degrades both tasks. Three failure modes emerge when research and production are combined:
+
+| Failure Mode | Mechanism | Effect |
+|---|---|---|
+| **Premature commitment** | The model starts forming conclusions before it has all the facts. Because it cannot revise earlier output, it bends later findings to fit. | Claims that don't quite match the data; contradictory evidence is ignored. |
+| **Attention decay** | Facts gathered early in a long session carry less weight by the time the model reaches later sections. | Early research is underweighted; later output relies on incomplete recall. |
+| **Forward momentum bias** | The model feels pressure to use each finding immediately rather than waiting for the full picture. | Premature design decisions; output shaped by arrival order rather than importance. |
+
+**The fix: phase separation.** Split any complex workflow into phases where each phase has one cognitive job:
+
+```markdown
+1. **Scope:** Identify what areas the task touches. Output: bullet list.
+2. **Research:** For each area, gather and verify the relevant facts.
+   Record them in a compact brief. No decisions in this phase.
+3. **Produce:** With all verified facts consolidated nearby,
+   write the deliverable. Every claim draws from the brief.
+```
+
+This eliminates all three failure modes:
+- No premature commitment — decisions wait until all facts are in.
+- No attention decay — verified facts are consolidated in a compact artifact close to where the model needs them.
+- No forward momentum bias — the research phase has no obligation to produce decisions.
+
+**The broader principle: phase homogeneity.** Each workflow phase should involve a single type of cognitive task. Mixing discovery and decision-making in the same step causes reasoning styles to bleed across boundaries — the model starts making assertions during fact-gathering, or hedges its conclusions with discovery-flavored uncertainty when it should be committing.
+
+Apply this pattern when:
+- The persona gathers information before producing a deliverable (Planner, Researcher, Documentation Curator)
+- The workflow involves both analysis and synthesis
+- The output quality depends on complete, accurate information
+
+**Design Rules:**
+
+- **Never combine research and production in a single workflow step.** If a step says "gather X and then write Y", split it into two steps.
+- **Label each phase's cognitive type.** Use step names that signal the mode: "Gather", "Analyze", "Verify" for research; "Draft", "Produce", "Write" for production.
+- **Consolidate research output before production begins.** The research phase should produce a compact artifact (brief, checklist, inventory) that the production phase consumes.
+- **Apply to Operational Protocols too.** The same separation applies inside extracted protocols — each sub-phase should have one cognitive job.
+
+> **Source:** [Why LLMs Make Mistakes — and How Task Separation Fixes It](../../docs/discussions/task-separation.md)
+
 ---
 
 ## Quality Checklist
@@ -700,6 +743,7 @@ Before shipping a new persona, verify:
 - [ ] **Worked example is provided** if the output involves non-obvious data transformation.
 - [ ] **Self-validation checklist is included** if the persona's output has no downstream agent to catch errors.
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
+- [ ] **Workflow respects task separation.** Research/gathering steps are separate from production/writing steps. No step combines fact-finding with deliverable production. (See Pattern 14.)
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
 - [ ] **Language is imperative, not suggestive.** "Do X" not "You might consider X."
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
@@ -941,4 +985,5 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
 | **Tool instructions mixed into workflow** | Agent confuses tool mechanics with task logic | Extract tool integration into its own section |
+| **Research and production in one step** | Agent commits to conclusions before gathering all facts; output quality degrades with context length | Split into separate phases: gather/verify first, then produce (Pattern 14) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
