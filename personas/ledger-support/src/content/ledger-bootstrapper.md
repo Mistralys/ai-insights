@@ -78,9 +78,21 @@ Before touching the ledger, confirm:
 
 ### Step 2 — Initialize the Project
 
+Before calling `ledger_initialize_project`, read the plan document (`plan.md`) and locate the `## Summary` section. From that section, craft a `project_summary`: a 2–3 sentence plain-text description of the project's intent. The summary must be:
+
+<!-- Partial include at column 0: the template engine does not propagate surrounding indentation into partial content. -->
+{{> summary-crafting-guide}}
+
+> **Example:** "This project extends the project detail view to prevent plan descriptions from being clipped when they exceed the visible area. It also introduces a `project_summary` field to the ledger initialization tool so agents can provide a concise, curated description at initialization time."
+
 Call `ledger_initialize_project` with:
 - `project_path`: the absolute path to the plan folder
 - `plan_file`: `"plan.md"` (always `plan.md` per the ledger constraint)
+- `project_summary`: the 2–3 sentence summary you crafted above
+
+> **If the plan has no `## Summary` section:** Omit the `project_summary` parameter — do not invent a summary.
+
+> **If the `## Summary` section exists but is too brief** (a single phrase or fewer than two complete sentences): Omit the `project_summary` parameter — a partial summary is worse than none.
 
 > **If this call fails:** Check if a ledger already exists at that path. Do NOT reinitialize an existing ledger. Report the error and ask the user if they want to use the existing ledger or cancel.
 
