@@ -414,3 +414,59 @@ describe('API.moveKnowledge', () => {
     expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Chunk methods (D-4)
+// ---------------------------------------------------------------------------
+
+describe('API.getChunkRendered', () => {
+  it('calls GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered and returns content string', async () => {
+    const calls = mockFetch({ content: 'rendered markdown text' });
+
+    const result = await globalThis.API.getChunkRendered('my-repo', 'my-slug', 'chunk-001.jsonl');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(
+      '/api/projects/my-repo/my-slug/chunks/chunk-001.jsonl/rendered',
+    );
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toBe('rendered markdown text');
+  });
+
+  it('URI-encodes repo, slug, and filename', async () => {
+    const calls = mockFetch({ content: '' });
+
+    await globalThis.API.getChunkRendered('my repo', 'my slug', 'file name.jsonl');
+
+    expect(calls[0]!.url).toBe(
+      '/api/projects/my%20repo/my%20slug/chunks/file%20name.jsonl/rendered',
+    );
+  });
+});
+
+describe('API.getChunkStructured', () => {
+  it('calls GET .../rendered?format=structured and returns the blocks array', async () => {
+    const blocks = [{ type: 'text', content: 'hello world' }];
+    const calls = mockFetch({ blocks });
+
+    const result = await globalThis.API.getChunkStructured('my-repo', 'my-slug', 'chunk-001.jsonl');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(
+      '/api/projects/my-repo/my-slug/chunks/chunk-001.jsonl/rendered?format=structured',
+    );
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(blocks);
+  });
+
+  it('URI-encodes repo, slug, and filename', async () => {
+    const calls = mockFetch({ blocks: [] });
+
+    await globalThis.API.getChunkStructured('my repo', 'my slug', 'file name.jsonl');
+
+    expect(calls[0]!.url).toBe(
+      '/api/projects/my%20repo/my%20slug/chunks/file%20name.jsonl/rendered?format=structured',
+    );
+  });
+});
+

@@ -196,7 +196,31 @@ When modifying a frontend file, increment its `?v=N` parameter in `index.html` t
 
 ---
 
-## 15. Known Limitations
+## 15. Dual-Format Endpoint Pattern (`?format=structured`)
+
+Some backend endpoints support a `?format=structured` query parameter to switch the response
+between a plain-text format and a structured JSON format without breaking existing callers.
+
+**Current endpoints using this pattern:**
+
+| Endpoint | Without parameter | With `?format=structured` |
+|----------|-------------------|---------------------------|
+| `GET …/chunks/:filename/rendered` | `{ content: string }` — Markdown from `renderChunksToDialogue()` | `{ blocks: DialogueBlock[] }` — typed array from `renderChunksToStructured()` |
+
+**Rules for this pattern:**
+
+1. **Backward-compatible by default.** Omitting the parameter always returns the legacy format.
+   Existing callers do not need to be updated.
+2. **Format detection is via `URLSearchParams`.** Use
+   `new URLSearchParams(qStr).get('format') === 'structured'` — do not parse manually.
+3. **Only `format=structured` is a valid structured-mode value.** Any other value falls back to the
+   default format; no error is returned for unknown values.
+4. **New dual-format endpoints must document both response shapes** in `api-surface.md`
+   (routes table row) and the corresponding data flow in `data-flows.md`.
+
+---
+
+## 16. Known Limitations
 
 | Limitation | Impact |
 |------------|--------|

@@ -2240,6 +2240,203 @@ th[data-sort="total_work_packages"] {
 }
 
 /* ----------------------------------------------------------
+   Interactive dialogue view (WP-002)
+   ---------------------------------------------------------- */
+
+/* AI prose text block */
+.dialogue-text {
+  margin-bottom: 12px;
+  color: var(--color-text);
+  line-height: 1.65;
+}
+
+/* Container for one tool-call block */
+.dialogue-tool-call {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+/* Clickable header row — expands/collapses the tool body */
+.dialogue-tool-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.dialogue-tool-toggle:hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+/* Rotation arrow; JS toggles .expanded to rotate 90° when open */
+.dialogue-tool-arrow {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.dialogue-tool-arrow.expanded {
+  transform: rotate(90deg);
+}
+
+/* Collapsible body of the tool call */
+.dialogue-tool-details {
+  padding: 0 12px 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Each ↳ summary line */
+.dialogue-tool-detail-line {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 0;
+}
+
+/* Always-visible wrapper for ↳ detail lines — sits between the toggle button and the collapsible body */
+.dialogue-tool-detail-area {
+  padding: 0 12px 6px;
+}
+
+/* JSON args display (scrollable for large payloads) */
+.dialogue-tool-args {
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+  margin-top: 8px;
+}
+
+/* Embedded ToolMessage result — left border accent, lighter background */
+.dialogue-tool-result {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--color-ready);
+  background: var(--color-bg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* "Result:" label above the result content */
+.dialogue-tool-result-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+/* write_todos checklist block */
+.dialogue-checklist {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.dialogue-checklist ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dialogue-checklist li {
+  font-size: 13px;
+  color: var(--color-text);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.dialogue-checklist li input[type="checkbox"] {
+  flex-shrink: 0;
+  margin-top: 3px;
+  accent-color: var(--color-ready);
+}
+
+.dialogue-checklist li.checked {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* Sub-agent namespace heading */
+.dialogue-subagent-heading {
+  margin: 16px 0 8px;
+  padding: 6px 12px;
+  border-left: 3px solid var(--color-complete);
+  background: color-mix(in srgb, var(--color-complete) 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-complete);
+}
+
+/* ----------------------------------------------------------
+   Interactive dialogue view — dark mode overrides
+   ---------------------------------------------------------- */
+
+[data-theme="dark"] .dialogue-tool-call {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .dialogue-tool-toggle {
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .dialogue-tool-args {
+  background: var(--color-bg);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .dialogue-tool-result {
+  background: var(--color-bg);
+  border-left-color: var(--color-ready);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .dialogue-checklist {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .dialogue-subagent-heading {
+  background: color-mix(in srgb, var(--color-complete) 15%, transparent);
+  border-left-color: var(--color-complete);
+  color: var(--color-complete);
+}
+
+/* ----------------------------------------------------------
    Orchestrator View (WP-011)
    ---------------------------------------------------------- */
 

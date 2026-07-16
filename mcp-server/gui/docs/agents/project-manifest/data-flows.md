@@ -311,3 +311,66 @@ View fetches project detail
           ├── If cached → return display name
           └── If not cached → return slug portion (fallback)
 ```
+
+---
+
+## 11. Structured Dialogue Rendering
+
+```
+User opens a chunk dialogue in the work-package detail view
+  │
+  └── _loadDialogueContent(repo, slug, filename)
+      │
+      ├── API.getChunkStructured(repo, slug, filename)
+      │   └── GET /api/projects/:repo/:slug/chunks/:filename/rendered?format=structured
+      │       │
+      │       └── server.ts (matchRoute)
+      │           ├── URLSearchParams.get('format') === 'structured'
+      │           ├── handleGetChunkFile(ledgerRoot, slug, filename, repoName)
+      │           │   → { content: string }  (raw JSONL text)
+      │           └── renderChunksToStructured(content)
+      │               │
+      │               ├── parseChunkLine() × N  → raw records[]
+      │               ├── accumulateChunks(records) → Map<NamespaceKey, MergedMessage[]>
+      │               ├── buildToolCallIndex()     → Map<toolCallId, toolName>
+      │               ├── buildFullToolResultIndex() → Map<toolCallId, {toolName, content}>
+      │               └── collectStructuredNamespaceBlocks() × namespace
+      │                   → DialogueBlock[]  (main agent first, sub-agents next)
+      │
+      │   Response: { blocks: DialogueBlock[] }
+      │
+      └── _renderDialogueBlocks(blocks)
+          │   Iterates blocks and dispatches to per-type helpers:
+          │
+          ├── block.type === 'text'
+          │   └── window.marked.parse(block.content) → Markdown HTML
+          │
+          ├── block.type === 'tool-call'
+          │   └── _buildDialogueToolCallBlock(block)
+          │       ├── Header: .dialogue-tool-toggle  (name + detail lines)
+          │       ├── Body:   .dialogue-tool-details  (hidden by default)
+          │       │   ├── .dialogue-tool-args     (JSON args, scrollable)
+          │       │   └── .dialogue-tool-result   (ToolMessage content, if present)
+          │       └── Returns .dialogue-tool-call <div>
+          │
+          ├── block.type === 'subagent-heading'
+          │   └── .dialogue-subagent-heading <div>  (label text)
+          │
+          └── block.type === 'checklist'
+              └── _buildDialogueChecklistBlock(block)
+                  ├── One <li> per item with disabled <input type="checkbox">
+                  ├── .checked class applied when item.checked === true
+                  └── Returns .dialogue-checklist <div>
+
+After innerHTML is set:
+  └── _attachDialogueEvents(container)
+      └── Delegated click on container
+          └── If target is .dialogue-tool-toggle:
+              ├── Toggle hidden on sibling .dialogue-tool-details
+              └── Toggle .expanded on child .dialogue-tool-arrow
+```
+
+**Backward-compatible endpoint:** Omitting `?format=structured` returns
+`{ content: string }` (Markdown from `renderChunksToDialogue()`), preserving
+compatibility with any consumer that does not pass the parameter.
+

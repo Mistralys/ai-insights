@@ -265,8 +265,11 @@ var API = (function () {
      * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
      * @param {string} filename - Dialogue filename (URI-encoded automatically).
-     * @returns {Promise<string>} Raw dialogue content string from
+     * @returns {Promise<string>} The dialogue content string extracted from the `content` field of
+     *   the JSON response body returned by
      *   `GET /api/projects/{repo}/{slug}/dialogues/{filename}`.
+     *   The response is parsed as JSON (`{ content: string }`); this function returns
+     *   `data.content` — it does **not** call `res.text()`.
      */
     getDialogueContent: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
@@ -298,6 +301,51 @@ var API = (function () {
     getChunkRendered: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
         .then(function (data) { return data.content; });
+    },
+
+    /**
+     * A discriminated-union block produced by `renderChunksToStructured()` on the
+     * server and surfaced to the frontend via `getChunkStructured()`.
+     *
+     * The `type` field is the discriminant; only the properties relevant to that
+     * variant are present on each object:
+     *
+     * - `'text'`            — plain dialogue text; `content` (string) holds the body.
+     * - `'tool-call'`       — one tool invocation; fields: `name` (string),
+     *                         `detailLines` (string[]), `args` (any parsed shape),
+     *                         and optional `result: { content: string }` for non-inline
+     *                         tools (`execute`/`task` results stay inside `detailLines`).
+     * - `'subagent-heading'` — marks the start of a sub-agent namespace; `label` (string).
+     * - `'checklist'`        — a `write_todos` invocation; `items` is an array of
+     *                         `{ content: string, status: string, checked: boolean }`.
+     *
+     * @typedef {Object} DialogueBlock
+     * @property {'text'|'tool-call'|'subagent-heading'|'checklist'} type - Block variant.
+     * @property {string}   [content]     - *(text)*           Rendered text body.
+     * @property {string}   [name]        - *(tool-call)*       Tool name.
+     * @property {string[]} [detailLines] - *(tool-call)*       Human-readable summary lines.
+     * @property {*}        [args]        - *(tool-call)*       Parsed tool arguments.
+     * @property {{content: string}} [result] - *(tool-call)*  Embedded ToolMessage result
+     *   (absent for inline tools; present for all others).
+     * @property {string}   [label]       - *(subagent-heading)* Sub-agent namespace label.
+     * @property {Array<{content: string, status: string, checked: boolean}>} [items]
+     *   - *(checklist)* Items from a `write_todos` invocation.
+     */
+
+    /**
+     * Fetch structured dialogue blocks for a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<DialogueBlock[]>} Array of structured dialogue blocks from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered?format=structured`.
+     *   Each element is a {@link DialogueBlock} — inspect the `type` field to
+     *   determine which variant properties are present.
+     */
+    getChunkStructured: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered?format=structured')
+        .then(function (data) { return data.blocks; });
     },
 
     // -- Repositories (Strategy) ---------------------------------------

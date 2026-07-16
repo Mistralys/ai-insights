@@ -349,6 +349,52 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
+## 15a. Interactive Dialogue View Classes
+
+These classes style the structured dialogue view rendered from `DialogueBlock[]` data
+(see `api-surface.md §chunk-renderer.ts`). They are applied by `_buildDialogueToolCallBlock()`
+and `_buildDialogueChecklistBlock()` in `views/project-detail-dialogues.js`.
+
+### Tool Call Block
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-tool-call` | `<div>` | Container for one tool invocation. Bordered card, `overflow: hidden`. |
+| `.dialogue-tool-toggle` | `<button>` | Clickable header row. Full-width button; hover background tint. |
+| `.dialogue-tool-arrow` | `<span>` inside toggle | Rotation arrow (▶). Gains `.expanded` (rotates 90°) when body is open. |
+| `.dialogue-tool-detail-area` | `<div>` | Always-visible wrapper for `↳` detail lines. Sits between the toggle button and the collapsible body. `padding: 0 12px 6px`. |
+| `.dialogue-tool-details` | `<div>` | Collapsible body. Hidden by default (`hidden` attribute); revealed via delegated click listener in `_attachDialogueEvents()`. |
+| `.dialogue-tool-detail-line` | `<div>` | One `↳ …` summary line inside the body. Monospace, muted. |
+| `.dialogue-tool-args` | `<pre>` | Scrollable JSON args display. Max-height 300 px; inner scroll. |
+| `.dialogue-tool-result` | `<div>` | Embedded ToolMessage result. Left-border accent (`--color-ready`), monospace. |
+| `.dialogue-tool-result-label` | `<span>` | "Result:" label above the result content. Small caps, muted. |
+
+**Interaction model:** `_attachDialogueEvents()` attaches a single delegated `click` listener on
+the dialogue container. Clicks on `.dialogue-tool-toggle` elements toggle the `hidden` attribute on
+the sibling `.dialogue-tool-details` element and add/remove `.expanded` from the
+`.dialogue-tool-arrow`.
+
+### Checklist Block
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-checklist` | `<div>` | Container for a `write_todos` invocation. Bordered card, surface background. |
+| `.dialogue-checklist ul` | `<ul>` | Flex-column list, no native bullets. |
+| `.dialogue-checklist li` | `<li>` | One todo item. Flex row with gap. |
+| `.dialogue-checklist li input[type="checkbox"]` | `<input>` | Disabled checkbox, `accent-color: --color-ready`. |
+| `.dialogue-checklist li.checked` | `<li>` | Completed item. Muted text + strikethrough. |
+
+### Sub-Agent Heading
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-subagent-heading` | `<h3>` | Marks the start of a sub-agent namespace. Left border (`--color-complete`), green-tinted background, small-caps label. |
+
+**Dark mode:** All three component groups have corresponding `[data-theme="dark"]` overrides
+in `styles.css` that use the same semantic token variables — no hard-coded values.
+
+---
+
 ## 16. Reset Modal Classes
 
 | Class | Description |
