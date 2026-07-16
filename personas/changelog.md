@@ -1,5 +1,12 @@
 # Personas Changelog
 
+## v3.29.0 - Operating Philosophy and Project Summary Protocols
+
+- Ledger: Planner, Developer, and Reviewer gain an Operating Philosophy section.
+- Standalone: Plan Architect Reviewer and Plan Auditor gain an Operating Philosophy section.
+- LedgerSupport: Bootstrapper and Archiver gain `project_summary` crafting protocol.
+- Shared: Extracted summary-crafting guide into a reusable shared partial.
+
 ## v3.28.0 - Planner Research Phase and Archiver Modes
 - Standalone: Changelog Curator gains release summary — optional prose paragraph with house style rules.
 - Ledger: Planner gains a dedicated codebase research phase before plan design begins.

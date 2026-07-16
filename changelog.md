@@ -1,5 +1,20 @@
 # AI Insights Changelog
 
+## v2.7.0 - Project Summaries and Persona philosophy
+> mcp v2.6.0 · personas v3.29.0
+
+**Projects now carry a human-readable summary that surfaces throughout the interface, giving
+agents and users immediate context at a glance.** The core personas' philosophy now includes
+stronger long-term stability aspects.
+
+- MCP: Added `project_summary` parameter to init and import tools.
+- GUI: Updated project synopsis from the agent-curated summary.
+- GUI: Dialogue chunk renderer extended with structured format support.
+- Scripts: Added skills build and publish pipeline.
+- Skills: Added the `insights-audit-persona` skill to the build pipeline.
+- Personas: Added long-term stability aspects to the operating philosophy.
+- Personas: Bootstrapper and Archiver now generate project summaries.
+
 ## v2.6.0 - Orchestrator Fix, Persona Improvements
 > mcp v2.5.0 · orchestrator v1.3.1 · personas v3.28.0
 

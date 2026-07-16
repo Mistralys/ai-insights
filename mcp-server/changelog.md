@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.6.0 - Project Summary Field and Structured Dialogues
+
+**This release adds `project_summary` to lifecycle tools, displaying it as a synopsis on the
+project detail page.** The dialogue chunk renderer gains structured format support, enabling
+richer output in work-package panel views.
+
+- GUI: Extended chunk renderer with structured format support for improved dialogue output.
+- GUI: Project detail page shows a synopsis from `project_summary` when set.
+- GUI: Updated styles and dialogue views to support the new rendering modes.
+- Tools: Added `project_summary` parameter to project init and import tools.
+- Schema: Added `project_summary` to project metadata and root index schemas.
+- Tests: Added coverage for structured format routing, dialogue rendering, and project summary.
+
 ## v2.5.0 - Synthesis Update Tool and Dialogue Renderer
 - Tools: Added `ledger_update_synthesis` to refresh archived synthesis after post-import edits.
 - Tools: Guarded by status check, runner check, and 90-day staleness window.
