@@ -1,0 +1,6 @@
+name: insights-audit-persona
+description: "Audit an existing AI agent persona against the Persona Design Guide. Use when: checking persona compliance, reviewing persona structure, validating persona quality, auditing persona against design guide."
+context: fork
+agent: persona-curator
+changelog: |
+  1.0.0 (2026-07-15): Initial release — launcher skill for Persona Curator Audit mode.

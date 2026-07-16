@@ -42,6 +42,13 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | **Package personas** | `package-personas` | Build and ZIP standalone personas for distribution |
 | **Clean agent folder** | `clean-agents` | Remove persona files from all publish locations |
 
+### Skills
+
+| Item | Command | Description |
+|------|---------|-------------|
+| **Build skills** | `build-skills` | Compile skill source files to `dist/vscode-skills/` and `dist/claude-skills/` |
+| **Publish skills** | `publish-skills` | Build and deploy skills to `.github/skills/` and `~/.claude/skills/` |
+
 ### MCP Server
 
 | Item | Command | Description |
@@ -83,6 +90,10 @@ Every menu item can be invoked directly without entering the interactive menu:
 ./menu.sh setup --all                     # non-interactive full setup
 ./menu.sh setup --components mcp-server   # run a specific setup component
 ./menu.sh sync-personas                   # build + deploy personas
+./menu.sh build-skills                    # compile skill source files
+./menu.sh build-skills --dry-run          # validate skill outputs without writing to dist/
+./menu.sh publish-skills                  # build + deploy skills to IDE directories
+./menu.sh publish-skills -- --dry-run     # build + preview deployment without writing to IDE directories
 ./menu.sh install-mcp                     # register MCP server globally
 ./menu.sh install-mcp --dry-run           # preview changes without writing
 ./menu.sh gui                             # launch GUI dashboard

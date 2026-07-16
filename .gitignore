@@ -29,6 +29,8 @@
 .orchestrator-run.json
 /.idea
 /dist/*.zip
+/dist/vscode-skills/
+/dist/claude-skills/
 /node_modules/
 /.claude/agent-memory
 .vscode/settings.json

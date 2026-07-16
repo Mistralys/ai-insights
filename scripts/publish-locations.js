@@ -3,6 +3,8 @@
  *
  * Single source of truth for persona publish locations.
  * Used by sync-personas.js (deploy) and cli.js (clean-agents).
+ * Individual path helpers (getClaudeCodeSkillsDir, etc.) are also imported
+ * directly by publish-skills.js for skills deployment.
  *
  * Each location defines:
  *   - label:  Human-readable name for display
@@ -59,7 +61,6 @@ function getPublishLocations() {
   return [
     { label: 'VS Code prompts',    dir: getVSCodePromptsDir(),    filter: (f) => f.endsWith('.agent.md') },
     { label: 'Claude Code agents', dir: getClaudeCodeAgentsDir(), filter: (f) => f.endsWith('.md') },
-    { label: 'Claude Code skills', dir: getClaudeCodeSkillsDir(), filter: (f) => f.endsWith('.md') },
   ];
 }
 

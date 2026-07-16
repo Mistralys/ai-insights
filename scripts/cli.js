@@ -391,6 +391,19 @@ function cmdBuildPersonas(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdBuildSkills(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'build-skills.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdPublishSkills(args) {
+  const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-skills.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (buildCode !== 0) process.exit(buildCode);
+  const publishArgs = args.includes('--dry-run') ? ['--dry-run'] : [];
+  const publishCode = runScript('node', [path.join(SCRIPTS_DIR, 'publish-skills.js'), ...publishArgs], { cwd: WORKSPACE_ROOT });
+  if (publishCode !== 0) process.exit(publishCode);
+}
+
 function cmdPackagePersonas(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'package-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -640,6 +653,22 @@ const COMMANDS = [
     category:    'Personas',
     description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
+  },
+  {
+    id:          'build-skills',
+    key:         null,
+    label:       'Build skills',
+    category:    'Skills',
+    description: 'Build skill output files',
+    run:         cmdBuildSkills,
+  },
+  {
+    id:          'publish-skills',
+    key:         null,
+    label:       'Publish skills',
+    category:    'Skills',
+    description: 'Build & deploy skills to VS Code and Claude Code',
+    run:         cmdPublishSkills,
   },
   {
     id:          'package-personas',

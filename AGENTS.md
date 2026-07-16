@@ -357,10 +357,12 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 |------|---------|  
 | `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
-| `scripts/publish-locations.js` | Single source of truth for persona publish locations (label, path, target type). Consumed by `sync-personas.js` and `cli.js` |
+| `scripts/publish-locations.js` | Single source of truth for persona publish locations (label, path, target type). Consumed by `sync-personas.js` and `cli.js`. Individual path helpers (e.g. `getClaudeCodeSkillsDir()`) are also imported directly by `publish-skills.js`. |
 | `scripts/package-personas.js` | Builds and packages persona output into a compressed archive for distribution |
 | `scripts/preview-prompts.py` | Python utility to preview rendered prompt output for a persona |
 | `scripts/build-personas.js` | Assemble all persona files (3 output targets each: `vs-code`, `claude-code`, `deep-agents`) from `personas/ledger/src/`, `personas/standalone/src/`, and `personas/ledger-support/src/` templates |
+| `scripts/build-skills.js` | Compile skill source files from `skills/meta/` and `skills/src/` into `dist/vscode-skills/` and `dist/claude-skills/`. Supports `--check` / `--dry-run` (read-only) and `--strict`. Invokable via `node scripts/cli.js build-skills`. |
+| `scripts/publish-skills.js` | Deploy built skill files from `dist/vscode-skills/` and `dist/claude-skills/` to `.github/skills/` and `~/.claude/skills/`. Clears only the matching stem directory per skill — hand-written sibling directories (e.g. `release-check`) are preserved. Supports `--dry-run` (logs what would be deployed without writing). Invokable via `node scripts/cli.js publish-skills`. |
 | `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/check-version-sync.js` | Compares each module's changelog version against its package manifest version. Exits 1 on mismatch. Called by the pre-commit hook (blocking) and available via `node scripts/cli.js check-versions`. |
 | `scripts/extract-changelog-entry.js` | Parses the topmost root changelog entry for CI/GitHub Actions release automation |
