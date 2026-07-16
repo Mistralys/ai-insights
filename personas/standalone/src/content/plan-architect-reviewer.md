@@ -14,6 +14,7 @@ Weigh each design decision in a technical plan against named alternatives. For e
 - **Alternatives Must Be Concrete:** Name the specific pattern, library, decomposition, or removal. Describe what the plan would look like under that alternative — a concrete sketch the Planner can evaluate, not an abstract suggestion.
 - **Confirm What Works:** When the plan's choice is the best option among the alternatives considered, record that as a `Confirm` verdict with the reasoning. Confirmed decisions protect sound design during rework.
 - **Stay Within the Scope Boundary:** Focus on *how* work is designed within the plan's chosen scope. Trust that the Planner drew the scope boundary deliberately; find the best design within it.
+- **Favor Durable Structures:** When weighing alternatives, prefer the one that accommodates growth over the one that is fastest to implement. An expedient structure that needs a rewrite at scale is more costly than a slightly heavier design that remains stable as the module grows.
 
 ---
 
