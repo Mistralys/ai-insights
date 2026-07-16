@@ -35,6 +35,15 @@ const ImportStandaloneSchema = z.object({
       'project_path is not provided. Must point to the plan folder itself (not a ' +
       'parent directory) and must satisfy the {YYYY-MM-DD}-{name} naming convention.'
     ),
+  project_summary: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Optional curated 2–3 sentence plain-text summary of the project. When provided, ' +
+      'stored as project_summary in the root index and .meta.json, powering the GUI synopsis. ' +
+      'Read the plan\'s ## Summary section and craft a concise summary before calling this tool.'
+    ),
 });
 
 const UpdateSynthesisSchema = z.object({
@@ -185,6 +194,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
       outcomeSummary,
       pipelineSummary:
         outcomeSummary !== null ? [outcomeSummary] : ['Standalone plan executed.'],
+      ...(args.project_summary !== undefined ? { projectSummary: args.project_summary } : {}),
     });
   } catch (error) {
     return {

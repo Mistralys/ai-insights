@@ -16,6 +16,8 @@ export const ProjectMetaSchema = z.object({
   repository_name: z.string().nullable().optional(),
   // Synthesis outcome — optional for backward compatibility
   outcome_summary: z.string().nullable().optional(),
+  // Project intent summary — set at initialization time, optional for backward compatibility
+  project_summary: z.string().nullable().optional(),
   // Runner metadata - optional for backward compatibility
   runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'standalone', 'unknown']).optional(),
   runner_client: z.string().optional(),   // raw clientInfo.name

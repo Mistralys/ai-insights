@@ -503,6 +503,11 @@ export const InitializeProjectSchema = z.object({
     .describe(
       `Relative path to the plan file from project_path. Must be '${PLAN_ARCHIVE_FILENAME}' — this value is enforced to keep the GUI plan document read path consistent.`
     ),
+  project_summary: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Optional curated summary of the project plan. Displayed on the GUI project detail page instead of the auto-extracted plan synopsis when provided.'),
 });
 
 async function initializeProject(
@@ -581,6 +586,7 @@ async function initializeProject(
     ledger_version: SPEC_VERSION,
     server_version: SERVER_VERSION,
     ...runnerInfo,
+    ...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {}),
   };
 
   try {
@@ -599,6 +605,7 @@ async function initializeProject(
         project_name: projectName,
         repository_name: repositoryName,
         ...runnerInfo,
+        ...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {}),
       });
       enrichmentCached = true;
     } catch (enrichErr) {

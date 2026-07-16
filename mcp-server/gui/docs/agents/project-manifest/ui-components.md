@@ -203,7 +203,9 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 | `.card-title` | 16px bold heading inside a card. |
 | `.comment-card` | Left-border-accented card for insight comments. |
 | `.priority-high` / `.priority-medium` / `.priority-low` | Left-border color modifiers for `.comment-card`. |
-| `.plan-synopsis` | Blue left-border card for plan excerpt. |
+| `.plan-synopsis` | Blue left-border card for plan excerpt. Content source: `project.project_summary` (plain text, XSS-safe via `escapeHtml()`) when set; falls back to `extractSynopsis()` + `marked.parse()`. Both paths produce identical DOM structure, so the expand/collapse toggle IIFE applies to both. Always includes a "View full plan →" link. |
+| `.outcome-synopsis` | Green left-border card for synthesis outcome summary. Rendered below the synthesis link row when `synthesis_generated === true` and `outcome_summary` is non-null/non-empty. Content is XSS-escaped plain text (no Markdown). |
+| `.outcome-synopsis__content` | Content block inside `.outcome-synopsis`. Uses `white-space: pre-wrap` to preserve any embedded newlines in the stored `outcome_summary` string. |
 | `.orchestrator-status-card` | Queue entry status card. |
 | `.orchestrator-cli-reference` | CLI commands reference card. |
 
@@ -346,6 +348,52 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 | `.dialogue-btn-active` | Currently expanded revision. |
 | `.dialogue-content` | Scrollable Markdown content area. |
 | `.dialogue-markdown` | Markdown rendering overrides. |
+
+---
+
+## 15a. Interactive Dialogue View Classes
+
+These classes style the structured dialogue view rendered from `DialogueBlock[]` data
+(see `api-surface.md §chunk-renderer.ts`). They are applied by `_buildDialogueToolCallBlock()`
+and `_buildDialogueChecklistBlock()` in `views/project-detail-dialogues.js`.
+
+### Tool Call Block
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-tool-call` | `<div>` | Container for one tool invocation. Bordered card, `overflow: hidden`. |
+| `.dialogue-tool-toggle` | `<button>` | Clickable header row. Full-width button; hover background tint. |
+| `.dialogue-tool-arrow` | `<span>` inside toggle | Rotation arrow (▶). Gains `.expanded` (rotates 90°) when body is open. |
+| `.dialogue-tool-detail-area` | `<div>` | Always-visible wrapper for `↳` detail lines. Sits between the toggle button and the collapsible body. `padding: 0 12px 6px`. |
+| `.dialogue-tool-details` | `<div>` | Collapsible body. Hidden by default (`hidden` attribute); revealed via delegated click listener in `_attachDialogueEvents()`. |
+| `.dialogue-tool-detail-line` | `<div>` | One `↳ …` summary line inside the body. Monospace, muted. |
+| `.dialogue-tool-args` | `<pre>` | Scrollable JSON args display. Max-height 300 px; inner scroll. |
+| `.dialogue-tool-result` | `<div>` | Embedded ToolMessage result. Left-border accent (`--color-ready`), monospace. |
+| `.dialogue-tool-result-label` | `<span>` | "Result:" label above the result content. Small caps, muted. |
+
+**Interaction model:** `_attachDialogueEvents()` attaches a single delegated `click` listener on
+the dialogue container. Clicks on `.dialogue-tool-toggle` elements toggle the `hidden` attribute on
+the sibling `.dialogue-tool-details` element and add/remove `.expanded` from the
+`.dialogue-tool-arrow`.
+
+### Checklist Block
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-checklist` | `<div>` | Container for a `write_todos` invocation. Bordered card, surface background. |
+| `.dialogue-checklist ul` | `<ul>` | Flex-column list, no native bullets. |
+| `.dialogue-checklist li` | `<li>` | One todo item. Flex row with gap. |
+| `.dialogue-checklist li input[type="checkbox"]` | `<input>` | Disabled checkbox, `accent-color: --color-ready`. |
+| `.dialogue-checklist li.checked` | `<li>` | Completed item. Muted text + strikethrough. |
+
+### Sub-Agent Heading
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.dialogue-subagent-heading` | `<h3>` | Marks the start of a sub-agent namespace. Left border (`--color-complete`), green-tinted background, small-caps label. |
+
+**Dark mode:** All three component groups have corresponding `[data-theme="dark"]` overrides
+in `styles.css` that use the same semantic token variables — no hard-coded values.
 
 ---
 

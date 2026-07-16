@@ -28,6 +28,7 @@ export interface MetaCacheUpdates {
   project_name?: string | null;
   repository_name?: string | null;
   outcome_summary?: string | null;
+  project_summary?: string | null;
   runner?: string;
   runner_client?: string;
   runner_version?: string;
@@ -54,6 +55,8 @@ export interface ImportStandaloneDetail {
   outcomeSummary: string | null;
   /** Summary lines for the WP-001 implementation pipeline entry. */
   pipelineSummary: string[];
+  /** Optional curated project summary to store in root index and .meta.json. */
+  projectSummary?: string;
 }
 
 /**
@@ -266,6 +269,7 @@ export class LedgerStore {
       ...(validated.runner_client !== undefined ? { runner_client: validated.runner_client } : {}),
       ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
       ...('outcome_summary' in validated ? { outcome_summary: validated.outcome_summary } : {}),
+      ...('project_summary' in validated ? { project_summary: validated.project_summary } : {}),
     }, options);
   }
 
@@ -497,9 +501,10 @@ export class LedgerStore {
    * @param status       - Optional status override; defaults to existing status or IN_PROGRESS
    * @param cacheUpdates - Optional enrichment fields to write into the cache. Supported keys:
    *                       `total_work_packages`, `pending_work_packages`, `progress_pct` (numeric counters);
-   *                       `project_name`, `repository_name`, `outcome_summary` (nullable strings — use
-   *                       key-presence semantics: `'key' in cacheUpdates` distinguishes an explicit
-   *                       `null` clear from an absent field that should be left unchanged);
+   *                       `project_name`, `repository_name`, `outcome_summary`, `project_summary`
+   *                       (nullable strings — use key-presence semantics: `'key' in cacheUpdates`
+   *                       distinguishes an explicit `null` clear from an absent field that should be
+   *                       left unchanged);
    *                       `runner`, `runner_client`, `runner_version` (runner metadata).
    * @param options      - Set `preserveLastUpdated: true` to retain the existing timestamp
    *                       (use for admin operations: archive, unarchive, cache refresh).
@@ -541,6 +546,7 @@ export class LedgerStore {
       ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
       ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
       ...(existing.outcome_summary !== undefined ? { outcome_summary: existing.outcome_summary } : {}),
+      ...(existing.project_summary !== undefined ? { project_summary: existing.project_summary } : {}),
       // Apply overrides from cacheUpdates (undefined values skip the field)
       ...(cacheUpdates?.total_work_packages !== undefined ? { total_work_packages: cacheUpdates.total_work_packages } : {}),
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
@@ -548,6 +554,7 @@ export class LedgerStore {
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
       ...(cacheUpdates !== undefined && 'outcome_summary' in cacheUpdates ? { outcome_summary: cacheUpdates.outcome_summary } : {}),
+      ...(cacheUpdates !== undefined && 'project_summary' in cacheUpdates ? { project_summary: cacheUpdates.project_summary } : {}),
       // Runner metadata: preserve existing values (backward compat), then apply overrides
       ...(existing.runner !== undefined ? { runner: existing.runner } : {}),
       ...(existing.runner_client !== undefined ? { runner_client: existing.runner_client } : {}),
@@ -771,6 +778,7 @@ export class LedgerStore {
         synthesis_generated_at: timestamp,
         outcome_summary: detail.outcomeSummary,
         runner: 'standalone',
+        ...(detail.projectSummary !== undefined ? { project_summary: detail.projectSummary } : {}),
       };
 
       const wpDetail: WorkPackageDetail = {

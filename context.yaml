@@ -10,6 +10,12 @@ import:
 
 # DOCUMENT GENERATION - To create documentation from codebase
 documents:
+
+  # ── Workspace Orientation ────────────────────────────────────────────────────
+  # Documents that describe the workspace itself: its structure, tooling, and
+  # the agent operating system. New entries for workspace-level orientation
+  # (e.g. contributor guides, root config overviews) belong in this group.
+
   - description: 'AI Insights - Overview'
     outputPath: README.md
     sources:
@@ -64,6 +70,11 @@ documents:
         excludePatterns:
           - 'tests/'
 
+  # ── Shared Infrastructure ───────────────────────────────────────────────────
+  # Documents that capture cross-project contracts and the unified manifest hub.
+  # New entries for shared schemas, inter-module dependency references, or
+  # the workflow-manifest belong in this group.
+
   - description: 'AI Insights - Project Manifest Hub'
     outputPath: project-manifest.md
     sources:
@@ -89,3 +100,15 @@ documents:
         sourcePaths:
           - shared
         filePattern: "*.json"
+
+  - description: 'AI Insights - Agent Operating System'
+    outputPath: agents.md
+    sources:
+      - type: text
+        content: |
+          # AI Insights - Agent Operating System
+          Root AGENTS.md: workspace architecture, manifest maintenance rules, efficiency rules, failure protocol, cross-system dependencies, cross-platform policy, and changelog convention.
+      - type: file
+        description: "Root AGENTS.md (agent operating system for the workspace)"
+        sourcePaths:
+          - AGENTS.md
