@@ -203,7 +203,9 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 | `.card-title` | 16px bold heading inside a card. |
 | `.comment-card` | Left-border-accented card for insight comments. |
 | `.priority-high` / `.priority-medium` / `.priority-low` | Left-border color modifiers for `.comment-card`. |
-| `.plan-synopsis` | Blue left-border card for plan excerpt. |
+| `.plan-synopsis` | Blue left-border card for plan excerpt. Content source: `project.project_summary` (plain text, XSS-safe via `escapeHtml()`) when set; falls back to `extractSynopsis()` + `marked.parse()`. Both paths produce identical DOM structure, so the expand/collapse toggle IIFE applies to both. Always includes a "View full plan →" link. |
+| `.outcome-synopsis` | Green left-border card for synthesis outcome summary. Rendered below the synthesis link row when `synthesis_generated === true` and `outcome_summary` is non-null/non-empty. Content is XSS-escaped plain text (no Markdown). |
+| `.outcome-synopsis__content` | Content block inside `.outcome-synopsis`. Uses `white-space: pre-wrap` to preserve any embedded newlines in the stored `outcome_summary` string. |
 | `.orchestrator-status-card` | Queue entry status card. |
 | `.orchestrator-cli-reference` | CLI commands reference card. |
 

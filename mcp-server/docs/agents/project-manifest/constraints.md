@@ -2101,6 +2101,8 @@ const ledgerPath = expectedRepo
 
 **Canonical example:** `CompleteSynthesisSchema.outcome_summary` is `z.string().min(10)` (input); `ProjectMetaSchema.outcome_summary` is `z.string().nullable().optional()` (storage).
 
+**Second instance:** `InitializeProjectSchema.project_summary` is `z.string().min(1)` (input, optional — absent is valid but empty string is not); `RootIndexSchema` and `ProjectMetaSchema` declare it as `z.string().nullable().optional()` (storage, for backward compatibility with legacy ledgers). Bridge logic in `initializeProject()` uses a conditional spread (`...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {})`) to omit the field entirely when not provided.
+
 **Anti-pattern:**
 ```typescript
 // ❌ WRONG — using .optional() on an input schema to avoid handling legacy data;
@@ -2167,6 +2169,40 @@ async function loadRegistry(root: string): Promise<Registry> {
   }
 }
 ```
+
+---
+
+### 77. GUI Port Convention — LIVE (3420) vs. DEV (3460)
+
+**Rule:** The GUI server uses **port 3420** as its default. This port is reserved for the **LIVE
+workspace** — the installed production copy of the MCP server that agents use during active ledger
+workflows. When running the GUI from the **DEV workspace** (this repository, a feature branch, or
+any development build), always pass `--port 3460`:
+
+```bash
+# ✅ CORRECT — DEV workspace / feature branch
+node scripts/run-gui.js -- --port 3460
+
+# ✅ CORRECT — LIVE workspace (default; no flag needed)
+node scripts/run-gui.js
+```
+
+**Rationale:** The LIVE and DEV workspaces can run simultaneously on the same machine. Without
+distinct ports, a DEV GUI process silently shadows the LIVE instance (or vice versa), causing
+agents mid-workflow to read stale or incorrect ledger data from the wrong server.
+
+**Anti-pattern:**
+```bash
+# ❌ WRONG — launching a DEV GUI on the default port while LIVE is running
+node scripts/run-gui.js   # collides with the LIVE instance on port 3420
+```
+
+**Port registry:**
+
+| Port | Workspace | When to Use |
+|------|-----------|-------------|
+| 3420 | LIVE (production install) | Default; leave unset for the installed, workflow-active build |
+| 3460 | DEV / feature branch | Always pass `--port 3460` when running from this repository |
 
 ---
 

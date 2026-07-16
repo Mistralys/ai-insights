@@ -45,6 +45,7 @@ export const RootIndexSchema = z.object({
   synthesis_generated: z.boolean().optional(),
   synthesis_generated_at: z.string().nullable().optional(),
   outcome_summary: z.string().nullable().optional(),
+  project_summary: z.string().nullable().optional(),
   ledger_version: z.string().optional(),
   server_version: z.string().optional(),
   // Runner metadata - optional for backward compatibility

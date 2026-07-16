@@ -228,6 +228,34 @@ function _patchSynthesisLink(visible, repo, slug) {
 }
 
 /**
+ * Show or hide the outcome-synopsis block and update its content in-place.
+ *
+ * The block is always pre-rendered as `<div id="outcome-synopsis">` by
+ * `renderProjectDetail` — hidden when the outcome is absent, visible when
+ * it is. This function mirrors `_patchSynthesisLink()` and allows the poll
+ * loop to surface a newly-completed synthesis without a full page rebuild.
+ *
+ * @param {boolean}       visible        - Whether the block should be visible.
+ * @param {string|null}   outcomeSummary - The outcome summary text to display.
+ */
+function _patchOutcomeSynopsis(visible, outcomeSummary) {
+  var container = document.getElementById('outcome-synopsis');
+  if (!container) return;
+  if (visible && outcomeSummary) {
+    var contentEl = container.querySelector('.outcome-synopsis__content');
+    var escapedText = escapeHtml(outcomeSummary);
+    if (!contentEl) {
+      container.innerHTML = '<div class="outcome-synopsis__content">' + escapedText + '</div>';
+    } else if (contentEl.innerHTML !== escapedText) {
+      contentEl.innerHTML = escapedText;
+    }
+    container.style.display = '';
+  } else {
+    container.style.display = 'none';
+  }
+}
+
+/**
  * Update the health badge text and CSS class.
  * @param {{ work_packages_needing_reset: number }} health - Health data object.
  */
@@ -371,6 +399,14 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
     // Synthesis link
     if (changes.synthesis_generated) {
       _patchSynthesisLink(nextSnapshot.synthesis_generated, repo, slug);
+    }
+
+    // Outcome synopsis — shown when synthesis is complete and outcome_summary is set
+    if (changes.outcome_summary || changes.synthesis_generated) {
+      _patchOutcomeSynopsis(
+        !!(nextSnapshot.synthesis_generated && nextSnapshot.outcome_summary),
+        nextSnapshot.outcome_summary || null
+      );
     }
 
     // Health badge
@@ -575,19 +611,27 @@ function renderProjectDetail(app, repo, slug) {
         '</div>'
       ) +
 
+      // Synopsis rendering: project_summary (if set) is a plain-text string stored by the agent
+      // and is escaped + wrapped in <p> directly. The extractSynopsis() fallback returns Markdown
+      // and is parsed via marked.parse(). Never render project_summary through marked — it is
+      // plain text, not Markdown, and would produce double-escaped output.
       (function () {
-        var synopsisHtml = '';
-        if (planResult && planResult.content) {
+        var synopsisContent = '';
+        if (project.project_summary) {
+          synopsisContent = '<p>' + escapeHtml(project.project_summary) + '</p>';
+        } else if (planResult && planResult.content) {
           var synopsis = extractSynopsis(planResult.content);
           if (synopsis) {
-            synopsisHtml =
-              '<div class="plan-synopsis">' +
-              '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
-              '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
-              '</div>';
+            synopsisContent = marked.parse(synopsis);
           }
         }
-        return synopsisHtml;
+        if (!synopsisContent) return '';
+        return '<div class="plan-synopsis" id="plan-synopsis">' +
+          '<div class="plan-synopsis__body">' +
+          '<div class="plan-synopsis__content">' + synopsisContent + '</div>' +
+          '</div>' +
+          '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+          '</div>';
       })() +
 
       (function () {
@@ -595,6 +639,14 @@ function renderProjectDetail(app, repo, slug) {
         return '<div id="synthesis-link-row" class="synthesis-link-row">' +
           '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
+      })() +
+
+      (function () {
+        var visible = !!(project.synthesis_generated && project.outcome_summary);
+        var contentHtml = visible
+          ? '<div class="outcome-synopsis__content">' + escapeHtml(project.outcome_summary) + '</div>'
+          : '';
+        return '<div id="outcome-synopsis"' + (visible ? '' : ' style="display:none"') + '>' + contentHtml + '</div>';
       })() +
 
       '<div class="card-title">Work Packages</div>' +
@@ -616,6 +668,47 @@ function renderProjectDetail(app, repo, slug) {
 
       // Dialogues section — loaded asynchronously after DOM is set
       '<div id="project-dialogues-section"></div>';
+
+    // ── Synopsis Show More / Show Less toggle ────────────────────────────
+    // Deferred inside document.fonts.ready.then() so that scrollHeight and
+    // offsetHeight measurements are taken after web fonts have loaded.
+    // Measuring before fonts load can produce incorrect heights, causing the
+    // toggle to appear even when the synopsis fits within the collapsed height.
+    var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    fontsReady.then(function () {
+      (function () {
+        var synopsisEl = document.getElementById('plan-synopsis');
+        if (!synopsisEl) return;
+        var bodyEl = synopsisEl.querySelector('.plan-synopsis__body');
+        if (!bodyEl) return;
+
+        if (bodyEl.scrollHeight <= bodyEl.offsetHeight) {
+          synopsisEl.classList.add('plan-synopsis--fits');
+          return;
+        }
+
+        var toggleBtn = document.createElement('button');
+        toggleBtn.className = 'plan-synopsis__toggle';
+        toggleBtn.textContent = 'Show more';
+
+        var linkEl = synopsisEl.querySelector('.plan-synopsis__link');
+        if (linkEl) {
+          synopsisEl.insertBefore(toggleBtn, linkEl);
+        } else {
+          synopsisEl.appendChild(toggleBtn);
+        }
+
+        toggleBtn.addEventListener('click', function () {
+          if (synopsisEl.classList.contains('plan-synopsis--expanded')) {
+            synopsisEl.classList.remove('plan-synopsis--expanded');
+            toggleBtn.textContent = 'Show more';
+          } else {
+            synopsisEl.classList.add('plan-synopsis--expanded');
+            toggleBtn.textContent = 'Show less';
+          }
+        });
+      })();
+    });
 
     // ── Initial poll state snapshot ─────────────────────────────────────
     // Build the baseline state from the data already fetched above.

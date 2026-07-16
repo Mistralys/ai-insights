@@ -374,3 +374,54 @@ After innerHTML is set:
 `{ content: string }` (Markdown from `renderChunksToDialogue()`), preserving
 compatibility with any consumer that does not pass the parameter.
 
+---
+
+## 12. Project Detail Synopsis & Outcome Rendering
+
+The project detail page renders two contextual summary blocks after the project metadata card. Both are emitted by inline IIFEs inside `project-detail.js` and use `escapeHtml()` for XSS-safe output.
+
+```
+renderProjectDetail() — synopsis/outcome block rendering
+  │
+  ├── Plan synopsis IIFE → .plan-synopsis#plan-synopsis
+  │   │
+  │   ├── If project.project_summary is truthy:
+  │   │   └── synopsisContent = '<p>' + escapeHtml(project_summary) + '</p>'
+  │   │       → Plain-text rendering (no Markdown processing)
+  │   │
+  │   ├── Else if planResult.content is available:
+  │   │   └── synopsisContent = marked.parse(extractSynopsis(planResult.content))
+  │   │       → Markdown rendering via extractSynopsis() + marked.parse()
+  │   │
+  │   └── If synopsisContent is non-empty, render:
+  │       .plan-synopsis#plan-synopsis
+  │         └── .plan-synopsis__body
+  │               └── .plan-synopsis__content (synopsisContent)
+  │         └── .plan-synopsis__link  "View full plan →"
+  │
+  ├── Synthesis link row → #synthesis-link-row
+  │   ├── If synthesis_generated: .synthesis-link-row (visible, with link)
+  │   └── Else: <div id="synthesis-link-row" style="display:none">
+  │       (pre-rendered empty container for poll-driven reveal on live projects)
+  │
+  └── Outcome synopsis IIFE → .outcome-synopsis
+      ├── If synthesis_generated === true AND outcome_summary is truthy:
+      │   └── .outcome-synopsis
+      │         └── .outcome-synopsis__content  escapeHtml(outcome_summary)
+      │             white-space: pre-wrap — preserves embedded newlines
+      └── Else: nothing rendered (no empty container)
+
+Toggle IIFE (runs after innerHTML is set, targets #plan-synopsis):
+  │
+  ├── Measures .plan-synopsis__body scrollHeight vs clientHeight
+  ├── If content fits → add .plan-synopsis--fits (suppresses fade gradient)
+  └── If content overflows:
+      ├── Inject .plan-synopsis__toggle button
+      └── Click handler toggles .plan-synopsis--expanded / collapses
+```
+
+**Key notes:**
+- The toggle IIFE applies to both rendering paths (both produce `#plan-synopsis` with `.plan-synopsis__body`); the DOM structure is identical regardless of whether `project_summary` or `extractSynopsis()` produced the content.
+- The `.outcome-synopsis` block has no toggle. Outcome summaries are expected to be concise (1–3 sentences from the Synthesis persona's `outcome_summary` field).
+- The `.outcome-synopsis` block uses `--color-complete` (green `#16a34a`) for its left-border accent, differentiating it from `.plan-synopsis` which uses `--color-ready` (blue `#2563eb`).
+

@@ -1159,6 +1159,15 @@ ${CWD_PATH_PARAM}
 Both \`project_path\` and \`cwd_path\` point to the **plan folder** here, not the workspace root.
 If both are provided, \`project_path\` takes precedence.
 
+## Optional Parameters
+
+**\`project_summary\`** (string, min 1 char) — A curated 2–3 sentence plain-text summary of the
+project. When provided, stored as \`project_summary\` in the root index and \`.meta.json\`, and
+displayed in the GUI synopsis panel. Read the plan's \`## Summary\` section and craft a concise
+summary before calling this tool. Omitting it leaves the field absent (backward-compatible).
+Note: the \`min(1)\` constraint only checks length — whitespace-only strings pass. Provide a
+meaningful summary with at least one non-whitespace character.
+
 ## Validation (evaluated in order)
 1. At least one of \`project_path\` or \`cwd_path\` must be provided.
 2. The folder basename must match the \`{YYYY-MM-DD}-{name}\` convention (e.g. \`2026-06-30-my-feature\`).

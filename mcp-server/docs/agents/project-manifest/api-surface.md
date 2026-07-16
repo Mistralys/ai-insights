@@ -48,13 +48,16 @@ pipeline_health: {
 ```typescript
 (args: { 
   project_path: string; 
-  plan_file: string  // must equal 'plan.md' — enforced by Zod .refine()
+  plan_file: string;           // must equal 'plan.md' — enforced by Zod .refine()
+  project_summary?: string;    // min(1) — human-readable description of the project intent
 }) => Promise<MCPResult>
 ```
 
 Creates a new project ledger with root index and centralized storage directory. Sets `ledger_version: SPEC_VERSION` on the root index at construction time. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
+
+**`project_summary` optional field:** When provided, the value is persisted to both `project-ledger.json` and `.meta.json` using key-presence semantics (the field is omitted entirely when not supplied — never written as `null`). The Zod `.min(1)` constraint rejects empty strings at parse time. In the GUI project detail page, `project_summary` is preferred over the auto-extracted synopsis (`extractSynopsis()` + `marked.parse()`): if set, the `.plan-synopsis` block renders it as XSS-safe plain text rather than Markdown. Bootstrapper agents should supply this field when creating a project, as it gives a curated, stable description that does not depend on plan file content.
 
 #### `ledger_list_projects`
 
@@ -118,6 +121,7 @@ All tools (except `ledger_initialize_project`) now accept `cwd_path` directly �
   project_path?: string;  // Absolute path to the standalone plan folder to import. Takes precedence over cwd_path.
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
+  project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. min(1). Whitespace-only strings pass validation but are not useful.
 }) => Promise<MCPResult>
 ```
 
@@ -139,7 +143,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 **Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives both source files, and auto-syncs `.meta.json`. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
 
 **Produced project record:**
-- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated.
+- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
 - `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
 - `plan.md` and `synthesis.md` archived to `{ledgerRoot}/{repoName}/{slug}/`.
@@ -1264,6 +1268,8 @@ export interface ImportStandaloneDetail {
   outcomeSummary: string | null;
   /** Summary lines for the WP-001 implementation pipeline entry. */
   pipelineSummary: string[];
+  /** Optional curated project description. When present, written to root index and auto-synced to .meta.json. */
+  projectSummary?: string;
 }
 ```
 
@@ -1416,7 +1422,7 @@ class LedgerStore {
   // Reads current meta, merges status + optional cacheUpdates (field-preservation: existing cache
   // fields are preserved unless overridden), validates with ProjectMetaSchema, writes atomically.
   // cacheUpdates fields use `undefined` as a skip sentinel, `null` as an explicit written value for
-  // nullable string fields (project_name, repository_name, outcome_summary).
+  // nullable string fields (project_name, repository_name, outcome_summary, project_summary).
   writeProjectMeta(
     planFile: string,
     status?: string,
@@ -1426,6 +1432,7 @@ class LedgerStore {
       project_name?: string | null;
       repository_name?: string | null;
       outcome_summary?: string | null;  // 2–3 sentence synthesis summary; uses key-presence semantics
+      project_summary?: string | null;  // Project intent description set at initialization; uses key-presence semantics
     }
   ): Promise<void>;
   // Sets the user-visible display title. Reads current meta, updates `title`
@@ -1813,6 +1820,8 @@ interface ProjectMeta {
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived via deriveRepoName(plan_path) at initializeProject; 'unknown' when not detectable. Legacy records may hold null.
+  outcome_summary?: string | null; // 2–3 sentence summary written by the Synthesis agent; null/absent before synthesis runs
+  project_summary?: string | null; // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
 }
 ```
 
@@ -1855,6 +1864,7 @@ interface RootIndex {
   synthesis_generated?: boolean;      // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
   outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
+  project_summary?: string | null;    // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
   ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
 }
 
@@ -4594,9 +4604,10 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.progress-bar-fill` | Fill layer inside `.progress-bar-track`; `height:100%`, `background:var(--color-ready)`, `transition:width 0.2s ease`; width is set inline by `buildTable()` |
 | `.filter-bar input[type='text']` | Search input in the project list filter bar; matches `.filter-bar select` visually (same padding, border, border-radius, font-size, background); focus ring mirrors `.form-control:focus` |
 | `.plan-content` | Prose container for rendered Markdown in the Plan viewer (`#/projects/:repo/:slug/plan`); max-width 800 px; typography for `h1–h4`, `p`, `ul`/`ol`/`li`, `table`/`th`/`td`, `code`, `pre`, `hr`; uses `var(--color-border)` for borders/rules and `var(--radius)` for code/pre |
-| `.plan-synopsis` | Synopsis card injected on the Project Detail page when the archived plan has a `## Summary` section; left-border accent using `var(--color-ready)`; max-height 12 rem with `overflow:hidden` (hard cut-off); surface background |
+| `.plan-synopsis` | Synopsis card injected on the Project Detail page when the archived plan has a `## Summary` section; left-border accent using `var(--color-ready)`; max-height 12 rem with `overflow:hidden` (collapsed state); surface background; **Show more / Show less toggle** expands/collapses the card (handled by `.plan-synopsis__toggle`) |
 | `.plan-synopsis__content` | Inner content block inside `.plan-synopsis` for the summary text |
 | `.plan-synopsis__link` | **View full plan →** link element inside `.plan-synopsis` |
+| `.plan-synopsis__toggle` | **Show more / Show less** button below the synopsis card; `font-family: inherit` prevents browser default button font from overriding the page font; toggle IIFE is deferred inside `document.fonts.ready.then()` so scroll-height measurements are taken after fonts have loaded (with a `Promise.resolve()` fallback for jsdom/older browsers) |
 | `.synthesis-content` | Prose container for rendered Markdown in the Synthesis viewer (`#/projects/:repo/:slug/synthesis`); shares all typography rules with `.plan-content` via multi-selector CSS (DRY — no duplicated rules) |
 | `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
 | `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |

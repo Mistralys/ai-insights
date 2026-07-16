@@ -2056,3 +2056,104 @@ describe('completeSynthesis — outcome_summary persistence (WP-004)', () => {
     expect(root.status).toBe('COMPLETE');
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-004 (tool param) — initializeProject project_summary parameter
+// ---------------------------------------------------------------------------
+describe('initializeProject — project_summary parameter', () => {
+  let planDir: string;
+  let tempLedgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp-project-summary-'));
+    planDir = join(tmpdir(), '2026-07-16-project-summary-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('schema accepts a valid project_summary string', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      project_summary: 'A curated summary of the project.',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('schema accepts objects without project_summary', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('schema rejects an empty project_summary string (min(1) constraint)', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      project_summary: '',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const err = result.error.issues.find((i) => i.path.includes('project_summary'));
+      expect(err).toBeDefined();
+    }
+  });
+
+  it('persists project_summary in project-ledger.json when provided', async () => {
+    const summary = 'Integration test: summary stored in root index.';
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+      project_summary: summary,
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.project_summary).toBe(summary);
+  });
+
+  it('persists project_summary in .meta.json when provided', async () => {
+    const summary = 'Integration test: summary stored in meta cache.';
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+      project_summary: summary,
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const meta = await store.readProjectMeta();
+    expect((meta as any).project_summary).toBe(summary);
+  });
+
+  it('omits project_summary from project-ledger.json when not provided', async () => {
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect('project_summary' in root).toBe(false);
+  });
+
+  it('omits project_summary from .meta.json when not provided', async () => {
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const meta = await store.readProjectMeta();
+    expect('project_summary' in (meta as any)).toBe(false);
+  });
+});

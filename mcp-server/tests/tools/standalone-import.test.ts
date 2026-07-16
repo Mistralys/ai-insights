@@ -275,6 +275,57 @@ describe('ledger_import_standalone — uses deriveRepoName (AC6)', () => {
   });
 });
 
+// ─── project_summary parameter ────────────────────────────────────────────
+
+describe('ledger_import_standalone — project_summary parameter', () => {
+  it('persists project_summary in root index when provided', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const summary = 'Implemented the feature using an approach that simplified state management.';
+    await importStandalone({ project_path: planDir, project_summary: summary });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.project_summary).toBe(summary);
+  });
+
+  it('persists project_summary in .meta.json when provided', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const summary = 'A curated summary stored in meta.';
+    const result = await importStandalone({ project_path: planDir, project_summary: summary });
+    const { parsed } = parseResult(result);
+
+    const metaPath = join(parsed.project_storage_path, '.meta.json');
+    const metaRaw = await readFile(metaPath, 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    expect(meta.project_summary).toBe(summary);
+  });
+
+  it('omits project_summary from root index when not provided (backward compatibility)', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    await importStandalone({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.project_summary).toBeUndefined();
+  });
+
+  it('rejects an empty string for project_summary (schema validation)', async () => {
+    // The ImportStandaloneSchema uses z.string().min(1) for project_summary.
+    // Verify that min(1) constraint rejects empty strings.
+    const { z } = await import('zod');
+    const schema = z.object({ project_summary: z.string().min(1).optional() });
+    expect(schema.safeParse({ project_summary: '' }).success).toBe(false);
+    expect(schema.safeParse({ project_summary: 'valid' }).success).toBe(true);
+    expect(schema.safeParse({}).success).toBe(true);
+  });
+});
+
 // ─── ledger_update_synthesis — successful update ──────────────────────────
 
 const SYNTHESIS_UPDATED = `

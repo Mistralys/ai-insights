@@ -176,6 +176,7 @@ function _snapshotProjectState(project, overviewResult) {
     status:               meta.status              || '',
     last_updated:         meta.last_updated         || '',
     synthesis_generated:  !!(project && project.synthesis_generated),
+    outcome_summary:      (project && project.outcome_summary) || null,
     wpStatuses:           wpStatuses,
     health:               null,  // populated asynchronously via getProjectHealth()
   };
@@ -261,7 +262,10 @@ function _diffProjectState(prev, next) {
   if (!!prev.synthesis_generated !== !!next.synthesis_generated) {
     markData('synthesis_generated', prev.synthesis_generated, next.synthesis_generated);
   }
-
+  // ── outcome_summary ───────────────────────────────────────────
+  if ((prev.outcome_summary || null) !== (next.outcome_summary || null)) {
+    markData('outcome_summary', prev.outcome_summary, next.outcome_summary);
+  }
   // ── health ──────────────────────────────────────────────────────────
   // null-to-value (or any value change) is data-only
   var prevHealthStr = JSON.stringify(prev.health || null);
