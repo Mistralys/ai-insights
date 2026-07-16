@@ -140,3 +140,87 @@ describe('RootIndexSchema — outcome_summary field', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ─── ProjectMetaSchema — project_summary ─────────────────────────────────────
+
+describe('ProjectMetaSchema — project_summary field', () => {
+  it('accepts a non-empty string value (AC1)', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      project_summary: 'Delivers a gradient fade-out and toggle for the plan synopsis card.',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBe('Delivers a gradient fade-out and toggle for the plan synopsis card.');
+    }
+  });
+
+  it('accepts null (AC1)', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      project_summary: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBeNull();
+    }
+  });
+
+  it('accepts absent field — backward compatibility (AC1)', () => {
+    const result = ProjectMetaSchema.safeParse(BASE_META);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBeUndefined();
+    }
+  });
+
+  it('rejects a number (AC2)', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      project_summary: 123,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── RootIndexSchema — project_summary ───────────────────────────────────────
+
+describe('RootIndexSchema — project_summary field', () => {
+  it('accepts a non-empty string value (AC1)', () => {
+    const result = RootIndexSchema.safeParse({
+      ...BASE_ROOT,
+      project_summary: 'Adds project_summary field through the full MCP stack.',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBe('Adds project_summary field through the full MCP stack.');
+    }
+  });
+
+  it('accepts null (AC1)', () => {
+    const result = RootIndexSchema.safeParse({
+      ...BASE_ROOT,
+      project_summary: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBeNull();
+    }
+  });
+
+  it('accepts absent field — backward compatibility (AC1)', () => {
+    const result = RootIndexSchema.safeParse(BASE_ROOT);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.project_summary).toBeUndefined();
+    }
+  });
+
+  it('rejects a number (AC2)', () => {
+    const result = RootIndexSchema.safeParse({
+      ...BASE_ROOT,
+      project_summary: 123,
+    });
+    expect(result.success).toBe(false);
+  });
+});

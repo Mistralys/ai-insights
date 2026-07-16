@@ -71,7 +71,7 @@ import {
   handleUpdateRepo,
   handleDeleteRepo,
 } from './api-repos.js';
-import { renderChunksToDialogue } from './chunk-renderer.js';
+import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -333,10 +333,21 @@ export async function resolveRepoName(
 }
 
 /**
+ * Extracts query-string parameters from a full URL string.
+ * Returns a URLSearchParams instance (empty if no query string present).
+ */
+function parseQueryString(url: string): URLSearchParams {
+  const qIdx = url.indexOf('?');
+  return new URLSearchParams(qIdx !== -1 ? url.slice(qIdx + 1) : '');
+}
+
+/**
  * Matches a method + URL path to an API handler.
  * Returns a handler thunk or null if no route matches.
+ *
+ * Exported for testing purposes.
  */
-function matchRoute(
+export function matchRoute(
   method: string,
   url: string,
   ledgerRoot: string,
@@ -377,9 +388,7 @@ function matchRoute(
 
   // GET /api/projects
   if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const params = {
       page: sp.get('page') ?? undefined,
       limit: sp.get('limit') ?? undefined,
@@ -533,9 +542,7 @@ function matchRoute(
     rest[2] === 'dialogues'
   ) {
     const slug = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return () => handleListDialogues(ledgerRoot, slug, wpId);
   }
@@ -552,9 +559,7 @@ function matchRoute(
     rest[2] === 'chunks'
   ) {
     const slug = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return () => handleListChunks(ledgerRoot, slug, wpId);
   }
@@ -578,6 +583,13 @@ function matchRoute(
   ) {
     const slug = rest[1]!;
     const filename = decodeURIComponent(rest[3]!);
+    const format = parseQueryString(url).get('format');
+    if (format === 'structured') {
+      return () =>
+        handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+          blocks: renderChunksToStructured(content),
+        }));
+    }
     return () =>
       handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
         content: renderChunksToDialogue(content),
@@ -761,9 +773,7 @@ function matchRoute(
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
@@ -791,9 +801,7 @@ function matchRoute(
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
@@ -961,11 +969,17 @@ function matchRoute(
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
     const filename = decodeURIComponent(rest[4]!);
+    const format = parseQueryString(url).get('format');
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
         throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
       }
       const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      if (format === 'structured') {
+        return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
+          blocks: renderChunksToStructured(content),
+        }));
+      }
       return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
         content: renderChunksToDialogue(content),
       }));
@@ -1123,9 +1137,7 @@ function matchRoute(
   ) {
     const slug = decodeURIComponent(rest[1]!);
     const filename = decodeURIComponent(rest[3]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
     return async () => {
@@ -1152,9 +1164,7 @@ function matchRoute(
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
     const filename = decodeURIComponent(rest[4]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
     return async () => {
@@ -1246,9 +1256,7 @@ function matchRoute(
   // GET /api/repos
   // rest.length === 1, rest[0] === 'repos'
   if (method === 'GET' && rest.length === 1 && rest[0] === 'repos') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const includeUndeclared = sp.get('include_undeclared') === 'true';
     return () => handleListRepos(ledgerRoot, includeUndeclared);
   }
@@ -1278,9 +1286,7 @@ function matchRoute(
   // GET /api/knowledge
   // rest.length === 1, rest[0] === 'knowledge'
   if (method === 'GET' && rest.length === 1 && rest[0] === 'knowledge') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const params = {
       scope: sp.get('scope') ?? undefined,
       category: sp.get('category') ?? undefined,
@@ -1297,9 +1303,7 @@ function matchRoute(
   // rest.length === 2, rest[0] === 'knowledge'
   if (method === 'DELETE' && rest.length === 2 && rest[0] === 'knowledge') {
     const rawId = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const scope = sp.get('scope') ?? undefined;
     const repository_name = sp.get('repository_name') ?? undefined;
     return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name);
@@ -1309,9 +1313,7 @@ function matchRoute(
   // rest.length === 3, rest[0] === 'knowledge', rest[2] === 'promote'
   if (method === 'POST' && rest.length === 3 && rest[0] === 'knowledge' && rest[2] === 'promote') {
     const rawId = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const scope = sp.get('scope') ?? undefined;
     const repository_name = sp.get('repository_name') ?? undefined;
     return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name);

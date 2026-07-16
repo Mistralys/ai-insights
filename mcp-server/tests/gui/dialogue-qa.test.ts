@@ -50,7 +50,7 @@ beforeAll(() => {
 // Route pattern reference for this file:
 //   '/work-packages/'     → getWorkPackage()      returns the WP JSON object
 //   /\/dialogues\?wp=/    → getDialogues()        returns array of { filename, stage }
-//   /\/dialogues\//       → getDialogueContent()  returns { content: '...' } (text via res.text())
+//   /\/dialogues\//       → getDialogueContent()  returns { content: '...' } (JSON.content via res.json())
 //
 // IMPORTANT: keep the two dialogue patterns distinct. Using /\/dialogues\?wp=/ for both
 // would cause the content fetch to silently match the list route (fallback behaviour) and
@@ -147,8 +147,8 @@ describe('AC1 — API.getDialogues URL', () => {
 describe('AC2 — API.getDialogueContent URL', () => {
   // NOTE: These tests use a raw vi.fn() instead of installFetchMock because they
   // need to inspect the raw URL. The mock must include BOTH json() and text() even
-  // though getDialogueContent() only calls text() — api-client.js uses a shared
-  // request() helper for other endpoints that calls json(), and omitting either
+  // though getDialogueContent() only calls json() (via the shared request() helper) —
+  // other endpoints exercised during test setup may call text(), and omitting either
   // method causes "res.json is not a function" / "res.text is not a function" errors
   // depending on which code path executes first.
   it('makes GET /api/projects/{repo}/{slug}/dialogues/{filename}', async () => {
@@ -162,7 +162,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
     expect(calls[0]).toBe('/api/projects/my-repo/my-project/dialogues/file.md');
   });
 
-  it('returns raw text (not parsed JSON)', async () => {
+  it('returns data.content string from JSON response body', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
       ok: true, status: 200, json: async () => ({ content: '# Markdown content' }), text: async () => '# Markdown content',
     }));

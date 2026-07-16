@@ -1,0 +1,3 @@
+- **Factual and concise** — describe what the project does and why, not how it is implemented
+- **Plain text only** — no Markdown formatting (no bold, bullets, backticks, or headers)
+- **Focused on intent** — avoid implementation details, tool names, and technical specifics unless essential to understanding the project's purpose

@@ -7,17 +7,204 @@
                and before project-detail.js in index.html.
 
    Exports:
+     buildDialogueHTML
      renderDialoguesSection
    ============================================================ */
 
+/* ----------------------------------------------------------
+   Interactive dialogue renderer (WP-006)
+   ---------------------------------------------------------- */
+
+/**
+ * Render inline Markdown (bold, italic, inline code) in a plain-text string.
+ * Delegates to marked.parseInline() when available; falls back to safe regex
+ * substitution (HTML-escaped first) so XSS is impossible on both code paths.
+ *
+ * @param {string} text - Raw text that may contain **bold**, *italic*, `code`.
+ * @returns {string} Safe HTML string.
+ */
+function _dialogueInlineMarkdown(text) {
+  if (typeof marked !== 'undefined' && typeof marked.parseInline === 'function') {
+    // Pre-escape HTML before passing to marked so any raw HTML in the input is
+    // neutralised before marked processes it. Markdown syntax characters
+    // (* _ ` \n) are unaffected by escapeHtml, so bold/italic/code still render
+    // correctly. This makes the primary path consistent with the regex fallback.
+    return marked.parseInline(escapeHtml(text));
+  }
+  // Regex fallback: escape HTML first, then apply simple Markdown transforms.
+  var safe = escapeHtml(text);
+  safe = safe.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  safe = safe.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  return safe;
+}
+
+/**
+ * Build HTML for a 'text' dialogue block.
+ * Splits content on double newlines to form individual paragraph elements.
+ *
+ * @param {{type: 'text', content: string}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueTextBlock(block) {
+  var content = block.content || '';
+  var paragraphs = content.split(/\n\n+/);
+  var pHtml = '';
+  var i, para;
+  for (i = 0; i < paragraphs.length; i++) {
+    para = paragraphs[i].trim();
+    if (!para) continue;
+    pHtml += '<p>' + _dialogueInlineMarkdown(para) + '</p>';
+  }
+  return '<div class="dialogue-text">' + pHtml + '</div>';
+}
+
+/**
+ * Build HTML for a 'tool-call' dialogue block.
+ * Renders as a collapsed-by-default card: toggle button (always visible),
+ * ↳ detail lines (always visible, between button and body), and a
+ * collapsible body containing the args JSON and optional tool result.
+ *
+ * @param {{type: 'tool-call', name: string, detailLines: string[], args: *, result: {content: string}|undefined}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueToolCallBlock(block) {
+  var name = block.name || 'unknown';
+  var detailLines = block.detailLines || [];
+  var args = block.args;
+  var result = block.result;
+  var i;
+
+  // Toggle button — always visible, collapsed by default.
+  var headerHtml =
+    '<button class="dialogue-tool-toggle" aria-expanded="false">' +
+      '<span class="dialogue-tool-arrow">\u25b6</span>' +
+      'Tool call: ' + escapeHtml(name) +
+    '</button>';
+
+  // ↳ detail lines — always visible, outside the hidden body.
+  var detailHtml = '';
+  if (detailLines.length) {
+    detailHtml += '<div class="dialogue-tool-detail-area">';
+    for (i = 0; i < detailLines.length; i++) {
+      detailHtml += '<div class="dialogue-tool-detail-line">' + escapeHtml(detailLines[i]) + '</div>';
+    }
+    detailHtml += '</div>';
+  }
+
+  // Collapsible body: args JSON + optional result (hidden by default).
+  var argsJson;
+  try {
+    argsJson = JSON.stringify(args, null, 2);
+  } catch (e) {
+    argsJson = String(args);
+  }
+
+  var bodyHtml = '<pre class="dialogue-tool-args">' + escapeHtml(argsJson) + '</pre>';
+
+  if (result && result.content) {
+    bodyHtml +=
+      '<div class="dialogue-tool-result">' +
+        '<span class="dialogue-tool-result-label">Result:</span>' +
+        escapeHtml(result.content) +
+      '</div>';
+  }
+
+  return '<div class="dialogue-tool-call">' +
+    headerHtml +
+    detailHtml +
+    '<div class="dialogue-tool-details" hidden>' + bodyHtml + '</div>' +
+  '</div>';
+}
+
+/**
+ * Build HTML for a 'checklist' dialogue block (write_todos invocation).
+ *
+ * @param {{type: 'checklist', items: Array<{content: string, status: string, checked: boolean}>}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueChecklistBlock(block) {
+  var items = block.items || [];
+  var listHtml = '';
+  var i, item, isChecked, checkedAttr, checkedClass;
+  for (i = 0; i < items.length; i++) {
+    item = items[i];
+    isChecked = !!item.checked;
+    checkedAttr  = isChecked ? ' checked' : '';
+    checkedClass = isChecked ? ' class="checked"' : '';
+    listHtml +=
+      '<li' + checkedClass + '>' +
+        '<input type="checkbox" disabled' + checkedAttr + '>' +
+        '<span>' + escapeHtml(item.content || '') + '</span>' +
+      '</li>';
+  }
+  return '<div class="dialogue-checklist"><ul>' + listHtml + '</ul></div>';
+}
+
+/**
+ * Build HTML for a 'subagent-heading' dialogue block.
+ *
+ * @param {{type: 'subagent-heading', label: string}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueSubagentHeadingBlock(block) {
+  return '<h3 class="dialogue-subagent-heading">' + escapeHtml(block.label || '') + '</h3>';
+}
+
+/**
+ * Transform an array of DialogueBlocks into interactive HTML.
+ *
+ * - 'text'             → clean paragraphs with inline Markdown support
+ * - 'tool-call'        → collapsed-by-default card with args/result toggle
+ * - 'checklist'        → styled list with checkbox indicators
+ * - 'subagent-heading' → <h3> element
+ *
+ * All string values are passed through escapeHtml() for XSS defence.
+ * All JavaScript follows ES5 patterns (var, function declarations, .then() chains).
+ *
+ * @param {Array<{type: string}>} blocks - Array of DialogueBlock objects.
+ * @returns {string} Safe HTML string ready for assignment to .innerHTML.
+ */
+function buildDialogueHTML(blocks) {
+  if (!blocks || !blocks.length) {
+    return '<p class="text-muted">No dialogue content.</p>';
+  }
+  var html = '';
+  var i, block;
+  for (i = 0; i < blocks.length; i++) {
+    block = blocks[i];
+    if (block.type === 'text') {
+      html += _buildDialogueTextBlock(block);
+    } else if (block.type === 'tool-call') {
+      html += _buildDialogueToolCallBlock(block);
+    } else if (block.type === 'checklist') {
+      html += _buildDialogueChecklistBlock(block);
+    } else if (block.type === 'subagent-heading') {
+      html += _buildDialogueSubagentHeadingBlock(block);
+    }
+  }
+  return '<div class="dialogue-interactive">' + html + '</div>';
+}
+
+/* ----------------------------------------------------------
+   Modal opener
+   ---------------------------------------------------------- */
+
 /**
  * Open a full-screen modal showing the rendered content of a single dialogue.
+ *
+ * When useChunks is true, fetches structured DialogueBlock[] via
+ * API.getChunkStructured() and renders via buildDialogueHTML(), including
+ * an expand/collapse delegated listener for tool-call headers.
+ *
+ * When useChunks is false, fetches raw Markdown via API.getDialogueContent()
+ * and renders via marked.parse() (legacy path — unchanged).
  *
  * @param {string}  title      - Modal header text (e.g. "WP-003 · developer-r0")
  * @param {string}  repo
  * @param {string}  slug
  * @param {string}  filename
- * @param {boolean} useChunks  - true → fetch via getChunkRendered, false → getDialogueContent
+ * @param {boolean} useChunks  - true → structured renderer, false → Markdown renderer
  */
 function _openDialogueModal(title, repo, slug, filename, useChunks) {
   // Remove any existing dialogue modal
@@ -54,21 +241,58 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
     if (e.key === 'Escape') closeModal();
   });
 
-  var fetchPromise = useChunks
-    ? API.getChunkRendered(repo, slug, filename)
-    : API.getDialogueContent(repo, slug, filename);
+  if (useChunks) {
+    // Structured path: fetch DialogueBlock[] and render with buildDialogueHTML().
+    API.getChunkStructured(repo, slug, filename).then(function (blocks) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = buildDialogueHTML(blocks);
+    }).catch(function (err) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
+        escapeHtml(err.message || String(err)) + '</p>';
+    });
 
-  fetchPromise.then(function (md) {
-    if (!bodyEl) return;
-    var rendered = (typeof marked !== 'undefined' && marked.parse)
-      ? marked.parse(md)
-      : '<pre>' + escapeHtml(md) + '</pre>';
-    bodyEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
-  }).catch(function (err) {
-    if (!bodyEl) return;
-    bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
-      escapeHtml(err.message || String(err)) + '</p>';
-  });
+    // Delegated click listener for tool-call expand/collapse toggles.
+    // Registered once on bodyEl; the handler fires after content is loaded
+    // because user interaction always follows the async render.
+    bodyEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('.dialogue-tool-toggle');
+      if (!btn) return;
+
+      var isExpanded = btn.getAttribute('aria-expanded') === 'true';
+      var detailsEl  = btn.parentNode ? btn.parentNode.querySelector('.dialogue-tool-details') : null;
+      var arrowEl    = btn.querySelector('.dialogue-tool-arrow');
+
+      if (detailsEl) {
+        if (isExpanded) {
+          detailsEl.setAttribute('hidden', '');
+        } else {
+          detailsEl.removeAttribute('hidden');
+        }
+      }
+      btn.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+      if (arrowEl) {
+        if (isExpanded) {
+          arrowEl.classList.remove('expanded');
+        } else {
+          arrowEl.classList.add('expanded');
+        }
+      }
+    });
+  } else {
+    // Legacy path: fetch raw Markdown and render via marked.parse().
+    API.getDialogueContent(repo, slug, filename).then(function (md) {
+      if (!bodyEl) return;
+      var rendered = (typeof marked !== 'undefined' && marked.parse)
+        ? marked.parse(md)
+        : '<pre>' + escapeHtml(md) + '</pre>';
+      bodyEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
+    }).catch(function (err) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
+        escapeHtml(err.message || String(err)) + '</p>';
+    });
+  }
 }
 
 /**

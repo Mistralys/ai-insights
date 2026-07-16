@@ -54,6 +54,7 @@ type Snapshot = {
   status: string;
   last_updated: string;
   synthesis_generated: boolean;
+  outcome_summary: string | null;
   wpStatuses: Record<string, { status: string; pipelineStages: unknown[] }>;
   health: null | { work_packages_needing_reset: number };
 };
@@ -82,6 +83,7 @@ function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     status: 'IN_PROGRESS',
     last_updated: '2026-01-15T12:00:00Z',
     synthesis_generated: false,
+    outcome_summary: null,
     wpStatuses: {
       'WP-001': { status: 'IN_PROGRESS', pipelineStages: [] },
       'WP-002': { status: 'READY',       pipelineStages: [] },
@@ -298,6 +300,28 @@ describe('_diffProjectState — data-only changes', () => {
 
     expect(result.type).toBe('data');
     expect(result.changes['health']).toBeDefined();
+  });
+
+  it('classifies outcome_summary null → value change as data-only', () => {
+    const prev = makeSnapshot({ outcome_summary: null });
+    const next = makeSnapshot({ outcome_summary: 'Implemented the feature successfully.' });
+    const result = globalThis._diffProjectState(prev, next);
+
+    expect(result.type).toBe('data');
+    expect(result.changes['outcome_summary']).toBeDefined();
+    expect(result.changes['outcome_summary'].from).toBeNull();
+    expect(result.changes['outcome_summary'].to).toBe('Implemented the feature successfully.');
+  });
+
+  it('classifies outcome_summary value → null change as data-only', () => {
+    const prev = makeSnapshot({ outcome_summary: 'Old summary.' });
+    const next = makeSnapshot({ outcome_summary: null });
+    const result = globalThis._diffProjectState(prev, next);
+
+    expect(result.type).toBe('data');
+    expect(result.changes['outcome_summary']).toBeDefined();
+    expect(result.changes['outcome_summary'].from).toBe('Old summary.');
+    expect(result.changes['outcome_summary'].to).toBeNull();
   });
 
   it('classifies last_updated change as data-only', () => {

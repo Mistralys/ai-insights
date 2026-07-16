@@ -112,6 +112,43 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
     expect(meta.status).toBe('COMPLETE');
   });
 
+  it('writeProjectMeta with project_summary persists and readProjectMeta returns it (AC4, AC6)', async () => {
+    await store.writeProjectMeta('plan.md', 'READY', {
+      project_summary: 'Adds gradient fade-out and toggle for the plan synopsis card.',
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.project_summary).toBe('Adds gradient fade-out and toggle for the plan synopsis card.');
+  });
+
+  it('writeProjectMeta without project_summary in cacheUpdates preserves existing value (AC5)', async () => {
+    // Write an initial project_summary
+    await store.writeProjectMeta('plan.md', 'READY', {
+      project_summary: 'Initial summary.',
+    });
+
+    // Subsequent write that omits project_summary — the existing value must be preserved
+    await store.writeProjectMeta('plan.md', 'IN_PROGRESS', {
+      total_work_packages: 2,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.project_summary).toBe('Initial summary.');
+  });
+
+  it('writeProjectMeta overrides project_summary when cacheUpdates includes the field (AC6)', async () => {
+    await store.writeProjectMeta('plan.md', 'READY', {
+      project_summary: 'Original summary.',
+    });
+
+    await store.writeProjectMeta('plan.md', 'READY', {
+      project_summary: 'Updated summary.',
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.project_summary).toBe('Updated summary.');
+  });
+
   it('updateWorkPackageWithSync auto-syncs .meta.json status', async () => {
     await store.writeRootIndex(makeRootIndex({
       status: 'IN_PROGRESS',

@@ -36,7 +36,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `GET` | `/api/projects/:repo/:slug/dialogues/:filename` | `handleGetDialogueFile` | Single dialogue content. |
 | `GET` | `/api/projects/:repo/:slug/chunks` | `handleListChunks` | Chunk file list (optional `?wp=` filter). |
 | `GET` | `/api/projects/:repo/:slug/chunks/:filename` | `handleGetChunkFile` | Raw chunk JSONL content. |
-| `GET` | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` | Rendered chunk as dialogue Markdown (compact chat-like format; plain paragraphs, per-tool summaries, no JSON blocks). |
+| `GET` | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` / `renderChunksToStructured` | Rendered chunk. Without `?format=structured`: Markdown string (`{ content }`) — compact chat-like format, plain paragraphs, per-tool summaries. With `?format=structured`: JSON array (`{ blocks: DialogueBlock[] }`) for interactive frontend rendering. |
 | `GET` | `/api/projects/:repo/:slug/runs` | `handleListRunLogs` | Orchestrator run log file list. |
 | `GET` | `/api/projects/:repo/:slug/runs/:filename` | `handleGetRunLog` | Log entries (supports `?after=N` for streaming). |
 | `DELETE` | `/api/projects/:repo/:slug` | `handleDeleteProject` | Permanently delete a project. |
@@ -142,12 +142,30 @@ Pure-function module. No I/O, no side effects, no imports from `mcp-server/src/`
 
 ### `chunk-renderer.ts` — Rendering layer
 
-Imports all types and functions from `chunk-accumulator.ts`. Exports two pure renderers:
+Imports all types and functions from `chunk-accumulator.ts`. Exports three pure renderers and the `DialogueBlock` discriminated union type:
 
 | Export | Signature | Description |
 |--------|-----------|-------------|
 | `renderChunksToMarkdown` | `(jsonlContent: string) → string` | Verbose format: `## Role` headings, JSON fenced tool-call blocks, token-usage footer. |
 | `renderChunksToDialogue` | `(jsonlContent: string) → string` | Compact chat-like format: plain-paragraph AI text, per-tool summary lines, hidden ToolMessages, sub-agent `### Subagent:` headings. |
+| `renderChunksToStructured` | `(jsonlContent: string) → DialogueBlock[]` | Structured format: returns a typed JSON array of `DialogueBlock` objects for interactive frontend rendering. |
+| `DialogueBlock` | *(exported type)* | Discriminated union describing one rendered block in the structured view. |
+
+#### `DialogueBlock` Type
+
+```typescript
+type DialogueBlock =
+  | { type: 'text'; content: string }
+  | { type: 'tool-call'; name: string; detailLines: string[]; args: unknown; result?: { content: string } }
+  | { type: 'subagent-heading'; label: string }
+  | { type: 'checklist'; items: Array<{ content: string; status: string; checked: boolean }> };
+```
+
+Variants:
+- `text` — A prose paragraph of AI-generated text.
+- `tool-call` — One tool invocation: name, summary detail lines, parsed args JSON, and an optional embedded ToolMessage result for non-inline tools (e.g. `read_file`, `ledger_*`).
+- `subagent-heading` — Heading marking the start of a sub-agent namespace.
+- `checklist` — A `write_todos` invocation rendered as a typed item list; each item carries `content`, `status`, and a pre-computed `checked` boolean.
 
 ---
 
@@ -181,7 +199,8 @@ Client-side REST API wrapper. All methods return Promises.
 | `getDialogues` | `(repo, slug, wpId?) → Promise<object[]>` | `GET …/dialogues` |
 | `getDialogueContent` | `(repo, slug, filename) → Promise<string>` | `GET …/dialogues/:filename` |
 | `getChunks` | `(repo, slug, wpId?) → Promise<object[]>` | `GET …/chunks` |
-| `getChunkRendered` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/rendered` |
+| `getChunkRendered` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/rendered` — Markdown string response |
+| `getChunkStructured` | `(repo, slug, filename) → Promise<DialogueBlock[]>` | `GET …/chunks/:filename/rendered?format=structured` — structured JSON response (unwrapped array) |
 | `getConfig` | `() → Promise<object>` | `GET /api/config` |
 | `updateConfig` | `(data) → Promise<object>` | `PUT /api/config` |
 | `getInsights` | `() → Promise<object>` | `GET /api/insights` |

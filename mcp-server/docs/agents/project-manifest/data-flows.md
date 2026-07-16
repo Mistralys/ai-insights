@@ -40,7 +40,7 @@ The centralized ledger uses a **two-level repo-namespaced directory structure**:
 **Entry Point:** Agent invokes `ledger_initialize_project` tool
 
 ```
-Agent → ledger_initialize_project(project_path, plan_file)
+Agent → ledger_initialize_project(project_path, plan_file[, project_summary])
   ↓
 LedgerStore.writeRootIndex()
   ↓
@@ -62,6 +62,8 @@ store.archiveDocuments([plan_file])  — best-effort; outside lock scope
   ↓
 Return RootIndex + { archived_documents, archive_skipped? } to agent
 ```
+
+**`project_summary` optional field:** When the caller supplies `project_summary`, it is spread into the root index object and into the `writeProjectMeta()` enrichment call using key-presence semantics — the field is absent from both `project-ledger.json` and `.meta.json` when not provided. The Zod `.min(1)` guard rejects empty strings at parse time.
 
 **Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{repoName}/{slug}/` as archived reference (best-effort; missing source is silently skipped).
 
