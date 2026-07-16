@@ -36,8 +36,6 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-28-ce-framework-audit.md
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
-    │   │   └── 2026-07-07-deep-agent-integration-tests.md
-    │   │   └── 2026-07-07-macos-path-middleware.md
     │   │   └── 2026-07-15-deepagents-browser-tool.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
@@ -610,6 +608,7 @@ _SOURCE: Top-level directory tree_
     │       └── workspace-architect.agent.md
 └── scripts/
     ├── build-personas.js
+    ├── build-skills.js
     ├── bundle-docs.js
     ├── check-known-roles.js
     ├── check-version-sync.js
@@ -627,6 +626,7 @@ _SOURCE: Top-level directory tree_
     ├── preflight-orchestrator.js
     ├── preview-prompts.py
     ├── publish-locations.js
+    ├── publish-skills.js
     ├── read-log.js
     ├── run-gui.js
     ├── run-orchestrator.js
@@ -636,10 +636,18 @@ _SOURCE: Top-level directory tree_
     │   ├── health-checks.test.js
     │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
+    │   ├── publish-skills.test.js
     ├── validate-workflow-manifest.js
 └── shared/
     ├── workflow-manifest.json
     ├── workflow-manifest.schema.json
+└── skills/
+    ├── README.md
+    ├── meta/
+    │   ├── _shared.yaml
+    │   ├── insights-audit-persona.yaml
+    ├── src/
+    │   └── insights-audit-persona.md
 └── vitest.config.ts
 
 ```

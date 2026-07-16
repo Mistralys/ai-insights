@@ -11,6 +11,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
 // Structure of documents
 └── scripts/
     └── build-personas.js
+    └── build-skills.js
     └── bundle-docs.js
     └── check-known-roles.js
     └── check-version-sync.js
@@ -27,6 +28,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── preflight-bootstrap.js
     └── preflight-orchestrator.js
     └── publish-locations.js
+    └── publish-skills.js
     └── read-log.js
     └── run-gui.js
     └── run-orchestrator.js
@@ -407,6 +409,117 @@ if (!CHECK) {
     }
     process.exit(1);
   }
+}
+
+```
+###  Path: `/scripts/build-skills.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * build-skills.js — build skill output files using a custom TargetRegistry.
+ * Uses @mistralys/persona-builder programmatic API with vscode-skill and claude-skill targets.
+ * Usage: node scripts/build-skills.js [--check] [--dry-run] [--strict]
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { createRequire } from 'module';
+
+const _require = createRequire(import.meta.url);
+
+const ROOT   = path.join(import.meta.dirname, '..');
+const LIB    = path.join(ROOT, 'personas', 'node_modules', '@mistralys', 'persona-builder', 'dist', 'index.cjs');
+const SKILLS = path.join(ROOT, 'skills');
+const DIST   = path.join(ROOT, 'dist');
+
+const { build, TargetRegistry } = _require(LIB);
+
+// --dry-run is accepted as a convenience alias for --check (same behaviour)
+const CHECK  = process.argv.includes('--check') || process.argv.includes('--dry-run');
+const STRICT = process.argv.includes('--strict');
+
+// Frontmatter templates for skill targets.
+// VS Code skills: name, description, and optional argument-hint only.
+// context/agent are not emitted for VS Code (VS Code doesn't use context: fork).
+const VSCODE_SKILL_FRONTMATTER = `---
+name: {{name}}
+description: "{{description}}"
+{{#if argument_hint}}argument-hint: "{{argument_hint}}"
+{{/if}}---`;
+
+// Claude Code skills: name, description, plus optional context and agent.
+const CLAUDE_SKILL_FRONTMATTER = `---
+name: {{name}}
+description: "{{description}}"
+{{#if context}}context: {{context}}
+{{/if}}{{#if agent}}agent: {{agent}}
+{{/if}}---`;
+
+// Custom registry — do not register on defaultRegistry (reserved for persona targets).
+const skillRegistry = new TargetRegistry();
+
+skillRegistry.register({
+    name:               'vscode-skill',
+    outputDirKey:       'vscode-skill',
+    defaultFrontmatter: VSCODE_SKILL_FRONTMATTER,
+    contextFlags:       { target_vscode_skill: true },
+});
+
+skillRegistry.register({
+    name:               'claude-skill',
+    outputDirKey:       'claude-skill',
+    defaultFrontmatter: CLAUDE_SKILL_FRONTMATTER,
+    contextFlags:       { target_claude_skill: true },
+});
+
+// Output directories
+const OUT_VSCODE  = path.join(DIST, 'vscode-skills');
+const OUT_CLAUDE  = path.join(DIST, 'claude-skills');
+
+// Pre-build: clear output directories so stale/renamed files don't linger.
+// Uses recursive removal to catch any subdirectory output, not just top-level .md files.
+// Skipped in --check / --dry-run mode (read-only).
+if (!CHECK) {
+    for (const dir of [OUT_VSCODE, OUT_CLAUDE]) {
+        if (fs.existsSync(dir)) {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+// Suite config: srcDir points at the skills/ source tree.
+// contentSubdir: 'src' matches the actual layout (skills/src/).
+const suiteConfig = {
+    srcDir:        SKILLS,
+    contentSubdir: 'src',
+    outputDirs: {
+        'vscode-skill': OUT_VSCODE,
+        'claude-skill':  OUT_CLAUDE,
+    },
+};
+
+// Build
+try {
+    const summary = await build({
+        suites:         { skills: suiteConfig },
+        targets:        ['vscode-skill', 'claude-skill'],
+        targetRegistry: skillRegistry,
+        check:          CHECK,
+        strict:         STRICT,
+    });
+
+    const mode = CHECK ? ' (check mode — no files written)' : '';
+    console.log(`[build-skills] ${summary.totalBuilt} built, ${summary.totalWritten} written${mode}`);
+
+    if (!summary.success) {
+        process.exit(1);
+    }
+} catch (err) {
+    console.error('[build-skills] Build failed:', err.message);
+    process.exit(1);
 }
 
 ```
@@ -1209,6 +1322,19 @@ function cmdBuildPersonas(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdBuildSkills(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'build-skills.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdPublishSkills(args) {
+  const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-skills.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (buildCode !== 0) process.exit(buildCode);
+  const publishArgs = args.includes('--dry-run') ? ['--dry-run'] : [];
+  const publishCode = runScript('node', [path.join(SCRIPTS_DIR, 'publish-skills.js'), ...publishArgs], { cwd: WORKSPACE_ROOT });
+  if (publishCode !== 0) process.exit(publishCode);
+}
+
 function cmdPackagePersonas(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'package-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -1458,6 +1584,22 @@ const COMMANDS = [
     category:    'Personas',
     description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
+  },
+  {
+    id:          'build-skills',
+    key:         null,
+    label:       'Build skills',
+    category:    'Skills',
+    description: 'Build skill output files',
+    run:         cmdBuildSkills,
+  },
+  {
+    id:          'publish-skills',
+    key:         null,
+    label:       'Publish skills',
+    category:    'Skills',
+    description: 'Build & deploy skills to VS Code and Claude Code',
+    run:         cmdPublishSkills,
   },
   {
     id:          'package-personas',
@@ -4156,6 +4298,8 @@ main().catch((err) => {
  *
  * Single source of truth for persona publish locations.
  * Used by sync-personas.js (deploy) and cli.js (clean-agents).
+ * Individual path helpers (getClaudeCodeSkillsDir, etc.) are also imported
+ * directly by publish-skills.js for skills deployment.
  *
  * Each location defines:
  *   - label:  Human-readable name for display
@@ -4212,7 +4356,6 @@ function getPublishLocations() {
   return [
     { label: 'VS Code prompts',    dir: getVSCodePromptsDir(),    filter: (f) => f.endsWith('.agent.md') },
     { label: 'Claude Code agents', dir: getClaudeCodeAgentsDir(), filter: (f) => f.endsWith('.md') },
-    { label: 'Claude Code skills', dir: getClaudeCodeSkillsDir(), filter: (f) => f.endsWith('.md') },
   ];
 }
 
@@ -4222,6 +4365,129 @@ export {
   getClaudeCodeSkillsDir,
   getPublishLocations,
 };
+
+```
+###  Path: `/scripts/publish-skills.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * publish-skills.js — deploy built skill files to VS Code and Claude Code locations.
+ *
+ * Reads built .md files from dist/vscode-skills/ and dist/claude-skills/ and
+ * deploys each as {stem}/SKILL.md under:
+ *   .github/skills/      (VS Code, workspace-relative)
+ *   ~/.claude/skills/    (Claude Code, user-global)
+ *
+ * Only directories whose stems match build output are cleared before publishing.
+ * Hand-written skill directories (e.g. release-check) are never touched.
+ *
+ * Usage: node scripts/publish-skills.js [--dry-run]
+ *   --dry-run  Log what would be deployed without writing any files.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { getClaudeCodeSkillsDir } from './publish-locations.js';
+
+const ROOT        = path.resolve(import.meta.dirname, '..');
+const DIST_VSCODE = path.join(ROOT, 'dist', 'vscode-skills');
+const DIST_CLAUDE = path.join(ROOT, 'dist', 'claude-skills');
+const GH_SKILLS   = path.join(ROOT, '.github', 'skills');
+const CC_SKILLS   = getClaudeCodeSkillsDir();
+
+const DRY_RUN = process.argv.includes('--dry-run');
+
+/**
+ * Read all .md files from a directory and return an array of { stem, content } objects.
+ * Returns an empty array if the directory doesn't exist.
+ * @param {string} dir
+ * @returns {{ stem: string, content: string }[]}
+ */
+function readBuiltFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.md'))
+    .map(f => ({
+      stem:    path.basename(f, '.md'),
+      content: fs.readFileSync(path.join(dir, f), 'utf8'),
+    }));
+}
+
+/**
+ * Deploy a skill file to {targetDir}/{stem}/SKILL.md.
+ * Clears the {stem}/ directory first (preserving sibling directories not in the build).
+ * When dryRun is true, logs what would be deployed without writing any files.
+ * @param {string} stem
+ * @param {string} content
+ * @param {string} targetDir
+ * @param {boolean} dryRun
+ */
+function deploySkill(stem, content, targetDir, dryRun) {
+  const destDir  = path.join(targetDir, stem);
+  const destFile = path.join(destDir, 'SKILL.md');
+
+  if (dryRun) {
+    console.log(`[publish-skills] [dry-run] would deploy → ${destFile}`);
+    return;
+  }
+
+  // Clear only the stem directory — sibling directories (e.g. release-check) are untouched.
+  if (fs.existsSync(destDir)) {
+    fs.rmSync(destDir, { recursive: true, force: true });
+  }
+
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.writeFileSync(destFile, content, 'utf8');
+}
+
+// --- Main ---
+
+const vsFiles  = readBuiltFiles(DIST_VSCODE);
+const ccFiles  = readBuiltFiles(DIST_CLAUDE);
+
+if (vsFiles.length === 0 && ccFiles.length === 0) {
+  console.error('[publish-skills] No built skill files found. Run node scripts/build-skills.js first.');
+  process.exit(1);
+}
+
+let published = 0;
+const errors  = [];
+
+// Deploy VS Code skills (.github/skills/{stem}/SKILL.md)
+for (const { stem, content } of vsFiles) {
+  try {
+    deploySkill(stem, content, GH_SKILLS, DRY_RUN);
+    if (!DRY_RUN) console.log(`[publish-skills] VS Code  → .github/skills/${stem}/SKILL.md`);
+    published++;
+  } catch (err) {
+    errors.push(`VS Code / ${stem}: ${err.message}`);
+  }
+}
+
+// Deploy Claude Code skills (~/.claude/skills/{stem}/SKILL.md)
+for (const { stem, content } of ccFiles) {
+  try {
+    deploySkill(stem, content, CC_SKILLS, DRY_RUN);
+    if (!DRY_RUN) console.log(`[publish-skills] Claude   → ${path.join(CC_SKILLS, stem, 'SKILL.md')}`);
+    published++;
+  } catch (err) {
+    errors.push(`Claude Code / ${stem}: ${err.message}`);
+  }
+}
+
+// Report
+if (errors.length > 0) {
+  for (const e of errors) console.error(`[publish-skills] ERROR: ${e}`);
+  process.exit(1);
+}
+
+if (DRY_RUN) {
+  console.log(`[publish-skills] ${published} skill file(s) would be published (dry-run).`);
+} else {
+  console.log(`[publish-skills] ${published} skill file(s) published.`);
+}
 
 ```
 ###  Path: `/scripts/read-log.js`

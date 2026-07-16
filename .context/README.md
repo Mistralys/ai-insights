@@ -37,6 +37,20 @@ The following persona suites are available:
 | **Ledger Support** | Utility agents that extend the ledger workflow — PM sub-agents, ledger doctor, orchestrator runner, and more | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
 | **Standalone** | Drop-in agents with no dependencies — pick one and go | [personas/standalone/](personas/standalone/) |
 
+### Skills
+
+Reusable AI agent workflows that can be invoked directly from VS Code (via GitHub Copilot) or Claude Code. Skills delegate to a named persona at runtime — for example, the `insights-audit-persona` skill launches the Persona Curator in Audit mode to evaluate a persona against the Persona Design Guide.
+
+Source files live in `skills/`. Build output goes to `dist/vscode-skills/` and `dist/claude-skills/` (gitignored). To build and deploy:
+
+```bash
+node scripts/build-skills.js           # compile to dist/
+node scripts/build-skills.js --check   # verify only (no files written)
+node scripts/publish-skills.js         # deploy to .github/skills/ and ~/.claude/skills/
+```
+
+→ [skills/README.md](skills/README.md) — adding skills, metadata fields, output layout, and runtime dependencies
+
 ### The Project Ledger
 
 The reason agents can pick up where the last one left off. This [MCP server](https://modelcontextprotocol.io/) stores project state — work packages, progress, handoff notes — so every agent in the pipeline sees the full history. A built-in knowledge store captures insights across runs, giving your agents institutional memory that grows over time.
