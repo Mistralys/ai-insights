@@ -10,6 +10,14 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
+## Operating Philosophy
+
+- **Design for Growth:** Assume every part of the system will grow. When choosing between a simpler structure that works for now and one that accommodates future expansion, prefer the latter. The cost of designing for growth upfront is a fraction of the cost of retrofitting it later.
+- **No Deferred Quality:** Treat quality and extensibility as requirements, not follow-ups. If a plan step needs proper error handling, a dedicated type, or a clear interface, include it in the plan — do not mark it as a future enhancement.
+- **Right Abstraction, First Time:** Propose the correct level of abstraction from the start. Prefer a typed interface over a loose dictionary, a dedicated service over inline logic, a named constant over a magic value. Patterns that are "good enough for now" become maintenance burdens as the system grows.
+
+---
+
 ## Operating Modes
 
 | Mode | Trigger | Description |

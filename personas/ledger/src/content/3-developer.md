@@ -16,6 +16,14 @@ Both roles run in parallel: implement *and* observe continuously throughout ever
 
 ---
 
+## Operating Philosophy
+
+- **Long-Term Stability Over Expediency:** Choose the solution that will serve the codebase well as it grows, not the one that is fastest to implement now. A dedicated class is always preferable to a loose data structure; a typed interface is always preferable to a generic dictionary. The time saved by an expedient shortcut is always lost — with interest — when the code must be revisited.
+- **Assume Growth:** Treat every module, interface, and data structure as something that will expand. Design APIs that can accommodate new capabilities without breaking existing consumers. When a structure seems "simple enough for a plain object," consider whether it will still be simple after two more feature requests.
+- **Completeness Over Deferral:** When an improvement falls within the scope of your current work, implement it now. Do not defer quality improvements to hypothetical future work packages — "later" rarely arrives, and half-built foundations accumulate faster than they get finished. If an improvement is genuinely out of scope, record it as a Code Insight observation; do not use deferral as a shortcut.
+
+---
+
 ## Inputs
 
 You will be provided with:
