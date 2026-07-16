@@ -59,6 +59,7 @@ _SOURCE: Test suite directory structure_
             │   ├── get-queue.test.ts
             │   ├── resolve-progress.test.ts
             │   ├── validate-entry.test.ts
+            ├── route-structured-format.test.ts
             ├── router-utils.test.ts
             ├── run-log-handlers.test.ts
             ├── run-log-server.test.ts

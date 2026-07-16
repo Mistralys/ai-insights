@@ -24,9 +24,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   ├── project-manifest/
     │   │   ├── README.md
-    │   ├── projects/
-    │   │   ├── improved-dialogue-render.md
-    │   │   ├── parallelization.md
     │   ├── references/
     │   │   ├── README.md
     │   │   ├── ctx-generator-guide.md
@@ -250,6 +247,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── project-detail-snapshot.test.ts
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
+    │   │   ├── route-structured-format.test.ts
     │   │   ├── router-utils.test.ts
     │   │   ├── run-log-handlers.test.ts
     │   │   ├── run-log-server.test.ts
@@ -535,6 +533,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── reviewer-output-format.md
     │   │   └── security-auditor-operational-protocol.md
     │   │   └── security-auditor-output-format.md
+    │   │   └── summary-crafting-guide.md
     │   │   └── synthesis-knowledge-collection.md
     │   │   └── synthesis-operational-protocol.md
     │   │   └── synthesis-output-format.md

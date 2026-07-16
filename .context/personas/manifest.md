@@ -657,6 +657,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `docs-output-format.md` | Agent 8 | *(none)* |
 | `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
+| `summary-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 

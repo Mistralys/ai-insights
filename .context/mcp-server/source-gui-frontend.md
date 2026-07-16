@@ -304,8 +304,11 @@ var API = (function () {
      * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
      * @param {string} filename - Dialogue filename (URI-encoded automatically).
-     * @returns {Promise<string>} Raw dialogue content string from
+     * @returns {Promise<string>} The dialogue content string extracted from the `content` field of
+     *   the JSON response body returned by
      *   `GET /api/projects/{repo}/{slug}/dialogues/{filename}`.
+     *   The response is parsed as JSON (`{ content: string }`); this function returns
+     *   `data.content` — it does **not** call `res.text()`.
      */
     getDialogueContent: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
@@ -337,6 +340,51 @@ var API = (function () {
     getChunkRendered: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
         .then(function (data) { return data.content; });
+    },
+
+    /**
+     * A discriminated-union block produced by `renderChunksToStructured()` on the
+     * server and surfaced to the frontend via `getChunkStructured()`.
+     *
+     * The `type` field is the discriminant; only the properties relevant to that
+     * variant are present on each object:
+     *
+     * - `'text'`            — plain dialogue text; `content` (string) holds the body.
+     * - `'tool-call'`       — one tool invocation; fields: `name` (string),
+     *                         `detailLines` (string[]), `args` (any parsed shape),
+     *                         and optional `result: { content: string }` for non-inline
+     *                         tools (`execute`/`task` results stay inside `detailLines`).
+     * - `'subagent-heading'` — marks the start of a sub-agent namespace; `label` (string).
+     * - `'checklist'`        — a `write_todos` invocation; `items` is an array of
+     *                         `{ content: string, status: string, checked: boolean }`.
+     *
+     * @typedef {Object} DialogueBlock
+     * @property {'text'|'tool-call'|'subagent-heading'|'checklist'} type - Block variant.
+     * @property {string}   [content]     - *(text)*           Rendered text body.
+     * @property {string}   [name]        - *(tool-call)*       Tool name.
+     * @property {string[]} [detailLines] - *(tool-call)*       Human-readable summary lines.
+     * @property {*}        [args]        - *(tool-call)*       Parsed tool arguments.
+     * @property {{content: string}} [result] - *(tool-call)*  Embedded ToolMessage result
+     *   (absent for inline tools; present for all others).
+     * @property {string}   [label]       - *(subagent-heading)* Sub-agent namespace label.
+     * @property {Array<{content: string, status: string, checked: boolean}>} [items]
+     *   - *(checklist)* Items from a `write_todos` invocation.
+     */
+
+    /**
+     * Fetch structured dialogue blocks for a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<DialogueBlock[]>} Array of structured dialogue blocks from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered?format=structured`.
+     *   Each element is a {@link DialogueBlock} — inspect the `type` field to
+     *   determine which variant properties are present.
+     */
+    getChunkStructured: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered?format=structured')
+        .then(function (data) { return data.blocks; });
     },
 
     // -- Repositories (Strategy) ---------------------------------------
@@ -1686,7 +1734,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 function formatDate(isoString) {
@@ -3074,17 +3123,204 @@ function _orchElapsed(startedAt) {
                and before project-detail.js in index.html.
 
    Exports:
+     buildDialogueHTML
      renderDialoguesSection
    ============================================================ */
 
+/* ----------------------------------------------------------
+   Interactive dialogue renderer (WP-006)
+   ---------------------------------------------------------- */
+
+/**
+ * Render inline Markdown (bold, italic, inline code) in a plain-text string.
+ * Delegates to marked.parseInline() when available; falls back to safe regex
+ * substitution (HTML-escaped first) so XSS is impossible on both code paths.
+ *
+ * @param {string} text - Raw text that may contain **bold**, *italic*, `code`.
+ * @returns {string} Safe HTML string.
+ */
+function _dialogueInlineMarkdown(text) {
+  if (typeof marked !== 'undefined' && typeof marked.parseInline === 'function') {
+    // Pre-escape HTML before passing to marked so any raw HTML in the input is
+    // neutralised before marked processes it. Markdown syntax characters
+    // (* _ ` \n) are unaffected by escapeHtml, so bold/italic/code still render
+    // correctly. This makes the primary path consistent with the regex fallback.
+    return marked.parseInline(escapeHtml(text));
+  }
+  // Regex fallback: escape HTML first, then apply simple Markdown transforms.
+  var safe = escapeHtml(text);
+  safe = safe.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  safe = safe.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  safe = safe.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  return safe;
+}
+
+/**
+ * Build HTML for a 'text' dialogue block.
+ * Splits content on double newlines to form individual paragraph elements.
+ *
+ * @param {{type: 'text', content: string}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueTextBlock(block) {
+  var content = block.content || '';
+  var paragraphs = content.split(/\n\n+/);
+  var pHtml = '';
+  var i, para;
+  for (i = 0; i < paragraphs.length; i++) {
+    para = paragraphs[i].trim();
+    if (!para) continue;
+    pHtml += '<p>' + _dialogueInlineMarkdown(para) + '</p>';
+  }
+  return '<div class="dialogue-text">' + pHtml + '</div>';
+}
+
+/**
+ * Build HTML for a 'tool-call' dialogue block.
+ * Renders as a collapsed-by-default card: toggle button (always visible),
+ * ↳ detail lines (always visible, between button and body), and a
+ * collapsible body containing the args JSON and optional tool result.
+ *
+ * @param {{type: 'tool-call', name: string, detailLines: string[], args: *, result: {content: string}|undefined}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueToolCallBlock(block) {
+  var name = block.name || 'unknown';
+  var detailLines = block.detailLines || [];
+  var args = block.args;
+  var result = block.result;
+  var i;
+
+  // Toggle button — always visible, collapsed by default.
+  var headerHtml =
+    '<button class="dialogue-tool-toggle" aria-expanded="false">' +
+      '<span class="dialogue-tool-arrow">\u25b6</span>' +
+      'Tool call: ' + escapeHtml(name) +
+    '</button>';
+
+  // ↳ detail lines — always visible, outside the hidden body.
+  var detailHtml = '';
+  if (detailLines.length) {
+    detailHtml += '<div class="dialogue-tool-detail-area">';
+    for (i = 0; i < detailLines.length; i++) {
+      detailHtml += '<div class="dialogue-tool-detail-line">' + escapeHtml(detailLines[i]) + '</div>';
+    }
+    detailHtml += '</div>';
+  }
+
+  // Collapsible body: args JSON + optional result (hidden by default).
+  var argsJson;
+  try {
+    argsJson = JSON.stringify(args, null, 2);
+  } catch (e) {
+    argsJson = String(args);
+  }
+
+  var bodyHtml = '<pre class="dialogue-tool-args">' + escapeHtml(argsJson) + '</pre>';
+
+  if (result && result.content) {
+    bodyHtml +=
+      '<div class="dialogue-tool-result">' +
+        '<span class="dialogue-tool-result-label">Result:</span>' +
+        escapeHtml(result.content) +
+      '</div>';
+  }
+
+  return '<div class="dialogue-tool-call">' +
+    headerHtml +
+    detailHtml +
+    '<div class="dialogue-tool-details" hidden>' + bodyHtml + '</div>' +
+  '</div>';
+}
+
+/**
+ * Build HTML for a 'checklist' dialogue block (write_todos invocation).
+ *
+ * @param {{type: 'checklist', items: Array<{content: string, status: string, checked: boolean}>}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueChecklistBlock(block) {
+  var items = block.items || [];
+  var listHtml = '';
+  var i, item, isChecked, checkedAttr, checkedClass;
+  for (i = 0; i < items.length; i++) {
+    item = items[i];
+    isChecked = !!item.checked;
+    checkedAttr  = isChecked ? ' checked' : '';
+    checkedClass = isChecked ? ' class="checked"' : '';
+    listHtml +=
+      '<li' + checkedClass + '>' +
+        '<input type="checkbox" disabled' + checkedAttr + '>' +
+        '<span>' + escapeHtml(item.content || '') + '</span>' +
+      '</li>';
+  }
+  return '<div class="dialogue-checklist"><ul>' + listHtml + '</ul></div>';
+}
+
+/**
+ * Build HTML for a 'subagent-heading' dialogue block.
+ *
+ * @param {{type: 'subagent-heading', label: string}} block
+ * @returns {string} HTML string
+ */
+function _buildDialogueSubagentHeadingBlock(block) {
+  return '<h3 class="dialogue-subagent-heading">' + escapeHtml(block.label || '') + '</h3>';
+}
+
+/**
+ * Transform an array of DialogueBlocks into interactive HTML.
+ *
+ * - 'text'             → clean paragraphs with inline Markdown support
+ * - 'tool-call'        → collapsed-by-default card with args/result toggle
+ * - 'checklist'        → styled list with checkbox indicators
+ * - 'subagent-heading' → <h3> element
+ *
+ * All string values are passed through escapeHtml() for XSS defence.
+ * All JavaScript follows ES5 patterns (var, function declarations, .then() chains).
+ *
+ * @param {Array<{type: string}>} blocks - Array of DialogueBlock objects.
+ * @returns {string} Safe HTML string ready for assignment to .innerHTML.
+ */
+function buildDialogueHTML(blocks) {
+  if (!blocks || !blocks.length) {
+    return '<p class="text-muted">No dialogue content.</p>';
+  }
+  var html = '';
+  var i, block;
+  for (i = 0; i < blocks.length; i++) {
+    block = blocks[i];
+    if (block.type === 'text') {
+      html += _buildDialogueTextBlock(block);
+    } else if (block.type === 'tool-call') {
+      html += _buildDialogueToolCallBlock(block);
+    } else if (block.type === 'checklist') {
+      html += _buildDialogueChecklistBlock(block);
+    } else if (block.type === 'subagent-heading') {
+      html += _buildDialogueSubagentHeadingBlock(block);
+    }
+  }
+  return '<div class="dialogue-interactive">' + html + '</div>';
+}
+
+/* ----------------------------------------------------------
+   Modal opener
+   ---------------------------------------------------------- */
+
 /**
  * Open a full-screen modal showing the rendered content of a single dialogue.
+ *
+ * When useChunks is true, fetches structured DialogueBlock[] via
+ * API.getChunkStructured() and renders via buildDialogueHTML(), including
+ * an expand/collapse delegated listener for tool-call headers.
+ *
+ * When useChunks is false, fetches raw Markdown via API.getDialogueContent()
+ * and renders via marked.parse() (legacy path — unchanged).
  *
  * @param {string}  title      - Modal header text (e.g. "WP-003 · developer-r0")
  * @param {string}  repo
  * @param {string}  slug
  * @param {string}  filename
- * @param {boolean} useChunks  - true → fetch via getChunkRendered, false → getDialogueContent
+ * @param {boolean} useChunks  - true → structured renderer, false → Markdown renderer
  */
 function _openDialogueModal(title, repo, slug, filename, useChunks) {
   // Remove any existing dialogue modal
@@ -3121,21 +3357,58 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
     if (e.key === 'Escape') closeModal();
   });
 
-  var fetchPromise = useChunks
-    ? API.getChunkRendered(repo, slug, filename)
-    : API.getDialogueContent(repo, slug, filename);
+  if (useChunks) {
+    // Structured path: fetch DialogueBlock[] and render with buildDialogueHTML().
+    API.getChunkStructured(repo, slug, filename).then(function (blocks) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = buildDialogueHTML(blocks);
+    }).catch(function (err) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
+        escapeHtml(err.message || String(err)) + '</p>';
+    });
 
-  fetchPromise.then(function (md) {
-    if (!bodyEl) return;
-    var rendered = (typeof marked !== 'undefined' && marked.parse)
-      ? marked.parse(md)
-      : '<pre>' + escapeHtml(md) + '</pre>';
-    bodyEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
-  }).catch(function (err) {
-    if (!bodyEl) return;
-    bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
-      escapeHtml(err.message || String(err)) + '</p>';
-  });
+    // Delegated click listener for tool-call expand/collapse toggles.
+    // Registered once on bodyEl; the handler fires after content is loaded
+    // because user interaction always follows the async render.
+    bodyEl.addEventListener('click', function (e) {
+      var btn = e.target.closest('.dialogue-tool-toggle');
+      if (!btn) return;
+
+      var isExpanded = btn.getAttribute('aria-expanded') === 'true';
+      var detailsEl  = btn.parentNode ? btn.parentNode.querySelector('.dialogue-tool-details') : null;
+      var arrowEl    = btn.querySelector('.dialogue-tool-arrow');
+
+      if (detailsEl) {
+        if (isExpanded) {
+          detailsEl.setAttribute('hidden', '');
+        } else {
+          detailsEl.removeAttribute('hidden');
+        }
+      }
+      btn.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+      if (arrowEl) {
+        if (isExpanded) {
+          arrowEl.classList.remove('expanded');
+        } else {
+          arrowEl.classList.add('expanded');
+        }
+      }
+    });
+  } else {
+    // Legacy path: fetch raw Markdown and render via marked.parse().
+    API.getDialogueContent(repo, slug, filename).then(function (md) {
+      if (!bodyEl) return;
+      var rendered = (typeof marked !== 'undefined' && marked.parse)
+        ? marked.parse(md)
+        : '<pre>' + escapeHtml(md) + '</pre>';
+      bodyEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
+    }).catch(function (err) {
+      if (!bodyEl) return;
+      bodyEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' +
+        escapeHtml(err.message || String(err)) + '</p>';
+    });
+  }
 }
 
 /**
@@ -3448,6 +3721,7 @@ function _snapshotProjectState(project, overviewResult) {
     status:               meta.status              || '',
     last_updated:         meta.last_updated         || '',
     synthesis_generated:  !!(project && project.synthesis_generated),
+    outcome_summary:      (project && project.outcome_summary) || null,
     wpStatuses:           wpStatuses,
     health:               null,  // populated asynchronously via getProjectHealth()
   };
@@ -3533,7 +3807,10 @@ function _diffProjectState(prev, next) {
   if (!!prev.synthesis_generated !== !!next.synthesis_generated) {
     markData('synthesis_generated', prev.synthesis_generated, next.synthesis_generated);
   }
-
+  // ── outcome_summary ───────────────────────────────────────────
+  if ((prev.outcome_summary || null) !== (next.outcome_summary || null)) {
+    markData('outcome_summary', prev.outcome_summary, next.outcome_summary);
+  }
   // ── health ──────────────────────────────────────────────────────────
   // null-to-value (or any value change) is data-only
   var prevHealthStr = JSON.stringify(prev.health || null);
@@ -4460,6 +4737,34 @@ function _patchSynthesisLink(visible, repo, slug) {
 }
 
 /**
+ * Show or hide the outcome-synopsis block and update its content in-place.
+ *
+ * The block is always pre-rendered as `<div id="outcome-synopsis">` by
+ * `renderProjectDetail` — hidden when the outcome is absent, visible when
+ * it is. This function mirrors `_patchSynthesisLink()` and allows the poll
+ * loop to surface a newly-completed synthesis without a full page rebuild.
+ *
+ * @param {boolean}       visible        - Whether the block should be visible.
+ * @param {string|null}   outcomeSummary - The outcome summary text to display.
+ */
+function _patchOutcomeSynopsis(visible, outcomeSummary) {
+  var container = document.getElementById('outcome-synopsis');
+  if (!container) return;
+  if (visible && outcomeSummary) {
+    var contentEl = container.querySelector('.outcome-synopsis__content');
+    var escapedText = escapeHtml(outcomeSummary);
+    if (!contentEl) {
+      container.innerHTML = '<div class="outcome-synopsis__content">' + escapedText + '</div>';
+    } else if (contentEl.innerHTML !== escapedText) {
+      contentEl.innerHTML = escapedText;
+    }
+    container.style.display = '';
+  } else {
+    container.style.display = 'none';
+  }
+}
+
+/**
  * Update the health badge text and CSS class.
  * @param {{ work_packages_needing_reset: number }} health - Health data object.
  */
@@ -4603,6 +4908,14 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
     // Synthesis link
     if (changes.synthesis_generated) {
       _patchSynthesisLink(nextSnapshot.synthesis_generated, repo, slug);
+    }
+
+    // Outcome synopsis — shown when synthesis is complete and outcome_summary is set
+    if (changes.outcome_summary || changes.synthesis_generated) {
+      _patchOutcomeSynopsis(
+        !!(nextSnapshot.synthesis_generated && nextSnapshot.outcome_summary),
+        nextSnapshot.outcome_summary || null
+      );
     }
 
     // Health badge
@@ -4807,19 +5120,27 @@ function renderProjectDetail(app, repo, slug) {
         '</div>'
       ) +
 
+      // Synopsis rendering: project_summary (if set) is a plain-text string stored by the agent
+      // and is escaped + wrapped in <p> directly. The extractSynopsis() fallback returns Markdown
+      // and is parsed via marked.parse(). Never render project_summary through marked — it is
+      // plain text, not Markdown, and would produce double-escaped output.
       (function () {
-        var synopsisHtml = '';
-        if (planResult && planResult.content) {
+        var synopsisContent = '';
+        if (project.project_summary) {
+          synopsisContent = '<p>' + escapeHtml(project.project_summary) + '</p>';
+        } else if (planResult && planResult.content) {
           var synopsis = extractSynopsis(planResult.content);
           if (synopsis) {
-            synopsisHtml =
-              '<div class="plan-synopsis">' +
-              '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
-              '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
-              '</div>';
+            synopsisContent = marked.parse(synopsis);
           }
         }
-        return synopsisHtml;
+        if (!synopsisContent) return '';
+        return '<div class="plan-synopsis" id="plan-synopsis">' +
+          '<div class="plan-synopsis__body">' +
+          '<div class="plan-synopsis__content">' + synopsisContent + '</div>' +
+          '</div>' +
+          '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+          '</div>';
       })() +
 
       (function () {
@@ -4827,6 +5148,14 @@ function renderProjectDetail(app, repo, slug) {
         return '<div id="synthesis-link-row" class="synthesis-link-row">' +
           '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
+      })() +
+
+      (function () {
+        var visible = !!(project.synthesis_generated && project.outcome_summary);
+        var contentHtml = visible
+          ? '<div class="outcome-synopsis__content">' + escapeHtml(project.outcome_summary) + '</div>'
+          : '';
+        return '<div id="outcome-synopsis"' + (visible ? '' : ' style="display:none"') + '>' + contentHtml + '</div>';
       })() +
 
       '<div class="card-title">Work Packages</div>' +
@@ -4848,6 +5177,47 @@ function renderProjectDetail(app, repo, slug) {
 
       // Dialogues section — loaded asynchronously after DOM is set
       '<div id="project-dialogues-section"></div>';
+
+    // ── Synopsis Show More / Show Less toggle ────────────────────────────
+    // Deferred inside document.fonts.ready.then() so that scrollHeight and
+    // offsetHeight measurements are taken after web fonts have loaded.
+    // Measuring before fonts load can produce incorrect heights, causing the
+    // toggle to appear even when the synopsis fits within the collapsed height.
+    var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    fontsReady.then(function () {
+      (function () {
+        var synopsisEl = document.getElementById('plan-synopsis');
+        if (!synopsisEl) return;
+        var bodyEl = synopsisEl.querySelector('.plan-synopsis__body');
+        if (!bodyEl) return;
+
+        if (bodyEl.scrollHeight <= bodyEl.offsetHeight) {
+          synopsisEl.classList.add('plan-synopsis--fits');
+          return;
+        }
+
+        var toggleBtn = document.createElement('button');
+        toggleBtn.className = 'plan-synopsis__toggle';
+        toggleBtn.textContent = 'Show more';
+
+        var linkEl = synopsisEl.querySelector('.plan-synopsis__link');
+        if (linkEl) {
+          synopsisEl.insertBefore(toggleBtn, linkEl);
+        } else {
+          synopsisEl.appendChild(toggleBtn);
+        }
+
+        toggleBtn.addEventListener('click', function () {
+          if (synopsisEl.classList.contains('plan-synopsis--expanded')) {
+            synopsisEl.classList.remove('plan-synopsis--expanded');
+            toggleBtn.textContent = 'Show more';
+          } else {
+            synopsisEl.classList.add('plan-synopsis--expanded');
+            toggleBtn.textContent = 'Show less';
+          }
+        });
+      })();
+    });
 
     // ── Initial poll state snapshot ─────────────────────────────────────
     // Build the baseline state from the data already fetched above.

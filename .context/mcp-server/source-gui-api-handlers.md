@@ -3252,6 +3252,51 @@ import {
 } from './chunk-accumulator.js';
 
 // ---------------------------------------------------------------------------
+// Module-scope constants
+// ---------------------------------------------------------------------------
+
+/** Tools whose ToolMessage results are rendered inline (in detailLines) rather than embedded in a separate `result` field. */
+const INLINE_RESULT_TOOLS = new Set(['execute', 'task']);
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared JSONL pre-processing: splits raw content into lines, validates/skips
+ * the chunk_format header, parses each data line via `parseChunkLine()`, and
+ * returns the accumulated record array.
+ *
+ * Used by all three renderers to eliminate duplicated header-validation and
+ * parse-loop boilerplate.
+ */
+function parseJsonlContent(
+  jsonlContent: string,
+): Array<{ namespace: string[]; msg: Record<string, JsonValue> }> {
+  const rawLines = jsonlContent.split('\n');
+  const nonEmptyLines = rawLines.map(l => l.trim()).filter(Boolean);
+
+  let dataLines: string[];
+  if (nonEmptyLines.length === 0) {
+    dataLines = [];
+  } else {
+    const firstLine = nonEmptyLines[0]!;
+    dataLines = isValidHeader(firstLine)
+      ? nonEmptyLines.slice(1)
+      : nonEmptyLines;
+  }
+
+  const records: Array<{ namespace: string[]; msg: Record<string, JsonValue> }> = [];
+  for (const line of dataLines) {
+    const parsed = parseChunkLine(line);
+    if (parsed) {
+      records.push({ namespace: parsed.namespace, msg: parsed.msg });
+    }
+  }
+  return records;
+}
+
+// ---------------------------------------------------------------------------
 // Internal rendering helpers
 // ---------------------------------------------------------------------------
 
@@ -3422,31 +3467,8 @@ function collectTotalUsage(
  * @returns             A Markdown document string (always ends with a trailing newline).
  */
 export function renderChunksToMarkdown(jsonlContent: string): string {
-  const rawLines = jsonlContent.split('\n');
-  const nonEmptyLines = rawLines.map(l => l.trim()).filter(Boolean);
-
-  // --- Header validation ---
-  // If the first non-empty line is a valid chunk_format:1 header, skip it.
-  // If no lines at all, produce a minimal valid document.
-  let dataLines: string[];
-  if (nonEmptyLines.length === 0) {
-    dataLines = [];
-  } else {
-    const firstLine = nonEmptyLines[0]!;
-    dataLines = isValidHeader(firstLine)
-      ? nonEmptyLines.slice(1)
-      : nonEmptyLines;
-  }
-
-  // --- Parse chunk lines, skipping malformed ones gracefully ---
-  const records: Array<{ namespace: string[]; msg: Record<string, JsonValue> }> = [];
-  for (const line of dataLines) {
-    const parsed = parseChunkLine(line);
-    if (parsed) {
-      records.push({ namespace: parsed.namespace, msg: parsed.msg });
-    }
-    // Malformed lines are silently skipped.
-  }
+  // --- Parse JSONL content (header validation + line parsing) ---
+  const records = parseJsonlContent(jsonlContent);
 
   // --- Accumulate chunks into merged messages per namespace ---
   const nsMap = accumulateChunks(records);
@@ -3531,7 +3553,6 @@ function buildToolResultIndex(
   nsMap: Map<NamespaceKey, MergedMessage[]>,
   toolCallIndex: Map<string, string>,
 ): Map<string, { toolName: string; content: string }> {
-  const INLINE_RESULT_TOOLS = new Set(['execute', 'task']);
   const index = new Map<string, { toolName: string; content: string }>();
 
   for (const messages of nsMap.values()) {
@@ -4010,28 +4031,8 @@ function renderDialogueNamespaceBlock(
  *                      Returns `*No dialogue recorded.*\n` for empty or header-only input.
  */
 export function renderChunksToDialogue(jsonlContent: string): string {
-  const rawLines = jsonlContent.split('\n');
-  const nonEmptyLines = rawLines.map(l => l.trim()).filter(Boolean);
-
-  // --- Header validation (same as renderChunksToMarkdown) ---
-  let dataLines: string[];
-  if (nonEmptyLines.length === 0) {
-    dataLines = [];
-  } else {
-    const firstLine = nonEmptyLines[0]!;
-    dataLines = isValidHeader(firstLine)
-      ? nonEmptyLines.slice(1)
-      : nonEmptyLines;
-  }
-
-  // --- Parse chunk lines ---
-  const records: Array<{ namespace: string[]; msg: Record<string, JsonValue> }> = [];
-  for (const line of dataLines) {
-    const parsed = parseChunkLine(line);
-    if (parsed) {
-      records.push({ namespace: parsed.namespace, msg: parsed.msg });
-    }
-  }
+  // --- Parse JSONL content (header validation + line parsing) ---
+  const records = parseJsonlContent(jsonlContent);
 
   // --- Accumulate chunks into merged messages per namespace ---
   const nsMap = accumulateChunks(records);
@@ -4065,6 +4066,255 @@ export function renderChunksToDialogue(jsonlContent: string): string {
   }
 
   return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Structured rendering — public types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single dialogue block in the structured representation returned by
+ * `renderChunksToStructured()`.
+ *
+ * Discriminated union on the `type` field:
+ *  - `text`             — AI prose content (no JSON or tool-call data mixed in).
+ *  - `tool-call`        — One tool invocation: name, detail lines, parsed args,
+ *                         and an optional embedded ToolMessage result for
+ *                         non-inline tools (not `execute`/`task`).
+ *  - `subagent-heading` — Heading that marks the start of a sub-agent namespace.
+ *  - `checklist`        — A `write_todos` invocation rendered as a typed item list.
+ */
+export type DialogueBlock =
+  | { type: 'text'; content: string }
+  | {
+      type: 'tool-call';
+      name: string;
+      detailLines: string[];
+      args: unknown;
+      result?: { content: string };
+    }
+  | { type: 'subagent-heading'; label: string }
+  | {
+      type: 'checklist';
+      items: Array<{ content: string; status: string; checked: boolean }>;
+    };
+
+// ---------------------------------------------------------------------------
+// Structured rendering — private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a map from toolCallId → { toolName, content } by scanning ALL
+ * ToolMessage entries across all namespaces.  Unlike `buildToolResultIndex()`,
+ * no tool-name filter is applied — every ToolMessage is indexed.
+ *
+ * Used by `renderChunksToStructured()` so that non-inline tool results
+ * (e.g. `read_file`, `glob`, `ledger_*`) can be embedded in their tool-call
+ * blocks via the `result` field.
+ */
+function buildFullToolResultIndex(
+  nsMap: Map<NamespaceKey, MergedMessage[]>,
+  toolCallIndex: Map<string, string>,
+): Map<string, { toolName: string; content: string }> {
+  const index = new Map<string, { toolName: string; content: string }>();
+
+  for (const messages of nsMap.values()) {
+    for (const msg of messages) {
+      const msgType = msg.type.toLowerCase();
+      if (msgType !== 'tool' && msgType !== 'toolmessage') continue;
+      const tcId = msg.tool_call_id;
+      if (!tcId) continue;
+
+      const toolName = toolCallIndex.get(tcId) ?? '';
+      const content = renderContent(msg.content);
+      index.set(tcId, { toolName, content });
+    }
+  }
+
+  return index;
+}
+
+/**
+ * Parses `write_todos` args into a typed checklist item array.
+ */
+function buildChecklistItems(
+  args: unknown,
+): Array<{ content: string; status: string; checked: boolean }> {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
+  const a = args as Record<string, unknown>;
+  const todos = a['todos'];
+  if (!Array.isArray(todos)) return [];
+
+  return todos.map((todo: unknown) => {
+    if (!todo || typeof todo !== 'object' || Array.isArray(todo)) {
+      return { content: '(unknown)', status: '', checked: false };
+    }
+    const t = todo as Record<string, unknown>;
+    const content = typeof t['content'] === 'string' ? t['content'] : '(unknown)';
+    const status = typeof t['status'] === 'string' ? t['status'] : '';
+    const checked = status === 'completed';
+    return { content, status, checked };
+  });
+}
+
+/**
+ * Walks a list of merged messages and emits DialogueBlock objects.
+ *
+ * - AI messages: text content → `text` block; tool calls → `tool-call` or `checklist`.
+ * - Inline tools (`execute`, `task`): result summary stays in `detailLines`.
+ * - Non-inline tools: result (if any) is embedded in the `result` field.
+ * - ToolMessages, Human, System: skipped.
+ */
+function renderMessagesToStructuredBlocks(
+  messages: MergedMessage[],
+  fullToolResultIndex: Map<string, { toolName: string; content: string }>,
+): DialogueBlock[] {
+  const blocks: DialogueBlock[] = [];
+
+  for (const msg of messages) {
+    const msgType = msg.type.toLowerCase();
+    if (
+      msgType !== 'ai' &&
+      msgType !== 'aimessage' &&
+      msgType !== 'aimessagechunk'
+    ) {
+      continue;
+    }
+
+    // AI text content → text block.
+    const contentStr = renderContent(msg.content).trim();
+    if (contentStr) {
+      blocks.push({ type: 'text', content: contentStr });
+    }
+
+    // Tool calls.
+    for (const tc of msg.tool_calls) {
+      const toolName = tc.name || 'unknown_tool';
+
+      let parsedArgs: unknown = null;
+      try {
+        parsedArgs = tc.args ? JSON.parse(tc.args) : null;
+      } catch {
+        parsedArgs = null;
+      }
+
+      if (toolName === 'write_todos') {
+        // write_todos → checklist block (not a generic tool-call block).
+        blocks.push({ type: 'checklist', items: buildChecklistItems(parsedArgs) });
+      } else {
+        const isInline = INLINE_RESULT_TOOLS.has(toolName);
+        const resultEntry = tc.id ? fullToolResultIndex.get(tc.id) : undefined;
+
+        // Inline tools (execute, task): pass resultEntry to getToolDetailLines so
+        // the result summary appears in detailLines — matching the dialogue renderer.
+        // All other tools: detailLines come from args only; result goes in result field.
+        const detailLines = getToolDetailLines(
+          toolName,
+          parsedArgs,
+          isInline ? resultEntry : undefined,
+        );
+
+        if (!isInline && resultEntry) {
+          blocks.push({
+            type: 'tool-call',
+            name: toolName,
+            detailLines,
+            args: parsedArgs,
+            result: { content: resultEntry.content },
+          });
+        } else {
+          blocks.push({
+            type: 'tool-call',
+            name: toolName,
+            detailLines,
+            args: parsedArgs,
+          });
+        }
+      }
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Collects DialogueBlocks for a namespace block.
+ * For sub-agents, prepends a `subagent-heading` block before the content blocks.
+ */
+function collectStructuredNamespaceBlocks(
+  nsKey: NamespaceKey,
+  messages: MergedMessage[],
+  fullToolResultIndex: Map<string, { toolName: string; content: string }>,
+  isSubagent: boolean,
+): DialogueBlock[] {
+  const blocks: DialogueBlock[] = [];
+
+  if (isSubagent) {
+    blocks.push({ type: 'subagent-heading', label: namespaceLabel(nsKey) });
+  }
+
+  blocks.push(...renderMessagesToStructuredBlocks(messages, fullToolResultIndex));
+  return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// Public API — structured renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses a JSONL chunk file and returns a structured array of `DialogueBlock`
+ * objects representing the conversation.
+ *
+ * This is the structured alternative to `renderChunksToDialogue()`: instead of
+ * a flat Markdown string the caller receives typed block objects that give the
+ * frontend full control over rendering (collapsible tool calls, interactive
+ * checklists, inline results).
+ *
+ * Block types:
+ *  - `text`             — AI prose only; no JSON or tool-call data mixed in.
+ *  - `tool-call`        — Tool name, `getToolDetailLines()` detail lines, parsed
+ *                         args, and an optional `result.content` for non-inline tools.
+ *  - `subagent-heading` — Marks the start of a sub-agent namespace block.
+ *  - `checklist`        — `write_todos` items with `content`, `status`, `checked`.
+ *
+ * ToolMessage results for non-inline tools (not `execute`/`task`) are embedded
+ * in the `result` field of the corresponding tool-call block.  Inline tool
+ * results remain in `detailLines` (matching the dialogue renderer).
+ *
+ * @param jsonlContent  Raw JSONL string (e.g. the content of a `.jsonl` chunk file).
+ * @returns             Array of `DialogueBlock` objects; empty array for empty input.
+ */
+export function renderChunksToStructured(jsonlContent: string): DialogueBlock[] {
+  // --- Parse JSONL content (header validation + line parsing) ---
+  const records = parseJsonlContent(jsonlContent);
+
+  // --- Accumulate chunks into merged messages per namespace ---
+  const nsMap = accumulateChunks(records);
+
+  if (nsMap.size === 0) {
+    return [];
+  }
+
+  // --- Build correlation indexes ---
+  const toolCallIndex = buildToolCallIndex(nsMap);
+  const fullToolResultIndex = buildFullToolResultIndex(nsMap, toolCallIndex);
+
+  // --- Collect blocks (main agent first, sub-agents next) ---
+  const blocks: DialogueBlock[] = [];
+
+  const mainMessages = nsMap.get('');
+  if (mainMessages && mainMessages.length > 0) {
+    blocks.push(...collectStructuredNamespaceBlocks('', mainMessages, fullToolResultIndex, false));
+  }
+
+  for (const [nsKey, messages] of nsMap.entries()) {
+    if (nsKey === '') continue;
+    if (messages.length > 0) {
+      blocks.push(...collectStructuredNamespaceBlocks(nsKey, messages, fullToolResultIndex, true));
+    }
+  }
+
+  return blocks;
 }
 
 ```
@@ -4870,7 +5120,7 @@ import {
   handleUpdateRepo,
   handleDeleteRepo,
 } from './api-repos.js';
-import { renderChunksToDialogue } from './chunk-renderer.js';
+import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -5132,10 +5382,21 @@ export async function resolveRepoName(
 }
 
 /**
+ * Extracts query-string parameters from a full URL string.
+ * Returns a URLSearchParams instance (empty if no query string present).
+ */
+function parseQueryString(url: string): URLSearchParams {
+  const qIdx = url.indexOf('?');
+  return new URLSearchParams(qIdx !== -1 ? url.slice(qIdx + 1) : '');
+}
+
+/**
  * Matches a method + URL path to an API handler.
  * Returns a handler thunk or null if no route matches.
+ *
+ * Exported for testing purposes.
  */
-function matchRoute(
+export function matchRoute(
   method: string,
   url: string,
   ledgerRoot: string,
@@ -5176,9 +5437,7 @@ function matchRoute(
 
   // GET /api/projects
   if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const params = {
       page: sp.get('page') ?? undefined,
       limit: sp.get('limit') ?? undefined,
@@ -5332,9 +5591,7 @@ function matchRoute(
     rest[2] === 'dialogues'
   ) {
     const slug = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return () => handleListDialogues(ledgerRoot, slug, wpId);
   }
@@ -5351,9 +5608,7 @@ function matchRoute(
     rest[2] === 'chunks'
   ) {
     const slug = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return () => handleListChunks(ledgerRoot, slug, wpId);
   }
@@ -5377,6 +5632,13 @@ function matchRoute(
   ) {
     const slug = rest[1]!;
     const filename = decodeURIComponent(rest[3]!);
+    const format = parseQueryString(url).get('format');
+    if (format === 'structured') {
+      return () =>
+        handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+          blocks: renderChunksToStructured(content),
+        }));
+    }
     return () =>
       handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
         content: renderChunksToDialogue(content),
@@ -5560,9 +5822,7 @@ function matchRoute(
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
@@ -5590,9 +5850,7 @@ function matchRoute(
   ) {
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const wpId = sp.get('wp') ?? undefined;
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
@@ -5760,11 +6018,17 @@ function matchRoute(
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
     const filename = decodeURIComponent(rest[4]!);
+    const format = parseQueryString(url).get('format');
     return async () => {
       if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
         throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
       }
       const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      if (format === 'structured') {
+        return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
+          blocks: renderChunksToStructured(content),
+        }));
+      }
       return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
         content: renderChunksToDialogue(content),
       }));
@@ -5922,9 +6186,7 @@ function matchRoute(
   ) {
     const slug = decodeURIComponent(rest[1]!);
     const filename = decodeURIComponent(rest[3]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
     return async () => {
@@ -5951,9 +6213,7 @@ function matchRoute(
     const repoUrlParam = decodeURIComponent(rest[1]!);
     const slug = decodeURIComponent(rest[2]!);
     const filename = decodeURIComponent(rest[4]!);
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
     return async () => {
@@ -6045,9 +6305,7 @@ function matchRoute(
   // GET /api/repos
   // rest.length === 1, rest[0] === 'repos'
   if (method === 'GET' && rest.length === 1 && rest[0] === 'repos') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const includeUndeclared = sp.get('include_undeclared') === 'true';
     return () => handleListRepos(ledgerRoot, includeUndeclared);
   }
@@ -6077,9 +6335,7 @@ function matchRoute(
   // GET /api/knowledge
   // rest.length === 1, rest[0] === 'knowledge'
   if (method === 'GET' && rest.length === 1 && rest[0] === 'knowledge') {
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const params = {
       scope: sp.get('scope') ?? undefined,
       category: sp.get('category') ?? undefined,
@@ -6096,9 +6352,7 @@ function matchRoute(
   // rest.length === 2, rest[0] === 'knowledge'
   if (method === 'DELETE' && rest.length === 2 && rest[0] === 'knowledge') {
     const rawId = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const scope = sp.get('scope') ?? undefined;
     const repository_name = sp.get('repository_name') ?? undefined;
     return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name);
@@ -6108,9 +6362,7 @@ function matchRoute(
   // rest.length === 3, rest[0] === 'knowledge', rest[2] === 'promote'
   if (method === 'POST' && rest.length === 3 && rest[0] === 'knowledge' && rest[2] === 'promote') {
     const rawId = rest[1]!;
-    const qIdx = url.indexOf('?');
-    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
-    const sp = new URLSearchParams(qStr);
+    const sp = parseQueryString(url);
     const scope = sp.get('scope') ?? undefined;
     const repository_name = sp.get('repository_name') ?? undefined;
     return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name);

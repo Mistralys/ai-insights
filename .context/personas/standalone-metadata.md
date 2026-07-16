@@ -393,6 +393,7 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.1.0 (2026-07-16): Added "Favor Durable Structures" principle to Operating Philosophy — prefer growth-accommodating designs over expedient shortcuts
   2.0.0 (2026-07-04): Major rewrite — decision-by-decision analysis replaces holistic shape commentary; Confirm/Challenge/Reconsider verdicts replace Simplification/Concern/Affirmation categories; 3-phase protocol replaces 5-phase; Decision Analysis Table is now the primary deliverable
   1.6.0 (2026-06-05): Improved review philosophy and architectural framing
   1.5.0 (2026-05-29): Gained browser tool for UI verification
@@ -421,6 +422,7 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.6.0 (2026-07-16): Added "Flag Expedient Shortcuts" principle to Operating Philosophy — catch structures that won't scale before implementation begins
   1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
   1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings
   1.3.0 (2026-05-18): Gained Audit Cycle Tracking — increments ## Plan Audit Cycles counters

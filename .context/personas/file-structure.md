@@ -187,6 +187,7 @@ _SOURCE: Directory tree_
         │   └── reviewer-output-format.md
         │   └── security-auditor-operational-protocol.md
         │   └── security-auditor-output-format.md
+        │   └── summary-crafting-guide.md
         │   └── synthesis-knowledge-collection.md
         │   └── synthesis-operational-protocol.md
         │   └── synthesis-output-format.md

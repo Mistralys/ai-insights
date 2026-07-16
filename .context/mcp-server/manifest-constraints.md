@@ -2120,6 +2120,8 @@ const ledgerPath = expectedRepo
 
 **Canonical example:** `CompleteSynthesisSchema.outcome_summary` is `z.string().min(10)` (input); `ProjectMetaSchema.outcome_summary` is `z.string().nullable().optional()` (storage).
 
+**Second instance:** `InitializeProjectSchema.project_summary` is `z.string().min(1)` (input, optional — absent is valid but empty string is not); `RootIndexSchema` and `ProjectMetaSchema` declare it as `z.string().nullable().optional()` (storage, for backward compatibility with legacy ledgers). Bridge logic in `initializeProject()` uses a conditional spread (`...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {})`) to omit the field entirely when not provided.
+
 **Anti-pattern:**
 ```typescript
 // ❌ WRONG — using .optional() on an input schema to avoid handling legacy data;
@@ -2186,6 +2188,40 @@ async function loadRegistry(root: string): Promise<Registry> {
   }
 }
 ```
+
+---
+
+### 77. GUI Port Convention — LIVE (3420) vs. DEV (3460)
+
+**Rule:** The GUI server uses **port 3420** as its default. This port is reserved for the **LIVE
+workspace** — the installed production copy of the MCP server that agents use during active ledger
+workflows. When running the GUI from the **DEV workspace** (this repository, a feature branch, or
+any development build), always pass `--port 3460`:
+
+```bash
+# ✅ CORRECT — DEV workspace / feature branch
+node scripts/run-gui.js -- --port 3460
+
+# ✅ CORRECT — LIVE workspace (default; no flag needed)
+node scripts/run-gui.js
+```
+
+**Rationale:** The LIVE and DEV workspaces can run simultaneously on the same machine. Without
+distinct ports, a DEV GUI process silently shadows the LIVE instance (or vice versa), causing
+agents mid-workflow to read stale or incorrect ledger data from the wrong server.
+
+**Anti-pattern:**
+```bash
+# ❌ WRONG — launching a DEV GUI on the default port while LIVE is running
+node scripts/run-gui.js   # collides with the LIVE instance on port 3420
+```
+
+**Port registry:**
+
+| Port | Workspace | When to Use |
+|------|-----------|-------------|
+| 3420 | LIVE (production install) | Default; leave unset for the installed, workflow-active build |
+| 3460 | DEV / feature branch | Always pass `--port 3460` when running from this repository |
 
 ---
 
@@ -2453,7 +2489,31 @@ When modifying a frontend file, increment its `?v=N` parameter in `index.html` t
 
 ---
 
-## 15. Known Limitations
+## 15. Dual-Format Endpoint Pattern (`?format=structured`)
+
+Some backend endpoints support a `?format=structured` query parameter to switch the response
+between a plain-text format and a structured JSON format without breaking existing callers.
+
+**Current endpoints using this pattern:**
+
+| Endpoint | Without parameter | With `?format=structured` |
+|----------|-------------------|---------------------------|
+| `GET …/chunks/:filename/rendered` | `{ content: string }` — Markdown from `renderChunksToDialogue()` | `{ blocks: DialogueBlock[] }` — typed array from `renderChunksToStructured()` |
+
+**Rules for this pattern:**
+
+1. **Backward-compatible by default.** Omitting the parameter always returns the legacy format.
+   Existing callers do not need to be updated.
+2. **Format detection is via `URLSearchParams`.** Use
+   `new URLSearchParams(qStr).get('format') === 'structured'` — do not parse manually.
+3. **Only `format=structured` is a valid structured-mode value.** Any other value falls back to the
+   default format; no error is returned for unknown values.
+4. **New dual-format endpoints must document both response shapes** in `api-surface.md`
+   (routes table row) and the corresponding data flow in `data-flows.md`.
+
+---
+
+## 16. Known Limitations
 
 | Limitation | Impact |
 |------------|--------|

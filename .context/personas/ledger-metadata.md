@@ -37,6 +37,7 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.1.0 (2026-07-16): Added Operating Philosophy — design for growth, no deferred quality, right abstraction first time
   2.0.0 (2026-07-15): Three-phase workflow (Scope Sketch → Research Brief → Plan) replaces interleaved research-and-plan approach; adds research-brief.md output artifact
   1.9.0 (2026-07-06): Handoff now includes RECOMMENDED_WORKFLOW field with ledger vs standalone assessment and rationale
   1.8.0 (2026-07-03): Plan Output Template Acceptance Criteria section now uses numbered AC-{NN}: prefix format with zero-padded sequential IDs and an explanatory instruction
@@ -136,6 +137,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.7.0 (2026-07-16): Added Operating Philosophy — long-term stability over expediency, assume growth, completeness over deferral
   3.6.5 (2026-07-03): Added Verbatim AC Text constraint — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.4 (2026-06-17): Added no-stale-counts constraint via shared developer-strict-constraints partial
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
@@ -298,6 +300,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
   3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
   3.5.5 (2026-04-08): Three-tier feedback (Blocking, Fix-Forward, Documentation-Forward)

@@ -67,13 +67,16 @@ pipeline_health: {
 ```typescript
 (args: { 
   project_path: string; 
-  plan_file: string  // must equal 'plan.md' — enforced by Zod .refine()
+  plan_file: string;           // must equal 'plan.md' — enforced by Zod .refine()
+  project_summary?: string;    // min(1) — human-readable description of the project intent
 }) => Promise<MCPResult>
 ```
 
 Creates a new project ledger with root index and centralized storage directory. Sets `ledger_version: SPEC_VERSION` on the root index at construction time. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
+
+**`project_summary` optional field:** When provided, the value is persisted to both `project-ledger.json` and `.meta.json` using key-presence semantics (the field is omitted entirely when not supplied — never written as `null`). The Zod `.min(1)` constraint rejects empty strings at parse time. In the GUI project detail page, `project_summary` is preferred over the auto-extracted synopsis (`extractSynopsis()` + `marked.parse()`): if set, the `.plan-synopsis` block renders it as XSS-safe plain text rather than Markdown. Bootstrapper agents should supply this field when creating a project, as it gives a curated, stable description that does not depend on plan file content.
 
 #### `ledger_list_projects`
 
@@ -137,6 +140,7 @@ All tools (except `ledger_initialize_project`) now accept `cwd_path` directly �
   project_path?: string;  // Absolute path to the standalone plan folder to import. Takes precedence over cwd_path.
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
+  project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. min(1). Whitespace-only strings pass validation but are not useful.
 }) => Promise<MCPResult>
 ```
 
@@ -158,7 +162,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 **Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives both source files, and auto-syncs `.meta.json`. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
 
 **Produced project record:**
-- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated.
+- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
 - `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
 - `plan.md` and `synthesis.md` archived to `{ledgerRoot}/{repoName}/{slug}/`.
@@ -1283,6 +1287,8 @@ export interface ImportStandaloneDetail {
   outcomeSummary: string | null;
   /** Summary lines for the WP-001 implementation pipeline entry. */
   pipelineSummary: string[];
+  /** Optional curated project description. When present, written to root index and auto-synced to .meta.json. */
+  projectSummary?: string;
 }
 ```
 
@@ -1435,7 +1441,7 @@ class LedgerStore {
   // Reads current meta, merges status + optional cacheUpdates (field-preservation: existing cache
   // fields are preserved unless overridden), validates with ProjectMetaSchema, writes atomically.
   // cacheUpdates fields use `undefined` as a skip sentinel, `null` as an explicit written value for
-  // nullable string fields (project_name, repository_name, outcome_summary).
+  // nullable string fields (project_name, repository_name, outcome_summary, project_summary).
   writeProjectMeta(
     planFile: string,
     status?: string,
@@ -1445,6 +1451,7 @@ class LedgerStore {
       project_name?: string | null;
       repository_name?: string | null;
       outcome_summary?: string | null;  // 2–3 sentence synthesis summary; uses key-presence semantics
+      project_summary?: string | null;  // Project intent description set at initialization; uses key-presence semantics
     }
   ): Promise<void>;
   // Sets the user-visible display title. Reads current meta, updates `title`
@@ -1832,6 +1839,8 @@ interface ProjectMeta {
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived via deriveRepoName(plan_path) at initializeProject; 'unknown' when not detectable. Legacy records may hold null.
+  outcome_summary?: string | null; // 2–3 sentence summary written by the Synthesis agent; null/absent before synthesis runs
+  project_summary?: string | null; // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
 }
 ```
 
@@ -1874,6 +1883,7 @@ interface RootIndex {
   synthesis_generated?: boolean;      // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
   outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
+  project_summary?: string | null;    // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
   ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
 }
 
@@ -4111,14 +4121,66 @@ export async function handleGetChunkFile(
   repoName?: string
 ): Promise<{ content: string }>;
 
-// GET /api/projects/:slug/chunks/:filename/rendered
-// Convenience route: calls handleGetChunkFile then pipes content through
-// renderChunksToDialogue() (gui/chunk-renderer.ts) — compact chat-like format:
-// plain-paragraph AI text, per-tool summary lines, hidden ToolMessages, no document header.
-// Returns { content: string } where content is the rendered Markdown.
+// GET /api/projects/:repo/:slug/chunks/:filename/rendered[?format=structured]
+// GET /api/projects/:slug/chunks/:filename/rendered[?format=structured]  (@deprecated)
+// Convenience route: calls handleGetChunkFile then renders the chunk content.
+// Optional query parameter: ?format=structured
+//   Absent or any value other than 'structured': pipes content through renderChunksToDialogue()
+//     — compact chat-like Markdown (plain-paragraph AI text, per-tool summary lines,
+//       hidden ToolMessages, sub-agent headings). Returns { content: string }.
+//   format=structured: pipes content through renderChunksToStructured()
+//     — returns { blocks: DialogueBlock[] } for frontend-controlled rendering
+//       (collapsible tool calls, interactive checklists, inline results).
+// The format param is case-sensitive: 'structured' (lowercase) only; 'STRUCTURED' falls
+// through to the legacy { content } handler.
 // Security and error handling are inherited from handleGetChunkFile.
 // Route is dispatched from gui/server.ts before the raw-file route (different segment count:
 // rest.length === 5 vs. rest.length === 4 — no ordering dependency).
+// The deprecated non-namespaced route (:slug only) supports both format modes identically.
+
+// ---------------------------------------------------------------------------
+// Structured chunk renderer — public types and function (gui/chunk-renderer.ts)
+// ---------------------------------------------------------------------------
+
+// Discriminated union representing one logical block in the structured rendering
+// produced by renderChunksToStructured().  Discriminated on the `type` field.
+//
+//   text             — AI prose content; no JSON or tool-call data mixed in.
+//   tool-call        — One tool invocation: name, detailLines (from getToolDetailLines()),
+//                      parsed args object, and an optional `result` embedding for
+//                      non-inline tools (see inline-vs-non-inline rule below).
+//   subagent-heading — Marks the start of a sub-agent namespace block.
+//   checklist        — A write_todos invocation rendered as typed todo items.
+//
+// Inline-vs-non-inline result routing rule:
+//   Inline tools ('execute', 'task'): ToolMessage result summary stays inside detailLines
+//   (matching the existing renderChunksToDialogue() behaviour); result field is absent.
+//   All other tools: ToolMessage result (if any) is embedded in result: { content: string }
+//   on the tool-call block so callers can collapse/expand it independently.
+export type DialogueBlock =
+  | { type: 'text'; content: string }
+  | {
+      type: 'tool-call';
+      name: string;
+      detailLines: string[];
+      args: unknown;
+      result?: { content: string };
+    }
+  | { type: 'subagent-heading'; label: string }
+  | {
+      type: 'checklist';
+      items: Array<{ content: string; status: string; checked: boolean }>;
+    };
+
+// Parses a JSONL chunk file and returns a structured array of DialogueBlock objects.
+// This is the typed alternative to renderChunksToDialogue(): instead of a flat Markdown
+// string the caller receives block objects giving the frontend full control over rendering
+// (collapsible tool calls, interactive checklists, inline results, etc.).
+// Internally reuses accumulateChunks(), buildToolCallIndex(), and getToolDetailLines().
+// buildFullToolResultIndex() (module-private) indexes ALL ToolMessage entries regardless
+// of tool name — unlike buildToolResultIndex() which filters to inline tools only.
+// Returns [] for empty input; never throws on valid JSONL with unknown block shapes.
+export function renderChunksToStructured(jsonlContent: string): DialogueBlock[];
 
 // ---------------------------------------------------------------------------
 // Orchestrator lifecycle handlers (WP-008)
@@ -4409,7 +4471,7 @@ The server uses a two-tier routing architecture: body-free routes are dispatched
 | GET | `/api/projects/:repo/:slug/dialogues/:filename` | `handleGetDialogueFile` | Filename allowlist + resolve() prefix guard |
 | GET | `/api/projects/:repo/:slug/chunks` | `handleListChunks` | Optional: `?wp=WP-001` filter |
 | GET | `/api/projects/:repo/:slug/chunks/:filename` | `handleGetChunkFile` | Returns raw JSONL; filename allowlist + resolve() prefix guard |
-| GET | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` | Returns dialogue-formatted Markdown (compact chat-like; no role headings, no JSON blocks) |
+| GET | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` or `renderChunksToStructured` | Default: `{ content: string }` dialogue Markdown; with `?format=structured`: `{ blocks: DialogueBlock[] }` |
 | GET | `/api/projects/:repo/:slug/runs` | `handleListRunLogs` | Sorted `RunLogEntry[]`; heals stale runs as side-effect |
 | GET | `/api/projects/:repo/:slug/runs/:filename` | `handleGetRunLog` | `{ entries, totalLines }`; optional `?after=N` for incremental polling |
 | DELETE | `/api/projects/:repo/:slug` | `handleDeleteProject` | |
@@ -4496,6 +4558,26 @@ and missing projects are indistinguishable from the client side.
 Exported for direct unit testing (previously unexported/private). Used by all namespaced route
 handlers in `server.ts`.
 
+#### `matchRoute(method, url, ledgerRoot, orchestratorLogsDir): RouteHandler | null`
+
+Matches an HTTP method and URL to a registered API handler thunk. Returns the thunk, or `null`
+if no route matches.
+
+**Parameters:**
+- `method: string` — HTTP method (e.g. `'GET'`, `'DELETE'`)
+- `url: string` — raw request URL including any query string
+- `ledgerRoot: string` — resolved ledger root directory path
+- `orchestratorLogsDir: string` — resolved orchestrator logs directory path
+
+All body-free API routes (GET, DELETE, and simple POST/PATCH without request-body parsing) are
+dispatched through this function. Body-parsing routes (PATCH, some POST routes) are handled as
+explicit early-return blocks in `handleRequest()` **before** `matchRoute()` is called.
+
+> **Testing seam only.** Exported solely to enable unit-level route tests
+> (`tests/gui/route-structured-format.test.ts`). Not intended for external callers. If
+> `server.ts` ever gains a dedicated public API module, `matchRoute` should be moved to an
+> internal/testing-only export there.
+
 ---
 
 ## GUI Frontend
@@ -4516,6 +4598,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
 | `views/project-list.js` | `renderProjectList(app)` — project list table with filter, search, pagination, and action menu |
 | `views/project-detail.js` | `renderProjectDetail(app, repo, slug)`, `extractSynopsis(markdown)`, `renderPlan(app, repo, slug)`, `renderSynthesis(app, repo, slug)`, `showResetModal(repo, slug, diagnosis, options)` |
+| `views/project-detail-dialogues.js` | `buildDialogueHTML(blocks)` (WP-006), `renderDialoguesSection(sectionEl, repo, slug)` |
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
@@ -4540,9 +4623,10 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.progress-bar-fill` | Fill layer inside `.progress-bar-track`; `height:100%`, `background:var(--color-ready)`, `transition:width 0.2s ease`; width is set inline by `buildTable()` |
 | `.filter-bar input[type='text']` | Search input in the project list filter bar; matches `.filter-bar select` visually (same padding, border, border-radius, font-size, background); focus ring mirrors `.form-control:focus` |
 | `.plan-content` | Prose container for rendered Markdown in the Plan viewer (`#/projects/:repo/:slug/plan`); max-width 800 px; typography for `h1–h4`, `p`, `ul`/`ol`/`li`, `table`/`th`/`td`, `code`, `pre`, `hr`; uses `var(--color-border)` for borders/rules and `var(--radius)` for code/pre |
-| `.plan-synopsis` | Synopsis card injected on the Project Detail page when the archived plan has a `## Summary` section; left-border accent using `var(--color-ready)`; max-height 12 rem with `overflow:hidden` (hard cut-off); surface background |
+| `.plan-synopsis` | Synopsis card injected on the Project Detail page when the archived plan has a `## Summary` section; left-border accent using `var(--color-ready)`; max-height 12 rem with `overflow:hidden` (collapsed state); surface background; **Show more / Show less toggle** expands/collapses the card (handled by `.plan-synopsis__toggle`) |
 | `.plan-synopsis__content` | Inner content block inside `.plan-synopsis` for the summary text |
 | `.plan-synopsis__link` | **View full plan →** link element inside `.plan-synopsis` |
+| `.plan-synopsis__toggle` | **Show more / Show less** button below the synopsis card; `font-family: inherit` prevents browser default button font from overriding the page font; toggle IIFE is deferred inside `document.fonts.ready.then()` so scroll-height measurements are taken after fonts have loaded (with a `Promise.resolve()` fallback for jsdom/older browsers) |
 | `.synthesis-content` | Prose container for rendered Markdown in the Synthesis viewer (`#/projects/:repo/:slug/synthesis`); shares all typography rules with `.plan-content` via multi-selector CSS (DRY — no duplicated rules) |
 | `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
 | `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |
@@ -4623,6 +4707,46 @@ Dark mode overrides for `.dialogue-btn`, `.dialogue-btn-latest`, and `.dialogue-
 
 > **Accessibility note (future work):** `.dialogue-btn` toggle buttons do not currently set `aria-expanded` — screen readers cannot infer the expanded/collapsed state from the DOM. A future accessibility pass should add `aria-expanded="false"` initially and toggle it alongside `.dialogue-btn-active` on click.
 
+**`styles.css` — Interactive dialogue block view classes** (added for the structured chunk renderer in WP-001/WP-002; used by `buildDialogueHTML()` in WP-006):
+
+These classes style the typed `DialogueBlock` objects emitted by `renderChunksToStructured()`. JS authors implementing event handlers (e.g. expand/collapse) should target them as described.
+
+| Class | Role |
+|-------|------|
+| `.dialogue-text` | AI prose text block; `margin-bottom:12px`, `color:var(--color-text)`, `line-height:1.65` |
+| `.dialogue-tool-call` | Container for one tool invocation; `border:1px solid var(--color-border)`, `border-radius:var(--radius)`, `background:var(--color-surface)`, `overflow:hidden` |
+| `.dialogue-tool-toggle` | Clickable `<button>` header row inside `.dialogue-tool-call`; `width:100%`, `background:none`, `border:none`, `text-align:left`, `cursor:pointer`, `font-size:13px`, `font-weight:600`; **attach the expand/collapse click handler here** |
+| `.dialogue-tool-arrow` | Rotation arrow `▶` inside `.dialogue-tool-toggle`; `transition:transform 0.2s`; **JS must add/remove `.expanded` to rotate it 90° when the body is open** |
+| `.dialogue-tool-arrow.expanded` | CSS rule: `transform:rotate(90deg)` — applied by JS to signal open state |
+| `.dialogue-tool-details` | Collapsible body of the tool call; `padding:0 12px 10px`, `border-top:1px solid var(--color-border)`; **JS shows/hides this element alongside `.dialogue-tool-arrow.expanded`** |
+| `.dialogue-tool-detail-line` | Each `↳` summary line inside `.dialogue-tool-details`; `font-size:12px`, `color:var(--color-text-muted)`, monospace font |
+| `.dialogue-tool-args` | JSON args `<pre>` block inside `.dialogue-tool-details`; `max-height:300px`, `overflow-y:auto`, `background:var(--color-bg)`, monospace, `white-space:pre` |
+| `.dialogue-tool-result` | Embedded ToolMessage result inside `.dialogue-tool-details`; `border-left:3px solid var(--color-ready)`, `background:var(--color-bg)`, `white-space:pre-wrap`; only rendered for non-inline tools (not `execute`/`task`) |
+| `.dialogue-tool-result-label` | `"Result:"` caption `<span>` above the result content; `font-size:11px`, `font-weight:600`, `text-transform:uppercase` |
+| `.dialogue-checklist` | `write_todos` block container; `background:var(--color-surface)`, `border:1px solid var(--color-border)`; inner `<ul>` is a flex column; `<li>` contains a disabled checkbox and text |
+| `.dialogue-checklist li.checked` | Completed todo item; `color:var(--color-text-muted)`, `text-decoration:line-through` |
+| `.dialogue-subagent-heading` | Sub-agent namespace heading; `border-left:3px solid var(--color-complete)`, `background:color-mix(in srgb, var(--color-complete) 8%, transparent)`, uppercase label |
+
+Dark mode overrides via `[data-theme="dark"]` blocks are provided for: `.dialogue-tool-call`, `.dialogue-tool-toggle`, `.dialogue-tool-args`, `.dialogue-tool-result`, `.dialogue-checklist`, `.dialogue-subagent-heading`.
+
+**JS interaction contract for expand/collapse** (as implemented in `_openDialogueModal`, ES5):
+```javascript
+// Delegated listener on the modal bodyEl (registered once after async render):
+bodyEl.addEventListener('click', function (e) {
+  var btn = e.target.closest('.dialogue-tool-toggle');
+  if (!btn) return;
+  var isExpanded = btn.getAttribute('aria-expanded') === 'true';
+  var detailsEl  = btn.parentNode.querySelector('.dialogue-tool-details');
+  var arrowEl    = btn.querySelector('.dialogue-tool-arrow');
+  if (detailsEl) {
+    if (isExpanded) { detailsEl.setAttribute('hidden', ''); }
+    else            { detailsEl.removeAttribute('hidden'); }
+  }
+  btn.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+  if (arrowEl) arrowEl.classList[isExpanded ? 'remove' : 'add']('expanded');
+});
+```
+
 **`styles.css` — Stale instance banner class:**
 
 | Class | Role |
@@ -4645,7 +4769,7 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 | `.btn-resume:disabled` | Disabled state: `opacity: 0.6; cursor: not-allowed` — applied immediately on click to prevent double-submit; re-enabled on error |
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 31 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(slug, filename)` → `GET /api/projects/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
+- **`API`** — async fetch wrappers for all 32 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
@@ -4711,6 +4835,11 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 - **`showResetModal(repo, slug, diagnosis, options)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; `options` is an optional object — currently supports `{ markComplete: true }` to activate mark-complete mode on open; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail(app, repo, slug)` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard); **mark-complete mode:** a **Mark All as Complete** button (`btn-warning`, `id=reset-mark-complete-btn`) in the bulk-controls bar toggles a closure-scoped `markCompleteMode` boolean; when active, the button relabels itself to **Cancel Override** (gains `.active` class), the apply button label changes to **Mark as Complete**, and `buildSummary()` returns a ⚠ warning text describing the forced-COMPLETE operation; confirm path invokes `API.markProjectComplete(repo, slug)` → `closeModal()` + success toast + `renderProjectDetail(app, repo, slug)` re-render; error path shows an error toast; clicking Cancel Override reverts `markCompleteMode` to `false` and restores all prior labels; normal Apply Reset flow is unaffected when `markCompleteMode` is `false`; apply button is disabled at the start of both confirm branches to prevent double-submit; `API.applyProjectReset(repo, slug, decisions)` used for normal reset path
 - **`renderPlan(app, repo, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; calls `API.getPlanDocument(repo, slug)`; breadcrumb links to `#/projects` and `#/projects/{repo}/{slug}`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, repo, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; calls `API.getSynthesisDocument(repo, slug)`; breadcrumb links to `#/projects` and `#/projects/{repo}/{slug}`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
+
+**`views/project-detail-dialogues.js`** (WP-006; sub-module of `project-detail.js`; loaded before it in `index.html`):
+- **`buildDialogueHTML(blocks)`** — transforms a `DialogueBlock[]` array (as returned by `API.getChunkStructured()`) into interactive HTML. Block types handled: `text` → `<div class="dialogue-text">` paragraphs with inline Markdown via `_dialogueInlineMarkdown()`; `tool-call` → collapsed-by-default `.dialogue-tool-call` card with `.dialogue-tool-toggle` button (▶ indicator, `aria-expanded="false"` initial state), always-visible `↳` detail lines, and a `[hidden]` `.dialogue-tool-details` body containing args JSON `<pre>` and optional result; `checklist` → `.dialogue-checklist` list with per-item checkbox indicators; `subagent-heading` → `<h3 class="dialogue-subagent-heading">`. All string values escaped via `escapeHtml()`. All JavaScript is ES5-compatible (var, function expressions, string concatenation). Returns the full HTML wrapped in `<div class="dialogue-interactive">`.
+- **`renderDialoguesSection(sectionEl, repo, slug)`** — fetches all chunks and dialogues for a project (no WP filter) in parallel; merges them (chunks take priority over Markdown dialogue files); groups by source + stage; renders an overview table with Source, Stage, and Dialogue columns plus pill buttons for each revision; clicking a pill button opens a full-screen dialogue modal via `_openDialogueModal()`.
+- **`_openDialogueModal(title, repo, slug, filename, useChunks)`** (private) — opens a full-screen overlay modal. **When `useChunks` is `true`:** calls `API.getChunkStructured()` → `buildDialogueHTML()` and registers a delegated click listener on the modal body for `.dialogue-tool-toggle` expand/collapse. **When `useChunks` is `false`:** calls `API.getDialogueContent()` → `marked.parse()` (legacy Markdown path — unchanged). Close paths: × button, backdrop click (`e.target === overlay`), Escape key.
 
 **`views/work-package.js`:**
 - **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`

@@ -29,6 +29,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── reviewer-output-format.md
             └── security-auditor-operational-protocol.md
             └── security-auditor-output-format.md
+            └── summary-crafting-guide.md
             └── synthesis-knowledge-collection.md
             └── synthesis-operational-protocol.md
             └── synthesis-output-format.md
@@ -367,6 +368,14 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 - **`acceptance_criteria_updates`**: Mark criteria met/unmet based on findings.
 
 If no issues are found, record a single comment confirming the review was performed: `type: "improvement", note: "No security findings — all OWASP Top 10 categories reviewed; no Critical or High issues identified."`.
+
+```
+###  Path: `/personas/shared/partials/summary-crafting-guide.md`
+
+```md
+- **Factual and concise** — describe what the project does and why, not how it is implemented
+- **Plain text only** — no Markdown formatting (no bold, bullets, backticks, or headers)
+- **Focused on intent** — avoid implementation details, tool names, and technical specifics unless essential to understanding the project's purpose
 
 ```
 ###  Path: `/personas/shared/partials/synthesis-knowledge-collection.md`

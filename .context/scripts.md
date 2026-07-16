@@ -5019,8 +5019,12 @@ main();
  *
  * Usage (from workspace root):
  *   node scripts/run-gui.js
- *   node scripts/run-gui.js -- --port 3421
- *   node scripts/run-gui.js -- --port 3421 --ledger-dir "C:\path\to\ledger"
+ *   node scripts/run-gui.js -- --port 3460
+ *   node scripts/run-gui.js -- --port 3460 --ledger-dir "C:\path\to\ledger"
+ *
+ * Port convention:
+ *   3420 — LIVE workspace (default; reserved for the production MCP server used in workflows)
+ *   3460 — DEV workspace / feature branch (use this when working on the codebase)
  *
  * CLI arguments after `--` are forwarded to the GUI server process.
  */

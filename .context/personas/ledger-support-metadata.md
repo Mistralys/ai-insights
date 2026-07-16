@@ -58,6 +58,7 @@ vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
 changelog: |
+  1.2.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
   1.1.0 (2026-05-19): WP spec template carries all draft fields verbatim; no summarization
   1.0.0 (2026-03-16): Initial release — ledger WP initialization via MCP tools
 
@@ -298,6 +299,7 @@ vs_file_name: standalone-archiver.agent.md
 id: ledger-support-standalone-archiver
 cc_file_name: standalone-archiver.md
 changelog: |
+  1.5.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
   1.4.0 (2026-07-13): Audit compliance — added Operating Modes section (Import/Update); split workflow into mode-specific sections; added constraint alternatives; renamed MCP Tools to MCP Server Tools
   1.3.0 (2026-07-13): Added ledger_update_synthesis tool for updating synthesis after post-import edits
   1.2.0 (2026-07-03): Added read and edit tools for synthesis.md archival date stamp
