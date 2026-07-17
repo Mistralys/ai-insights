@@ -34,6 +34,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | Section | Document | Contents |
 |---------|----------|----------|
 | **Overview & Usage** | [README.md](../../../README.md) | Prerequisites, installation, configuration, CLI reference, architecture overview, troubleshooting |
+| **User Guide** | [Orchestrator User Guide](../../../../docs/references/orchestrator-user-guide.md) | End-to-end walkthrough: preparing plans, running workflows, interpreting output, pausing and resuming |
 | **Architecture & Data Flows** | [architecture.md](../../architecture.md) | Stage node lifecycle, MCP tool wrapping, `WorkflowState` fields, JSONL log entry types |
 | **Routing Logic** | [supervisor-routing.md](../../supervisor-routing.md) | Deterministic supervisor algorithm, special exits, action sets, circuit-breaker mechanics |
 | **Public API Surface** | [public-api.md](../../public-api.md) | CLI entry point, graph construction, supervisor factory, utility functions |
