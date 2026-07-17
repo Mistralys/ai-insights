@@ -3,8 +3,18 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'mcp-server/docs/**'
+      - 'orchestrator/docs/**'
+      - 'personas/docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'mcp-server/docs/**'
+      - 'orchestrator/docs/**'
+      - 'personas/docs/**'
 
 jobs:
   mcp-server-tests:
