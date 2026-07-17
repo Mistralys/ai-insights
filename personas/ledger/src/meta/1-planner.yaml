@@ -7,6 +7,7 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.2.0 (2026-07-17): Recommended Workflow section added to Plan Output Template; workflow assessment persisted in plan.md
   2.1.0 (2026-07-16): Added Operating Philosophy — design for growth, no deferred quality, right abstraction first time
   2.0.0 (2026-07-15): Three-phase workflow (Scope Sketch → Research Brief → Plan) replaces interleaved research-and-plan approach; adds research-brief.md output artifact
   1.9.0 (2026-07-06): Handoff now includes RECOMMENDED_WORKFLOW field with ledger vs standalone assessment and rationale

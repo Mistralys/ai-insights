@@ -201,6 +201,10 @@ Number each acceptance criterion with an `AC-{NN}:` prefix (zero-padded, sequent
 | Risk | Mitigation |
 |------|------------|
 | **{Risk}** | {Mitigation} |
+
+## Recommended Workflow
+- **Workflow:** {ledger | standalone}
+- **Rationale:** {One sentence explaining the recommendation}
 ```
 
 ---
@@ -271,7 +275,7 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 
 7. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
 8. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
-9. **Assess implementation scope.** Based on the completed plan, recommend whether it should be executed via the full ledger workflow or a standalone developer session:
+9. **Assess implementation scope.** Based on the completed plan, recommend whether it should be executed via the full ledger workflow or a standalone developer session. Write the recommendation into the plan's `## Recommended Workflow` section.
     - **Ledger** — multi-module or cross-cutting changes, new architecture or pattern departures, plans that benefit from formal QA / security audit / review stages, or plans with 4+ detailed steps involving distinct concerns.
     - **Standalone** — single-module changes within well-understood patterns, bug fixes, small features, or refactors where a single developer session suffices and self-review is adequate.
 10. End the response with:
