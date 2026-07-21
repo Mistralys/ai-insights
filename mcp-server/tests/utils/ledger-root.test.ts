@@ -149,4 +149,19 @@ describe('inferProjectRootFromPlanPath', () => {
     const planPath = '/docs/agents/plans/2026-01-01-foo';
     expect(inferProjectRootFromPlanPath(planPath)).toBe('/');
   });
+
+  it('matches title-case Docs/Agents (case-insensitive)', () => {
+    const planPath = 'C:\\Users\\dev\\starfield-load-order-manager\\Docs\\Agents\\plans\\2026-07-21-lcs-diff-pipeline';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('C:/Users/dev/starfield-load-order-manager');
+  });
+
+  it('matches upper-case DOCS/AGENTS (case-insensitive)', () => {
+    const planPath = '/home/user/project/DOCS/AGENTS/plans/2026-01-01-foo';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/home/user/project');
+  });
+
+  it('matches mixed-case Docs/agents (case-insensitive)', () => {
+    const planPath = '/repo/Docs/agents/plans/2026-01-01-foo';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/repo');
+  });
 });

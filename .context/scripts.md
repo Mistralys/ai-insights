@@ -1759,21 +1759,26 @@ const BANNER_LINES = [
 ];
 
 // --- Status lines (instant-tier health checks, synchronous) ---
+// Renders a single "all clear" line when every check passes; shows only
+// the failing items (with fix hints) when one or more checks fail.
 
-const STATUS_LINES = HEALTH_CHECKS
-  .filter(check => check.cost === 'instant')
-  .map(check => () => {
+const STATUS_LINES = [() => {
+  const failures = [];
+  for (const check of HEALTH_CHECKS.filter(c => c.cost === 'instant')) {
     const result = check.detect();
     // Guard against Promise (contract violation: instant checks must be synchronous)
     if (result instanceof Promise) {
-      return C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`);
+      failures.push(C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`));
+    } else if (!result) {
+      const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
+      failures.push(C.red(`\u2717 ${check.label}`) + fixHint);
     }
-    if (result) {
-      return C.green(`\u2713 ${check.label}`);
-    }
-    const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
-    return C.red(`\u2717 ${check.label}`) + fixHint;
-  });
+  }
+  if (failures.length === 0) {
+    return C.green('\u2713 All checks passed');
+  }
+  return failures.join('\n  ');
+}];
 
 // --- First-run wizard ---
 
@@ -3194,7 +3199,7 @@ main().catch((err) => {
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 7 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> (see registry below for the full list).
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
@@ -3370,7 +3375,7 @@ export const HEALTH_CHECKS = [
   {
     id: 'personas-deps-fresh',
     label: 'Personas dependencies up to date',
-    cost: 'fast',
+    cost: 'instant',
     /** @returns {boolean} */
     detect() {
       return lockfileFresh(PERSONAS_DIR);
@@ -3382,7 +3387,7 @@ export const HEALTH_CHECKS = [
   {
     id: 'mcp-deps-fresh',
     label: 'MCP Server dependencies up to date',
-    cost: 'fast',
+    cost: 'instant',
     /** @returns {boolean} */
     detect() {
       return lockfileFresh(MCP_SERVER_DIR);

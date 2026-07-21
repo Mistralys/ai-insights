@@ -77,7 +77,10 @@ export function inferProjectRootFromPlanPath(planPath: string): string | null {
   const normalized = planPath.replace(/\\/g, '/');
   const segments = normalized.split('/');
   for (let i = 0; i < segments.length - 1; i++) {
-    if (segments[i] === 'docs' && segments[i + 1] === 'agents') {
+    // Case-insensitive comparison: some repositories use title-case directory
+    // names (e.g. "Docs/Agents") which must be matched on case-insensitive
+    // filesystems (Windows, macOS default).
+    if (segments[i]!.toLowerCase() === 'docs' && segments[i + 1]!.toLowerCase() === 'agents') {
       // Rejoin segments before 'docs' to form the project root.
       // When the root is the filesystem root (e.g. '/docs/agents/...'),
       // slice(0, 0) is [] and ''.join('/') is '', so fall back to '/'.

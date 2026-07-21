@@ -56,4 +56,9 @@ describe('deriveRepoName', () => {
     // null resolvedRoot skips the internal call and falls through to the null check.
     expect(deriveRepoName('/repos/ai-insights/docs/agents/plans/2026-05-01-my-plan', null)).toBe('unknown');
   });
+
+  it('derives repo name from a title-case Docs/Agents path (Windows)', () => {
+    const winPath = 'C:\\Users\\dev\\starfield-load-order-manager\\Docs\\Agents\\plans\\2026-07-21-lcs-diff-pipeline';
+    expect(deriveRepoName(winPath)).toBe('starfield-load-order-manager');
+  });
 });

@@ -392,6 +392,7 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 
 | Document | Content |
 |----------|---------|
+| [Orchestrator User Guide](../docs/references/orchestrator-user-guide.md) | End-to-end walkthrough: preparing plans, running workflows, interpreting output, pausing and resuming |
 | [docs/architecture.md](docs/architecture.md) | Stage node lifecycle, MCP tool wrapping, WorkflowState fields, JSONL log entry types |
 | [docs/supervisor-routing.md](docs/supervisor-routing.md) | Full routing algorithm, special exits, action sets, circuit-breaker |
 | [docs/jsonl-log-schema.md](docs/jsonl-log-schema.md) | Complete JSONL field reference (stage lifecycle events, routing events, run lifecycle events) |

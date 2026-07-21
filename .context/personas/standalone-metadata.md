@@ -452,6 +452,8 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.2.0 (2026-07-21): Refiner-as-Enricher — brief enrichment phase, enriched sub-agent dispatch prompts with research brief references, incremental re-audit for cycles 2+, sub-agent brief enrichment with provenance markers, brief size guard
+  1.1.0 (2026-07-17): Design review triage — auto-detect whether the plan warrants architectural review; skip for plans with no design decisions
   1.0.4 (2026-05-31): Minor refinements
   1.0.3 (2026-05-20): Handoff improvements to give subagents more agency
   1.0.2 (2026-05-20): Wording improvements to remove overly imperative instructions
@@ -482,6 +484,7 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.0.1 (2026-07-21): Rename Research Brief subsection from "Patterns & Conventions" to "Established Patterns" to reinforce factual-only content
   2.0.0 (2026-07-15): Three-phase workflow (Scope Sketch → Research Brief → Plan) replaces interleaved research-and-plan approach; adds research-brief.md output artifact
   1.0.0 (2026-06-08): Initial release — ledger-independent planning for non-ledger workflows
 

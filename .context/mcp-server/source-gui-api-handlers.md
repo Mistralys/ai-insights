@@ -2913,6 +2913,20 @@ export function chunkType(chunk: Record<string, JsonValue>): string {
  * Merges a new content value into an existing accumulated content value.
  * Both string-concatenation (token streaming) and block-list merging are
  * supported.
+ *
+ * **Content block alignment:**
+ * Anthropic's streaming API emits each content block in its own single-element
+ * array chunk.  The block carries a semantic `index` field indicating its
+ * logical slot in the fully-assembled content array — e.g. `{type:"text",
+ * index:0}` for the text portion and `{type:"tool_use", index:1}` for a tool
+ * invocation.  Without index-aware alignment, a `tool_use` block arriving at
+ * array position 0 would overwrite the accumulated `text` block at position 0,
+ * corrupting the text content.
+ *
+ * When a block carries a numeric `index` field, that value is used as the
+ * target slot — matching the pattern already used by `mergeToolCallChunks()`.
+ * When `index` is absent, the loop variable `i` is used as the fallback,
+ * preserving backward compatibility with providers that omit the field.
  */
 export function mergeContent(
   acc: string | ContentBlock[],
@@ -2925,24 +2939,35 @@ export function mergeContent(
     return acc + incoming;
   }
 
-  // Array + array → merge blocks by index or by id.
+  // Array + array → merge blocks by semantic index field (Anthropic streaming
+  // convention), falling back to array position when the field is absent.
   if (Array.isArray(acc) && Array.isArray(incoming)) {
-    const result: ContentBlock[] = [...acc];
+    // Work on a sparse array so index-keyed blocks land at the correct slot.
+    // Anthropic streams each block in its own single-element array chunk, so every
+    // incoming array has length 1, but its block.index may be 1, 2, … — meaning it
+    // belongs at a higher logical position than array position 0.
+    const sparse: (ContentBlock | undefined)[] = [...acc];
     for (let i = 0; i < incoming.length; i++) {
       const block = incoming[i];
       if (!block) continue;
-      if (i < result.length && result[i]) {
-        const existing = result[i]!;
+      // Use the block's own `index` field when it is a non-negative integer;
+      // otherwise fall back to the loop counter (backward-compat path).
+      const slot = (typeof block['index'] === 'number' && block['index'] >= 0)
+        ? block['index']
+        : i;
+      const existing = sparse[slot];
+      if (existing) {
         if (existing.type === 'text' && block.type === 'text') {
-          result[i] = { ...existing, text: (existing.text ?? '') + (block.text ?? '') };
+          sparse[slot] = { ...existing, text: (existing.text ?? '') + (block.text ?? '') };
         } else {
-          result[i] = { ...existing, ...block };
+          sparse[slot] = { ...existing, ...block };
         }
       } else {
-        result.push({ ...block });
+        sparse[slot] = { ...block };
       }
     }
-    return result;
+    // Compact: remove any undefined gaps introduced by sparse indexing.
+    return sparse.filter((b): b is ContentBlock => b !== undefined);
   }
 
   // String + array → upgrade accumulator to array, reprocess.
@@ -3258,6 +3283,17 @@ import {
 /** Tools whose ToolMessage results are rendered inline (in detailLines) rather than embedded in a separate `result` field. */
 const INLINE_RESULT_TOOLS = new Set(['execute', 'task']);
 
+/**
+ * Anthropic streaming-only content block types that are always redundant with
+ * the `tool_calls` / `tool_call_chunks` message fields.  These block types
+ * carry no information that is not already captured elsewhere and must be
+ * filtered out of rendered text output.
+ *
+ * To handle a new streaming-only type (e.g. `thinking_delta`), add its string
+ * value to this set — no change to `renderContent()` logic required.
+ */
+const REDUNDANT_BLOCK_TYPES = new Set(['tool_use', 'input_json_delta']);
+
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
@@ -3346,8 +3382,13 @@ function renderContent(content: string | ContentBlock[] | null | undefined): str
         const btype = block.type ?? '';
         if (btype === 'text') {
           parts.push(typeof block.text === 'string' ? block.text : '');
+        } else if (REDUNDANT_BLOCK_TYPES.has(btype)) {
+          // Anthropic streaming-only block types — always redundant with
+          // `tool_calls` / `tool_call_chunks`; skip as a defence-in-depth filter.
+          // (intentional no-op — block is skipped)
         } else {
-          // Non-text blocks rendered as compact JSON fences.
+          // Genuinely non-text, non-tool blocks (e.g. `image`) — rendered as
+          // compact JSON fences for the Markdown debug renderer.
           parts.push('```json\n' + JSON.stringify(block, null, 2) + '\n```');
         }
       } else {

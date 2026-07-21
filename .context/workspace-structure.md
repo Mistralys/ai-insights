@@ -33,7 +33,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-28-ce-framework-audit.md
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
-    │   │   └── 2026-07-15-deepagents-browser-tool.md
+    │   │   └── 2026-07-21-plan-refiner-context-sharing.md
+    │   │   └── 2026-07-21-refiner-as-enricher-implementation.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
@@ -100,6 +101,7 @@ _SOURCE: Top-level directory tree_
     ├── references/
     │   └── development.md
     │   └── menu-guide.md
+    │   └── orchestrator-user-guide.md
     │   └── persona-quickstart-ide.md
     │   └── persona-quickstart-web.md
     │   └── persona-quickstart.md
