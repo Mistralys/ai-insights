@@ -37,6 +37,13 @@ import type { DialogueBlock } from '../../gui/chunk-renderer.js';
 const HEADER = JSON.stringify({ chunk_format: 1, stream_mode: 'messages', langgraph_stream_version: 'v2' });
 
 /**
+ * Sample sub-agent namespace that mirrors a real Anthropic streaming capture.
+ * Used by the index-alignment and structured-rendering tests to provide a
+ * realistic sub-agent context without repeating the opaque string literal.
+ */
+const SUB_NS_DOCS = ['docs:748f41cb'];
+
+/**
  * Builds a chunk line in the object shape {ns, msg, metadata}.
  */
 function chunkLine(
@@ -1081,6 +1088,222 @@ describe('renderChunksToDialogue — token merging', () => {
     expect(result).toContain('Tool call: `edit_file`');
     // Full path must be reconstructed correctly.
     expect(result).toContain('[utils.ts](/src/utils.ts)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: content block index alignment (Anthropic streaming fix)
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToDialogue — content block index alignment', () => {
+  /**
+   * Anthropic streams content as single-element arrays where each block carries
+   * a semantic `index` field.  Text lives at `index: 0`; tool invocations at
+   * `index: 1`.  Without index-aware alignment, the tool_use block arriving at
+   * array position 0 would overwrite the accumulated text block.
+   */
+  it('preserves text block when tool_use arrives at a higher index', () => {
+    // Chunk 1: text token at content index 0.
+    const chunk1: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-idx',
+      content: [{ type: 'text', index: 0, text: "I'll check the project status." }],
+      tool_call_chunks: [],
+    };
+    // Chunk 2: tool_use announcement at content index 1 (arrives at array pos 0).
+    const chunk2: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-idx',
+      content: [{ type: 'tool_use', index: 1, id: 'toolu_01', name: 'ledger_get_next_action' }],
+      tool_calls: [{ name: 'ledger_get_next_action', args: '{}', id: 'toolu_01', type: 'tool_call' }],
+      tool_call_chunks: [{ index: 0, id: 'toolu_01', name: 'ledger_get_next_action', args: '' }],
+    };
+    // Chunk 3: input_json_delta at content index 1 (arg fragment).
+    const chunk3: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-idx',
+      content: [{ type: 'input_json_delta', index: 1, partial_json: '{"agent_role":"Documentation"}' }],
+      tool_call_chunks: [{ index: 0, id: null, name: null, args: '{"agent_role":"Documentation"}' }],
+    };
+    const content = jsonl(HEADER, chunkLine([], chunk1), chunkLine([], chunk2), chunkLine([], chunk3));
+    const result = renderChunksToDialogue(content);
+    // Text must be preserved.
+    expect(result).toContain("I'll check the project status.");
+    // Tool call must be present.
+    expect(result).toContain('Tool call: `ledger_get_next_action`');
+    // No raw JSON or &quot; entities.
+    expect(result).not.toContain('&quot;');
+    expect(result).not.toContain('"type": "tool_use"');
+    expect(result).not.toContain('"type": "input_json_delta"');
+  });
+
+  it('does not corrupt text when multiple input_json_delta chunks follow', () => {
+    // Simulate a long arg stream: many input_json_delta at index 1.
+    const textChunk: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-delta',
+      content: [{ type: 'text', index: 0, text: 'Good.' }],
+      tool_call_chunks: [],
+    };
+    const toolAnnounce: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-delta',
+      content: [{ type: 'tool_use', index: 1, id: 'toolu_02', name: 'ledger_get_work_package' }],
+      tool_calls: [{ name: 'ledger_get_work_package', args: '', id: 'toolu_02', type: 'tool_call' }],
+      tool_call_chunks: [{ index: 0, id: 'toolu_02', name: 'ledger_get_work_package', args: '' }],
+    };
+    const delta1: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-delta',
+      content: [{ type: 'input_json_delta', index: 1, partial_json: '{"work_package' }],
+      tool_call_chunks: [{ index: 0, id: null, name: null, args: '{"work_package' }],
+    };
+    const delta2: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'msg-delta',
+      content: [{ type: 'input_json_delta', index: 1, partial_json: '_id":"WP-002"}' }],
+      tool_call_chunks: [{ index: 0, id: null, name: null, args: '_id":"WP-002"}' }],
+    };
+    const content = jsonl(HEADER,
+      chunkLine([], textChunk),
+      chunkLine([], toolAnnounce),
+      chunkLine([], delta1),
+      chunkLine([], delta2),
+    );
+    const result = renderChunksToDialogue(content);
+    expect(result).toContain('Good.');
+    expect(result).toContain('Tool call: `ledger_get_work_package`');
+    expect(result).toContain('↳ WP-002');
+    expect(result).not.toContain('"type": "input_json_delta"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: renderContent filter for redundant Anthropic block types
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — renderContent filters tool_use and input_json_delta blocks', () => {
+  it('skips tool_use content blocks (redundant with tool_calls field)', () => {
+    // A single message with a tool_use content block but no tool_calls entry.
+    // Without the filter, this would produce a JSON fence in the output.
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'b1',
+      content: [
+        { type: 'text', index: 0, text: 'Starting.' },
+        { type: 'tool_use', index: 1, id: 'toolu_x', name: 'some_tool' },
+      ],
+      tool_call_chunks: [],
+    };
+    const result = renderChunksToMarkdown(jsonl(HEADER, chunkLine([], msg)));
+    expect(result).toContain('Starting.');
+    expect(result).not.toContain('"type": "tool_use"');
+    expect(result).not.toContain('```json');
+  });
+
+  it('skips input_json_delta content blocks', () => {
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'b2',
+      content: [
+        { type: 'text', index: 0, text: 'Processing.' },
+        { type: 'input_json_delta', index: 1, partial_json: '{"key":' },
+      ],
+      tool_call_chunks: [],
+    };
+    const result = renderChunksToMarkdown(jsonl(HEADER, chunkLine([], msg)));
+    expect(result).toContain('Processing.');
+    expect(result).not.toContain('"type": "input_json_delta"');
+    expect(result).not.toContain('partial_json');
+  });
+
+  it('still renders other non-text blocks (e.g. image) as JSON fences', () => {
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'b3',
+      content: [
+        { type: 'text', text: 'See image.' },
+        { type: 'image', url: 'https://example.com/img.png' },
+      ],
+      tool_call_chunks: [],
+    };
+    const result = renderChunksToMarkdown(jsonl(HEADER, chunkLine([], msg)));
+    expect(result).toContain('See image.');
+    expect(result).toContain('```json');
+    expect(result).toContain('"type": "image"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// describe: end-to-end structured rendering with Anthropic streaming pattern
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToStructured — Anthropic streaming content block pattern', () => {
+  it('produces text + tool-call blocks from realistic multi-chunk streaming input', () => {
+    // Exact pattern from real Anthropic streaming (verified against WP-002-docs-r0.jsonl):
+    // text at index 0, tool_use at index 1, N × input_json_delta at index 1.
+    const chunk1: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'real-msg',
+      content: [{ type: 'text', index: 0, text: "I'll start by checking the project status and determining my next action." }],
+      tool_calls: [],
+      tool_call_chunks: [],
+    };
+    const chunk2: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'real-msg',
+      content: [{ type: 'tool_use', index: 1, id: 'toolu_01Lbwcx5', name: 'ledger_get_next_action' }],
+      tool_calls: [{ name: 'ledger_get_next_action', args: '', id: 'toolu_01Lbwcx5', type: 'tool_call' }],
+      tool_call_chunks: [{ index: 1, id: 'toolu_01Lbwcx5', name: 'ledger_get_next_action', args: '' }],
+    };
+    const chunk3: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'real-msg',
+      content: [{ type: 'input_json_delta', index: 1, partial_json: '{"agent_role"' }],
+      tool_call_chunks: [{ index: 1, id: null, name: null, args: '{"agent_role"' }],
+    };
+    const chunk4: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'real-msg',
+      content: [{ type: 'input_json_delta', index: 1, partial_json: ':"Documentation"}' }],
+      tool_call_chunks: [{ index: 1, id: null, name: null, args: ':"Documentation"}' }],
+    };
+    const jsonlContent = jsonl(
+      HEADER,
+      chunkLine(SUB_NS_DOCS, chunk1),
+      chunkLine(SUB_NS_DOCS, chunk2),
+      chunkLine(SUB_NS_DOCS, chunk3),
+      chunkLine(SUB_NS_DOCS, chunk4),
+    );
+
+    const blocks = renderChunksToStructured(jsonlContent);
+
+    // Must have: subagent-heading, text block, tool-call block.
+    const heading = blocks.find(b => b.type === 'subagent-heading');
+    expect(heading).toBeDefined();
+
+    const textBlock = blocks.find(b => b.type === 'text');
+    expect(textBlock).toBeDefined();
+    if (textBlock && textBlock.type === 'text') {
+      expect(textBlock.content).toContain("I'll start by checking the project status");
+      // No JSON leakage in text content.
+      expect(textBlock.content).not.toContain('tool_use');
+      expect(textBlock.content).not.toContain('input_json_delta');
+      expect(textBlock.content).not.toContain('&quot;');
+    }
+
+    const toolBlock = blocks.find(b => b.type === 'tool-call');
+    expect(toolBlock).toBeDefined();
+    if (toolBlock && toolBlock.type === 'tool-call') {
+      expect(toolBlock.name).toBe('ledger_get_next_action');
+    }
+
+    // No raw JSON noise blocks present.
+    const jsonNoiseBlocks = blocks.filter(b =>
+      b.type === 'text' &&
+      (b.content.includes('"type": "tool_use"') || b.content.includes('"type": "input_json_delta"'))
+    );
+    expect(jsonNoiseBlocks).toHaveLength(0);
   });
 });
 

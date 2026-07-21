@@ -38,6 +38,17 @@ import {
 /** Tools whose ToolMessage results are rendered inline (in detailLines) rather than embedded in a separate `result` field. */
 const INLINE_RESULT_TOOLS = new Set(['execute', 'task']);
 
+/**
+ * Anthropic streaming-only content block types that are always redundant with
+ * the `tool_calls` / `tool_call_chunks` message fields.  These block types
+ * carry no information that is not already captured elsewhere and must be
+ * filtered out of rendered text output.
+ *
+ * To handle a new streaming-only type (e.g. `thinking_delta`), add its string
+ * value to this set — no change to `renderContent()` logic required.
+ */
+const REDUNDANT_BLOCK_TYPES = new Set(['tool_use', 'input_json_delta']);
+
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
@@ -126,8 +137,13 @@ function renderContent(content: string | ContentBlock[] | null | undefined): str
         const btype = block.type ?? '';
         if (btype === 'text') {
           parts.push(typeof block.text === 'string' ? block.text : '');
+        } else if (REDUNDANT_BLOCK_TYPES.has(btype)) {
+          // Anthropic streaming-only block types — always redundant with
+          // `tool_calls` / `tool_call_chunks`; skip as a defence-in-depth filter.
+          // (intentional no-op — block is skipped)
         } else {
-          // Non-text blocks rendered as compact JSON fences.
+          // Genuinely non-text, non-tool blocks (e.g. `image`) — rendered as
+          // compact JSON fences for the Markdown debug renderer.
           parts.push('```json\n' + JSON.stringify(block, null, 2) + '\n```');
         }
       } else {
