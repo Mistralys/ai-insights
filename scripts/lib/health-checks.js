@@ -11,7 +11,7 @@
  *   slow     — subprocess spawns, network reachability (100 ms – 2 s)
  *
  * Exports:
- *   HEALTH_CHECKS  — Array<HealthCheck> with 7 annotated entries.
+ *   HEALTH_CHECKS  — Array<HealthCheck> (see registry below for the full list).
  *   runChecks(costFilter) — Filter by tier and resolve all detectors.
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js,
@@ -187,7 +187,7 @@ export const HEALTH_CHECKS = [
   {
     id: 'personas-deps-fresh',
     label: 'Personas dependencies up to date',
-    cost: 'fast',
+    cost: 'instant',
     /** @returns {boolean} */
     detect() {
       return lockfileFresh(PERSONAS_DIR);
@@ -199,7 +199,7 @@ export const HEALTH_CHECKS = [
   {
     id: 'mcp-deps-fresh',
     label: 'MCP Server dependencies up to date',
-    cost: 'fast',
+    cost: 'instant',
     /** @returns {boolean} */
     detect() {
       return lockfileFresh(MCP_SERVER_DIR);

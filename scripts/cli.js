@@ -828,21 +828,26 @@ const BANNER_LINES = [
 ];
 
 // --- Status lines (instant-tier health checks, synchronous) ---
+// Renders a single "all clear" line when every check passes; shows only
+// the failing items (with fix hints) when one or more checks fail.
 
-const STATUS_LINES = HEALTH_CHECKS
-  .filter(check => check.cost === 'instant')
-  .map(check => () => {
+const STATUS_LINES = [() => {
+  const failures = [];
+  for (const check of HEALTH_CHECKS.filter(c => c.cost === 'instant')) {
     const result = check.detect();
     // Guard against Promise (contract violation: instant checks must be synchronous)
     if (result instanceof Promise) {
-      return C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`);
+      failures.push(C.yellow(`\u26a0 ${check.label} (detect returned Promise \u2014 check must be synchronous)`));
+    } else if (!result) {
+      const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
+      failures.push(C.red(`\u2717 ${check.label}`) + fixHint);
     }
-    if (result) {
-      return C.green(`\u2713 ${check.label}`);
-    }
-    const fixHint = check.fix ? C.dim(` \u2014 ${check.fix}`) : '';
-    return C.red(`\u2717 ${check.label}`) + fixHint;
-  });
+  }
+  if (failures.length === 0) {
+    return C.green('\u2713 All checks passed');
+  }
+  return failures.join('\n  ');
+}];
 
 // --- First-run wizard ---
 
