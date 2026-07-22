@@ -89,7 +89,7 @@ The Research Brief is an intermediate artifact that separates fact-gathering fro
 ### Verified References
 - `{file path}` (L{start}–L{end}): {What was found — current shape, relevant types, existing patterns}
 
-### Patterns & Conventions
+### Established Patterns
 - {Pattern observed} — `{file path where it is established}`
 
 ### Constraints

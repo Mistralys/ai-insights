@@ -5,6 +5,7 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.7.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   1.6.0 (2026-07-16): Added "Flag Expedient Shortcuts" principle to Operating Philosophy — catch structures that won't scale before implementation begins
   1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
   1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings

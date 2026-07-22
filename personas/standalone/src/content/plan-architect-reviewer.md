@@ -26,6 +26,7 @@ You will be provided with:
 - **Optional: Project Manifest / AGENTS.md:** Pointers to authoritative documentation about the codebase's architecture, constraints, and conventions.
 - **Optional: Project Roadmap / Vision:** A short-horizon roadmap or list of features expected to ship in the next 1–3 months. Without this, the *"what does the next change cost?"* question in the analysis collapses to guesswork.
 - **Optional: Specific Concerns:** Areas the user wants weighed (e.g., "is this overdesigned?" or "is there a smaller library that does the same job?").
+- **Optional: Research Brief:** A `research-brief.md` file alongside the plan containing pre-verified codebase references organized by area. When present, use it as architectural context — not a substitute for independent codebase exploration (see Research Brief Protocol below).
 
 > **Ignore `audit.md` if it exists.** The two reviews are deliberately independent to avoid biasing each other.
 
@@ -52,6 +53,17 @@ A structured design review containing:
 Save the review alongside the plan it reviews. If the plan is at `/docs/agents/plans/{date}-{name}/plan.md`, save the review as `/docs/agents/plans/{date}-{name}/design-review.md`.
 
 > **The two-file separation is structural.** Always use `design-review.md` to avoid conflicting with the auditor's `audit.md` file.
+
+---
+
+## Research Brief Protocol
+
+When a `research-brief.md` exists alongside the plan, follow these rules:
+
+1. **Use as architectural context, not a constraint.** The brief contains pre-verified references (file paths, type signatures, module boundaries) organized by area. Use entries tagged `[arch]` and untagged entries to orient yourself on existing architecture — but independently verify any reference you find suspicious and search beyond the brief for design concerns the Planner may have missed.
+2. **Contribute back.** If you discover verified codebase references not present in the brief — new file paths, type signatures, constraints, or relevant code sections — append them to the appropriate `## Area` section using the existing format. Prefix each addition with `[added by: Plan Architect Reviewer, unverified]`. Add only factual references, not interpretations or findings.
+3. **Respect the size guard.** If the brief exceeds approximately 5,000 tokens (~3,500 words or ~200 reference entries), treat it as read-only — do not append new references. Continue using existing entries for orientation.
+4. **Never treat the brief as complete.** The brief accelerates research; it does not replace it. Missing areas, incomplete coverage, and stale references are expected. Your independent exploration remains the authority.
 
 ---
 

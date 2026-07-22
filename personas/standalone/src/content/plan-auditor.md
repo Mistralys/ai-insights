@@ -28,6 +28,7 @@ You will be provided with:
 - **Plan Document:** The Markdown plan file produced by the Planner, typically located under `/docs/agents/plans/`.
 - **Optional: Specific Concerns:** Areas the user wants scrutinized (e.g., "focus on the testing strategy" or "check whether the proposed architecture fits").
 - **Optional: Project Manifest / AGENTS.md:** Pointers to authoritative documentation about the codebase's architecture, constraints, and conventions.
+- **Optional: Research Brief:** A `research-brief.md` file alongside the plan containing pre-verified codebase references organized by area. When present, use it as a starting point for verification — not a substitute for independent codebase checks (see Research Brief Protocol below).
 
 ### Capabilities
 
@@ -50,6 +51,17 @@ A structured audit report containing:
 ### Output Location
 
 Save the audit report alongside the plan it audits. If the plan is at `/docs/agents/plans/{date}-{name}/plan.md`, save the audit as `/docs/agents/plans/{date}-{name}/audit.md`.
+
+---
+
+## Research Brief Protocol
+
+When a `research-brief.md` exists alongside the plan, follow these rules:
+
+1. **Use as a head start, not a crutch.** The brief contains pre-verified references (file paths, type signatures, method signatures) organized by area. Use entries tagged `[verify]` and untagged entries to accelerate your grounding verification — but independently verify any reference you find suspicious and search beyond the brief for defects the Planner may have missed.
+2. **Contribute back.** If you discover verified codebase references not present in the brief — new file paths, type signatures, constraints, or relevant code sections — append them to the appropriate `## Area` section using the existing format. Prefix each addition with `[added by: Plan Auditor, unverified]`. Add only factual references, not interpretations or findings.
+3. **Respect the size guard.** If the brief exceeds approximately 5,000 tokens (~3,500 words or ~200 reference entries), treat it as read-only — do not append new references. Continue using existing entries for orientation.
+4. **Never treat the brief as complete.** The brief accelerates research; it does not replace it. Missing areas, incomplete coverage, and stale references are expected. Your independent verification remains the authority.
 
 ---
 
