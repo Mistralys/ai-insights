@@ -4713,7 +4713,11 @@ function _patchWpRow(wpId, newStatus, newPipelineTrack) {
  */
 function _patchSynthesisLink(visible, repo, slug) {
   var row = document.getElementById('synthesis-link-row');
-  if (visible) {
+  // The link lives inside the outcome-synopsis card when that card is showing.
+  // Only show the bare link row when synthesis is generated but no outcome card yet.
+  var outcomeEl = document.getElementById('outcome-synopsis');
+  var outcomeCardVisible = !!(outcomeEl && outcomeEl.style.display !== 'none' && outcomeEl.className === 'outcome-synopsis');
+  if (visible && !outcomeCardVisible) {
     if (row) {
       // Empty-div pre-render path: when `synthesis_generated` is `false`,
       // `renderProjectDetail` writes `#synthesis-link-row` as a bare hidden
@@ -4744,23 +4748,36 @@ function _patchSynthesisLink(visible, repo, slug) {
  * it is. This function mirrors `_patchSynthesisLink()` and allows the poll
  * loop to surface a newly-completed synthesis without a full page rebuild.
  *
+ * When made visible the card also embeds the "View synthesis →" link, and
+ * the bare synthesis-link-row is hidden so the link is not duplicated.
+ *
  * @param {boolean}       visible        - Whether the block should be visible.
  * @param {string|null}   outcomeSummary - The outcome summary text to display.
+ * @param {string}        [repo]         - Repository name (for the synthesis link href).
+ * @param {string}        [slug]         - Project slug (for the synthesis link href).
  */
-function _patchOutcomeSynopsis(visible, outcomeSummary) {
+function _patchOutcomeSynopsis(visible, outcomeSummary, repo, slug) {
   var container = document.getElementById('outcome-synopsis');
   if (!container) return;
   if (visible && outcomeSummary) {
     var contentEl = container.querySelector('.outcome-synopsis__content');
     var escapedText = escapeHtml(outcomeSummary);
+    var linkHtml = (repo && slug)
+      ? '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="outcome-synopsis__link">View synthesis \u2192</a>'
+      : '';
     if (!contentEl) {
-      container.innerHTML = '<div class="outcome-synopsis__content">' + escapedText + '</div>';
+      container.className = 'outcome-synopsis';
+      container.innerHTML = '<div class="outcome-synopsis__content">' + escapedText + '</div>' + linkHtml;
     } else if (contentEl.innerHTML !== escapedText) {
       contentEl.innerHTML = escapedText;
     }
     container.style.display = '';
+    // Link is inside the card — hide the bare synthesis-link-row to avoid duplication.
+    var row = document.getElementById('synthesis-link-row');
+    if (row) row.style.display = 'none';
   } else {
     container.style.display = 'none';
+    container.className = '';
   }
 }
 
@@ -4914,7 +4931,9 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
     if (changes.outcome_summary || changes.synthesis_generated) {
       _patchOutcomeSynopsis(
         !!(nextSnapshot.synthesis_generated && nextSnapshot.outcome_summary),
-        nextSnapshot.outcome_summary || null
+        nextSnapshot.outcome_summary || null,
+        repo,
+        slug
       );
     }
 
@@ -5144,18 +5163,24 @@ function renderProjectDetail(app, repo, slug) {
       })() +
 
       (function () {
+        // Show the bare link row only when synthesis is done but no outcome card yet.
+        // When outcome_summary is present, the link lives inside the outcome-synopsis card.
+        var showRow = !!(project.synthesis_generated && !project.outcome_summary);
         if (!project.synthesis_generated) return '<div id="synthesis-link-row" style="display:none"></div>';
-        return '<div id="synthesis-link-row" class="synthesis-link-row">' +
+        return '<div id="synthesis-link-row"' + (showRow ? ' class="synthesis-link-row"' : ' style="display:none"') + '>' +
           '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
           '</div>';
       })() +
 
       (function () {
         var visible = !!(project.synthesis_generated && project.outcome_summary);
+        var linkHtml = (visible
+          ? '<a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis" class="outcome-synopsis__link">View synthesis \u2192</a>'
+          : '');
         var contentHtml = visible
-          ? '<div class="outcome-synopsis__content">' + escapeHtml(project.outcome_summary) + '</div>'
+          ? '<div class="outcome-synopsis__content">' + escapeHtml(project.outcome_summary) + '</div>' + linkHtml
           : '';
-        return '<div id="outcome-synopsis"' + (visible ? '' : ' style="display:none"') + '>' + contentHtml + '</div>';
+        return '<div id="outcome-synopsis"' + (visible ? ' class="outcome-synopsis"' : '') + (visible ? '' : ' style="display:none"') + '>' + contentHtml + '</div>';
       })() +
 
       '<div class="card-title">Work Packages</div>' +

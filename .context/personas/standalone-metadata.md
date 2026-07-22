@@ -393,6 +393,7 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.2.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   2.1.0 (2026-07-16): Added "Favor Durable Structures" principle to Operating Philosophy — prefer growth-accommodating designs over expedient shortcuts
   2.0.0 (2026-07-04): Major rewrite — decision-by-decision analysis replaces holistic shape commentary; Confirm/Challenge/Reconsider verdicts replace Simplification/Concern/Affirmation categories; 3-phase protocol replaces 5-phase; Decision Analysis Table is now the primary deliverable
   1.6.0 (2026-06-05): Improved review philosophy and architectural framing
@@ -422,6 +423,7 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.7.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   1.6.0 (2026-07-16): Added "Flag Expedient Shortcuts" principle to Operating Philosophy — catch structures that won't scale before implementation begins
   1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
   1.4.0 (2026-05-20): Implementer-friction filter to suppress low-value findings
@@ -452,6 +454,8 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.3.0 (2026-07-21): Moved research brief handling to sub-agent personas — Auditor and Architect Reviewer now self-manage brief usage; simplified dispatch prompts and removed Sub-Agent Brief Enrichment protocol and brief size guard from Refiner
+  1.2.1 (2026-07-21): Operating Philosophy rewrite — replaced constraint-like prohibitions with positive value statements; removed items already covered by Strict Constraints
   1.2.0 (2026-07-21): Refiner-as-Enricher — brief enrichment phase, enriched sub-agent dispatch prompts with research brief references, incremental re-audit for cycles 2+, sub-agent brief enrichment with provenance markers, brief size guard
   1.1.0 (2026-07-17): Design review triage — auto-detect whether the plan warrants architectural review; skip for plans with no design decisions
   1.0.4 (2026-05-31): Minor refinements
