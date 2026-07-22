@@ -54,7 +54,16 @@ function _buildDialogueTextBlock(block) {
   for (i = 0; i < paragraphs.length; i++) {
     para = paragraphs[i].trim();
     if (!para) continue;
-    pHtml += '<p>' + _dialogueInlineMarkdown(para) + '</p>';
+    para = escapeHtml(para).replace(/\n/g, '<br>');
+    if (typeof marked !== 'undefined' && typeof marked.parseInline === 'function') {
+        para = marked.parseInline(para);
+    } else {
+        para = para.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+        para = para.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+        para = para.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    }
+
+    pHtml += '<p>' + para + '</p>';
   }
   return '<div class="dialogue-text">' + pHtml + '</div>';
 }
@@ -87,7 +96,7 @@ function _buildDialogueToolCallBlock(block) {
   if (detailLines.length) {
     detailHtml += '<div class="dialogue-tool-detail-area">';
     for (i = 0; i < detailLines.length; i++) {
-      detailHtml += '<div class="dialogue-tool-detail-line">' + escapeHtml(detailLines[i]) + '</div>';
+      detailHtml += '<div class="dialogue-tool-detail-line">' + escapeHtml(detailLines[i]).replace(/\n/g, '<br>') + '</div>';
     }
     detailHtml += '</div>';
   }
@@ -106,7 +115,7 @@ function _buildDialogueToolCallBlock(block) {
     bodyHtml +=
       '<div class="dialogue-tool-result">' +
         '<span class="dialogue-tool-result-label">Result:</span>' +
-        escapeHtml(result.content) +
+        escapeHtml(result.content).replace(/\n/g, '<br>') +
       '</div>';
   }
 

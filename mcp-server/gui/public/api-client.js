@@ -556,5 +556,96 @@ var API = (function () {
         target_repository_name: targetRepositoryName,
       });
     },
+
+    // -- Model Registry ------------------------------------------------
+
+    /**
+     * Fetch the current model registry list.
+     * Auto-initializes `local.json` from `default.json` on first access.
+     *
+     * @returns {Promise<object[]>} Model array from `GET /api/models`.
+     */
+    getModels: function () {
+      return request('GET', '/models');
+    },
+
+    /**
+     * Bulk-save the model registry.
+     * Entries missing `id` receive an auto-assigned UUIDv4 on the server.
+     * Returns 409 when a deletion would remove a referenced model.
+     *
+     * @param {object[]} models - Array of model entry objects to save.
+     * @returns {Promise<object>} `{ models }` on success, or `{ conflict: true, referencedModels }` on 409.
+     */
+    saveModels: function (models) {
+      return request('PUT', '/models', models);
+    },
+
+    /**
+     * Merge `default.json` into `local.json` without overwriting existing entries.
+     * Returns the post-merge model list and any slug-collision conflicts.
+     *
+     * @returns {Promise<object>} `{ models, conflicts }` from `POST /api/models/load-defaults`.
+     */
+    loadDefaultModels: function () {
+      return request('POST', '/models/load-defaults');
+    },
+
+    /**
+     * Fetch all personas from `name-mapping.json`.
+     * Returns an empty array when the file does not exist.
+     *
+     * @returns {Promise<object[]>} Persona array from `GET /api/personas`.
+     */
+    getPersonas: function () {
+      return request('GET', '/personas');
+    },
+
+    /**
+     * Fetch the current model assignments enriched with a `stale` boolean.
+     * `stale: true` means the persona build output may be out of date.
+     *
+     * @returns {Promise<object>} `{ default_model_uuid, persona_models, stale }` from `GET /api/model-assignments`.
+     */
+    getAssignments: function () {
+      return request('GET', '/model-assignments');
+    },
+
+    /**
+     * Validate and persist model assignments.
+     * All model UUIDs must exist in the registry; all persona keys must exist in `name-mapping.json`.
+     *
+     * @param {object} data - `{ default_model_uuid?, persona_models }` assignment object.
+     * @returns {Promise<object>} Saved assignments from `PUT /api/model-assignments`.
+     */
+    updateAssignments: function (data) {
+      return request('PUT', '/model-assignments', data);
+    },
+
+    /**
+     * Replace all occurrences of one model UUID with another across all assignments.
+     * Rejects when `old_model_id === new_model_id` or when `old_model_id` is not referenced.
+     *
+     * @param {string} oldModelId - UUID of the model to replace.
+     * @param {string} newModelId - UUID of the replacement model.
+     * @returns {Promise<object>} Updated assignments from `POST /api/model-assignments/replace`.
+     */
+    replaceAssignedModel: function (oldModelId, newModelId) {
+      return request('POST', '/model-assignments/replace', {
+        old_model_id: oldModelId,
+        new_model_id: newModelId,
+      });
+    },
+
+    /**
+     * Spawn `node scripts/build-personas.js` in the workspace root.
+     * Returns 409 when a build is already in progress.
+     *
+     * @returns {Promise<object>} `{ success: true, output }` on exit 0,
+     *   or `{ success: false, output, exitCode }` with HTTP 500 on failure.
+     */
+    rebuildPersonas: function () {
+      return request('POST', '/personas/rebuild');
+    },
   };
 })();

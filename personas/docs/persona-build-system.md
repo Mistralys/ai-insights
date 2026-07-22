@@ -792,6 +792,112 @@ All plugins under `personas/plugins/` must use **CommonJS** (`module.exports` / 
 
 ---
 
+## Name-Mapping Generation
+
+After every real build (skipped on `--check` runs), `scripts/build-personas.js` generates `personas/name-mapping.json`. This file is the canonical agent name registry consumed by the MCP server at startup.
+
+### What It Contains
+
+Each entry covers one persona across all three suites:
+
+| Field | Present in | Description |
+|-------|-----------|-------------|
+| `id` | All | Stable routing identifier (e.g. `ledger-3-dev`) |
+| `role` | All | Role name — canonical AgentRole for ledger, free-form for other suites |
+| `number` | Ledger only | Numeric position (1–9); `null` for standalone and ledger-support |
+| `suite` | All | `"ledger"`, `"standalone"`, or `"ledger-support"` |
+| `version` | All | Persona version string |
+| `model` | All | Resolved model display name (e.g. `"Claude Sonnet 4.6"` or `"Inherit / Auto"`) |
+| `model_slug` | All | API-compatible slug (e.g. `"claude-sonnet-4-6"` or `"inherit"`) |
+| `cc_model` | All | Claude Code model identifier (e.g. `"inherit"`) |
+| `vscode` | All | `{ file_name, agent_name }` for the VS Code target |
+| `claude_code` | All | `{ file_name, agent_name }` for the Claude Code target |
+| `deep_agents` | All | `{ file_name, agent_name }` for the Deep Agents target |
+
+The MCP server's `AGENT_NAMES` constant filters this array to ledger-only entries (`suite === "ledger"` or absent) before keying by role name.
+
+### Role Derivation for Non-Ledger Suites
+
+Standalone and ledger-support entries have no canonical role field in their YAML. The build derives `role` by stripping the suite suffix from the persona `name` field:
+
+- `"Developer (Standalone)"` → `role: "Developer"`
+- `"Ledger WP Decomposer (Ledger Support)"` → `role: "Ledger WP Decomposer"`
+
+---
+
+## Model Resolution
+
+Model fields in `name-mapping.json` are resolved at build time from the model registry. The resolution logic lives in `scripts/lib/persona-model-resolution.js` — a standalone ESM module imported by both `build-personas.js` and the model resolution unit tests.
+
+### The `loadModelRegistry()` Function
+
+```js
+import { loadModelRegistry } from './scripts/lib/persona-model-resolution.js';
+
+const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir, opts);
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `registryDir` | `string` | Absolute path to the `personas/model-registry/` directory |
+| `opts.warn` | `function` | Optional override for `console.warn` — useful in tests to capture warnings |
+
+**Returns:** An object with three keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `uuidToSlug` | `Map<string, string>` | UUID → slug map built from the registry entries |
+| `registryEntries` | `object[]` | Full array of `{ id, name, slug, cc_model }` registry entries |
+| `assignments` | `object \| null` | Parsed `assignments.json` if present; `null` otherwise |
+
+**Graceful degradation:**
+
+- If `local.json` is absent, falls back to `default.json`.
+- If both are absent, returns an empty `uuidToSlug` and `registryEntries: []`.
+- If `assignments.json` is absent (standard in clean installs), `assignments` is `null`.
+- File parse errors emit a `[WARN]` via the configured `warn` function and are silently skipped — the build never crashes due to a missing or malformed registry file.
+
+### The `resolveModel()` Function
+
+```js
+import { resolveModel } from './scripts/lib/persona-model-resolution.js';
+
+const { model, model_slug, cc_model } = resolveModel(
+  personaId, yamlModelSlug, sharedModelSlug, sharedModelName,
+  uuidToSlug, assignments, registryEntries
+);
+```
+
+**Priority chain** (first matching level wins):
+
+| Priority | Source | Skip condition |
+|----------|--------|---------------|
+| 1 | `assignments.json` `persona_models[personaId]` | Resolved slug is `"inherit"` |
+| 2 | Per-persona YAML `model_slug` | Value is `"inherit"` |
+| 3 | `assignments.json` `default_model_uuid` | Resolved slug is `"inherit"` |
+| 4 | `_shared.yaml` `default_model_slug` / `default_model` | — |
+| 5 | Sentinel fallback | — (always matches) |
+
+The sentinel fallback returns `{ model: "Inherit / Auto", model_slug: "inherit", cc_model: "inherit" }`. This is the value written into `name-mapping.json` for any persona that has no model configured — the expected state on a fresh install with no `assignments.json`.
+
+**Parameter reference:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `personaId` | `string \| undefined` | Persona ID used as the key in `assignments.persona_models` |
+| `yamlModelSlug` | `string \| undefined` | Per-persona `model_slug` from YAML (after suite-default fallback) |
+| `sharedModelSlug` | `string \| undefined` | `_shared.yaml` `default_model_slug` |
+| `sharedModelName` | `string \| undefined` | `_shared.yaml` `default_model` (display name fallback) |
+| `uuidToSlug` | `Map<string, string>` | From `loadModelRegistry()` |
+| `assignments` | `object \| null` | From `loadModelRegistry()` |
+| `registryEntries` | `object[]` | From `loadModelRegistry()` |
+
+This priority chain mirrors the resolution order used by the build plugin and the orchestrator, keeping model selection consistent across all three execution paths.
+
+---
+
 ## Quick Reference
 
 | I Need To… | Do This |
@@ -808,3 +914,5 @@ All plugins under `personas/plugins/` must use **CommonJS** (`module.exports` / 
 | Override model for one persona | Add `model` / `model_slug` to per-persona YAML |
 | Write platform-specific content | Use `{{#if target_vscode}}` / `{{else if …}}` chains |
 | Inject conditional content | Use feature flags in YAML + `{{#if flag}}` in content |
+| Understand model resolution | See [Model Resolution](#model-resolution) above |
+| Inspect the agent name registry | Read `personas/name-mapping.json` (generated on build) |

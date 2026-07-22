@@ -290,7 +290,61 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 11. Form Classes
+## 11. Configuration Page Classes
+
+| Class | Description |
+|-------|-------------|
+| `.config-tabs` | Tab navigation container (flex, bottom border track). Mirrors `.knowledge-tabs` — same flex layout, border-bottom track, and margin-bottom overlap. |
+| `.config-tab` | Individual tab button. `.active` variant highlights using `--color-ready`. Mirrors `.knowledge-tab`. |
+
+Tab switching is handled by `config.js`: only `#config-tab-content` is re-rendered on tab change; the full page scaffold is not rebuilt.
+
+### 11a. Model Registry Tab Classes
+
+All classes are prefixed `mr-` to avoid collision with shared component classes. Used exclusively by the Model Registry tab in `config.js`.
+
+**Row state classes** (applied to `<tr>`)
+
+| Class | Description |
+|-------|-------------|
+| `.mr-model-row` | Base class for all model table rows. |
+| `.mr-model-deleted` | Pending deletion state. All `<td>` children get `text-decoration: line-through`, muted color, and reduced opacity. Row is not removed from the DOM — user can Restore. |
+| `.mr-model-new` | Unsaved new entry. Applies a faint green background tint to all `<td>` children (dark-mode override uses `rgba(22, 163, 74, 0.1)`). |
+| `.mr-edit-row` | Row currently in inline edit mode. Applies `vertical-align: top` and extra vertical padding to `<td>` children so inputs are comfortable. |
+
+**Dirty indicator**
+
+| Class | Element | Description |
+|-------|---------|-------------|
+| `.mr-dirty-dot` | `<span>` | Small amber circle (7 px, `--color-in-progress`) shown before a field value when the field has been changed from its original server value. Has `title="Unsaved change"` for tooltip. |
+
+**Inline edit and validation classes**
+
+| Class | Description |
+|-------|-------------|
+| `.mr-field-error` | Applied to a `<input>` when its value fails slug validation. Overrides border color with `--color-blocked` (red). |
+| `.mr-error-text` | Applied to the `<p class="form-note">` validation error paragraph below a field. Overrides text color with `--color-blocked` (red). |
+| `.mr-row-actions` | Last `<td>` in each row — sets `white-space: nowrap`. Adjacent `.btn` siblings get `margin-left: 6px` for consistent spacing. |
+
+**Add Model form classes**
+
+| Class | Description |
+|-------|-------------|
+| `.mr-add-section` | Container for the Add Model form. Adds a top border and padding above the form to separate it visually from the model table. |
+| `.mr-add-row` | Flex row for the Add Model form fields. Wraps on narrow viewports. |
+| `.mr-add-field` | Flex-grow field container within `.mr-add-row`. Shrinks to a minimum of 120 px. |
+| `.mr-add-action` | Non-growing action column in `.mr-add-row` (holds the "Add Model" button). `flex: 0 0 auto`. |
+| `.mr-section-title` | Section heading above the Add Model form ("Add Model"). 14 px, semibold. |
+
+**Action bar classes**
+
+| Class | Description |
+|-------|-------------|
+| `.mr-action-bar` | Flex row holding the Save and Load Defaults buttons plus the inline feedback message. Adds top margin and wraps on narrow viewports. |
+
+---
+
+## 12. Form Classes
 
 | Class | Description |
 |-------|-------------|
@@ -302,7 +356,7 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 12. State & Feedback Classes
+## 13. State & Feedback Classes
 
 | Class | Description |
 |-------|-------------|
@@ -314,7 +368,7 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 13. Utility Classes
+## 14. Utility Classes
 
 | Class | Description |
 |-------|-------------|
@@ -327,7 +381,7 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 14. Health Badge
+## 15. Health Badge
 
 | Class | Description |
 |-------|-------------|
@@ -337,7 +391,7 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 15. Dialogue Classes
+## 16. Dialogue Classes
 
 | Class | Description |
 |-------|-------------|
@@ -351,7 +405,7 @@ All badge colours are declared as tokens in `:root` and dark-mode values overrid
 
 ---
 
-## 15a. Interactive Dialogue View Classes
+## 16a. Interactive Dialogue View Classes
 
 These classes style the structured dialogue view rendered from `DialogueBlock[]` data
 (see `api-surface.md §chunk-renderer.ts`). They are applied by `_buildDialogueToolCallBlock()`
@@ -397,7 +451,7 @@ in `styles.css` that use the same semantic token variables — no hard-coded val
 
 ---
 
-## 16. Reset Modal Classes
+## 17. Reset Modal Classes
 
 | Class | Description |
 |-------|-------------|
@@ -413,7 +467,7 @@ in `styles.css` that use the same semantic token variables — no hard-coded val
 
 ---
 
-## 17. UI JavaScript Namespace (`components.js`)
+## 18. UI JavaScript Namespace (`components.js`)
 
 > **Source file:** `public/components.js`  
 > **Loaded after:** `utils.js` (requires `escapeHtml()`). Loaded before all view scripts.  

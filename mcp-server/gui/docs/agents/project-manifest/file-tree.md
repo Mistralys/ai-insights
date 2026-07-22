@@ -5,6 +5,7 @@ gui/
 ├── server.ts                    # HTTP server: routing, static files, CORS, security headers
 ├── api.ts                       # REST API handlers (projects, work packages, orchestrator, config)
 ├── api-knowledge.ts             # REST API handlers (knowledge CRUD, promote, move)
+├── api-models.ts                # REST API handlers (model registry, assignments, personas)
 ├── orchestrator-manager.ts      # Queue reader, preflight checks, process spawn/kill/dismiss
 ├── chunk-accumulator.ts         # Shared accumulation layer: all types (JsonValue, ToolCallChunk, MergedToolCall, ContentBlock, MergedMessage, NamespaceKey), JSONL parsing (isValidHeader, parseChunkLine), chunk merging (chunkId, chunkType, mergeContent, mergeToolCallChunks, mergeUsageMetadata), namespace helpers (namespaceKey, namespaceLabel), and accumulateChunks(); pure-function module, no I/O
 ├── chunk-renderer.ts            # Rendering layer: imports all types and accumulateChunks() from chunk-accumulator.ts; exports renderChunksToMarkdown (verbose, ## Role headings + JSON tool-call blocks), renderChunksToDialogue (compact chat-like, plain paragraphs, per-tool summary lines, hidden ToolMessages), and renderChunksToStructured (structured DialogueBlock[] array for interactive frontend rendering); also exports the DialogueBlock discriminated union type (text | tool-call | subagent-heading | checklist); pure-function module, no I/O
@@ -36,7 +37,7 @@ gui/
     │   ├── work-package.js      # Work package detail: pipelines, acceptance criteria, dialogues
     │   ├── run-log.js           # Orchestrator run log viewer (streaming JSONL events)
     │   ├── orchestrator.js      # Orchestrator management: queue, start run, preflight
-    │   ├── config.js            # GUI configuration editor
+    │   ├── config.js            # GUI configuration editor and Model Registry tab; three tabs: General (auto_handoff_enabled, max_handoff_depth, capture_dialogues, auto_archive_days), Persona Models (stub — coming soon), Model Registry (full implementation: model table with name/slug/cc_model columns; inline row editing with dirty-indicator dots; strikethrough-then-Restore deletion UX; client-side slug validation against /^[a-z0-9]+(-[a-z0-9]+)*$/ with reserved "inherit" check; Add Model form with auto-slug derivation from name via mrDeriveSlug(); Save (PUT /api/models) with 409 conflict handling; Load Defaults (POST /api/models/load-defaults) with confirmation and slug-collision display); module-level state: configActiveTab, configDirty (per-tab dirty flags), mrModels, mrOriginal, mrEditingId; unsaved-changes guard fires on tab navigation
     │   ├── insights.js          # Cross-project comment aggregation view
     │   └── knowledge.js         # Knowledge base browser (global + repository scopes)
     ├── js/                      # Shared widget libraries
@@ -51,9 +52,10 @@ gui/
 
 | File | Lines | Role |
 |------|-------|------|
-| `server.ts` | ~1750 | Largest backend file — all routing logic lives here |
+| `server.ts` | ~1960 | Largest backend file — all routing logic lives here |
 | `api.ts` | ~900 | Project/WP/config handlers |
 | `api-knowledge.ts` | ~350 | Knowledge CRUD handlers |
+| `api-models.ts` | ~590 | Model registry, assignment, and persona handlers |
 | `orchestrator-manager.ts` | ~400 | Queue + preflight + spawn |
 | `chunk-renderer.ts` | ~1100 | Pure JSONL → output (renderChunksToMarkdown + renderChunksToDialogue + renderChunksToStructured + DialogueBlock type) |
 | `public/styles.css` | ~2670 | Complete CSS component library |

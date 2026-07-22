@@ -22,6 +22,11 @@ personas/
 ├── package.json                    # Build tooling package (js-yaml dependency)
 ├── changelog.md                    # Persona system changelog
 ├── docs/agents/project-manifest/   # Authoritative project manifest (6 documents)
+├── model-registry/                 # File-based model registry
+│   ├── README.md                   # Schema, seed/working-copy lifecycle, and UUID convention
+│   ├── default.json                # Shipped seed models (tracked in Git)
+│   ├── local.json                  # User model list — auto-initialized from default.json (gitignored)
+│   └── assignments.json            # Per-persona model assignments (gitignored)
 ├── shared/partials/                # Cross-suite Markdown partials (20+ files)
 ├── ledger/
 │   ├── README.md                   # Ledger workflow user guide

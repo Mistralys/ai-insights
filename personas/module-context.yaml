@@ -56,6 +56,24 @@ documents:
           - 'node_modules/'
           - '.gitkeep'
 
+  - description: 'Personas - Model Registry'
+    outputPath: 'personas/model-registry.md'
+    sources:
+      - type: text
+        content: |
+          # Personas - Model Registry
+          File-based model registry: entry schema (id/name/slug/cc_model), seed/working-copy lifecycle (default.json → local.json), deterministic zero-namespace UUIDs, the "Inherit / Auto" sentinel, and the shipped default model catalog.
+      - type: file
+        description: "Model registry README (schema, lifecycle, UUID convention, sentinel, how-to)"
+        sourcePaths:
+          - model-registry
+        filePattern: "README.md"
+      - type: file
+        description: "Shipped seed model catalog (default.json)"
+        sourcePaths:
+          - model-registry
+        filePattern: "default.json"
+
   - description: 'Personas - Ledger Suite Guide'
     outputPath: 'personas/ledger-suite.md'
     sources:
@@ -146,3 +164,16 @@ documents:
         sourcePaths:
           - ledger-support/src/meta
         filePattern: "*.yaml"
+
+  - description: 'Personas - Build System Guide'
+    outputPath: 'personas/build-system-guide.md'
+    sources:
+      - type: text
+        content: |
+          # Personas - Build System Guide
+          Detailed reference for the persona build system: build pipeline, template syntax, metadata schema, partials, versioning, subagent declarations, name-mapping generation, and model resolution (loadModelRegistry / resolveModel priority chain).
+      - type: file
+        description: "Build system guide (pipeline, template syntax, metadata schema, name-mapping, model resolution)"
+        sourcePaths:
+          - docs
+        filePattern: "persona-build-system.md"

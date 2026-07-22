@@ -1247,6 +1247,345 @@ export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Prom
 
 ---
 
+## GUI API — Model Registry Module
+
+The `model-registry.ts` module (`src/gui/model-registry.ts`) provides the file-based model registry and per-persona model assignment system for the persona model configuration feature. It is a self-contained data-access layer with no MCP tool dependencies — GUI API handlers and the build system consume it directly.
+
+**File layout** — all files live under `{WORKSPACE_ROOT}/personas/model-registry/`:
+
+| File | Git-tracked | Purpose |
+|------|-------------|---------|
+| `default.json` | ✅ Yes | Shipped seed models. Read only during auto-initialization and `loadDefaults()`. |
+| `local.json` | ❌ No | Working copy of the model list. Single source of truth at runtime. |
+| `assignments.json` | ❌ No | Per-persona model assignments + global default model selection. |
+
+**Design invariants:**
+- Assignment values are stable UUIDs, not slugs — slug renames never require cascade into `assignments.json`.
+- STDIO discipline: this module only writes to `stderr`, never `stdout`.
+- All writes use `atomicWriteJson` (write-to-temp-then-rename).
+- Error handling uses `ApiError` with typed error codes: `READ_ERROR`, `PARSE_ERROR`, `VALIDATION_ERROR`, `WRITE_ERROR`.
+
+### Schemas and Types
+
+```typescript
+// Zod schemas (all exported)
+export const ModelEntrySchema: z.ZodObject<{
+  id:       z.ZodString;  // UUID — stable primary key; never changes after creation
+  name:     z.ZodString;  // min(1) — human-readable display name
+  slug:     z.ZodString;  // regex /^[a-z0-9]+(-[a-z0-9]+)*$/ — URL-safe identifier
+  cc_model: z.ZodDefault<z.ZodString>;  // min(1), default 'inherit' — Claude Code model value
+}>;
+
+export const ModelRegistrySchema: z.ZodArray<typeof ModelEntrySchema>;  // z.array(ModelEntrySchema)
+
+export const ModelAssignmentsSchema: z.ZodObject<{
+  default_model_uuid: z.ZodOptional<z.ZodString>;               // UUID; optional — absent when no global default is set
+  persona_models:     z.ZodRecord<z.ZodString, z.ZodString>;    // personaId → modelUUID; keys are persona `id` values from name-mapping.json (e.g. "ledger-1-planner")
+}>;
+
+// TypeScript types (inferred from schemas, all exported)
+export type ModelEntry       = z.infer<typeof ModelEntrySchema>;
+export type ModelRegistry    = z.infer<typeof ModelRegistrySchema>;
+export type ModelAssignments = z.infer<typeof ModelAssignmentsSchema>;
+
+export type WriteModelsResult =
+  | { saved: true;  models: ModelEntry[] }
+  | { saved: false; referencedModels: ReferencedModel[] };
+
+export interface ReferencedModel {
+  model:  ModelEntry;
+  usages: string[];   // persona IDs and/or 'default' that reference this model UUID
+}
+
+export interface ConflictEntry {
+  defaultEntry: ModelEntry;
+  localEntry:   ModelEntry;
+  reason:       'slug_collision';
+}
+
+export interface LoadDefaultsResult {
+  models:    ModelEntry[];
+  conflicts: ConflictEntry[];
+}
+
+export interface ResolvedAssignments {
+  default_model_slug: string | null;          // null when default_model_uuid is absent or unresolvable
+  persona_models:     Record<string, string>; // personaId → slug; unresolvable UUIDs are omitted
+}
+```
+
+**Reserved values:**
+- Slug `"inherit"` is reserved for the built-in "Inherit / Auto" sentinel entry (UUID `00000000-0000-0000-0000-000000000000`). Non-sentinel entries using this slug are rejected by `writeModels()`.
+
+### `getModelRegistryPath()`
+
+```typescript
+export function getModelRegistryPath(): string
+// Returns join(WORKSPACE_ROOT, 'personas', 'model-registry').
+// Equivalent to the directory containing default.json, local.json, and assignments.json.
+```
+
+### `readModels()`
+
+```typescript
+export async function readModels(): Promise<ModelEntry[]>
+// Reads local.json and returns the parsed model registry.
+//
+// Auto-initialization: when local.json does not exist, copies default.json into local.json
+// and returns the result. Logs a single line to stderr on auto-init.
+//
+// @throws {ApiError} code=READ_ERROR  — local.json or default.json (during auto-init) is unreadable
+// @throws {ApiError} code=PARSE_ERROR — local.json or default.json (during auto-init) is not valid JSON
+// @throws {ApiError} code=VALIDATION_ERROR — parsed content fails ModelRegistrySchema
+```
+
+### `writeModels()`
+
+```typescript
+export async function writeModels(models: ModelEntry[]): Promise<WriteModelsResult>
+// Validates and writes models to local.json atomically.
+//
+// Guards applied in order:
+//   1. Schema validation — all entries must conform to ModelEntrySchema.
+//   2. Slug uniqueness   — duplicate slugs are rejected.
+//   3. Reserved slug     — slug "inherit" is only permitted on the sentinel entry
+//                          (UUID 00000000-0000-0000-0000-000000000000).
+//   4. Deletion guard    — entries in the current local.json but absent from `models` are
+//                          treated as deletions. If any deleted model's UUID is referenced in
+//                          assignments.json, the write is rejected and the caller receives
+//                          { saved: false, referencedModels: [...] } with usage details.
+//
+// Deletion guard error contract (important for API handler authors):
+//   - local.json does not exist / OS-level read failure (READ_ERROR): guard is SKIPPED,
+//     write proceeds (nothing to protect).
+//   - local.json exists but is corrupt (PARSE_ERROR or VALIDATION_ERROR): write is REJECTED
+//     with ApiError. Corruption must be resolved before any modifications are permitted.
+//     API handlers should surface this as a 500-class error and direct the user to restore
+//     or rebuild local.json.
+//   - referenced models exist: returns { saved: false, referencedModels } (not an exception).
+//     API handlers should surface this as HTTP 409 Conflict with the usage list.
+//
+// @throws {ApiError} code=VALIDATION_ERROR — schema or constraint violations in `models`
+// @throws {ApiError} code=PARSE_ERROR      — local.json exists but is not valid JSON (corruption guard)
+// @throws {ApiError} code=VALIDATION_ERROR — local.json exists but fails schema validation (corruption guard)
+// @throws {ApiError} code=WRITE_ERROR      — atomic write to local.json fails
+```
+
+### `readAssignments()`
+
+```typescript
+export async function readAssignments(): Promise<ModelAssignments>
+// Reads assignments.json and returns the parsed assignments.
+//
+// When assignments.json does not exist, returns a default structure:
+//   { default_model_uuid: undefined, persona_models: {} }
+//
+// @throws {ApiError} code=READ_ERROR       — assignments.json is unreadable (non-ENOENT OS error)
+// @throws {ApiError} code=PARSE_ERROR      — assignments.json is not valid JSON
+// @throws {ApiError} code=VALIDATION_ERROR — parsed content fails ModelAssignmentsSchema
+```
+
+### `writeAssignments()`
+
+```typescript
+export async function writeAssignments(data: ModelAssignments): Promise<void>
+// Validates and writes data to assignments.json atomically.
+//
+// @throws {ApiError} code=VALIDATION_ERROR — data fails ModelAssignmentsSchema
+// @throws {ApiError} code=WRITE_ERROR      — atomic write fails
+```
+
+### `loadDefaults()`
+
+```typescript
+export async function loadDefaults(): Promise<LoadDefaultsResult>
+// Merges default.json into local.json using id-based matching.
+//
+// Merge rules:
+//   - Default entry id already in local.json: local entry wins — no overwrite.
+//   - Default entry id is new but slug collides with a local entry: entry is NOT added;
+//     conflict is recorded in conflicts[].
+//   - All other default entries: appended to the local registry.
+//
+// Disk write is conditional: local.json is only written when at least one new entry was added
+// (toAdd.length > 0). The returned `models` array always reflects the full post-merge view
+// regardless of whether a write occurred.
+//
+// Returns { models: ModelEntry[], conflicts: ConflictEntry[] }.
+// conflicts[] contains slug-collision details for display to the user.
+//
+// @throws {ApiError} — when default.json cannot be read/parsed/validated
+// @throws {ApiError} code=PARSE_ERROR or VALIDATION_ERROR — when local.json exists but is corrupt
+//                    (re-thrown from readModels(); does not silently overwrite corrupt registries)
+```
+
+### `isModelReferenced()`
+
+```typescript
+export async function isModelReferenced(
+  modelId: string  // UUID
+): Promise<{ referenced: boolean; usages: string[] }>
+// Checks whether modelId is referenced in assignments.json.
+//
+// usages[] contains the persona IDs and/or 'default' that reference this UUID.
+// Returns { referenced: false, usages: [] } when assignments.json does not exist or
+// is unreadable (graceful degradation — safe for callers that use this to guard deletions).
+```
+
+### `getResolvedAssignments()`
+
+```typescript
+export async function getResolvedAssignments(): Promise<ResolvedAssignments>
+// Resolves UUID values in assignments.json to slugs using local.json.
+//
+// Resolution rules:
+//   - default_model_slug: null when default_model_uuid is absent or references an unknown model.
+//   - persona_models: persona entries with unresolvable UUIDs are silently omitted (graceful
+//     degradation — stale assignments do not cause errors, they are just dropped).
+//   - When assignments.json does not exist, returns { default_model_slug: null, persona_models: {} }.
+//   - When local.json is unreadable, returns { default_model_slug: null, persona_models: {} }
+//     (graceful degradation).
+//
+// This is the authoritative UUID-to-slug resolver for GUI API consumers.
+// The build system and orchestrator perform equivalent resolution locally by reading both
+// local.json and assignments.json directly.
+```
+
+---
+
+## GUI API — Model Registry Endpoints
+
+These handler functions are exported from `gui/api-models.ts` (introduced in the model-settings plan) and called by the HTTP server in `gui/server.ts`. They provide the full CRUD lifecycle for the model registry and per-persona model assignments, plus persona listing and rebuild triggering. The implementation follows the domain-split pattern established by `api-knowledge.ts` and `api-repos.ts`.
+
+> **Route wiring note:** Body-free routes (`GET /api/models`, `GET /api/model-assignments`, `GET /api/personas`) are dispatched via `matchRoute()`. Body-parsing routes (`PUT /api/models`, `POST /api/models/load-defaults`, `PUT /api/model-assignments`, `POST /api/model-assignments/replace`, `POST /api/personas/rebuild`) are handled in `handleRequest()` — consistent with the pattern used for other domain handlers.
+
+### HTTP Route Table
+
+| Method | Path | Request Body | Return Shape | Status Code | Error Codes |
+|--------|------|-------------|--------------|-------------|-------------|
+| `GET` | `/api/models` | — | `ModelEntry[]` | 200 | — |
+| `PUT` | `/api/models` | `SaveModelsBodySchema` — array of model entries (`id` optional, auto-assigned if absent) | `{ models: ModelEntry[] }` \| `{ conflict: true, referencedModels: [...] }` | 200 \| 409 | 400 (validation), 409 (deletion blocked) |
+| `POST` | `/api/models/load-defaults` | — (no body) | `{ models: ModelEntry[], conflicts: ConflictEntry[] }` | 200 | — |
+| `GET` | `/api/model-assignments` | — | `ModelAssignments & { stale: boolean }` | 200 | — |
+| `PUT` | `/api/model-assignments` | `ModelAssignmentsSchema` — `{ default_model_uuid?, persona_models }` | `ModelAssignments` | 200 | 400 (invalid body, unknown persona key, unknown model UUID) |
+| `POST` | `/api/model-assignments/replace` | `{ old_model_id: UUID, new_model_id: UUID }` | `ModelAssignments` | 200 | 400 (same-model swap, old_model_id not referenced, UUID not in registry) |
+| `GET` | `/api/personas` | — | `PersonaEntry[]` | 200 | — |
+| `POST` | `/api/personas/rebuild` | — (no body) | `{ success: true, output: string }` \| `{ success: false, output: string, exitCode: number }` | 200 | 409 (build already in progress) |
+
+**Notes:**
+- `GET /api/models` auto-initializes `local.json` from `default.json` when `local.json` does not exist (delegates to `readModels()`).
+- `PUT /api/models` auto-assigns UUIDv4 to entries missing an `id` field. This is the only mechanism for creating new model entries. Returns HTTP 409 Conflict (not an error throw) when a referenced model would be deleted — the response body contains `{ conflict: true, referencedModels: [...] }` for display to the user.
+- `POST /api/models/load-defaults` performs an id-based merge — existing local entries are never overwritten. Slug-collision conflicts are returned in `conflicts[]` and do not block the merge.
+- `GET /api/model-assignments` includes a `stale` boolean computed from file mtimes: `true` when `max(mtime(assignments.json), mtime(local.json)) > mtime(name-mapping.json)`. Returns `stale: false` when neither `assignments.json` nor `local.json` exist (no user changes yet).
+- `PUT /api/model-assignments` validates all persona keys against `id` values in `name-mapping.json` and all model UUIDs against `local.json`. Returns 400 when `name-mapping.json` does not exist — callers must run a persona build first.
+- `POST /api/model-assignments/replace` swaps all occurrences of `old_model_id` with `new_model_id` in the current assignments. Rejects when `old_model_id === new_model_id` or when `old_model_id` is not currently referenced.
+- `GET /api/personas` returns all personas from `name-mapping.json`, or an empty array when the file does not exist (first run before any build).
+- `POST /api/personas/rebuild` spawns `node scripts/build-personas.js` in the workspace root with a concurrency guard — returns HTTP 409 when a build is already in progress.
+- All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }`. Codes: `NOT_FOUND` → 404, `VALIDATION_ERROR` → 400, `CONFLICT` → 409, unhandled → 500.
+
+### `PersonaEntry`
+
+```typescript
+interface PersonaEntry {
+  id: string;         // Unique persona identifier — used as the key in model assignments (persona_models map)
+  role: string;       // Human-readable display name
+  suite: string;      // Persona suite (e.g. "ledger", "standalone")
+  model?: string;     // Optional resolved model name (e.g. "claude-opus-4-6"); present only after a build
+  model_slug?: string; // Optional slug of the assigned model entry in local.json (matches ModelEntry.slug)
+  cc_model?: string;  // Optional Claude Code model identifier (effective value after "inherit" resolution)
+  number?: number;    // Optional display ordering index within the suite
+}
+```
+
+### `handleGetModels()`
+
+```typescript
+// GET /api/models
+// Returns the current model registry list (auto-initializes local.json from default.json if absent).
+export async function handleGetModels(): Promise<ModelEntry[]>
+```
+
+### `handleSaveModels()`
+
+```typescript
+// PUT /api/models
+// Bulk-saves the model registry. Auto-assigns UUIDv4 to entries missing an `id`.
+// Returns HTTP 409 with { conflict, referencedModels } when a deletion is blocked.
+//
+// @param body - Raw parsed JSON request body.
+export async function handleSaveModels(body: unknown): Promise<
+  | { models: ModelEntry[] }
+  | { conflict: true; referencedModels: Array<{ model: ModelEntry; usages: string[] }> }
+>
+```
+
+### `handleLoadDefaults()`
+
+```typescript
+// POST /api/models/load-defaults
+// Merges default.json into local.json (id-based, existing entries win).
+// Returns post-merge model list and slug-collision conflicts.
+export async function handleLoadDefaults(): Promise<{
+  models: ModelEntry[];
+  conflicts: Array<{ defaultEntry: ModelEntry; localEntry: ModelEntry; reason: 'slug_collision' }>;
+}>
+```
+
+### `handleGetAssignments()`
+
+```typescript
+// GET /api/model-assignments
+// Returns current model assignments enriched with a staleness flag.
+// stale: true when registry or assignment files are newer than name-mapping.json.
+export async function handleGetAssignments(): Promise<ModelAssignments & { stale: boolean }>
+```
+
+### `handleUpdateAssignments()`
+
+```typescript
+// PUT /api/model-assignments
+// Validates and persists model assignments.
+// All persona keys and model UUIDs are validated against name-mapping.json and local.json.
+//
+// @param body - Raw parsed JSON request body.
+export async function handleUpdateAssignments(body: unknown): Promise<ModelAssignments>
+```
+
+### `handleReplaceAssignedModel()`
+
+```typescript
+// POST /api/model-assignments/replace
+// Swaps all occurrences of old_model_id with new_model_id in the current assignments.
+// Rejects when old_model_id === new_model_id or old_model_id is not referenced.
+//
+// @param body - { old_model_id: UUID, new_model_id: UUID }
+export async function handleReplaceAssignedModel(body: unknown): Promise<ModelAssignments>
+```
+
+### `handleGetPersonas()`
+
+```typescript
+// GET /api/personas
+// Returns all personas from name-mapping.json, or [] when the file does not exist.
+export async function handleGetPersonas(): Promise<PersonaEntry[]>
+```
+
+### `handleRebuildPersonas()`
+
+```typescript
+// POST /api/personas/rebuild
+// Spawns node scripts/build-personas.js in the workspace root.
+// Returns 409 Conflict when a build is already in progress (module-level flag).
+//
+// @param workspaceRoot - Absolute path to the workspace root.
+export async function handleRebuildPersonas(workspaceRoot: string): Promise<
+  | { success: true; output: string }
+  | { success: false; output: string; exitCode: number }
+>
+```
+
+---
+
 ## Storage API
 
 ### `ImportStandaloneDetail`
@@ -4826,7 +5165,101 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 - **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`
 
 **`views/config.js`:**
-- **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
+
+The configuration view is a three-tab SPA page: **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
+
+**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, and `GET /api/assignments` in parallel, then delegates to `renderConfigPage`.
+
+**`renderConfigPage(app, config, models, personas, assignments)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
+
+**Tab system:**
+- **Active tab state:** `configActiveTab` (module-level string, default `'general'`) persists across tab switches within a page visit.
+- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset.
+- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments)` — renders into `#config-tab-content` and wires events for the active tab.
+
+**General tab** (`renderGeneralTab(config)` + `wireGeneralTabEvents()`):
+- Renders a form for `auto_handoff_enabled`, `max_handoff_depth`, `capture_dialogues`, `auto_archive_days`, and `ledger_root` (read-only). Save calls `PUT /api/config` with all four writable fields. Dirty tracking via both `change` and `input` listeners (required to cover checkboxes and text inputs).
+
+---
+
+**Persona Models tab** (`renderPersonaModelsTab`, `pmBuildTabHtml`, `pmWireEvents`, `pmDoSave`, `pmDoRebuild`):
+
+**Module-level state** (all reset to initial values in `renderConfigPage` and on tab discard):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `pmModels` | `ModelEntry[] \| null` | Working copy of the model list; used to populate model dropdowns |
+| `pmPersonas` | `PersonaEntry[] \| null` | Full persona list from `GET /api/personas` |
+| `pmAssignments` | `{ default_model_uuid?: string, persona_models: {} } \| null` | Working copy of assignments (mutated on edit, committed on save) |
+| `pmOriginal` | same shape as `pmAssignments` | Deep-cloned snapshot at load/save time; used by `pmHasChanges()` for dirty comparison |
+| `pmIsBuilding` | `boolean` | `true` while a rebuild is in flight; disables all rebuild buttons |
+| `pmCollapsed` | `{ [suiteName: string]: boolean }` | Tracks which suite sections are collapsed |
+| `pmReplaceOpen` | `boolean` | `true` when the Replace Model inline form is visible |
+
+**Suite rendering:** Personas are grouped by suite and rendered in the order defined by `PM_SUITE_ORDER` (`['ledger', 'standalone', 'ledger-support']`). Display labels come from `PM_SUITE_LABELS`. Each suite is a collapsible section (`pmCollapsed` tracks collapsed state).
+
+**`pmBuildTabHtml()`** — builds the full Persona Models tab HTML. The function reads only from module-level state (not from parameters). Renders four distinct UI states:
+1. **Empty registry** — `pmModels` is empty; shows a link-button to navigate to the Model Registry tab.
+2. **Pre-build** — `pmModels` exists but `pmPersonas` is empty; shows a "No persona data available." message and a Rebuild Personas button.
+3. **Normal with stale banner** — `pmAssignments.stale` is `true`; shows a top banner with an inline Rebuild Personas button.
+4. **Normal** — full persona table with default model section, suite-grouped persona rows, Replace Model form (when `pmReplaceOpen`), and fixed action bar.
+
+**`pmWireEvents(config, models, personas, assignments)`** — wires all interactive elements after `pmBuildTabHtml()` renders HTML. The four parameters are **pass-through values for the recursive closure chain only** — the function body and its event handlers read from module-level `pm*` state, not from these parameters. The parameters exist solely to pass into `pmRefreshTab()` calls (which re-render and re-wire on every interaction). Callers must not route new data through these parameters; update the module-level state directly instead.
+
+Wired interactions:
+- Go-to-Registry button (empty registry state) — clicks the `[data-tab="modelRegistry"]` button in the tab bar
+- Suite collapsible headers — toggle `pmCollapsed[suite]` and call `pmRefreshTab`
+- Default model click-to-edit — shows `#pm-default-edit` select, hides `#pm-default-display`; Done commits to `pmAssignments.default_model_uuid`; Cancel restores display
+- Persona model click-to-edit — event delegation on `.card`; Done commits UUID to `pmAssignments.persona_models[personaId]` (empty string clears the assignment via `delete`)
+- Replace Model toggle — sets `pmReplaceOpen` and refreshes
+- Replace All — reads from/to selects, shows `confirm()` dialog, calls `API.replaceAssignedModel(oldId, newId)`, updates `pmAssignments` from server response
+- Stale banner rebuild, fixed rebuild, and pre-build rebuild — all delegate to `pmDoRebuild`
+- Save button — delegates to `pmDoSave`
+
+**`pmRefreshTab(config, models, personas, assignments)`** — calls `pmBuildTabHtml()` then `pmWireEvents()` to fully re-render the tab. Also syncs `configDirty.personaModels` via `pmHasChanges()`. Called after every interaction that mutates display state (edit, done, cancel, collapse, toggle).
+
+**`pmDoSave(config, models, personas, assignments)`** — sends `PUT /api/model-assignments` with `{ default_model_uuid?, persona_models }`. On success, updates `pmOriginal` (new snapshot) and `pmAssignments.stale` from the server response (saving causes the stale banner to appear, because assignments are now newer than the last persona build). Clears `configDirty.personaModels`.
+
+**`pmDoRebuild(config, models, personas, assignments)`** — guards against double invocation with `pmIsBuilding`. Calls `POST /api/personas/rebuild`. On success, re-fetches `GET /api/personas` and `GET /api/assignments` to refresh `pmPersonas` and `pmAssignments.stale`. On failure, the catch block puts `err.message` (the build script's stdout+stderr output from the `BUILD_FAILED` error envelope) into a `<pre class="pm-build-error-pre">` block below the action bar.
+
+**Helper functions:**
+
+| Function | Description |
+|----------|-------------|
+| `pmCloneAssignments(a)` | Deep-clones an assignments object (shallow-copies `persona_models`) |
+| `pmHasChanges()` | Compares `pmAssignments` vs `pmOriginal`; returns `true` when either `default_model_uuid` or any `persona_models` entry differs |
+| `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`; returns `null` when not found |
+| `pmDirtyDot(isDirty)` | Returns a `<span class="pm-dirty-dot">` element when `isDirty` is `true`, empty string otherwise |
+| `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; `includeDefault` prepends a `"Default"` entry with value `''` |
+
+**`renderPersonaModelsTab(models, personas, assignments)`** — entry point called by `renderConfigTabContent`; initialises module-level state from the passed server data (`pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`) on first render (when `pmModels` is null), then delegates to `pmBuildTabHtml()`.
+
+---
+
+**`styles.css` — Configuration Tab and Persona Models classes:**
+
+| Class | Role |
+|-------|------|
+| `.config-tabs` | `display:flex` tab bar container with `border-bottom: 2px solid var(--color-border)` underline track |
+| `.config-tab` | Tab button; same pattern as `.knowledge-tab` but prefixed `config-` to decouple config tab styling from the Knowledge view |
+| `.config-tab.active` | Active state — `color: var(--color-ready)`, `border-bottom-color: var(--color-ready)`, `font-weight: 600` |
+| `.mr-dirty-dot`, `.pm-dirty-dot` | **Shared declaration block** — both selectors are listed on the same CSS rule in styles.css. Both render identically: a 7×7 px circle using `background: var(--color-in-progress)`, `border-radius: 50%`, `margin-right: 5px`, `vertical-align: middle`. They are intentionally separate selectors so future per-tab style overrides can be added without cross-tab coupling. Do **not** consolidate them into a single class — the dual-selector shared declaration is the deliberate architecture. |
+| `.pm-empty-registry` | Container for the "no models registered" empty state |
+| `.pm-prebuild-state` | Container for the "no persona data" pre-build empty state |
+| `.pm-stale-banner` | Stale-build banner (extends `.stale-banner`); shown when `pmAssignments.stale` is `true` |
+| `.pm-build-error-pre` | `<pre>` block for displaying raw build script error output on rebuild failure |
+| `.pm-suite-header` | Collapsible suite section toggle button; `aria-expanded` reflects collapse state |
+| `.pm-suite-section` | Wrapper for a single suite group (header + persona table) |
+| `.pm-personas-table` | Table containing persona rows for a suite section |
+| `.pm-default-row` | Container for the default-model display/edit row |
+| `.pm-default-display` / `.pm-default-edit` | Toggle pair: display shows static model name + edit icon; edit shows a `<select>` + Done/Cancel |
+| `.pm-persona-display` / `.pm-persona-edit` | Per-persona toggle pair; edit shows a `<select class="pm-persona-select">` |
+| `.pm-replace-form` | Wrapper for the Replace Model inline form |
+| `.pm-action-bar` | Fixed action bar at the bottom of the tab containing Save and Rebuild Personas buttons |
+| `.btn-icon` | Small borderless icon button (used for the ✎ edit pencil button) |
+| `.btn-link` | Inline link-styled button (used for the Go to Model Registry navigation) |
+| `.pm-model-select` | Common class on all `<select>` elements in the Persona Models tab |
+| `.spinner` | Inline spinner used inside buttons during async operations (rebuild); `display: inline-block`, animated `border` rotation |
 
 **`views/insights.js`:**
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s

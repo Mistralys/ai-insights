@@ -71,6 +71,16 @@ import {
   handleUpdateRepo,
   handleDeleteRepo,
 } from './api-repos.js';
+import {
+  handleGetModels,
+  handleSaveModels,
+  handleLoadDefaults,
+  handleGetAssignments,
+  handleUpdateAssignments,
+  handleReplaceAssignedModel,
+  handleGetPersonas,
+  handleRebuildPersonas,
+} from './api-models.js';
 import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -1319,6 +1329,34 @@ export function matchRoute(
     return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name);
   }
 
+  // ---------------------------------------------------------------------------
+  // Model Registry routes — added in WP-006 (model settings).
+  // All routes use the unique 'models', 'model-assignments', and 'personas'
+  // first segments, so they cannot shadow any existing route.
+  // Body-parsing routes (PUT /api/models, POST /api/models/load-defaults,
+  // PUT /api/model-assignments, POST /api/model-assignments/replace,
+  // POST /api/personas/rebuild) are handled as special cases in
+  // handleRequest() because they require body parsing.
+  // ---------------------------------------------------------------------------
+
+  // GET /api/models
+  // rest.length === 1, rest[0] === 'models'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'models') {
+    return () => handleGetModels();
+  }
+
+  // GET /api/model-assignments
+  // rest.length === 1, rest[0] === 'model-assignments'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'model-assignments') {
+    return () => handleGetAssignments();
+  }
+
+  // GET /api/personas
+  // rest.length === 1, rest[0] === 'personas'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'personas') {
+    return () => handleGetPersonas();
+  }
+
   // No match found — fall through to 404.
   // ---------------------------------------------------------------------------
   // Route map summary
@@ -1361,6 +1399,14 @@ export function matchRoute(
   //   POST   /api/knowledge/:id/promote[?scope&repository_name]
   //   PATCH  /api/knowledge/:id             (body-parsing — handled in handleRequest)
   //   POST   /api/knowledge/:id/move        (body-parsing — handled in handleRequest)
+  //   GET    /api/models
+  //   PUT    /api/models                    (body-parsing — handled in handleRequest)
+  //   POST   /api/models/load-defaults      (body-parsing — handled in handleRequest)
+  //   GET    /api/model-assignments
+  //   PUT    /api/model-assignments         (body-parsing — handled in handleRequest)
+  //   POST   /api/model-assignments/replace (body-parsing — handled in handleRequest)
+  //   GET    /api/personas
+  //   POST   /api/personas/rebuild          (body-parsing — handled in handleRequest)
   //
   // DEPRECATED ROUTES (non-namespaced /:slug — retained for backward
   // compatibility only; will be removed in the next major version):
@@ -1763,6 +1809,99 @@ export async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in POST /api/knowledge/:id/move: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PUT /api/models — body-parsing required
+  if (method === 'PUT' && path === '/api/models') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleSaveModels(body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PUT /api/models: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/models/load-defaults — body-parsing required (empty body accepted)
+  if (method === 'POST' && path === '/api/models/load-defaults') {
+    try {
+      const result = await handleLoadDefaults();
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/models/load-defaults: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PUT /api/model-assignments — body-parsing required
+  if (method === 'PUT' && path === '/api/model-assignments') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleUpdateAssignments(body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PUT /api/model-assignments: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/model-assignments/replace — body-parsing required
+  if (method === 'POST' && path === '/api/model-assignments/replace') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleReplaceAssignedModel(body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/model-assignments/replace: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/personas/rebuild — body-parsing not required but fits handleRequest() pattern
+  if (method === 'POST' && path === '/api/personas/rebuild') {
+    try {
+      const result = await handleRebuildPersonas(WORKSPACE_ROOT);
+      if (result.success) {
+        sendJson(res, 200, result, port);
+      } else {
+        sendError(res, 500, 'BUILD_FAILED', result.output, port);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/personas/rebuild: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }
