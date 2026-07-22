@@ -1393,6 +1393,19 @@ input[type="number"].form-control {
   white-space: pre-wrap;
 }
 
+.outcome-synopsis__link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-complete);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.outcome-synopsis__link:hover {
+  text-decoration: underline;
+}
+
 /* ──────────────────────────────────────────────────────────────
    Reset Project Modal
    ────────────────────────────────────────────────────────────── */
