@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.30.0 - **WIP UNRELEASED**
+- Standalone: Added Web GUI Specialist persona for engaging, visually optimized web app and tool interfaces.
 - Standalone: Plan Auditor and Plan Architect Reviewer gain Research Brief Protocol — self-manage brief usage, contribute-back, and size guard.
 - Standalone: Plan Refiner simplified — dispatch prompts stripped of brief hand-holding; Sub-Agent Brief Enrichment section and brief size guard constraint removed.
 - Standalone: Plan Refiner Operating Philosophy rewritten — replaced constraint-like prohibitions with positive value statements; removed items duplicated in Strict Constraints.
