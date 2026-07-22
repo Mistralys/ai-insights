@@ -125,7 +125,6 @@ User clicks link or navigates
           │   ├── /projects/:repo/:slug/wp/:wpId    → renderWorkPackageDetail(app, repo, slug, wpId)
           │   ├── /projects/:repo/:slug/runs/:file  → renderRunLog(app, repo, slug, file)
           │   ├── /config                           → renderConfig(app)
-          │   ├── /insights                         → renderInsights(app)
           │   ├── /knowledge                        → renderKnowledge(app)
           │   ├── /orchestrator                     → renderOrchestrator(app)
           │   └── (no match)                        → error banner "Page not found"

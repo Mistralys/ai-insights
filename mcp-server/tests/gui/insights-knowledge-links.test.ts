@@ -1,12 +1,9 @@
 // @vitest-environment jsdom
 
 /**
- * Unit tests for namespaced project link generation in insights.js and
- * knowledge.js (WP-012).
+ * Unit tests for namespaced project link generation in knowledge.js (WP-012).
  *
  * Acceptance criteria tested:
- *   AC-1: `insights.js` project links use `#/projects/{repo}/{slug}` when
- *         `repository_name` is available.
  *   AC-2: `knowledge.js` origin-plan links use `#/projects/{repo}/{slug}`
  *         when `repository_name` is available.
  *   AC-3: Entries with null `repository_name` do not generate broken links —
@@ -29,8 +26,7 @@ import vm from 'node:vm';
 
 const publicDir = join(__dirname, '../../gui/public');
 
-const insightsJs   = readFileSync(join(publicDir, 'views/insights.js'), 'utf-8');
-const knowledgeJs  = readFileSync(join(publicDir, 'views/knowledge.js'), 'utf-8');
+const knowledgeJs = readFileSync(join(publicDir, 'views/knowledge.js'), 'utf-8');
 
 // ---------------------------------------------------------------------------
 // Global type stubs
@@ -38,12 +34,9 @@ const knowledgeJs  = readFileSync(join(publicDir, 'views/knowledge.js'), 'utf-8'
 
 declare global {
   // eslint-disable-next-line no-var
-  var renderInsights:  (app: HTMLElement) => void;
-  // eslint-disable-next-line no-var
   var renderKnowledge: (app: HTMLElement) => void;
   // eslint-disable-next-line no-var
   var API: {
-    getInsights:      ReturnType<typeof vi.fn>;
     getKnowledge:     ReturnType<typeof vi.fn>;
     updateKnowledge:  ReturnType<typeof vi.fn>;
     deleteKnowledge:  ReturnType<typeof vi.fn>;
@@ -82,7 +75,6 @@ beforeAll(() => {
 
   // Stub API with sane defaults (individual tests override via mockResolvedValue).
   (globalThis as Record<string, unknown>)['API'] = {
-    getInsights:      vi.fn().mockResolvedValue([]),
     getKnowledge:     vi.fn().mockResolvedValue([]),
     updateKnowledge:  vi.fn().mockResolvedValue({}),
     deleteKnowledge:  vi.fn().mockResolvedValue(null),
@@ -90,8 +82,7 @@ beforeAll(() => {
     moveKnowledge:    vi.fn().mockResolvedValue({}),
   };
 
-  // Load the view scripts after globals are installed.
-  vm.runInThisContext(insightsJs);
+  // Load the view script after globals are installed.
   vm.runInThisContext(knowledgeJs);
 });
 
@@ -103,27 +94,34 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function loadKnowledgeViewScript(): void {
+  vm.runInThisContext(knowledgeJs);
+}
+
 // ---------------------------------------------------------------------------
-// insights.js — project link generation
+// knowledge.js — project link generation
 // ---------------------------------------------------------------------------
 
-describe('insights.js — project link generation', () => {
-  it('AC-1: renders a namespaced link when repository_name is non-null', async () => {
+describe('knowledge.js — project link generation', () => {
+  it('AC-2: renders a namespaced link when repository_name is non-null', async () => {
     const entry = {
-      project_slug:    '2026-05-01-my-feature',
+      id: 1,
+      title: 'Knowledge item',
+      content: 'Some observation',
+      scope: 'global',
       repository_name: 'my-repo',
-      project_status:  'IN_PROGRESS',
-      type:            'note',
-      priority:        'medium',
-      timestamp:       '2026-05-01T10:00:00Z',
-      agent:           'Developer',
-      note:            'Some observation',
+      origin_plan: '2026-05-01-my-feature',
+      created_at: '2026-05-01T10:00:00Z',
+      updated_at: '2026-05-01T10:00:00Z',
+      category: 'note',
+      tags: [],
     };
 
-    globalThis.API.getInsights = vi.fn().mockResolvedValue([entry]);
+    globalThis.API.getKnowledge = vi.fn().mockResolvedValue([entry]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
-    renderInsights(app);
+    renderKnowledge(app);
     await flushPromises();
 
     const link = app.querySelector('a[href*="/projects/"]') as HTMLAnchorElement | null;
@@ -131,60 +129,60 @@ describe('insights.js — project link generation', () => {
     expect(link!.getAttribute('href')).toBe(
       '#/projects/my-repo/2026-05-01-my-feature'
     );
-    expect(link!.textContent).toBe('2026-05-01-my-feature');
+    expect(link!.textContent).toContain('2026-05-01-my-feature');
   });
 
   it('AC-3: renders plain text (no anchor) when repository_name is null', async () => {
     const entry = {
-      project_slug:    '2026-05-02-legacy-slug',
+      id: 2,
+      title: 'Legacy knowledge item',
+      content: 'Some note',
+      scope: 'global',
       repository_name: null,
-      project_status:  'COMPLETE',
-      type:            'note',
-      priority:        'low',
-      timestamp:       '2026-05-02T10:00:00Z',
-      agent:           'QA',
-      note:            'Some note',
+      origin_plan: '2026-05-02-legacy-slug',
+      created_at: '2026-05-02T10:00:00Z',
+      updated_at: '2026-05-02T10:00:00Z',
+      category: 'note',
+      tags: [],
     };
 
-    globalThis.API.getInsights = vi.fn().mockResolvedValue([entry]);
+    globalThis.API.getKnowledge = vi.fn().mockResolvedValue([entry]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
-    renderInsights(app);
+    renderKnowledge(app);
     await flushPromises();
 
-    // No anchor link should be present for this entry.
     const link = app.querySelector('a[href*="/projects/"]') as HTMLAnchorElement | null;
     expect(link).toBeNull();
-
-    // The slug should still appear as text.
     expect(app.innerHTML).toContain('2026-05-02-legacy-slug');
   });
 
   it('AC-4: does not use bare-slug form (without repo) in the link href', async () => {
     const entry = {
-      project_slug:    '2026-05-03-some-project',
+      id: 3,
+      title: 'Knowledge item',
+      content: 'Decision made',
+      scope: 'global',
       repository_name: 'workspace-a',
-      project_status:  'READY',
-      type:            'decision',
-      priority:        'high',
-      timestamp:       '2026-05-03T10:00:00Z',
-      agent:           'Reviewer',
-      note:            'Decision made',
+      origin_plan: '2026-05-03-some-project',
+      created_at: '2026-05-03T10:00:00Z',
+      updated_at: '2026-05-03T10:00:00Z',
+      category: 'decision',
+      tags: [],
     };
 
-    globalThis.API.getInsights = vi.fn().mockResolvedValue([entry]);
+    globalThis.API.getKnowledge = vi.fn().mockResolvedValue([entry]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
-    renderInsights(app);
+    renderKnowledge(app);
     await flushPromises();
 
-    // The bare-slug form would be `#/projects/2026-05-03-some-project`
-    // (only one path segment). The correct form has two segments.
     const links = app.querySelectorAll('a[href]');
     links.forEach((l) => {
       const href = l.getAttribute('href') || '';
       if (href.startsWith('#/projects/')) {
-        // Ensure the href has at least two path segments after /projects/
         const segments = href.replace('#/projects/', '').split('/');
         expect(segments.length).toBeGreaterThanOrEqual(2);
       }
@@ -193,20 +191,23 @@ describe('insights.js — project link generation', () => {
 
   it('URL-encodes repository_name and slug in the link href', async () => {
     const entry = {
-      project_slug:    '2026-05-04-special chars',
+      id: 4,
+      title: 'Knowledge item',
+      content: 'Test',
+      scope: 'global',
       repository_name: 'my repo',
-      project_status:  'READY',
-      type:            'note',
-      priority:        'low',
-      timestamp:       '2026-05-04T10:00:00Z',
-      agent:           'Developer',
-      note:            'Test',
+      origin_plan: '2026-05-04-special chars',
+      created_at: '2026-05-04T10:00:00Z',
+      updated_at: '2026-05-04T10:00:00Z',
+      category: 'note',
+      tags: [],
     };
 
-    globalThis.API.getInsights = vi.fn().mockResolvedValue([entry]);
+    globalThis.API.getKnowledge = vi.fn().mockResolvedValue([entry]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
-    renderInsights(app);
+    renderKnowledge(app);
     await flushPromises();
 
     const link = app.querySelector('a[href*="/projects/"]') as HTMLAnchorElement | null;
@@ -248,6 +249,7 @@ describe('knowledge.js — origin-plan link generation', () => {
 
   it('AC-2: renders a namespaced origin-plan link when repository_name is non-null', async () => {
     globalThis.API.getKnowledge = vi.fn().mockResolvedValue([makeInsight()]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
     renderKnowledge(app);
@@ -265,6 +267,7 @@ describe('knowledge.js — origin-plan link generation', () => {
     globalThis.API.getKnowledge = vi.fn().mockResolvedValue([
       makeInsight({ repository_name: null }),
     ]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
     renderKnowledge(app);
@@ -284,6 +287,7 @@ describe('knowledge.js — origin-plan link generation', () => {
     globalThis.API.getKnowledge = vi.fn().mockResolvedValue([
       makeInsight({ origin_plan: null }),
     ]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
     renderKnowledge(app);
@@ -295,6 +299,7 @@ describe('knowledge.js — origin-plan link generation', () => {
 
   it('AC-4: does not use bare-slug form (without repo) in origin-plan link', async () => {
     globalThis.API.getKnowledge = vi.fn().mockResolvedValue([makeInsight()]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
     renderKnowledge(app);
@@ -317,6 +322,7 @@ describe('knowledge.js — origin-plan link generation', () => {
         origin_plan:     '2026-05-05-has spaces',
       }),
     ]);
+    loadKnowledgeViewScript();
 
     const app = document.createElement('div');
     renderKnowledge(app);

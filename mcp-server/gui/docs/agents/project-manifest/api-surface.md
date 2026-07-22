@@ -203,7 +203,6 @@ Client-side REST API wrapper. All methods return Promises.
 | `getChunkStructured` | `(repo, slug, filename) → Promise<DialogueBlock[]>` | `GET …/chunks/:filename/rendered?format=structured` — structured JSON response (unwrapped array) |
 | `getConfig` | `() → Promise<object>` | `GET /api/config` |
 | `updateConfig` | `(data) → Promise<object>` | `PUT /api/config` |
-| `getInsights` | `() → Promise<object>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
@@ -299,7 +298,6 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderRunLog` | `run-log.js` | `#/projects/:repo/:slug/runs/:filename` |
 | `renderOrchestrator` | `orchestrator.js` | `#/orchestrator` |
 | `renderConfig` | `config.js` | `#/config` |
-| `renderInsights` | `insights.js` | `#/insights` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
 
 ---

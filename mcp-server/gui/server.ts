@@ -34,7 +34,6 @@ import {
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
-  handleGetInsights,
   handleGetConfig,
   handleUpdateConfig,
   handleResetProject,
@@ -369,11 +368,6 @@ export function matchRoute(
   // When adding a new route with the same rest.length as an existing one (e.g. a future
   // /:slug/synthesis at length 3 alongside /:slug/plan), make sure the more-specific
   // pattern appears BEFORE the catch-all pattern at that length, or it will never match.
-
-  // GET /api/insights
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
-    return () => handleGetInsights(ledgerRoot);
-  }
 
   // GET /api/orchestrator/queue
   if (method === 'GET' && rest.length === 2 && rest[0] === 'orchestrator' && rest[1] === 'queue') {
@@ -1326,7 +1320,6 @@ export function matchRoute(
   // handled above in handleRequest() and are noted inline below.
   //
   // ACTIVE ROUTES (namespaced /:repo/:slug — use these going forward):
-  //   GET    /api/insights
   //   GET    /api/orchestrator/queue
   //   GET    /api/orchestrator/run-status/:filename
   //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]
