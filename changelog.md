@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v2.7.1 - **WIP UNRELEASED**
+- Personas: Plan Refiner performance improvements in context usage.
+
 ## v2.7.0 - Project Summaries and Persona philosophy
 > mcp v2.6.0 · personas v3.29.0
 

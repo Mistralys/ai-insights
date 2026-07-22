@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.6.1 - **WIP UNRELEASED**
+- GUI: Improved Synthesis summary styling as a card in the project detail page.
+
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 
 **This release adds `project_summary` to lifecycle tools, displaying it as a synopsis on the

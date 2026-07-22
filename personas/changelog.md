@@ -1,5 +1,16 @@
 # Personas Changelog
 
+## v3.30.0 - **WIP UNRELEASED**
+- Standalone: Plan Auditor and Plan Architect Reviewer gain Research Brief Protocol — self-manage brief usage, contribute-back, and size guard.
+- Standalone: Plan Refiner simplified — dispatch prompts stripped of brief hand-holding; Sub-Agent Brief Enrichment section and brief size guard constraint removed.
+- Standalone: Plan Refiner Operating Philosophy rewritten — replaced constraint-like prohibitions with positive value statements; removed items duplicated in Strict Constraints.
+- Standalone: Plan Refiner gains brief enrichment phase — supplements the Planner's research brief with targeted codebase facts before dispatching sub-agents.
+- Standalone: Plan Refiner dispatch prompts now reference the research brief with audience tags (`[arch]`/`[verify]`), scope sketch, and independence clause.
+- Standalone: Plan Refiner gains incremental re-audit — differential context for audit cycles 2+.
+- Standalone: Plan Refiner gains sub-agent brief enrichment — downstream agents can contribute verified references back to the brief with provenance markers.
+- Standalone: Plan Refiner gains brief size guard (~5K token ceiling) to prevent unbounded brief growth.
+- Standalone: Planner research brief template renames "Patterns & Conventions" to "Established Patterns" for factual-only clarity.
+
 ## v3.29.0 - Operating Philosophy and Project Summary Protocols
 
 - Ledger: Planner, Developer, and Reviewer gain an Operating Philosophy section.
