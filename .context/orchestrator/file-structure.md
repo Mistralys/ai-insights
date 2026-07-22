@@ -105,6 +105,7 @@ _SOURCE: Directory tree_
         └── test_nodes.py
         └── test_path_middleware.py
         └── test_persona_models.py
+        └── test_persona_models_assignments.py
         └── test_plan_parser.py
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py

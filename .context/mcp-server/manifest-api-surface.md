@@ -1266,6 +1266,345 @@ export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Prom
 
 ---
 
+## GUI API — Model Registry Module
+
+The `model-registry.ts` module (`src/gui/model-registry.ts`) provides the file-based model registry and per-persona model assignment system for the persona model configuration feature. It is a self-contained data-access layer with no MCP tool dependencies — GUI API handlers and the build system consume it directly.
+
+**File layout** — all files live under `{WORKSPACE_ROOT}/personas/model-registry/`:
+
+| File | Git-tracked | Purpose |
+|------|-------------|---------|
+| `default.json` | ✅ Yes | Shipped seed models. Read only during auto-initialization and `loadDefaults()`. |
+| `local.json` | ❌ No | Working copy of the model list. Single source of truth at runtime. |
+| `assignments.json` | ❌ No | Per-persona model assignments + global default model selection. |
+
+**Design invariants:**
+- Assignment values are stable UUIDs, not slugs — slug renames never require cascade into `assignments.json`.
+- STDIO discipline: this module only writes to `stderr`, never `stdout`.
+- All writes use `atomicWriteJson` (write-to-temp-then-rename).
+- Error handling uses `ApiError` with typed error codes: `READ_ERROR`, `PARSE_ERROR`, `VALIDATION_ERROR`, `WRITE_ERROR`.
+
+### Schemas and Types
+
+```typescript
+// Zod schemas (all exported)
+export const ModelEntrySchema: z.ZodObject<{
+  id:       z.ZodString;  // UUID — stable primary key; never changes after creation
+  name:     z.ZodString;  // min(1) — human-readable display name
+  slug:     z.ZodString;  // regex /^[a-z0-9]+(-[a-z0-9]+)*$/ — URL-safe identifier
+  cc_model: z.ZodDefault<z.ZodString>;  // min(1), default 'inherit' — Claude Code model value
+}>;
+
+export const ModelRegistrySchema: z.ZodArray<typeof ModelEntrySchema>;  // z.array(ModelEntrySchema)
+
+export const ModelAssignmentsSchema: z.ZodObject<{
+  default_model_uuid: z.ZodOptional<z.ZodString>;               // UUID; optional — absent when no global default is set
+  persona_models:     z.ZodRecord<z.ZodString, z.ZodString>;    // personaId → modelUUID; keys are persona `id` values from name-mapping.json (e.g. "ledger-1-planner")
+}>;
+
+// TypeScript types (inferred from schemas, all exported)
+export type ModelEntry       = z.infer<typeof ModelEntrySchema>;
+export type ModelRegistry    = z.infer<typeof ModelRegistrySchema>;
+export type ModelAssignments = z.infer<typeof ModelAssignmentsSchema>;
+
+export type WriteModelsResult =
+  | { saved: true;  models: ModelEntry[] }
+  | { saved: false; referencedModels: ReferencedModel[] };
+
+export interface ReferencedModel {
+  model:  ModelEntry;
+  usages: string[];   // persona IDs and/or 'default' that reference this model UUID
+}
+
+export interface ConflictEntry {
+  defaultEntry: ModelEntry;
+  localEntry:   ModelEntry;
+  reason:       'slug_collision';
+}
+
+export interface LoadDefaultsResult {
+  models:    ModelEntry[];
+  conflicts: ConflictEntry[];
+}
+
+export interface ResolvedAssignments {
+  default_model_slug: string | null;          // null when default_model_uuid is absent or unresolvable
+  persona_models:     Record<string, string>; // personaId → slug; unresolvable UUIDs are omitted
+}
+```
+
+**Reserved values:**
+- Slug `"inherit"` is reserved for the built-in "Inherit / Auto" sentinel entry (UUID `00000000-0000-0000-0000-000000000000`). Non-sentinel entries using this slug are rejected by `writeModels()`.
+
+### `getModelRegistryPath()`
+
+```typescript
+export function getModelRegistryPath(): string
+// Returns join(WORKSPACE_ROOT, 'personas', 'model-registry').
+// Equivalent to the directory containing default.json, local.json, and assignments.json.
+```
+
+### `readModels()`
+
+```typescript
+export async function readModels(): Promise<ModelEntry[]>
+// Reads local.json and returns the parsed model registry.
+//
+// Auto-initialization: when local.json does not exist, copies default.json into local.json
+// and returns the result. Logs a single line to stderr on auto-init.
+//
+// @throws {ApiError} code=READ_ERROR  — local.json or default.json (during auto-init) is unreadable
+// @throws {ApiError} code=PARSE_ERROR — local.json or default.json (during auto-init) is not valid JSON
+// @throws {ApiError} code=VALIDATION_ERROR — parsed content fails ModelRegistrySchema
+```
+
+### `writeModels()`
+
+```typescript
+export async function writeModels(models: ModelEntry[]): Promise<WriteModelsResult>
+// Validates and writes models to local.json atomically.
+//
+// Guards applied in order:
+//   1. Schema validation — all entries must conform to ModelEntrySchema.
+//   2. Slug uniqueness   — duplicate slugs are rejected.
+//   3. Reserved slug     — slug "inherit" is only permitted on the sentinel entry
+//                          (UUID 00000000-0000-0000-0000-000000000000).
+//   4. Deletion guard    — entries in the current local.json but absent from `models` are
+//                          treated as deletions. If any deleted model's UUID is referenced in
+//                          assignments.json, the write is rejected and the caller receives
+//                          { saved: false, referencedModels: [...] } with usage details.
+//
+// Deletion guard error contract (important for API handler authors):
+//   - local.json does not exist / OS-level read failure (READ_ERROR): guard is SKIPPED,
+//     write proceeds (nothing to protect).
+//   - local.json exists but is corrupt (PARSE_ERROR or VALIDATION_ERROR): write is REJECTED
+//     with ApiError. Corruption must be resolved before any modifications are permitted.
+//     API handlers should surface this as a 500-class error and direct the user to restore
+//     or rebuild local.json.
+//   - referenced models exist: returns { saved: false, referencedModels } (not an exception).
+//     API handlers should surface this as HTTP 409 Conflict with the usage list.
+//
+// @throws {ApiError} code=VALIDATION_ERROR — schema or constraint violations in `models`
+// @throws {ApiError} code=PARSE_ERROR      — local.json exists but is not valid JSON (corruption guard)
+// @throws {ApiError} code=VALIDATION_ERROR — local.json exists but fails schema validation (corruption guard)
+// @throws {ApiError} code=WRITE_ERROR      — atomic write to local.json fails
+```
+
+### `readAssignments()`
+
+```typescript
+export async function readAssignments(): Promise<ModelAssignments>
+// Reads assignments.json and returns the parsed assignments.
+//
+// When assignments.json does not exist, returns a default structure:
+//   { default_model_uuid: undefined, persona_models: {} }
+//
+// @throws {ApiError} code=READ_ERROR       — assignments.json is unreadable (non-ENOENT OS error)
+// @throws {ApiError} code=PARSE_ERROR      — assignments.json is not valid JSON
+// @throws {ApiError} code=VALIDATION_ERROR — parsed content fails ModelAssignmentsSchema
+```
+
+### `writeAssignments()`
+
+```typescript
+export async function writeAssignments(data: ModelAssignments): Promise<void>
+// Validates and writes data to assignments.json atomically.
+//
+// @throws {ApiError} code=VALIDATION_ERROR — data fails ModelAssignmentsSchema
+// @throws {ApiError} code=WRITE_ERROR      — atomic write fails
+```
+
+### `loadDefaults()`
+
+```typescript
+export async function loadDefaults(): Promise<LoadDefaultsResult>
+// Merges default.json into local.json using id-based matching.
+//
+// Merge rules:
+//   - Default entry id already in local.json: local entry wins — no overwrite.
+//   - Default entry id is new but slug collides with a local entry: entry is NOT added;
+//     conflict is recorded in conflicts[].
+//   - All other default entries: appended to the local registry.
+//
+// Disk write is conditional: local.json is only written when at least one new entry was added
+// (toAdd.length > 0). The returned `models` array always reflects the full post-merge view
+// regardless of whether a write occurred.
+//
+// Returns { models: ModelEntry[], conflicts: ConflictEntry[] }.
+// conflicts[] contains slug-collision details for display to the user.
+//
+// @throws {ApiError} — when default.json cannot be read/parsed/validated
+// @throws {ApiError} code=PARSE_ERROR or VALIDATION_ERROR — when local.json exists but is corrupt
+//                    (re-thrown from readModels(); does not silently overwrite corrupt registries)
+```
+
+### `isModelReferenced()`
+
+```typescript
+export async function isModelReferenced(
+  modelId: string  // UUID
+): Promise<{ referenced: boolean; usages: string[] }>
+// Checks whether modelId is referenced in assignments.json.
+//
+// usages[] contains the persona IDs and/or 'default' that reference this UUID.
+// Returns { referenced: false, usages: [] } when assignments.json does not exist or
+// is unreadable (graceful degradation — safe for callers that use this to guard deletions).
+```
+
+### `getResolvedAssignments()`
+
+```typescript
+export async function getResolvedAssignments(): Promise<ResolvedAssignments>
+// Resolves UUID values in assignments.json to slugs using local.json.
+//
+// Resolution rules:
+//   - default_model_slug: null when default_model_uuid is absent or references an unknown model.
+//   - persona_models: persona entries with unresolvable UUIDs are silently omitted (graceful
+//     degradation — stale assignments do not cause errors, they are just dropped).
+//   - When assignments.json does not exist, returns { default_model_slug: null, persona_models: {} }.
+//   - When local.json is unreadable, returns { default_model_slug: null, persona_models: {} }
+//     (graceful degradation).
+//
+// This is the authoritative UUID-to-slug resolver for GUI API consumers.
+// The build system and orchestrator perform equivalent resolution locally by reading both
+// local.json and assignments.json directly.
+```
+
+---
+
+## GUI API — Model Registry Endpoints
+
+These handler functions are exported from `gui/api-models.ts` (introduced in the model-settings plan) and called by the HTTP server in `gui/server.ts`. They provide the full CRUD lifecycle for the model registry and per-persona model assignments, plus persona listing and rebuild triggering. The implementation follows the domain-split pattern established by `api-knowledge.ts` and `api-repos.ts`.
+
+> **Route wiring note:** Body-free routes (`GET /api/models`, `GET /api/model-assignments`, `GET /api/personas`) are dispatched via `matchRoute()`. Body-parsing routes (`PUT /api/models`, `POST /api/models/load-defaults`, `PUT /api/model-assignments`, `POST /api/model-assignments/replace`, `POST /api/personas/rebuild`) are handled in `handleRequest()` — consistent with the pattern used for other domain handlers.
+
+### HTTP Route Table
+
+| Method | Path | Request Body | Return Shape | Status Code | Error Codes |
+|--------|------|-------------|--------------|-------------|-------------|
+| `GET` | `/api/models` | — | `ModelEntry[]` | 200 | — |
+| `PUT` | `/api/models` | `SaveModelsBodySchema` — array of model entries (`id` optional, auto-assigned if absent) | `{ models: ModelEntry[] }` \| `{ conflict: true, referencedModels: [...] }` | 200 \| 409 | 400 (validation), 409 (deletion blocked) |
+| `POST` | `/api/models/load-defaults` | — (no body) | `{ models: ModelEntry[], conflicts: ConflictEntry[] }` | 200 | — |
+| `GET` | `/api/model-assignments` | — | `ModelAssignments & { stale: boolean }` | 200 | — |
+| `PUT` | `/api/model-assignments` | `ModelAssignmentsSchema` — `{ default_model_uuid?, persona_models }` | `ModelAssignments` | 200 | 400 (invalid body, unknown persona key, unknown model UUID) |
+| `POST` | `/api/model-assignments/replace` | `{ old_model_id: UUID, new_model_id: UUID }` | `ModelAssignments` | 200 | 400 (same-model swap, old_model_id not referenced, UUID not in registry) |
+| `GET` | `/api/personas` | — | `PersonaEntry[]` | 200 | — |
+| `POST` | `/api/personas/rebuild` | — (no body) | `{ success: true, output: string }` \| `{ success: false, output: string, exitCode: number }` | 200 | 409 (build already in progress) |
+
+**Notes:**
+- `GET /api/models` auto-initializes `local.json` from `default.json` when `local.json` does not exist (delegates to `readModels()`).
+- `PUT /api/models` auto-assigns UUIDv4 to entries missing an `id` field. This is the only mechanism for creating new model entries. Returns HTTP 409 Conflict (not an error throw) when a referenced model would be deleted — the response body contains `{ conflict: true, referencedModels: [...] }` for display to the user.
+- `POST /api/models/load-defaults` performs an id-based merge — existing local entries are never overwritten. Slug-collision conflicts are returned in `conflicts[]` and do not block the merge.
+- `GET /api/model-assignments` includes a `stale` boolean computed from file mtimes: `true` when `max(mtime(assignments.json), mtime(local.json)) > mtime(name-mapping.json)`. Returns `stale: false` when neither `assignments.json` nor `local.json` exist (no user changes yet).
+- `PUT /api/model-assignments` validates all persona keys against `id` values in `name-mapping.json` and all model UUIDs against `local.json`. Returns 400 when `name-mapping.json` does not exist — callers must run a persona build first.
+- `POST /api/model-assignments/replace` swaps all occurrences of `old_model_id` with `new_model_id` in the current assignments. Rejects when `old_model_id === new_model_id` or when `old_model_id` is not currently referenced.
+- `GET /api/personas` returns all personas from `name-mapping.json`, or an empty array when the file does not exist (first run before any build).
+- `POST /api/personas/rebuild` spawns `node scripts/build-personas.js` in the workspace root with a concurrency guard — returns HTTP 409 when a build is already in progress.
+- All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }`. Codes: `NOT_FOUND` → 404, `VALIDATION_ERROR` → 400, `CONFLICT` → 409, unhandled → 500.
+
+### `PersonaEntry`
+
+```typescript
+interface PersonaEntry {
+  id: string;         // Unique persona identifier — used as the key in model assignments (persona_models map)
+  role: string;       // Human-readable display name
+  suite: string;      // Persona suite (e.g. "ledger", "standalone")
+  model?: string;     // Optional resolved model name (e.g. "claude-opus-4-6"); present only after a build
+  model_slug?: string; // Optional slug of the assigned model entry in local.json (matches ModelEntry.slug)
+  cc_model?: string;  // Optional Claude Code model identifier (effective value after "inherit" resolution)
+  number?: number;    // Optional display ordering index within the suite
+}
+```
+
+### `handleGetModels()`
+
+```typescript
+// GET /api/models
+// Returns the current model registry list (auto-initializes local.json from default.json if absent).
+export async function handleGetModels(): Promise<ModelEntry[]>
+```
+
+### `handleSaveModels()`
+
+```typescript
+// PUT /api/models
+// Bulk-saves the model registry. Auto-assigns UUIDv4 to entries missing an `id`.
+// Returns HTTP 409 with { conflict, referencedModels } when a deletion is blocked.
+//
+// @param body - Raw parsed JSON request body.
+export async function handleSaveModels(body: unknown): Promise<
+  | { models: ModelEntry[] }
+  | { conflict: true; referencedModels: Array<{ model: ModelEntry; usages: string[] }> }
+>
+```
+
+### `handleLoadDefaults()`
+
+```typescript
+// POST /api/models/load-defaults
+// Merges default.json into local.json (id-based, existing entries win).
+// Returns post-merge model list and slug-collision conflicts.
+export async function handleLoadDefaults(): Promise<{
+  models: ModelEntry[];
+  conflicts: Array<{ defaultEntry: ModelEntry; localEntry: ModelEntry; reason: 'slug_collision' }>;
+}>
+```
+
+### `handleGetAssignments()`
+
+```typescript
+// GET /api/model-assignments
+// Returns current model assignments enriched with a staleness flag.
+// stale: true when registry or assignment files are newer than name-mapping.json.
+export async function handleGetAssignments(): Promise<ModelAssignments & { stale: boolean }>
+```
+
+### `handleUpdateAssignments()`
+
+```typescript
+// PUT /api/model-assignments
+// Validates and persists model assignments.
+// All persona keys and model UUIDs are validated against name-mapping.json and local.json.
+//
+// @param body - Raw parsed JSON request body.
+export async function handleUpdateAssignments(body: unknown): Promise<ModelAssignments>
+```
+
+### `handleReplaceAssignedModel()`
+
+```typescript
+// POST /api/model-assignments/replace
+// Swaps all occurrences of old_model_id with new_model_id in the current assignments.
+// Rejects when old_model_id === new_model_id or old_model_id is not referenced.
+//
+// @param body - { old_model_id: UUID, new_model_id: UUID }
+export async function handleReplaceAssignedModel(body: unknown): Promise<ModelAssignments>
+```
+
+### `handleGetPersonas()`
+
+```typescript
+// GET /api/personas
+// Returns all personas from name-mapping.json, or [] when the file does not exist.
+export async function handleGetPersonas(): Promise<PersonaEntry[]>
+```
+
+### `handleRebuildPersonas()`
+
+```typescript
+// POST /api/personas/rebuild
+// Spawns node scripts/build-personas.js in the workspace root.
+// Returns 409 Conflict when a build is already in progress (module-level flag).
+//
+// @param workspaceRoot - Absolute path to the workspace root.
+export async function handleRebuildPersonas(workspaceRoot: string): Promise<
+  | { success: true; output: string }
+  | { success: false; output: string; exitCode: number }
+>
+```
+
+---
+
 ## Storage API
 
 ### `ImportStandaloneDetail`
@@ -4845,7 +5184,101 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 - **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`
 
 **`views/config.js`:**
-- **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
+
+The configuration view is a three-tab SPA page: **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
+
+**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, and `GET /api/assignments` in parallel, then delegates to `renderConfigPage`.
+
+**`renderConfigPage(app, config, models, personas, assignments)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
+
+**Tab system:**
+- **Active tab state:** `configActiveTab` (module-level string, default `'general'`) persists across tab switches within a page visit.
+- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset.
+- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments)` — renders into `#config-tab-content` and wires events for the active tab.
+
+**General tab** (`renderGeneralTab(config)` + `wireGeneralTabEvents()`):
+- Renders a form for `auto_handoff_enabled`, `max_handoff_depth`, `capture_dialogues`, `auto_archive_days`, and `ledger_root` (read-only). Save calls `PUT /api/config` with all four writable fields. Dirty tracking via both `change` and `input` listeners (required to cover checkboxes and text inputs).
+
+---
+
+**Persona Models tab** (`renderPersonaModelsTab`, `pmBuildTabHtml`, `pmWireEvents`, `pmDoSave`, `pmDoRebuild`):
+
+**Module-level state** (all reset to initial values in `renderConfigPage` and on tab discard):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `pmModels` | `ModelEntry[] \| null` | Working copy of the model list; used to populate model dropdowns |
+| `pmPersonas` | `PersonaEntry[] \| null` | Full persona list from `GET /api/personas` |
+| `pmAssignments` | `{ default_model_uuid?: string, persona_models: {} } \| null` | Working copy of assignments (mutated on edit, committed on save) |
+| `pmOriginal` | same shape as `pmAssignments` | Deep-cloned snapshot at load/save time; used by `pmHasChanges()` for dirty comparison |
+| `pmIsBuilding` | `boolean` | `true` while a rebuild is in flight; disables all rebuild buttons |
+| `pmCollapsed` | `{ [suiteName: string]: boolean }` | Tracks which suite sections are collapsed |
+| `pmReplaceOpen` | `boolean` | `true` when the Replace Model inline form is visible |
+
+**Suite rendering:** Personas are grouped by suite and rendered in the order defined by `PM_SUITE_ORDER` (`['ledger', 'standalone', 'ledger-support']`). Display labels come from `PM_SUITE_LABELS`. Each suite is a collapsible section (`pmCollapsed` tracks collapsed state).
+
+**`pmBuildTabHtml()`** — builds the full Persona Models tab HTML. The function reads only from module-level state (not from parameters). Renders four distinct UI states:
+1. **Empty registry** — `pmModels` is empty; shows a link-button to navigate to the Model Registry tab.
+2. **Pre-build** — `pmModels` exists but `pmPersonas` is empty; shows a "No persona data available." message and a Rebuild Personas button.
+3. **Normal with stale banner** — `pmAssignments.stale` is `true`; shows a top banner with an inline Rebuild Personas button.
+4. **Normal** — full persona table with default model section, suite-grouped persona rows, Replace Model form (when `pmReplaceOpen`), and fixed action bar.
+
+**`pmWireEvents(config, models, personas, assignments)`** — wires all interactive elements after `pmBuildTabHtml()` renders HTML. The four parameters are **pass-through values for the recursive closure chain only** — the function body and its event handlers read from module-level `pm*` state, not from these parameters. The parameters exist solely to pass into `pmRefreshTab()` calls (which re-render and re-wire on every interaction). Callers must not route new data through these parameters; update the module-level state directly instead.
+
+Wired interactions:
+- Go-to-Registry button (empty registry state) — clicks the `[data-tab="modelRegistry"]` button in the tab bar
+- Suite collapsible headers — toggle `pmCollapsed[suite]` and call `pmRefreshTab`
+- Default model click-to-edit — shows `#pm-default-edit` select, hides `#pm-default-display`; Done commits to `pmAssignments.default_model_uuid`; Cancel restores display
+- Persona model click-to-edit — event delegation on `.card`; Done commits UUID to `pmAssignments.persona_models[personaId]` (empty string clears the assignment via `delete`)
+- Replace Model toggle — sets `pmReplaceOpen` and refreshes
+- Replace All — reads from/to selects, shows `confirm()` dialog, calls `API.replaceAssignedModel(oldId, newId)`, updates `pmAssignments` from server response
+- Stale banner rebuild, fixed rebuild, and pre-build rebuild — all delegate to `pmDoRebuild`
+- Save button — delegates to `pmDoSave`
+
+**`pmRefreshTab(config, models, personas, assignments)`** — calls `pmBuildTabHtml()` then `pmWireEvents()` to fully re-render the tab. Also syncs `configDirty.personaModels` via `pmHasChanges()`. Called after every interaction that mutates display state (edit, done, cancel, collapse, toggle).
+
+**`pmDoSave(config, models, personas, assignments)`** — sends `PUT /api/model-assignments` with `{ default_model_uuid?, persona_models }`. On success, updates `pmOriginal` (new snapshot) and `pmAssignments.stale` from the server response (saving causes the stale banner to appear, because assignments are now newer than the last persona build). Clears `configDirty.personaModels`.
+
+**`pmDoRebuild(config, models, personas, assignments)`** — guards against double invocation with `pmIsBuilding`. Calls `POST /api/personas/rebuild`. On success, re-fetches `GET /api/personas` and `GET /api/assignments` to refresh `pmPersonas` and `pmAssignments.stale`. On failure, the catch block puts `err.message` (the build script's stdout+stderr output from the `BUILD_FAILED` error envelope) into a `<pre class="pm-build-error-pre">` block below the action bar.
+
+**Helper functions:**
+
+| Function | Description |
+|----------|-------------|
+| `pmCloneAssignments(a)` | Deep-clones an assignments object (shallow-copies `persona_models`) |
+| `pmHasChanges()` | Compares `pmAssignments` vs `pmOriginal`; returns `true` when either `default_model_uuid` or any `persona_models` entry differs |
+| `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`; returns `null` when not found |
+| `pmDirtyDot(isDirty)` | Returns a `<span class="pm-dirty-dot">` element when `isDirty` is `true`, empty string otherwise |
+| `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; `includeDefault` prepends a `"Default"` entry with value `''` |
+
+**`renderPersonaModelsTab(models, personas, assignments)`** — entry point called by `renderConfigTabContent`; initialises module-level state from the passed server data (`pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`) on first render (when `pmModels` is null), then delegates to `pmBuildTabHtml()`.
+
+---
+
+**`styles.css` — Configuration Tab and Persona Models classes:**
+
+| Class | Role |
+|-------|------|
+| `.config-tabs` | `display:flex` tab bar container with `border-bottom: 2px solid var(--color-border)` underline track |
+| `.config-tab` | Tab button; same pattern as `.knowledge-tab` but prefixed `config-` to decouple config tab styling from the Knowledge view |
+| `.config-tab.active` | Active state — `color: var(--color-ready)`, `border-bottom-color: var(--color-ready)`, `font-weight: 600` |
+| `.mr-dirty-dot`, `.pm-dirty-dot` | **Shared declaration block** — both selectors are listed on the same CSS rule in styles.css. Both render identically: a 7×7 px circle using `background: var(--color-in-progress)`, `border-radius: 50%`, `margin-right: 5px`, `vertical-align: middle`. They are intentionally separate selectors so future per-tab style overrides can be added without cross-tab coupling. Do **not** consolidate them into a single class — the dual-selector shared declaration is the deliberate architecture. |
+| `.pm-empty-registry` | Container for the "no models registered" empty state |
+| `.pm-prebuild-state` | Container for the "no persona data" pre-build empty state |
+| `.pm-stale-banner` | Stale-build banner (extends `.stale-banner`); shown when `pmAssignments.stale` is `true` |
+| `.pm-build-error-pre` | `<pre>` block for displaying raw build script error output on rebuild failure |
+| `.pm-suite-header` | Collapsible suite section toggle button; `aria-expanded` reflects collapse state |
+| `.pm-suite-section` | Wrapper for a single suite group (header + persona table) |
+| `.pm-personas-table` | Table containing persona rows for a suite section |
+| `.pm-default-row` | Container for the default-model display/edit row |
+| `.pm-default-display` / `.pm-default-edit` | Toggle pair: display shows static model name + edit icon; edit shows a `<select>` + Done/Cancel |
+| `.pm-persona-display` / `.pm-persona-edit` | Per-persona toggle pair; edit shows a `<select class="pm-persona-select">` |
+| `.pm-replace-form` | Wrapper for the Replace Model inline form |
+| `.pm-action-bar` | Fixed action bar at the bottom of the tab containing Save and Rebuild Personas buttons |
+| `.btn-icon` | Small borderless icon button (used for the ✎ edit pencil button) |
+| `.btn-link` | Inline link-styled button (used for the Go to Model Registry navigation) |
+| `.pm-model-select` | Common class on all `<select>` elements in the Persona Models tab |
+| `.spinner` | Inline spinner used inside buttons during async operations (rebuild); `display: inline-block`, animated `border` rotation |
 
 **`views/insights.js`:**
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
@@ -5502,5 +5935,568 @@ function register(server: McpServer): void;
 ```
 
 These are called in `src/index.ts` to register all tools on the server instance.
+
+```
+_SOURCE: GUI-layer API surface (REST endpoints, request/response schemas, model registry, assignments, personas)_
+# GUI-layer API surface (REST endpoints, request/response schemas, model registry, assignments, personas)
+```
+// Structure of documents
+└── mcp-server/
+    └── gui/
+        └── docs/
+            └── agents/
+                └── project-manifest/
+                    └── api-surface.md
+
+```
+###  Path: `/mcp-server/gui/docs/agents/project-manifest/api-surface.md`
+
+```md
+# Public API Surface — MCP Server GUI
+
+---
+
+## 1. Backend REST API
+
+All routes are prefixed with `/api`. Response envelope on success: raw JSON value. Error envelope: `{ error: { code, message } }`.
+
+### Error Codes → HTTP Status
+
+| Code | Status |
+|------|--------|
+| `NOT_FOUND` | 404 |
+| `FORBIDDEN` | 403 |
+| `VALIDATION_ERROR` | 400 |
+| `CONFLICT` | 409 |
+| `PAYLOAD_TOO_LARGE` | 413 |
+| *(unhandled)* | 500 |
+
+---
+
+### 1.1 Projects
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/projects` | `handleListProjects` | Paginated list with filtering, sorting, search. |
+| `GET` | `/api/projects/:repo/:slug` | `handleGetProject` | Full project detail (root index + meta). |
+| `GET` | `/api/projects/:repo/:slug/plan` | `handleGetPlanDocument` | Plan Markdown content. |
+| `GET` | `/api/projects/:repo/:slug/synthesis` | `handleGetSynthesisDocument` | Synthesis Markdown content. |
+| `GET` | `/api/projects/:repo/:slug/health` | `handleGetProjectHealth` | Health summary. |
+| `GET` | `/api/projects/:repo/:slug/run-metadata` | `handleGetRunMetadata` | `.orchestrator-run.json` sidecar. |
+| `GET` | `/api/projects/:repo/:slug/work-packages` | `handleListWorkPackages` | All WPs for a project. |
+| `GET` | `/api/projects/:repo/:slug/work-packages/overview` | `handleGetWorkPackageOverview` | Aggregate WP status summary. |
+| `GET` | `/api/projects/:repo/:slug/work-packages/:wpId` | `handleGetWorkPackage` | Single WP detail. |
+| `GET` | `/api/projects/:repo/:slug/dialogues` | `handleListDialogues` | Dialogue file list (optional `?wp=` filter). |
+| `GET` | `/api/projects/:repo/:slug/dialogues/:filename` | `handleGetDialogueFile` | Single dialogue content. |
+| `GET` | `/api/projects/:repo/:slug/chunks` | `handleListChunks` | Chunk file list (optional `?wp=` filter). |
+| `GET` | `/api/projects/:repo/:slug/chunks/:filename` | `handleGetChunkFile` | Raw chunk JSONL content. |
+| `GET` | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` / `renderChunksToStructured` | Rendered chunk. Without `?format=structured`: Markdown string (`{ content }`) — compact chat-like format, plain paragraphs, per-tool summaries. With `?format=structured`: JSON array (`{ blocks: DialogueBlock[] }`) for interactive frontend rendering. |
+| `GET` | `/api/projects/:repo/:slug/runs` | `handleListRunLogs` | Orchestrator run log file list. |
+| `GET` | `/api/projects/:repo/:slug/runs/:filename` | `handleGetRunLog` | Log entries (supports `?after=N` for streaming). |
+| `DELETE` | `/api/projects/:repo/:slug` | `handleDeleteProject` | Permanently delete a project. |
+| `PATCH` | `/api/projects/:repo/:slug` | `handleRenameProject` | Rename title or slug. Body: `{ title?: string, slug?: string }`. |
+| `POST` | `/api/projects/:repo/:slug/archive` | `handleArchiveProject` | Set status to ARCHIVED. |
+| `POST` | `/api/projects/:repo/:slug/unarchive` | `handleUnarchiveProject` | Restore from ARCHIVED. |
+| `POST` | `/api/projects/:repo/:slug/complete` | `handleMarkProjectComplete` | Mark project COMPLETE. |
+| `POST` | `/api/projects/:repo/:slug/reset` | `handleResetProject` | Reset project (dry_run or apply). Body: `{ dry_run: boolean, decisions?: [] }`. |
+
+#### GET /api/projects Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `page` | number | 1 | Page number (1-indexed). |
+| `limit` | number | 50 | Items per page (max 200). |
+| `status` | string | `'ACTIVE'` | `'ACTIVE'`, `'ALL'`, or a specific status value. |
+| `search` | string | — | Case-insensitive substring match on slug, name, repo. |
+| `sort` | string | `'last_updated'` | Column: `project`, `repository`, `status`, `total_work_packages`, `done`, `date_created`, `last_updated`, `runner`. |
+| `dir` | string | `'desc'` | `'asc'` or `'desc'`. |
+| `runner` | string | — | Filter: `'orchestrator'`, `'vscode'`, `'claude-code'`, `'unknown'`. |
+
+#### GET /api/projects Response Envelope (`ProjectListEnvelope`)
+
+```typescript
+{
+  projects: ProjectSummary[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+  status_counts: Record<string, number>;
+  runner_counts: Record<string, number>;
+}
+```
+
+---
+
+### 1.2 Orchestrator
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/orchestrator/queue` | `handleGetOrchestratorQueue` | Current queue entries with effective status. |
+| `GET` | `/api/orchestrator/run-status/:filename` | `handleGetRunStatus` | Status from a specific log file. |
+| `POST` | `/api/orchestrator/start` | `handleOrchestratorStart` | Run preflight + spawn orchestrator. Body: `{ planPath, dryRun?, resumeThreadId? }`. |
+| `POST` | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` | SIGTERM → SIGKILL escalation. |
+| `POST` | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` | Remove dead entry from queue. Returns 204. |
+
+---
+
+### 1.3 Knowledge
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/knowledge` | `handleListKnowledge` | List/search insights. Query: `?scope&category&tags&repository_name&query&limit&offset`. |
+| `PATCH` | `/api/knowledge/:id` | `handleUpdateKnowledge` | Update insight fields. Body validated by `KnowledgeUpdateBodySchema`. |
+| `DELETE` | `/api/knowledge/:id` | `handleDeleteKnowledge` | Delete insight. Query: `?scope&repository_name`. |
+| `POST` | `/api/knowledge/:id/promote` | `handlePromoteKnowledge` | Promote repository insight to global. Query: `?scope&repository_name`. |
+| `POST` | `/api/knowledge/:id/move` | `handleMoveKnowledge` | Move insight between stores. Body validated by `KnowledgeMoveBodySchema`. |
+
+---
+
+### 1.4 Model Registry
+
+All routes are handled by `api-models.ts`. Body-parsing routes live inline in `server.ts handleRequest()`; GET routes are registered in `matchRoute()`.
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/models` | `handleGetModels` | Returns model list. Auto-initializes `local.json` from `default.json` on first access. |
+| `PUT` | `/api/models` | `handleSaveModels` | Bulk-save the model list. Auto-assigns UUIDv4 to entries without `id`. Returns 409 when a deletion would remove a referenced model. |
+| `POST` | `/api/models/load-defaults` | `handleLoadDefaults` | Merge `default.json` into `local.json` without overwriting existing entries. Returns `{ models, conflicts }`. |
+
+#### PUT /api/models Request Body
+
+Array of model entries validated by `SaveModelsBodySchema`:
+
+```typescript
+Array<{
+  id?: string;          // UUIDv4 — omit to auto-assign
+  name: string;         // Display name (min 1 char)
+  slug: string;         // Lowercase kebab-case (regex: /^[a-z0-9]+(-[a-z0-9]+)*$/)
+  cc_model?: string;    // Claude Code model identifier (default: "inherit")
+}>
+```
+
+**Validation rules:**
+- Duplicate `slug` values → 400
+- Reserved slug `"inherit"` on a non-sentinel entry → 400
+- Removing a model that is referenced in assignments → 409 with `referencedModels` details (user must use Replace Model first)
+
+#### PUT /api/models Response
+
+```typescript
+// Success
+{ models: ModelEntry[] }
+
+// 409 Conflict (referenced model deletion blocked)
+{
+  conflict: true;
+  referencedModels: Array<{ model: ModelEntry; usages: string[] }>;
+}
+```
+
+---
+
+### 1.5 Model Assignments
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/model-assignments` | `handleGetAssignments` | Returns assignments enriched with `stale` boolean. |
+| `PUT` | `/api/model-assignments` | `handleUpdateAssignments` | Validate and persist assignments. Returns 400 when `name-mapping.json` is absent or invalid. |
+| `POST` | `/api/model-assignments/replace` | `handleReplaceAssignedModel` | Swap all occurrences of `old_model_id` with `new_model_id`. Returns 400 for same-model swap or unreferenced source. |
+
+#### GET /api/model-assignments Response
+
+```typescript
+{
+  default_model_uuid?: string;              // Optional global default
+  persona_models: Record<string, string>;   // Persona ID → model UUID
+  stale: boolean;                           // See staleness rules below
+}
+```
+
+**Staleness rules for `stale`:**
+
+| Condition | `stale` |
+|-----------|---------|
+| `max(mtime(assignments.json), mtime(local.json))` > `mtime(name-mapping.json)` | `true` — rebuild needed |
+| Neither `assignments.json` nor `local.json` exist | `false` — no user changes yet |
+| `name-mapping.json` does not exist | `false` — no build output to compare |
+| Only `default.json` is newer than `name-mapping.json` | `false` — Git checkout mtime, not a user change |
+
+#### PUT /api/model-assignments Request Body
+
+```typescript
+{
+  default_model_uuid?: string;             // Must exist in model registry if provided
+  persona_models: Record<string, string>;  // Key: persona id from name-mapping.json; Value: model UUID
+}
+```
+
+**Validation rules:**
+- `name-mapping.json` must exist → 400 if absent
+- All persona keys in `persona_models` must appear as `id` values in `name-mapping.json` → 400 if invalid
+- All model UUIDs (including `default_model_uuid`) must exist in the registry → 400 if not found
+
+#### POST /api/model-assignments/replace Request Body
+
+```typescript
+{ old_model_id: string; new_model_id: string }  // Both must be UUIDs in registry
+```
+
+**Rejection conditions (400):**
+- `old_model_id === new_model_id` — "Source and target models must be different"
+- `old_model_id` not referenced in any assignment — "Model is not referenced in any current assignment"
+
+---
+
+### 1.6 Personas
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/personas` | `handleGetPersonas` | Returns all entries from `name-mapping.json`, or empty array if file absent. Returns 400 if file is malformed JSON. |
+| `POST` | `/api/personas/rebuild` | `handleRebuildPersonas` | Spawns `node scripts/build-personas.js`. Returns 409 when a build is already in progress. |
+
+#### GET /api/personas Response
+
+Array of `PersonaEntry` objects:
+
+```typescript
+interface PersonaEntry {
+  id: string;          // Persona identifier — use as key in PUT /api/model-assignments
+  role: string;        // Human-readable display name
+  suite: string;       // Persona suite (e.g. "ledger", "standalone")
+  model?: string;      // Resolved model name (populated after build)
+  model_slug?: string; // Matching ModelEntry.slug in local registry
+  cc_model?: string;   // Effective Claude Code model identifier
+  number?: number;     // Display ordering index within the suite
+}
+```
+
+Optional fields are only populated after WP-003 is implemented and a build has run.
+
+#### POST /api/personas/rebuild Response
+
+```typescript
+// Exit code 0
+{ success: true; output: string }
+
+// Non-zero exit code → HTTP 500
+{ success: false; output: string; exitCode: number }
+
+// Build already running → HTTP 409
+{ error: { code: 'CONFLICT'; message: string } }
+```
+
+The `buildInProgress` module-level flag prevents concurrent builds. It is cleared in a `finally` block so process errors never leave the guard permanently set.
+
+---
+
+### 1.7 Configuration & Server Info
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/config` | `handleGetConfig` | Current GUI configuration. |
+| `PUT` | `/api/config` | `handleUpdateConfig` | Update GUI configuration. Body validated by `GuiConfigPartialSchema`. |
+| `GET` | `/api/server-info` | *(inline)* | Boot vs disk versions + stale flag. |
+
+---
+
+## 1.X Server-side TypeScript Modules
+
+### `chunk-accumulator.ts` — Shared accumulation layer
+
+Pure-function module. No I/O, no side effects, no imports from `mcp-server/src/`. All exports are named.
+
+#### Types
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `JsonValue` | `type` | Raw JSON value accepted in chunk payloads. |
+| `ToolCallChunk` | `interface` | Single tool-call fragment from an `AIMessageChunk`. Fields: `index?`, `id?`, `name?`, `args?`. |
+| `MergedToolCall` | `interface` | Accumulated tool call (after merging). Fields: `id`, `name`, `args`. |
+| `ContentBlock` | `interface` | Content block (text or non-text). Fields: `type`, `text?`, index signature. |
+| `MergedMessage` | `interface` | Merged/reconstructed message. Fields: `type`, `id`, `content`, `tool_calls`, `usage_metadata`, `tool_call_id?`. |
+| `NamespaceKey` | `type` | `string` — `""` for main agent, `"subgraph/node"` for sub-agents. |
+
+#### Functions
+
+| Export | Signature | Description |
+|--------|-----------|-------------|
+| `chunkId` | `(chunk: Record<string, JsonValue>) → string` | Extracts the stable `id` field from a chunk payload. |
+| `chunkType` | `(chunk: Record<string, JsonValue>) → string` | Returns the `type` field from a chunk payload. |
+| `mergeContent` | `(acc, incoming) → string \| ContentBlock[]` | Merges a new content value into an accumulated content value (string concat or block-list merge). |
+| `mergeToolCallChunks` | `(acc: Map<number, MergedToolCall>, chunks: ToolCallChunk[]) → void` | Merges `tool_call_chunks` fragments into an accumulator map keyed by index. |
+| `mergeUsageMetadata` | `(acc, incoming) → Record<string, number>` | Sums `usage_metadata` numeric fields into an accumulator. |
+| `isValidHeader` | `(line: string) → boolean` | Validates that a JSONL line is a `chunk_format: 1` header. |
+| `parseChunkLine` | `(line: string) → { namespace, msg, metadata } \| null` | Parses one JSONL data line (object or array shape). Returns `null` on parse errors. |
+| `namespaceKey` | `(ns: string[]) → NamespaceKey` | Converts a raw namespace array to a display key (`""` for main agent). |
+| `namespaceLabel` | `(key: NamespaceKey) → string` | Returns a human-readable label (`"Main Agent"` or the key string). |
+| `accumulateChunks` | `(records: Array<{ namespace, msg }>) → Map<NamespaceKey, MergedMessage[]>` | Accumulates parsed chunk records into a namespace-keyed map of merged messages. |
+
+### `chunk-renderer.ts` — Rendering layer
+
+Imports all types and functions from `chunk-accumulator.ts`. Exports three pure renderers and the `DialogueBlock` discriminated union type:
+
+| Export | Signature | Description |
+|--------|-----------|-------------|
+| `renderChunksToMarkdown` | `(jsonlContent: string) → string` | Verbose format: `## Role` headings, JSON fenced tool-call blocks, token-usage footer. |
+| `renderChunksToDialogue` | `(jsonlContent: string) → string` | Compact chat-like format: plain-paragraph AI text, per-tool summary lines, hidden ToolMessages, sub-agent `### Subagent:` headings. |
+| `renderChunksToStructured` | `(jsonlContent: string) → DialogueBlock[]` | Structured format: returns a typed JSON array of `DialogueBlock` objects for interactive frontend rendering. |
+| `DialogueBlock` | *(exported type)* | Discriminated union describing one rendered block in the structured view. |
+
+#### `DialogueBlock` Type
+
+```typescript
+type DialogueBlock =
+  | { type: 'text'; content: string }
+  | { type: 'tool-call'; name: string; detailLines: string[]; args: unknown; result?: { content: string } }
+  | { type: 'subagent-heading'; label: string }
+  | { type: 'checklist'; items: Array<{ content: string; status: string; checked: boolean }> };
+```
+
+Variants:
+- `text` — A prose paragraph of AI-generated text.
+- `tool-call` — One tool invocation: name, summary detail lines, parsed args JSON, and an optional embedded ToolMessage result for non-inline tools (e.g. `read_file`, `ledger_*`).
+- `subagent-heading` — Heading marking the start of a sub-agent namespace.
+- `checklist` — A `write_todos` invocation rendered as a typed item list; each item carries `content`, `status`, and a pre-computed `checked` boolean.
+
+---
+
+## 2. Frontend Global Namespaces
+
+### 2.1 `API` (api-client.js)
+
+Client-side REST API wrapper. All methods return Promises.
+
+| Method | Signature | Endpoint |
+|--------|-----------|----------|
+| `getProjects` | `(params?) → Promise<ProjectListEnvelope>` | `GET /api/projects` |
+| `getProject` | `(repo, slug) → Promise<ProjectDetail>` | `GET /api/projects/:repo/:slug` |
+| `getWorkPackages` | `(repo, slug) → Promise<WP[]>` | `GET /api/projects/:repo/:slug/work-packages` |
+| `getWorkPackage` | `(repo, slug, wpId) → Promise<WPDetail>` | `GET /api/projects/:repo/:slug/work-packages/:wpId` |
+| `deleteProject` | `(repo, slug) → Promise<null>` | `DELETE /api/projects/:repo/:slug` |
+| `archiveProject` | `(repo, slug) → Promise<object>` | `POST …/archive` |
+| `unarchiveProject` | `(repo, slug) → Promise<object>` | `POST …/unarchive` |
+| `markProjectComplete` | `(repo, slug) → Promise<object>` | `POST …/complete` |
+| `getRunLogs` | `(repo, slug) → Promise<object[]>` | `GET …/runs` |
+| `getRunLogEntries` | `(repo, slug, filename, afterLine?) → Promise<object>` | `GET …/runs/:filename` |
+| `getRunMetadata` | `(repo, slug) → Promise<object>` | `GET …/run-metadata` |
+| `getPlanDocument` | `(repo, slug) → Promise<object>` | `GET …/plan` |
+| `getSynthesisDocument` | `(repo, slug) → Promise<object>` | `GET …/synthesis` |
+| `getProjectHealth` | `(repo, slug) → Promise<object>` | `GET …/health` |
+| `getWorkPackageOverview` | `(repo, slug) → Promise<object>` | `GET …/work-packages/overview` |
+| `renameProject` | `(repo, slug, title) → Promise<object>` | `PATCH …` |
+| `renameSlug` | `(repo, slug, newSlug) → Promise<object>` | `PATCH …` |
+| `analyzeProjectReset` | `(repo, slug) → Promise<object>` | `POST …/reset` (dry_run) |
+| `applyProjectReset` | `(repo, slug, decisions) → Promise<object>` | `POST …/reset` (apply) |
+| `getDialogues` | `(repo, slug, wpId?) → Promise<object[]>` | `GET …/dialogues` |
+| `getDialogueContent` | `(repo, slug, filename) → Promise<string>` | `GET …/dialogues/:filename` |
+| `getChunks` | `(repo, slug, wpId?) → Promise<object[]>` | `GET …/chunks` |
+| `getChunkRendered` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/rendered` — Markdown string response |
+| `getChunkStructured` | `(repo, slug, filename) → Promise<DialogueBlock[]>` | `GET …/chunks/:filename/rendered?format=structured` — structured JSON response (unwrapped array) |
+| `getConfig` | `() → Promise<object>` | `GET /api/config` |
+| `updateConfig` | `(data) → Promise<object>` | `PUT /api/config` |
+| `getModels` | `() → Promise<object[]>` | `GET /api/models` |
+| `saveModels` | `(models: object[]) → Promise<object>` | `PUT /api/models` |
+| `loadDefaultModels` | `() → Promise<object>` | `POST /api/models/load-defaults` |
+| `getPersonas` | `() → Promise<object[]>` | `GET /api/personas` |
+| `getAssignments` | `() → Promise<object>` | `GET /api/model-assignments` |
+| `updateAssignments` | `(data: object) → Promise<object>` | `PUT /api/model-assignments` |
+| `replaceAssignedModel` | `(oldModelId: string, newModelId: string) → Promise<object>` | `POST /api/model-assignments/replace` |
+| `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
+| `getInsights` | `() → Promise<object>` | `GET /api/insights` |
+| `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
+| `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
+| `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
+| `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
+| `orchestratorKill` | `(id) → Promise<object>` | `POST /api/orchestrator/kill/:id` |
+| `orchestratorDismiss` | `(id) → Promise<null>` | `POST /api/orchestrator/dismiss/:id` |
+| `getKnowledge` | `(params?) → Promise<object>` | `GET /api/knowledge` |
+| `updateKnowledge` | `(id, scope, repositoryName, data) → Promise<object>` | `PATCH /api/knowledge/:id` |
+| `deleteKnowledge` | `(id, scope, repositoryName?) → Promise<null>` | `DELETE /api/knowledge/:id` |
+| `promoteKnowledge` | `(id, scope, repositoryName?) → Promise<object>` | `POST /api/knowledge/:id/promote` |
+| `moveKnowledge` | `(id, body) → Promise<object>` | `POST /api/knowledge/:id/move` |
+
+---
+
+### 2.2 `Router` (router.js)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `() → void` | Attach `hashchange` listener; dispatch current hash. |
+| `navigate` | `(hash: string) → void` | Programmatic navigation. |
+| `_setPolling` | `(fn, delayMs) → void` | Set a polling interval (cleared on route change). |
+| `_clearPolling` | `() → void` | Manually clear the active polling interval. |
+
+---
+
+### 2.3 `Theme` (theme.js)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `() → void` | Read stored preference, apply theme, bind toggle button. |
+| `toggle` | `() → void` | Switch between dark/light and persist. |
+
+---
+
+### 2.4 `StaleCheck` (stale-check.js)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `() → void` | Start 30-second polling of `/api/server-info`; show banner on mismatch. |
+
+---
+
+### 2.5 `OrchestratorWidgets` (js/orchestrator-widgets.js)
+
+| Method | Signature | Returns | Description |
+|--------|-----------|---------|-------------|
+| `renderStatusCard` | `(entry) → string` | HTML | Status card for a queue entry (badge + elapsed + PID + progress). |
+| `renderKillButton` | `(entryId, onDone) → HTMLButtonElement` | DOM node | Confirmation-gated kill button. |
+| `renderDismissButton` | `(entryId, onDone) → HTMLButtonElement` | DOM node | Dismiss button for dead entries. |
+| `renderLogPreview` | `(container, repo, slug, filename) → cleanup()` | Function | Auto-polling log preview (3s interval). Returns cleanup function. |
+| `renderProgressBadge` | `(lastAction) → string` | HTML | Small icon+label badge for a JSONL action type. |
+| `renderCliReference` | `() → string` | HTML | Static CLI commands reference card. |
+| `formatLogAction` | `(entry) → string` | String | Human-friendly label for a JSONL log entry. |
+
+---
+
+### 2.6 Global Utility Functions (utils.js)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `escapeHtml` | `(str) → string` | HTML-escape a string (null-safe). |
+| `formatDate` | `(isoString) → string` | Relative date formatting ("Today, 14:30", "Yesterday", weekday, or full date). |
+| `formatDuration` | `(ms) → string` | Duration formatting ("2h 15m", "< 1s"). |
+| `statusBadge` | `(status) → string` | Returns `<span class="badge badge-{status}">…</span>` HTML. |
+| `showLoading` | `(container) → void` | Set container innerHTML to loading spinner. |
+| `showError` | `(container, message) → void` | Set container innerHTML to error banner. |
+| `breadcrumb` | `() → BreadcrumbBuilder` | Fluent builder: `.projects().project(repo, slug).leaf(label).html()`. |
+| `makeProjectCacheKey` | `(repo, slug) → string` | Returns `repo + '/' + slug`. |
+
+### `ProjectNameCache` (utils.js)
+
+LRU-like display name cache (max 200 entries, FIFO eviction).
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `set` | `(key, name) → void` | Store a display name (key = `repo/slug`). |
+| `get` | `(key) → string\|null` | Retrieve cached name; falls back to slug portion of key. |
+| `_size` | `() → number` | Current cache size (testing only). |
+
+---
+
+### 2.7 View Render Functions (views/*.js)
+
+Each view file exposes a global function called by `Router.dispatch()`:
+
+| Function | File | Hash Route |
+|----------|------|------------|
+| `renderProjectList` | `project-list.js` | `#/` |
+| `renderProjectDetail` | `project-detail.js` | `#/projects/:repo/:slug` |
+| `renderPlan` | `project-detail.js` | `#/projects/:repo/:slug/plan` |
+| `renderSynthesis` | `project-detail.js` | `#/projects/:repo/:slug/synthesis` |
+| `renderWorkPackageDetail` | `work-package.js` | `#/projects/:repo/:slug/wp/:wpId` |
+| `renderRunLog` | `run-log.js` | `#/projects/:repo/:slug/runs/:filename` |
+| `renderOrchestrator` | `orchestrator.js` | `#/orchestrator` |
+| `renderConfig` | `config.js` | `#/config` |
+| `renderInsights` | `insights.js` | `#/insights` |
+| `renderKnowledge` | `knowledge.js` | `#/knowledge` |
+
+#### `config.js` — Internal Functions
+
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (stub), and Model Registry (fully implemented).
+
+**Scaffold functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, and `API.getAssignments()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist. |
+| `renderConfigPage(app, config, models, personas, assignments)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+
+**General tab functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderGeneralTab(config)` | Returns the General tab HTML (wraps the settings form in a `UI.card()`). |
+| `wireGeneralTabEvents()` | Attaches `change` and `input` listeners (both needed — checkboxes fire `change`, text/number inputs fire `input`) plus the `submit` handler to the General tab form. Sets `configDirty.general = false` on successful save. |
+
+**Persona Models tab:**
+
+| Function | Description |
+|----------|-------------|
+| `renderPersonaModelsTab(models, personas, assignments)` | **Stub** — renders a "Coming soon" empty-state card. Will be replaced when the Persona Models tab is implemented. |
+
+**Model Registry tab — core render functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderModelRegistryTab(models)` | Main render entry. Initialises `mrModels` / `mrOriginal` / `mrEditingId` from server data on first call; preserves existing state if already populated (user may have unsaved edits). Returns `mrBuildTabHtml()`. |
+| `mrRefreshTab()` | Re-renders the tab content into `#config-tab-content` and re-wires all event handlers. Syncs `configDirty.modelRegistry` via `mrHasChanges()`. Called after any state mutation (edit, delete, restore, save). |
+| `mrBuildTabHtml()` | Builds the full Model Registry tab HTML string: model table (with read/edit rows), Add Model form, and action bar. Disables the Save button when any row has a slug validation error. |
+| `mrRenderRow(model)` | Returns HTML for a single read-only model row. Shows dirty-indicator dots for changed fields (name, slug, cc_model) vs the original snapshot. Adds strikethrough row class for pending deletions. |
+| `mrRenderEditRow(model)` | Returns HTML for the inline edit row (name/slug/cc_model inputs + Done/Cancel buttons). Done button is disabled while slug validation fails. |
+
+**Model Registry tab — event wiring:**
+
+| Function | Description |
+|----------|-------------|
+| `mrWireEvents()` | Wires all interactive elements: Edit/Cancel/Done/Delete/Restore row buttons, live slug validation on input, Add Model button, Save button, Load Defaults button. |
+| `mrRefreshDirtyDots(id, tbody, origModel, model)` | No-op stub. Dirty dots are updated on full re-renders triggered by Done/Cancel/Delete/Restore actions, not on every keystroke. This function is a hook reserved for future fine-grained optimisation — callers should keep calling it so a future implementation can update dots in-place without requiring a full re-render. |
+| `mrValidateAddSlug()` | Validates the Add Model slug field and shows/hides the error message. |
+| `mrShowAddSlugError(msg)` | Shows or hides the inline slug error below the Add Model slug input. The Add button is intentionally NOT disabled here — validation runs on click instead, to avoid blocking mid-typing. |
+| `mrSyncSaveButton()` | Enables/disables the global Save button based on whether any non-deleted row has a slug validation error. |
+
+**Model Registry tab — helpers:**
+
+| Function | Description |
+|----------|-------------|
+| `mrDeriveSlug(name)` | Derives a URL-safe slug from a human-readable name: lowercase, spaces → hyphens, strip non-alphanumeric. Mirrors the auto-slug derivation on the Add Model form. |
+| `mrValidateSlug(slug)` | Validates a slug string. Returns an error message string, or `''` if valid. Rejects empty values, the reserved slug `"inherit"`, and strings that don't match `/^[a-z0-9]+(-[a-z0-9]+)*$/`. |
+| `mrCloneModels(arr)` | Deep-clones a model array (shallow clone of each entry object). Used to create `mrOriginal` snapshot at init time and after a successful save. |
+| `mrHasChanges()` | Returns `true` when `mrModels` differs from `mrOriginal`. Uses index-based positional comparison — correct for the stable-order bulk-save pattern. |
+| `mrDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot when `isDirty` is true, or `''` otherwise. |
+
+**Model Registry tab — API actions:**
+
+| Function | Description |
+|----------|-------------|
+| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
+| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. On success, refreshes state and displays slug-collision conflicts if any were returned. |
+
+**Module-level state** (`config.js` globals):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`). Persists across tab switches within a page visit. |
+| `configDirty` | `{ general, personaModels, modelRegistry: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. |
+| `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
+| `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
+| `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
+| `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+
+**Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
+
+---
+
+### 2.8 `UI` (components.js)
+
+Shared UI render helpers. Loaded after `utils.js`; requires `escapeHtml()` to be available as a global. Follows the same IIFE-namespace pattern as `OrchestratorWidgets`.
+
+| Method | Signature | Returns | Description |
+|--------|-----------|---------|-------------|
+| `badge` | `(type: string, label: string) → string` | HTML | Renders `<span class="badge badge-{type}">{label}</span>`. `type` is normalised (lowercase, spaces/underscores → hyphens). `label` is HTML-escaped. |
+| `banner` | `(type: string, message: string) → string` | HTML | Renders `<p class="{type}-banner">{message}</p>`. `type` is normalised. `message` is HTML-escaped. Supported types: `error`, `success`, `info`, `stale`. |
+| `emptyState` | `(message: string) → string` | HTML | Renders `<p class="text-muted mt-16">{message}</p>`. `message` is HTML-escaped. |
+
+**Security note:** `_normaliseType()` is not HTML-escaped — the normalised type string is interpolated directly into class attribute values. All current callers pass server-controlled enum strings. If `UI.badge()` or `UI.banner()` is ever called with user-supplied input, the `type` argument must be sanitised at the call site.
+
+**Exception:** `run-log.js` line ~271 retains one intentional inline badge (the cross-WP `tool_call` badge) because it requires a `title` tooltip attribute that `UI.badge()` does not support.
+
+---
+
+## 3. CSS Component Library
+
+→ **See [ui-components.md](ui-components.md)** for the full CSS class inventory (theming tokens, buttons, `.btn-group`, badges, cards, tables, forms, state feedback, and all view-specific classes).
 
 ```

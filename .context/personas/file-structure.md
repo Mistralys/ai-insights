@@ -156,6 +156,9 @@ _SOURCE: Directory tree_
         │   └── 7-release-engineer.agent.md
         │   └── 8-docs.agent.md
         │   └── 9-synthesis.agent.md
+    └── model-registry/
+        ├── README.md
+        ├── default.json
     └── module-context.yaml
     └── name-mapping.json
     └── package-lock.json

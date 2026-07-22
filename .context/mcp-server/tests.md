@@ -17,6 +17,7 @@ _SOURCE: Test suite directory structure_
             ├── api-client.test.ts
             ├── api-dialogue-parse.test.ts
             ├── api-knowledge.test.ts
+            ├── api-models.test.ts
             ├── api-orchestrator.test.ts
             ├── api-repos.test.ts
             ├── api-reset.test.ts
@@ -38,6 +39,7 @@ _SOURCE: Test suite directory structure_
             ├── knowledge-api.test.ts
             ├── knowledge-repository-scope.test.ts
             ├── log-resolver.test.ts
+            ├── model-registry.test.ts
             ├── orchestrator-manager.test.ts
             ├── orchestrator-view.test.ts
             ├── orchestrator-widgets.test.ts

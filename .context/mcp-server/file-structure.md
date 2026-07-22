@@ -38,6 +38,7 @@ _SOURCE: MCP server source directory tree_
         │       └── walkthrough.md
     └── gui/
         ├── api-knowledge.ts
+        ├── api-models.ts
         ├── api-repos.ts
         ├── api.ts
         ├── chunk-accumulator.ts
@@ -98,6 +99,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── handlers/
         │   │   ├── run-log-handlers.ts
         │   ├── log-resolver.ts
+        │   ├── model-registry.ts
         │   ├── queue/
         │   │   └── compute-effective-status.ts
         │   │   └── format-progress-entry.ts
@@ -155,6 +157,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── api-client.test.ts
         │   ├── api-dialogue-parse.test.ts
         │   ├── api-knowledge.test.ts
+        │   ├── api-models.test.ts
         │   ├── api-orchestrator.test.ts
         │   ├── api-repos.test.ts
         │   ├── api-reset.test.ts
@@ -176,6 +179,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── knowledge-api.test.ts
         │   ├── knowledge-repository-scope.test.ts
         │   ├── log-resolver.test.ts
+        │   ├── model-registry.test.ts
         │   ├── orchestrator-manager.test.ts
         │   ├── orchestrator-view.test.ts
         │   ├── orchestrator-widgets.test.ts

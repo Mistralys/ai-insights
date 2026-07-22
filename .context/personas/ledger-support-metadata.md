@@ -2,6 +2,7 @@
 <INSTRUCTION>
 # Personas - Ledger Support Persona Metadata
 YAML metadata for all 9 ledger-support personas: shared defaults (_shared.yaml) and per-persona overrides - slugs, descriptions, MCP tools, and feature flags.
+
 </INSTRUCTION>
 ------------------------------------------------------------
 _SOURCE: YAML metadata for all 9 ledger-support personas (shared defaults + per-persona overrides)_
