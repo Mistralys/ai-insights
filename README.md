@@ -2,6 +2,8 @@
 
 AI coding agents forget everything between chat sessions. AI Insights fixes that — it gives agents persistent memory, defined roles, and a repeatable pipeline so complex projects survive across sessions without losing context.
 
+> Built for Windows, Linux & MacOS.
+
 ---
 
 ## What's Inside
