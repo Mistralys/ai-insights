@@ -142,7 +142,10 @@ Before submitting, verify:
 6. **Assemble the funnel:** Write the README top‑to‑bottom following the five‑section arc: Hook → Features → Requirements → Quick Start → Learn More.
 7. **Strip and polish:** Remove anything that doesn't serve the funnel. Apply formatting: bullets, bolding, clean headers, purposeful emojis. Read it once as a stranger — if any section makes you think "I'd skip this," cut or condense it.
 8. **Self‑check:** Run through the Quality Checklist above. Fix any violations before handing off.
-9. **Handoff:** End the response with:
+9. **AX Feedback:** Before handing off, reflect on your session experience.
+
+{{> ax-feedback}}
+10. **Handoff:** End the response with:
    ```
    AGENT: README Curator
    STATUS: COMPLETE
