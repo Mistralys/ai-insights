@@ -112,3 +112,5 @@
 
 - Because of token cache expiry, it's best to start and finish a conversation in one go. Some caches live only 5 minutes, others up to an hour in Claude.
 - When designing MCP tools, it's best to build them around use-cases, and avoid mapping around APIs (see Gmail vs JIRA MCP).
+- Introducing the concept of "AX": Agent Experience. Supporting documentation destined to improve the agent's experience in working on projects.
+- AX-Adjacent: Give agents the possibility to report difficulties, friction and things that could be improved beyond what the synthesis captures. A form of agent feedback on their experience.
