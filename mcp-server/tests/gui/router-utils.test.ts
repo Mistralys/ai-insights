@@ -54,8 +54,6 @@ declare global {
   // eslint-disable-next-line no-var
   var renderConfig: (...args: unknown[]) => void;
   // eslint-disable-next-line no-var
-  var renderInsights: (...args: unknown[]) => void;
-  // eslint-disable-next-line no-var
   var renderKnowledge: (...args: unknown[]) => void;
   // eslint-disable-next-line no-var
   var renderOrchestrator: (...args: unknown[]) => void;
@@ -82,7 +80,6 @@ beforeEach(() => {
   globalThis.renderWorkPackageDetail = vi.fn();
   globalThis.renderRunLog           = vi.fn();
   globalThis.renderConfig           = vi.fn();
-  globalThis.renderInsights         = vi.fn();
   globalThis.renderKnowledge        = vi.fn();
   globalThis.renderOrchestrator     = vi.fn();
   globalThis.renderStrategyList     = vi.fn();
@@ -220,11 +217,6 @@ describe('Router — singleton routes', () => {
   it('dispatches #/config to renderConfig', () => {
     dispatchHash('#/config');
     expect(globalThis.renderConfig).toHaveBeenCalled();
-  });
-
-  it('dispatches #/insights to renderInsights', () => {
-    dispatchHash('#/insights');
-    expect(globalThis.renderInsights).toHaveBeenCalled();
   });
 
   it('dispatches #/knowledge to renderKnowledge', () => {
