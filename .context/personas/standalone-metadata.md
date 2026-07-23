@@ -95,6 +95,7 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.0 (2026-07-15): Added importance weighting and promoted-change bold sentence to summary rules
   1.2.0 (2026-07-15): Added release summary feature — optional prose paragraph with house style rules
   1.1.1 (2026-03-04): Added persona ID field for VS Code agent registry
@@ -204,6 +205,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.1 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
   1.3.0 (2026-07-06): New step 1 renames plan folder date prefix to today before implementation
   1.2.1 (2026-07-03): Made the archiving step non-optional but not required, as it was skipped too often.
@@ -513,6 +515,7 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
   1.2.1 (2026-03-01): Added helper section for rewriting entire READMEs

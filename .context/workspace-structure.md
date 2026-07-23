@@ -33,6 +33,9 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-05-28-ce-framework-audit.md
     │   │   └── 2026-05-29-developer-experience.md
     │   │   └── 2026-05-29-ledger-gui-quality-improvements.md
+    │   │   └── 2026-07-15-deepagents-browser-tool.md
+    │   │   └── 2026-07-17-browser-mcp-service.md
+    │   │   └── 2026-07-17-multi-root-orchestrator.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
@@ -517,6 +520,7 @@ _SOURCE: Top-level directory tree_
     ├── shared/
     │   ├── partials/
     │   │   └── agent-roster.md
+    │   │   └── ax-feedback.md
     │   │   └── developer-operational-protocol.md
     │   │   └── developer-output-format.md
     │   │   └── developer-strict-constraints.md
