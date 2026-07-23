@@ -37,7 +37,6 @@ gui/
     │   ├── run-log.js           # Orchestrator run log viewer (streaming JSONL events)
     │   ├── orchestrator.js      # Orchestrator management: queue, start run, preflight
     │   ├── config.js            # GUI configuration editor
-    │   ├── insights.js          # Cross-project comment aggregation view
     │   └── knowledge.js         # Knowledge base browser (global + repository scopes)
     ├── js/                      # Shared widget libraries
     │   └── orchestrator-widgets.js  # OrchestratorWidgets namespace (reusable UI components)

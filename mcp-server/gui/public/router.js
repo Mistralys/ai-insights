@@ -76,11 +76,6 @@ var Router = (function () {
       return;
     }
 
-    if (path === '/insights') {
-      renderInsights(app);
-      return;
-    }
-
     if (path === '/knowledge') {
       renderKnowledge(app);
       return;

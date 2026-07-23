@@ -300,7 +300,7 @@ function renderProjectList(app) {
 
     app.innerHTML =
       '<div class="page-header">' +
-        '<h1>Projects</h1>' +
+        '<h1>Projects overview</h1>' +
         '<div class="filter-actions">' +
           '<button class="btn btn-secondary btn-sm" id="refresh-btn">\u21bb Refresh</button>' +
         '</div>' +

@@ -115,7 +115,6 @@ var API = (function () {
 
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
-    getInsights:              function ()             { return request('GET',    '/insights'); },
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
 
     /**

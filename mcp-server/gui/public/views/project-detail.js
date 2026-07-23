@@ -90,6 +90,55 @@
 var _pdLogPreviewCleanups = [];
 globalThis._pdLogPreviewCleanups = _pdLogPreviewCleanups;
 
+/**
+ * Enhance markdown tables for readability. Mark wide tables (6+ columns)
+ * and add per-cell labels so responsive CSS can present them without
+ * horizontal scrolling.
+ *
+ * @param {Element|null} root
+ * @param {{ isSynthesis?: boolean }} [opts]
+ */
+function _enhanceMarkdownTables(root, opts) {
+  if (!root) return;
+
+  var isSynthesis = !!(opts && opts.isSynthesis);
+  var tables = root.querySelectorAll('table');
+
+  for (var i = 0; i < tables.length; i++) {
+    var table = tables[i];
+    var headerRow = table.querySelector('tr');
+    var headerCells = headerRow ? headerRow.querySelectorAll('th, td') : [];
+    var colCount = headerCells.length;
+    var headers = [];
+
+    for (var h = 0; h < headerCells.length; h++) {
+      headers.push((headerCells[h].textContent || '').trim());
+    }
+
+    if (colCount >= 6) {
+      table.classList.add('doc-wide-table');
+    }
+
+    if (isSynthesis && colCount >= 6) {
+      table.classList.add('synthesis-wide-table');
+    }
+
+    if (!isSynthesis && colCount >= 6) {
+      table.classList.add('plan-wide-table');
+    }
+
+    var rows = table.querySelectorAll('tr');
+    for (var r = 0; r < rows.length; r++) {
+      var bodyCells = rows[r].querySelectorAll('td');
+      for (var c = 0; c < bodyCells.length; c++) {
+        if (!bodyCells[c].hasAttribute('data-label')) {
+          bodyCells[c].setAttribute('data-label', headers[c] || ('Column ' + (c + 1)));
+        }
+      }
+    }
+  }
+}
+
 /* ----------------------------------------------------------
    4b. View: Plan Document
    ---------------------------------------------------------- */
@@ -101,6 +150,7 @@ async function renderPlan(app, repo, slug) {
     app.innerHTML =
       breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
+    _enhanceMarkdownTables(app.querySelector('.plan-content'));
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
@@ -123,6 +173,7 @@ async function renderSynthesis(app, repo, slug) {
     app.innerHTML =
       breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
+    _enhanceMarkdownTables(app.querySelector('.synthesis-content'), { isSynthesis: true });
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =

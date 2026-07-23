@@ -3731,25 +3731,6 @@ export class ApiError extends Error {
   details?: unknown;
 }
 
-// Shape returned by GET /api/insights — one entry per project_comment
-export interface InsightEntry {
-  project_slug: string;          // slug of the source project
-  project_status: ProjectStatus; // current status of the source project
-  repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
-  type: string;                  // e.g. 'note' | 'decision' | 'incident'
-  priority: 'low' | 'medium' | 'high';
-  timestamp: string;             // ISO 8601
-  agent: string;                 // agent who added the comment
-  note: string;
-  context?: IncidentContext;     // present on 'incident' type comments only
-}
-
-// GET /api/insights — aggregates all project_comments across every project, sorted by timestamp descending
-// Per-project read failures are logged to stderr and skipped gracefully; returns [] when no comments exist.
-// repository_name is derived from the storage path using the same pattern as ProjectSummary — original casing
-// is preserved (not lowercased/validated) since this is a display field, not a storage key.
-export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
-
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
 // bad project never breaks the full response.
@@ -4463,7 +4444,6 @@ The server uses a two-tier routing architecture: body-free routes are dispatched
 | POST | `/api/projects/:repo/:slug/reset` | `handleResetProject` | Body-parsing — handled in `handleRequest()` |
 | GET | `/api/config` | `handleGetConfig` | |
 | PUT | `/api/config` | `handleUpdateConfig` | Body parsed inline |
-| GET | `/api/insights` | `handleGetInsights` | |
 | GET | `/api/server-info` | *(special-case block)* | Before `matchRoute()`; returns `{ stale, bootVersions, diskVersions }` |
 | GET | `/api/orchestrator/queue` | `handleGetOrchestratorQueue` | Via `matchRoute()`; returns enriched `QueueEntry[]` |
 | GET | `/api/orchestrator/run-status/:filename` | *(status handler)* | |
@@ -4569,11 +4549,11 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 | File | Purpose |
 |------|---------|
-| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/config` Config), `<div id="app">` mount point |
+| `index.html` | HTML shell — nav (`#/` Projects, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/strategy` Strategy, `#/config` Config), `<div id="app">` mount point |
 | `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success/stale banners, comment cards, reset modal, action menu dropdown |
 | `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
-| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/insights`, `/knowledge`, `/orchestrator` |
+| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/knowledge`, `/orchestrator`, `/strategy` |
 | `utils.js` | Shared utilities: `makeProjectCacheKey()`, `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
 | `components.js` | `UI` IIFE — shared render helpers: `UI.badge()`, `UI.banner()`, `UI.emptyState()` (WP-001); `UI.card()` (WP-006); `UI.filterBar()` (WP-007) |
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
@@ -4582,7 +4562,6 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/project-detail-dialogues.js` | `buildDialogueHTML(blocks)` (WP-006), `renderDialoguesSection(sectionEl, repo, slug)` |
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
-| `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
 | `views/knowledge.js` | `renderKnowledge(app)` — Knowledge page; tab navigation between Global and Repository scopes; client-side filtering; card-level edit/delete/promote/move actions |
 | `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
@@ -4750,13 +4729,13 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 | `.btn-resume:disabled` | Disabled state: `opacity: 0.6; cursor: not-allowed` — applied immediately on click to prevent double-submit; re-enabled on error |
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 32 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
+- **`API`** — async fetch wrappers for all 32 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
 
 **`router.js`:**
-- **`Router`** — hash-based dispatch (`#/`, `#/projects/:repo/:slug`, `#/projects/:repo/:slug/plan`, `#/projects/:repo/:slug/synthesis`, `#/projects/:repo/:slug/wp/:wpId`, `#/projects/:repo/:slug/runs/:filename`, `#/config`, `#/insights`, `#/orchestrator`, `#/knowledge`); all five project routes use two-segment `([^/]+)/([^/]+)` capture patterns; `decodeURIComponent` applied to both `repo` and `slug` segments in every dispatch branch; suffixed routes (plan, synthesis, wp, runs) are matched before the bare two-segment route to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
+- **`Router`** — hash-based dispatch (`#/`, `#/projects/:repo/:slug`, `#/projects/:repo/:slug/plan`, `#/projects/:repo/:slug/synthesis`, `#/projects/:repo/:slug/wp/:wpId`, `#/projects/:repo/:slug/runs/:filename`, `#/config`, `#/orchestrator`, `#/knowledge`, `#/strategy`); all five project routes use two-segment `([^/]+)/([^/]+)` capture patterns; `decodeURIComponent` applied to both `repo` and `slug` segments in every dispatch branch; suffixed routes (plan, synthesis, wp, runs) are matched before the bare two-segment route to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 
 **`utils.js`:**
 - **`makeProjectCacheKey(repo, slug)`** — Returns the composite cache key `repo + '/' + slug` used by `ProjectNameCache` and all three call sites (`project-list.js`, `project-detail.js`, `breadcrumb().project()`). Centralises key construction to prevent separator-drift if additional views are added. Plain function declaration (no ES module export) — globally available in the browser context. Added in WP-004 (plan `2026-05-31-orchestrator-sidecar-gui-resume-rework-3`).
@@ -4828,8 +4807,6 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 **`views/config.js`:**
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
 
-**`views/insights.js`:**
-- **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
 
 **`views/knowledge.js`:**
 - **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a Move to Repository inline slug input. Uses the CSS classes documented below.

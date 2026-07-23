@@ -34,7 +34,7 @@ import { ProjectMetaSchema } from '../src/schema/project-meta.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus, WorkPackageStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
-import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
+import type { WorkPackageDetail } from '../src/schema/work-package.js';
 
 /**
  * Extended WP detail response that includes the server's canonical default pipeline stages.
@@ -213,77 +213,6 @@ async function resolveProjectStore(
     );
     notFound(`Project '${slug}' not found or has no metadata.`);
   }
-}
-
-// ---------------------------------------------------------------------------
-// GET /api/insights
-// ---------------------------------------------------------------------------
-
-export interface InsightEntry {
-  project_slug: string;
-  project_status: ProjectStatus;
-  repository_name: string | null;
-  type: string;
-  priority: 'low' | 'medium' | 'high';
-  timestamp: string;
-  agent: string;
-  note: string;
-  context?: IncidentContext;
-}
-
-/**
- * Aggregates all project_comments from every project ledger into a single
- * flat array, sorted by timestamp descending (newest first).
- * Per-project read failures are logged to stderr and skipped gracefully.
- * Returns an empty array when no projects exist or no comments are found.
- */
-export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]> {
-  const projects = await LedgerStore.listAllProjects(ledgerRoot);
-
-  const entries: InsightEntry[] = [];
-
-  await Promise.all(
-    projects.map(async (meta) => {
-      const store = new LedgerStore(meta.plan_path, ledgerRoot);
-      let rootIndex;
-      try {
-        rootIndex = await store.readRootIndex();
-      } catch (err) {
-        process.stderr.write(
-          `[handleGetInsights] Skipping project "${meta.slug}": ${String(err)}\n`
-        );
-        return;
-      }
-
-      const comments = rootIndex.project_comments;
-      if (!comments || comments.length === 0) return;
-
-      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
-      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
-      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
-      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
-      // like repository_name on InsightEntry and ProjectSummary, where original casing must
-      // be preserved. Both call sites (handleGetInsights and handleListProjects) use this
-      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
-      const repository_name: string | null = projectRoot
-        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
-        : null;
-
-      for (const comment of comments) {
-        entries.push({
-          ...comment,
-          project_slug: meta.slug,
-          project_status: meta.status,
-          repository_name,
-        });
-      }
-    })
-  );
-
-  // Sort by timestamp descending (newest first)
-  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,8 +395,9 @@ export async function handleListProjects(
       // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
       // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
       // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
-      // like repository_name on ProjectSummary and InsightEntry, where original casing must
-      // be preserved. Both call sites (handleListProjects and handleGetInsights) use this
+      // like repository_name on ProjectSummary, where original casing must
+      // be preserved. Both call sites (handleListProjects and the removed insights aggregation)
+      // use this inline pattern deliberately; keep them in sync if the derivation logic changes.
       // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
