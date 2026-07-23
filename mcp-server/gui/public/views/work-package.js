@@ -58,7 +58,13 @@ function buildWpDetailBar(wp) {
 function renderWorkPackageDetail(app, repo, slug, wpId) {
   showLoading(app);
 
-  API.getWorkPackage(repo, slug, wpId).then(function (wp) {
+  Promise.all([
+    API.getWorkPackage(repo, slug, wpId),
+    API.getRepo(repo).catch(function () { return null; }),
+  ]).then(function (results) {
+    var wp = results[0];
+    var repoData = results[1];
+    var repoLabel = repoData ? repoData.label : repo;
     // Acceptance criteria
     var acHtml = (wp.acceptance_criteria || []).map(function (ac) {
       var met = ac.met === true;
@@ -134,7 +140,7 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
       : '';
 
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf(wpId).html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
