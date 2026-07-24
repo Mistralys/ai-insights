@@ -331,6 +331,28 @@
   },
   {
     "number": null,
+    "id": "standalone-ledger-orchestrator-archaeologist",
+    "role": "Ledger Orchestrator Archaeologist",
+    "version": "1.0.1",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-orchestrator-archaeologist.agent.md",
+      "agent_name": "Ledger Orchestrator Archaeologist"
+    },
+    "claude_code": {
+      "file_name": "ledger-orchestrator-archaeologist.md",
+      "agent_name": "ledger-orchestrator-archaeologist"
+    },
+    "deep_agents": {
+      "file_name": "ledger-orchestrator-archaeologist.md",
+      "agent_name": "ledger-orchestrator-archaeologist"
+    }
+  },
+  {
+    "number": null,
     "id": "standalone-ledger-orchestrator-runner",
     "role": "Ledger Orchestrator Runner",
     "version": "1.5.1",
@@ -465,7 +487,7 @@
     "number": null,
     "id": "standalone-changelog-curator",
     "role": "Changelog Curator",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
@@ -531,7 +553,7 @@
     "number": null,
     "id": "developer-standalone",
     "role": "Developer",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
@@ -751,7 +773,7 @@
     "number": null,
     "id": "standalone-readme-curator",
     "role": "README Curator",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
@@ -855,6 +877,28 @@
     "deep_agents": {
       "file_name": "whatsnew-curator.md",
       "agent_name": "whatsnew-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-web-gui-specialist",
+    "role": "Web GUI Specialist",
+    "version": "1.0.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "web-gui-specialist.agent.md",
+      "agent_name": "Web GUI Specialist"
+    },
+    "claude_code": {
+      "file_name": "web-gui-specialist.md",
+      "agent_name": "web-gui-specialist"
+    },
+    "deep_agents": {
+      "file_name": "web-gui-specialist.md",
+      "agent_name": "web-gui-specialist"
     }
   },
   {
