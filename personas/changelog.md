@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.30.0 - **WIP UNRELEASED**
+- LedgerSupport: Added Orchestrator Archaeologist persona for forensic analysis of stored orchestrator run artifacts.
 - Standalone: Added Web GUI Specialist persona for engaging, visually optimized web app and tool interfaces.
 - Standalone: Plan Auditor and Plan Architect Reviewer gain Research Brief Protocol — self-manage brief usage, contribute-back, and size guard.
 - Standalone: Plan Refiner simplified — dispatch prompts stripped of brief hand-holding; Sub-Agent Brief Enrichment section and brief size guard constraint removed.
