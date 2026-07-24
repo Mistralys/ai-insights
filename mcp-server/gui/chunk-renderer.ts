@@ -2,7 +2,7 @@
  * chunk-renderer.ts — Rendering layer for streaming dialogue capture.
  *
  * This module builds on the shared accumulation layer in `chunk-accumulator.ts`
- * and exposes two pure renderers:
+ * and exposes four pure renderers:
  *
  * renderChunksToMarkdown(jsonlContent: string): string
  *   Verbose format: `## Role` headings, JSON fenced tool-call blocks, and a
@@ -12,6 +12,16 @@
  *   Compact chat-like format: plain-paragraph AI text, per-tool single-line
  *   summaries, hidden ToolMessages (execute/task results shown inline), and
  *   sub-agent `### Subagent:` headings.  Primary renderer used in production.
+ *
+ * renderChunksToStructured(jsonlContent: string): DialogueBlock[]
+ *   Structured block array for frontend rendering (collapsible tool calls,
+ *   interactive checklists, inline results).
+ *
+ * renderChunksToText(jsonlContent: string): string
+ *   Prose-only extraction: AI text turns only, no tool-call JSON, no tool
+ *   results.  Dual-namespace files get `## Outer Agent` / `## Inner Agent`
+ *   section headers; single-namespace files render flat.  Used by the GUI
+ *   "Text Only" tab and the CLI extraction script.
  *
  * Types, parsing, merging, and `accumulateChunks()` live in `chunk-accumulator.ts`.
  *
@@ -1054,7 +1064,7 @@ function collectStructuredNamespaceBlocks(
 }
 
 // ---------------------------------------------------------------------------
-// Public API — structured renderer
+// Public API — structured renderer (renderChunksToStructured)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1111,4 +1121,110 @@ export function renderChunksToStructured(jsonlContent: string): DialogueBlock[] 
   }
 
   return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// Text-only rendering — private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Iterates AI messages and extracts prose text only (no tool calls, no tool
+ * results).  Calls `renderContent(msg.content).trim()` on each AI message and
+ * joins non-empty results with `'\n\n'`.
+ *
+ * Used exclusively by `renderChunksToText()`.
+ */
+function extractTextFromMessages(messages: MergedMessage[]): string {
+  const parts: string[] = [];
+  for (const msg of messages) {
+    const msgType = msg.type.toLowerCase();
+    if (
+      msgType !== 'ai' &&
+      msgType !== 'aimessage' &&
+      msgType !== 'aimessagechunk'
+    ) {
+      continue;
+    }
+    const text = renderContent(msg.content).trim();
+    if (text) {
+      parts.push(text);
+    }
+  }
+  return parts.join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
+// Public API — text-only renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses a JSONL chunk file and returns a prose-only Markdown string
+ * containing only the AI turns' text content — no tool-call JSON, no tool
+ * results.
+ *
+ * Output format:
+ *  - **Single-namespace** files: flat prose paragraphs, no section headers.
+ *  - **Multi-namespace** files (outer agent + one or more inner agents): one
+ *    `## Outer Agent` section followed by one `## Inner Agent` section **per
+ *    inner namespace**.  When N > 1 inner namespaces are present, each gets
+ *    its own `## Inner Agent` header in iteration order — the label is the
+ *    same for all inner namespaces (no distinguishability guarantee).
+ *    Contributors adding N-inner support should replace the fixed label with
+ *    a namespace-derived identifier before relying on label uniqueness.
+ *
+ * This renderer shares its `.md` output format with the CLI extraction script
+ * (`scripts/extract-dialogue.js`) so that either tool can prime the on-disk
+ * cache that the backend's `/chunks/:filename/text` endpoint uses.
+ *
+ * @param jsonlContent  Raw JSONL string (e.g. the content of a `.jsonl` chunk file).
+ * @returns             A Markdown string (always ends with a trailing `\n`).
+ *                      Returns `'*No dialogue recorded.*\n'` for empty input or
+ *                      when all AI turns contain no text content.
+ */
+export function renderChunksToText(jsonlContent: string): string {
+  // --- Parse JSONL content (header validation + line parsing) ---
+  const records = parseJsonlContent(jsonlContent);
+
+  // --- Accumulate chunks into merged messages per namespace ---
+  const nsMap = accumulateChunks(records);
+
+  if (nsMap.size === 0) {
+    return '*No dialogue recorded.*\n';
+  }
+
+  // --- Detect whether sub-agent namespaces are present ---
+  const hasSubAgents = [...nsMap.keys()].some(k => k !== '');
+
+  if (!hasSubAgents) {
+    // Single-namespace: flat prose, no section headers.
+    const mainMessages = nsMap.get('') ?? [];
+    const text = extractTextFromMessages(mainMessages);
+    if (!text) {
+      return '*No dialogue recorded.*\n';
+    }
+    return text + '\n';
+  }
+
+  // --- Dual-namespace: labelled sections ---
+  const mainMessages = nsMap.get('') ?? [];
+  const outerText = extractTextFromMessages(mainMessages);
+
+  const innerTexts: string[] = [];
+  for (const [nsKey, messages] of nsMap.entries()) {
+    if (nsKey === '') continue;
+    innerTexts.push(extractTextFromMessages(messages));
+  }
+
+  // If all sections are empty, return the standard empty sentinel.
+  if (!outerText && innerTexts.every(t => !t)) {
+    return '*No dialogue recorded.*\n';
+  }
+
+  const sections: string[] = [];
+  sections.push('## Outer Agent\n\n' + (outerText || '*No dialogue recorded.*'));
+  for (const innerText of innerTexts) {
+    sections.push('## Inner Agent\n\n' + (innerText || '*No dialogue recorded.*'));
+  }
+
+  return sections.join('\n\n') + '\n';
 }

@@ -34,7 +34,6 @@ import {
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
-  handleGetInsights,
   handleGetConfig,
   handleUpdateConfig,
   handleResetProject,
@@ -48,6 +47,7 @@ import {
   handleGetDialogueFile,
   handleListChunks,
   handleGetChunkFile,
+  handleGetChunkText,
   handleOrchestratorStart,
   handleGetOrchestratorQueue,
   handleOrchestratorKill,
@@ -379,11 +379,6 @@ export function matchRoute(
   // When adding a new route with the same rest.length as an existing one (e.g. a future
   // /:slug/synthesis at length 3 alongside /:slug/plan), make sure the more-specific
   // pattern appears BEFORE the catch-all pattern at that length, or it will never match.
-
-  // GET /api/insights
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
-    return () => handleGetInsights(ledgerRoot);
-  }
 
   // GET /api/orchestrator/queue
   if (method === 'GET' && rest.length === 2 && rest[0] === 'orchestrator' && rest[1] === 'queue') {
@@ -996,6 +991,28 @@ export function matchRoute(
     };
   }
 
+  // GET /api/projects/:repo/:slug/chunks/:filename/text
+  // rest.length === 6, rest[3] === 'chunks', rest[5] === 'text'
+  if (
+    method === 'GET' &&
+    rest.length === 6 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'chunks' &&
+    rest[5] === 'text' &&
+    rest[2] !== 'chunks'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetChunkText(ledgerRoot, slug, filename, repoName);
+    };
+  }
+
   // GET /api/projects/:repo/:slug/chunks/:filename
   // rest.length === 5, rest[3] === 'chunks'
   if (
@@ -1364,7 +1381,6 @@ export function matchRoute(
   // handled above in handleRequest() and are noted inline below.
   //
   // ACTIVE ROUTES (namespaced /:repo/:slug — use these going forward):
-  //   GET    /api/insights
   //   GET    /api/orchestrator/queue
   //   GET    /api/orchestrator/run-status/:filename
   //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]

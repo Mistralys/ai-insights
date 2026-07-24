@@ -25,7 +25,7 @@
  *   - GET /api/knowledge with no query params returns 200 JSON array (empty store)
  *   - DELETE /api/knowledge/:id without scope returns 400 VALIDATION_ERROR
  *   - POST /api/knowledge/:id/promote with scope=global returns 400 VALIDATION_ERROR
- *   - Unrelated routes (GET /api/insights, GET /api/projects) still return 200/404, not confused
+ *   - Unrelated routes (GET /api/insights returns 404, GET /api/projects still responds) are not confused
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -488,10 +488,9 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
   // ─── AC-6 & AC-7: No route interference + two-tier dispatch ─────────────
 
   describe('Route isolation — knowledge routes do not shadow existing routes (AC-6, AC-7)', () => {
-    it('GET /api/insights still responds (does not conflict with GET /api/knowledge)', async () => {
-      // /api/insights returns 200 (may have empty data)
+    it('GET /api/insights returns 404 (route removed, no conflict with GET /api/knowledge)', async () => {
       const res = await fetch(`${baseUrl}/api/insights`);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
     });
 
     it('GET /api/projects still responds (does not conflict with GET /api/knowledge)', async () => {

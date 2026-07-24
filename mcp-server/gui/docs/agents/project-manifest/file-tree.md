@@ -8,7 +8,7 @@ gui/
 ├── api-models.ts                # REST API handlers (model registry, assignments, personas)
 ├── orchestrator-manager.ts      # Queue reader, preflight checks, process spawn/kill/dismiss
 ├── chunk-accumulator.ts         # Shared accumulation layer: all types (JsonValue, ToolCallChunk, MergedToolCall, ContentBlock, MergedMessage, NamespaceKey), JSONL parsing (isValidHeader, parseChunkLine), chunk merging (chunkId, chunkType, mergeContent, mergeToolCallChunks, mergeUsageMetadata), namespace helpers (namespaceKey, namespaceLabel), and accumulateChunks(); pure-function module, no I/O
-├── chunk-renderer.ts            # Rendering layer: imports all types and accumulateChunks() from chunk-accumulator.ts; exports renderChunksToMarkdown (verbose, ## Role headings + JSON tool-call blocks), renderChunksToDialogue (compact chat-like, plain paragraphs, per-tool summary lines, hidden ToolMessages), and renderChunksToStructured (structured DialogueBlock[] array for interactive frontend rendering); also exports the DialogueBlock discriminated union type (text | tool-call | subagent-heading | checklist); pure-function module, no I/O
+├── chunk-renderer.ts            # Rendering layer: imports all types and accumulateChunks() from chunk-accumulator.ts; exports renderChunksToMarkdown (verbose, ## Role headings + JSON tool-call blocks), renderChunksToDialogue (compact chat-like, plain paragraphs, per-tool summary lines, hidden ToolMessages), renderChunksToStructured (structured DialogueBlock[] array for interactive frontend rendering), and renderChunksToText (prose-only extraction — AI text turns only, no tool calls; used by handleGetChunkText() for the /text endpoint; shares output format with scripts/extract-dialogue.js); also exports the DialogueBlock discriminated union type (text | tool-call | subagent-heading | checklist); pure-function module, no I/O
 ├── docs/
 │   └── agents/
 │       └── project-manifest/    # This manifest
@@ -57,7 +57,7 @@ gui/
 | `api-knowledge.ts` | ~350 | Knowledge CRUD handlers |
 | `api-models.ts` | ~590 | Model registry, assignment, and persona handlers |
 | `orchestrator-manager.ts` | ~400 | Queue + preflight + spawn |
-| `chunk-renderer.ts` | ~1100 | Pure JSONL → output (renderChunksToMarkdown + renderChunksToDialogue + renderChunksToStructured + DialogueBlock type) |
+| `chunk-renderer.ts` | ~1100 | Pure JSONL → output (renderChunksToMarkdown + renderChunksToDialogue + renderChunksToStructured + renderChunksToText + DialogueBlock type) |
 | `public/styles.css` | ~2670 | Complete CSS component library |
 | `public/api-client.js` | ~350 | All API methods |
 | `public/utils.js` | ~200 | Shared utility functions |

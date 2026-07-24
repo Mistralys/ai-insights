@@ -115,7 +115,6 @@ var API = (function () {
 
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
-    getInsights:              function ()             { return request('GET',    '/insights'); },
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
 
     /**
@@ -346,6 +345,20 @@ var API = (function () {
     getChunkStructured: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered?format=structured')
         .then(function (data) { return data.blocks; });
+    },
+
+    /**
+     * Fetch extracted plain-prose text for a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<string>} Extracted prose as a Markdown string from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/text`.
+     */
+    getChunkText: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/text')
+        .then(function (data) { return data.content; });
     },
 
     // -- Repositories (Strategy) ---------------------------------------

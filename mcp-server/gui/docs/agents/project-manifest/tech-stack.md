@@ -37,8 +37,9 @@
 
 ### Chunk Renderer (`chunk-renderer.ts`)
 
-- **Pure data transformation:** Parses JSONL chunk files → renders Markdown.
-- **No I/O:** Accepts a string, returns a string — easily testable.
+- **Pure data transformation:** Parses JSONL chunk files → renders output in multiple formats.
+- **No I/O:** Accepts a string, returns a string or array — easily testable.
+- **Renderers:** `renderChunksToMarkdown` (verbose), `renderChunksToDialogue` (compact chat-like), `renderChunksToStructured` (typed `DialogueBlock[]` for interactive frontend rendering), and `renderChunksToText` (prose-only extraction — AI text turns only, no tool calls; shared output format with `scripts/extract-dialogue.js`).
 
 ---
 

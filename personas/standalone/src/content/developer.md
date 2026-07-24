@@ -186,9 +186,12 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
    Invoke the **{{agent_standalone_archiver}}** subagent with the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{/if}}
 
-   > **Non-blocking:** If the subagent fails or reports an error (e.g., the ledger is unavailable), continue to Step 7. Your deliverables — the code changes and `synthesis.md` — are already complete and unaffected.
+   > **Non-blocking:** If the subagent fails or reports an error (e.g., the ledger is unavailable), continue to Step 8. Your deliverables — the code changes and `synthesis.md` — are already complete and unaffected.
 
-8. **Finish:** End the response with:
+8. **AX Feedback:** Before handing off, reflect on your session experience.
+
+{{> ax-feedback}}
+9. **Finish:** End the response with:
    ```
    AGENT: Standalone Developer
    STATUS: COMPLETE

@@ -80,6 +80,7 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/run-orchestrator.js` | `./menu.sh orchestrator` | Launch the orchestrator (rebuilds MCP server if stale) |
 | `node scripts/kill-orchestrator.js` | `./menu.sh kill-orchestrator` | Detect and terminate stale orchestrator processes |
 | `node scripts/read-log.js` | `./menu.sh read-log` | Structured JSONL log reader — query, filter, and summarize orchestrator run logs |
+| `node scripts/extract-dialogue.js <target>` | — | Extract readable prose text from chunk `.jsonl` files; writes a `.md` alongside the source (same directory, same base name). Supports single-file and directory batch modes, `--force`, `--dry-run`, `--help`. Registered in `cli.js` as a hidden orchestrator command (`node scripts/cli.js extract-dialogue`). |
 
 ## Changelog Workflow
 
