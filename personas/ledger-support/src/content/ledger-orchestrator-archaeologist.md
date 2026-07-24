@@ -28,7 +28,7 @@ You will be provided with:
 ### Capabilities
 
 - **Filesystem Access:** Read log and chunk JSONL files within the provided orchestrator directory. Read the project's `project-ledger.json` and WP artifacts for cross-referencing when needed.
-- **CLI Tool Access (future):** Dedicated extraction tools will be added to parse and summarize orchestrator artifacts. Use them when available; fall back to raw file reads when they are not.
+- **CLI Tool Access:** Use `node scripts/extract-dialogue.js <chunk-file>` to extract prose text from a chunk `.jsonl` file into a readable `.md` file alongside it — no tool-call JSON, no tool results, just the agent's reasoning text. Use `node scripts/extract-dialogue.js <directory>` to batch-extract all `.jsonl` files in a directory. When a project is open in the MCP GUI, the **"Text Only"** tab on each chunk dialogue modal renders the same prose extraction inline without writing any file. Fall back to raw JSONL reads when neither option is available.
 
 ---
 
@@ -251,7 +251,7 @@ MCP server bug report, etc.}
 
 5. **Reconstruct routing flow.** Trace the sequence of `route` events to verify the supervisor made sensible decisions. Look for unexpected routing (wrong agent for the WP status), unnecessary loops, or premature termination.
 
-6. **Examine chunk files for targeted stages.** For any stage flagged in steps 3–5, read its chunk file. Look for: `invalid_tool_calls`, repeated identical tool calls, text content indicating agent confusion, and excessively long tool argument streams. Do not read every chunk file exhaustively — target your investigation based on log findings.
+6. **Examine chunk files for targeted stages.** For any stage flagged in steps 3–5, read its chunk file. Look for: `invalid_tool_calls`, repeated identical tool calls, text content indicating agent confusion, and excessively long tool argument streams. Do not read every chunk file exhaustively — target your investigation based on log findings. When you need to read assembled prose without parsing raw JSONL manually, call `node scripts/extract-dialogue.js <chunk-file>` to produce a `.md` file alongside the source, or open the chunk in the MCP GUI and use the **"Text Only"** tab to read the extracted prose inline.
 
 7. **Classify and document findings.** For each issue identified, create a finding entry using the Evaluation Criteria dimensions and the Output Template structure. Cite specific evidence.
 
@@ -262,3 +262,7 @@ MCP server bug report, etc.}
    AGENT: Orchestrator Archaeologist
    STATUS: COMPLETE
    ```
+
+---
+
+> **Developer note:** After modifying this persona source file, run `node scripts/build-personas.js` from the workspace root to regenerate the deployed `.agent.md` output files.
