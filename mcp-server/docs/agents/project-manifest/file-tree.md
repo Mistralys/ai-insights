@@ -111,6 +111,7 @@ mcp-server/
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help
+│   │   ├── ping.ts              # ledger_ping — lightweight health check; returns status, server_version, stale (boolean|null), uptime_seconds; exports _internal and register()
 │   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 30 MCP tools
 │   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight — knowledge accumulation tools; formatInsightId() helper (KN-NNNN format) (WP-001/003)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment

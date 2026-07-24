@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (30 Total)
+## MCP Tools
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -631,6 +631,34 @@ interface HandoffStatusPayload {
 5. `auto_handoff_depth` in the root index is `< effectiveMaxDepth(root.total_work_packages ?? 0)` — the dynamic ceiling scales with project size per §18.2.1: `max(configMax=50, totalWorkPackages × 30)`, where `configMax` comes from `getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`) and the multiplier 30 comes from `handoff_depth_multiplier` in the shared workflow manifest
 
 Each successful emission increments `auto_handoff_depth` in the root index. The counter is reset to `0` by `ledger_complete_synthesis` per §18.4, atomically with the `synthesis_generated: true` write.
+
+---
+
+### Health Check Tools
+
+#### `ledger_ping`
+
+```typescript
+(args: {}) => Promise<MCPResult>
+```
+
+Lightweight health check — verifies MCP server reachability and detects stale instances. Returns a compact JSON response (~50 tokens). Use this for preflight connectivity checks instead of `ledger_help` to avoid ~2,000-token overhead.
+
+**Response shape:**
+
+```typescript
+{
+  status: "ok";
+  server_version: string;    // Running process version (SERVER_VERSION at startup)
+  stale: boolean | null;     // false: fresh; true: rebuilt dist not restarted; null: check failed
+  uptime_seconds: number;    // Integer seconds since server started (Math.floor(process.uptime()))
+  stale_detail?: string;     // Present when stale is true or null — human-readable explanation
+}
+```
+
+**Stale detection:** Compares `SERVER_VERSION` (captured at module load / process startup) against `readPackageVersion()` (re-reads `package.json` from disk on each call). If they differ, the dist was rebuilt but the process was not restarted. When `readPackageVersion()` throws (e.g., `package.json` momentarily absent during a rebuild), `stale` is `null` and `stale_detail` explains the I/O failure — the error is never propagated as an opaque MCP error.
+
+**Implementation:** `src/tools/ping.ts` — registered via `pingTools.register(server)` in `src/index.ts`.
 
 ---
 
