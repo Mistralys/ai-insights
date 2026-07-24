@@ -5,9 +5,9 @@
     "role": "Planner",
     "version": "2.2.0",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Opus 4.6 (anthropic)",
+    "model_slug": "Claude Opus 4.6 (anthropic)",
+    "cc_model": "claude-opus-4-6",
     "vscode": {
       "file_name": "1-planner.agent.md",
       "agent_name": "1 - Planner v2.2.0"
@@ -27,9 +27,9 @@
     "role": "Project Manager",
     "version": "3.7.6",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Opus 4.6 (anthropic)",
+    "model_slug": "Claude Opus 4.6 (anthropic)",
+    "cc_model": "claude-opus-4-6",
     "vscode": {
       "file_name": "2-pm.agent.md",
       "agent_name": "2 - Project Manager v3.7.6"
@@ -49,9 +49,9 @@
     "role": "Developer",
     "version": "3.7.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "3-dev.agent.md",
       "agent_name": "3 - Developer v3.7.1"
@@ -71,9 +71,9 @@
     "role": "QA",
     "version": "3.6.3",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "4-qa.agent.md",
       "agent_name": "4 - QA v3.6.3"
@@ -93,9 +93,9 @@
     "role": "Security Auditor",
     "version": "3.6.4",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "5-security-auditor.agent.md",
       "agent_name": "5 - Security Auditor v3.6.4"
@@ -115,9 +115,9 @@
     "role": "Reviewer",
     "version": "3.7.0",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "6-reviewer.agent.md",
       "agent_name": "6 - Reviewer v3.7.0"
@@ -137,9 +137,9 @@
     "role": "Release Engineer",
     "version": "3.7.3",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "7-release-engineer.agent.md",
       "agent_name": "7 - Release Engineer v3.7.3"
@@ -159,9 +159,9 @@
     "role": "Documentation",
     "version": "3.7.2",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "8-docs.agent.md",
       "agent_name": "8 - Documentation v3.7.2"
@@ -181,9 +181,9 @@
     "role": "Synthesis",
     "version": "3.7.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6",
-    "model_slug": "claude-sonnet-4-6",
-    "cc_model": "inherit",
+    "model": "Claude Sonnet 4.6 (copilot)",
+    "model_slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "9-synthesis.agent.md",
       "agent_name": "9 - Synthesis v3.7.1"
