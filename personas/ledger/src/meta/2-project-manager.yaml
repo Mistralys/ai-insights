@@ -7,6 +7,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.7.7 (2026-07-24): Replace ledger_help with ledger_ping in mcp_tools for MCP server reachability preflight
   3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
   3.7.5 (2026-07-06): Extracted spec file verification into Operational Protocol to reduce workflow density
   3.7.4 (2026-07-06): New step 2 renames plan folder date prefix to today before decomposition
@@ -38,6 +39,8 @@ self_documenting_note: false
 has_incident_logging: false
 
 mcp_tools:
+  - tool: ledger_ping
+    purpose: Verify MCP server reachability and detect stale instances (preflight check).
   - tool: ledger_initialize_project
     purpose: Create the root ledger for a new project.
   - tool: ledger_create_work_package
