@@ -85,36 +85,36 @@ declare global {
 // ---------------------------------------------------------------------------
 
 describe('mrDeriveSlug', () => {
-  it('lowercases the name', () => {
-    expect(globalThis.mrDeriveSlug('ClaudeOpus')).toBe('claudeopus');
+  it('preserves original letter case', () => {
+    expect(globalThis.mrDeriveSlug('ClaudeOpus')).toBe('ClaudeOpus');
   });
 
-  it('replaces spaces with hyphens', () => {
-    expect(globalThis.mrDeriveSlug('Claude Opus 4')).toBe('claude-opus-4');
+  it('preserves spaces (does not convert to hyphens)', () => {
+    expect(globalThis.mrDeriveSlug('Claude Opus 4')).toBe('Claude Opus 4');
   });
 
-  it('collapses multiple consecutive spaces into a single hyphen', () => {
-    expect(globalThis.mrDeriveSlug('Claude  Opus   4')).toBe('claude-opus-4');
+  it('collapses multiple consecutive spaces into a single space', () => {
+    expect(globalThis.mrDeriveSlug('Claude  Opus   4')).toBe('Claude Opus 4');
   });
 
-  it('strips special characters', () => {
-    expect(globalThis.mrDeriveSlug('Claude (Opus) 4!')).toBe('claude-opus-4');
+  it('strips disallowed special characters but keeps parentheses', () => {
+    // '!' is stripped; '(' and ')' are allowed
+    expect(globalThis.mrDeriveSlug('Claude (Opus) 4!')).toBe('Claude (Opus) 4');
   });
 
-  it('collapses consecutive hyphens produced by stripping', () => {
-    // "Foo & Bar" → "foo--bar" → "foo-bar"
-    expect(globalThis.mrDeriveSlug('Foo & Bar')).toBe('foo-bar');
+  it('strips non-allowed characters and collapses resulting spaces', () => {
+    // '&' is stripped; the two surrounding spaces collapse into one
+    expect(globalThis.mrDeriveSlug('Foo & Bar')).toBe('Foo Bar');
   });
 
-  it('strips leading and trailing hyphens', () => {
-    // "---hello---" → keeps "hello"
-    expect(globalThis.mrDeriveSlug('---hello---')).toBe('hello');
+  it('preserves leading and trailing hyphens', () => {
+    // hyphens are allowed; only whitespace is trimmed
+    expect(globalThis.mrDeriveSlug('---hello---')).toBe('---hello---');
   });
 
   it('handles unicode characters by stripping non-ASCII', () => {
-    // "Ünïcödé Mödel" → lowercase, spaces→hyphens, non-[a-z0-9-] stripped
-    // Ü→ü→'' ï→'' c→c ö→'' d→d é→'' → "ncd" then " " → "-" then M→m ö→'' d→d e→e l→l → "mdel"
-    expect(globalThis.mrDeriveSlug('Ünïcödé Mödel')).toBe('ncd-mdel');
+    // Ü→'' n→n ï→'' c→c ö→'' d→d é→'' ' '→' ' M→M ö→'' d→d e→e l→l → "ncd Mdel"
+    expect(globalThis.mrDeriveSlug('Ünïcödé Mödel')).toBe('ncd Mdel');
   });
 
   it('returns empty string for an empty string input', () => {
@@ -129,12 +129,13 @@ describe('mrDeriveSlug', () => {
     expect(globalThis.mrDeriveSlug(undefined)).toBe('');
   });
 
-  it('handles a name that is entirely special characters', () => {
-    expect(globalThis.mrDeriveSlug('!@#$%^&*()')).toBe('');
+  it('retains parentheses when other characters are all stripped', () => {
+    // only '(' and ')' survive from '!@#$%^&*()'
+    expect(globalThis.mrDeriveSlug('!@#$%^&*()')).toBe('()');
   });
 
-  it('preserves numbers mixed with letters', () => {
-    expect(globalThis.mrDeriveSlug('GPT 4o Mini')).toBe('gpt-4o-mini');
+  it('preserves original letter case and spaces in mixed alphanumeric names', () => {
+    expect(globalThis.mrDeriveSlug('GPT 4o Mini')).toBe('GPT 4o Mini');
   });
 });
 
