@@ -2278,6 +2278,88 @@ node scripts/run-gui.js   # collides with the LIVE instance on port 3420
 
 ---
 
+## Multi-Store Architecture Constraints
+
+These constraints govern the multi-store ledger architecture introduced in the cross-device ledger sync plan (WP-001 through WP-015). All eight constraints apply only when `stores.json` is present; absence of `stores.json` activates legacy single-store mode with no behavioral changes.
+
+### 78. `stores.json` Is Optional — Its Absence Means Legacy Single-Store Mode
+
+**Rule:** When `~/.ai-insights/stores.json` does not exist, the server behaves exactly as before the multi-store plan: `resolveLedgerRoot()` returns the single root, all reads and writes use it, and repository registration remains optional. No error is thrown, no migration is triggered, no behavior changes.
+
+**Rationale:** Backward compatibility requires that existing single-store users be entirely unaffected by the multi-store architecture changes.
+
+**Implementation:** `loadStoresConfig()` returns `null` when the file is absent. Callers treat `null` as the signal to use legacy mode. `StoreRouter` in legacy mode delegates to `resolveLedgerRoot()`.
+
+---
+
+### 79. Repository Registration Is Mandatory in Multi-Store Mode
+
+**Rule:** When `stores.json` is present (multi-store mode), creating a project in an unregistered repository is a hard error: `"Repository 'X' is not registered in any store. Register it via the GUI or CLI before creating projects."` The server never silently routes unregistered repositories to a default store in multi-store mode.
+
+**Rationale:** Silent default-store routing causes "where did my project go?" confusion — a user who forgets to register before creating a project silently accumulates data in the wrong store. The registration error is one-time friction that prevents an ongoing class of misconfiguration.
+
+**Exception:** In single-store mode (`stores.json` absent), registration remains optional — no friction for users who do not need multi-store.
+
+---
+
+### 80. Per-Store Registries — Each Store Owns Its `.repositories.json`
+
+**Rule:** Repository metadata is stored in each store's own `.repositories.json` at `{storePath}/.repositories.json`. There is no central cross-store registry. The existing `RepositoryEntrySchema` is reused as-is; only the file location changes (per-store vs. single root).
+
+**Rationale:** Per-store registries make stores fully self-contained and portable — repository metadata travels with the store during sync. A central registry would require manual re-registration on every new device after syncing a store.
+
+**Implementation:** `loadRegistry(storePath)` and `saveRegistry(storePath, data)` accept an explicit `storePath` parameter. In legacy mode, `storePath` defaults to `resolveLedgerRoot()`.
+
+---
+
+### 81. Store-Order Priority Governs Write Routing
+
+**Rule:** When multiple stores are configured, the **array order in `stores.json`** determines write priority. The first store whose `.repositories.json` claims a repository name is the write target for that repository. Reordering entries in `stores.json` changes which store wins.
+
+**Rationale:** Store-order priority gives users a simple, controllable conflict-resolution mechanism. Earlier stores win — reorder to change priority. This eliminates ambiguity about which store a project lands in.
+
+**Implementation:** `StoreRouter.resolveStoreForWrite(repoName)` iterates stores in `stores.json` order, loading each store's `.repositories.json` until it finds one that claims the repo.
+
+---
+
+### 82. Multi-Store Collation Is Read-Only
+
+**Rule:** All cross-store operations (list projects, merge registries, detect project by cwd, search knowledge) are **read-only**. No write operation spans multiple stores. Each write is routed to exactly one store (the owning store, determined by `resolveStoreForWrite()`).
+
+**Rationale:** Cross-store write operations require distributed locking or conflict detection, which adds significant complexity and failure modes. All writes remain within a single store's `withLock()` scope.
+
+**Implementation:** `MultiStoreManager` provides only collation methods (`listAllProjects`, `getMergedRegistry`, `detectProjectByCwd`, `getRegistryConflicts`, `searchKnowledge`, `listKnowledge`). Write routing is exclusively the domain of `StoreRouter`.
+
+---
+
+### 83. The MCP Server Has No Sync Responsibility
+
+**Rule:** The MCP server reads and writes local JSON files only. It has no knowledge of Git, S3, Syncthing, or any other sync mechanism. Sync between store directories is entirely the user's responsibility and is external to the MCP server's codepath.
+
+**Rationale:** Keeping sync external eliminates an entire class of failure modes (network errors, auth failures, merge conflicts) from the MCP server. Users choose the sync strategy that suits their environment; the server imposes no constraint.
+
+---
+
+### 84. Multi-Store Routing Requires No New Tool Parameters
+
+**Rule:** No MCP tool exposes a `store_id` parameter. Store routing is implicit — derived from the repository name (via `deriveRepoName(projectPath)`), which is derived from the project path. Agents, orchestrator, and CLI tools require no new parameters to operate in multi-store mode.
+
+**Rationale:** Adding a `store_id` parameter to every tool would burden every agent invocation and break backward compatibility. Implicit per-repo routing makes multi-store transparent to all existing tool consumers.
+
+**Exception:** The GUI and CLI allow users to specify a target store when creating a new repository entry — this is a user-facing configuration action, not an agent tool call.
+
+---
+
+### 85. `gui-config.json` Is Server-Wide — One File per Process, Not per Store
+
+**Rule:** The GUI server uses a single `gui-config.json` for all behavioral settings (`auto_handoff_enabled`, `auto_archive_days`, etc.). In multi-store mode, this file lives at `~/.ai-insights/gui-config.json`. In single-store mode, it lives at `{ledgerRoot}/gui-config.json`. There is no per-store `gui-config.json`.
+
+**Rationale:** All current config fields are server-wide behavioral settings with no store-scoped semantics. Per-store configs would create ambiguity about which store's config governs server behavior when multiple stores are active.
+
+**Implementation:** `resolveGuiConfigPath(storeConfig, ledgerRoot)` in `src/storage/store-registry.ts` — returns the user-level path when `storeConfig` is non-null (multi-store), otherwise the ledger-root path.
+
+---
+
 ## Known Limitations
 
 ### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
