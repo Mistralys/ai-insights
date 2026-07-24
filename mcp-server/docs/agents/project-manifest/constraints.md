@@ -1045,6 +1045,37 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 ---
 
+### 57. API Client Methods That Reject on Server Error Must Carry `@throws` JSDoc
+
+**Rule:** Any method in `gui/public/api-client.js` that can reject its returned Promise with a structured server error object MUST include a `@throws` JSDoc tag documenting the shape of that error:
+
+```javascript
+/**
+ * @throws {{ code: string, message: string }} On non-ok response from the server.
+ */
+```
+
+**Scope:** This convention applies to all methods in the Model Registry group (`getModels`, `saveModels`, `loadDefaultModels`), the Persona group (`getAssignments`, `updateAssignments`, `replaceAssignedModel`, `rebuildPersonas`, `getPersonas`), and any future API method that may reject with a structured error. Methods that never reject with a structured error object (e.g. methods that return `null` on 404) are exempt.
+
+**Rationale:** `api-client.js` has no TypeScript types. Without `@throws` JSDoc, callers have no machine-readable signal that error objects carry `code` and `message` properties — critical for correct `catch` block handling. The tag is the only inline contract available in a plain-JS, no-build-step environment.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — caller has no documented error shape
+getModels: async function () { ... },
+```
+
+**Correct pattern:**
+```javascript
+// ✅ CORRECT — error shape is documented for callers and tooling
+/**
+ * @throws {{ code: string, message: string }}
+ */
+getModels: async function () { ... },
+```
+
+---
+
 ## GUI API Constraints
 
 ### 58. `gui/api-knowledge.ts` Is the Canonical Location for All Knowledge Handler Code
@@ -1053,7 +1084,7 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 **Rationale:** `gui/api.ts` had grown large enough to become a maintenance liability. Extracting all knowledge symbols into a dedicated module (`gui/api-knowledge.ts`) isolates the knowledge domain, makes ownership explicit, and prevents future drift back into `api.ts`. The cut is clean: `api-knowledge.ts` re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
 
-**Implication for `gui/server.ts`:** The HTTP server imports knowledge handlers from `./api-knowledge.js` — not `./api.js`. Both body-free routes (`matchRoute()` tier) and body-parsing routes (`handleRequest()` tier) source their handler references from `api-knowledge.ts`.
+**Implication for `gui/server.ts`:** The HTTP server imports knowledge handlers from `./api-knowledge.js` — not `./api.js`. Both body-free routes and body-parsing routes are wired through the unified `buildRoutes()` / `dispatchRoute()` system and source their handler references from `api-knowledge.ts`.
 
 **Anti-pattern:**
 ```typescript
@@ -1073,27 +1104,20 @@ import { handleListKnowledge } from './api-knowledge.js';
 
 ---
 
-### 59. Knowledge Body-Parsing Routes Use Regex Path Matching in `handleRequest()`
+### 59. Parameterised Route Entries Must Use Named Capture Groups
 
-**Rule:** The two body-parsing knowledge routes (`PATCH /api/knowledge/:id` and `POST /api/knowledge/:id/move`) MUST use regex `.test()` or `.exec()` for path matching inside `handleRequest()`. `path.startsWith()` is prohibited for these routes because it cannot reliably extract the `:id` capture group and is inconsistent with the regex pattern used for the PATCH `/api/projects/` guard.
+**Rule:** All parameterised routes registered in the `buildRoutes()` table MUST use RegExp paths with **named** capture groups (e.g., `(?<id>[^/]+)`) — positional (unnamed) capturing groups are prohibited. `path.startsWith()` is prohibited for routes that must extract a path segment.
 
-**Correct patterns (from `gui/server.ts`):**
+**Correct pattern (from `gui/server.ts`):**
 ```typescript
-// ✅ CORRECT — regex exec captures :id
-const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
-if (method === 'PATCH' && knowledgePatchMatch !== null) {
-  const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
-  // ...
-}
-
-const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
-if (method === 'POST' && knowledgeMoveMatch !== null) {
-  const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
-  // ...
-}
+// ✅ CORRECT — named capture group; id extracted via groups!.id
+{ method: 'PATCH', path: /^\/api\/knowledge\/(?<id>[^/]+)$/, handler: async (body, groups) => {
+    const rawId = decodeURIComponent(groups!.id!);
+    // ...
+} },
 ```
 
-**Rationale:** The `.exec()` pattern is consistent with the PATCH `/api/projects/` guard (which also uses regex) and makes the capture-group extraction explicit. `startsWith()` cannot distinguish `/api/knowledge/42` from `/api/knowledge/42/move` without additional substring checks.
+**Rationale:** Named groups make capture-group extraction explicit and self-documenting. They eliminate off-by-one errors from positional indexing and are consistent across all route entries in the unified table. The route table structural test (`tests/gui/route-table.test.ts`) enforces this constraint automatically at CI time — any RegExp route with a positional group fails the test suite.
 
 ---
 
@@ -1132,9 +1156,9 @@ default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src
 
 **Rationale:** Follows the domain-split pattern established by `gui/api-knowledge.ts` (WP-003). Each API domain gets its own handler file imported by `server.ts`, keeping `api.ts` from growing into a maintenance liability. The separation makes ownership explicit and isolates the repository CRUD domain from other handler concerns.
 
-**Implication for `gui/server.ts`:** The HTTP server imports repository handlers from `./api-repos.js` — not `./api.js`. Body-free routes (`GET /api/repos`, `GET /api/repos/:repoId`, `DELETE /api/repos/:repoId`) are dispatched via `matchRoute()`; body-parsing routes (`POST /api/repos`, `PUT /api/repos/:repoId`) are wired as explicit early-return blocks in `handleRequest()`.
+**Implication for `gui/server.ts`:** The HTTP server imports repository handlers from `./api-repos.js` — not `./api.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
 
-**POST /api/repos returns 201, not 200.** This is intentional — correct REST practice for resource creation. All other mutation routes return 200. The 201 is explicitly set in the `handleRequest()` body-parsing block in `server.ts` and must not be changed to 200.
+**POST /api/repos returns 201, not 200.** This is intentional — correct REST practice for resource creation. All other mutation routes return 200. The 201 is set via the `statusCode: 201` field on the route entry in `buildRoutes()` and must not be changed to 200.
 
 **`RepoCreateBodySchema` and `RepoUpdateBodySchema` are `@internal`.** These schemas are exported so test code can construct validated shapes directly without duplicating the schema logic. They are not a stable public API. Always mark them `@internal` in JSDoc when editing `api-repos.ts`.
 
@@ -1928,24 +1952,72 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 
 ---
 
-### 71. `gui/server.ts` Two-Tier Routing Convention — Preserve the Route-Map Comment Block
+### 71. `gui/server.ts` Unified Route Table Convention — Sub-Builder Composition
 
-**Rule:** `gui/server.ts` uses a deliberate two-tier routing architecture. When adding a new route, use the correct tier and keep the route-map comment block at the bottom of `matchRoute()` up-to-date.
+**Rule:** `gui/server.ts` uses a single declarative route table returned by `buildRoutes()` and iterated by `dispatchRoute()`. `buildRoutes()` **delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread. When adding a new route, add it to the appropriate sub-builder and ensure the route table structural tests (`tests/gui/route-table.test.ts`) still pass.
 
-**Tier 1 — `matchRoute()`:** Handles segment-count-based dispatch. Receives pre-parsed path segments (`rest`), the request method, `ledgerRoot`, and `orchestratorLogsDir`. Suitable for routes that need only path-derived parameters (no body, no dynamic path-tail extraction). Returns a `() => Promise<unknown>` thunk, or `null` if no route matches. The function contains a **route-map comment block** before its final `return null` that lists every route handled outside `matchRoute()` (i.e., in `handleRequest()` special-case blocks). **This comment block must be kept current.** When a new route is handled in `handleRequest()` rather than `matchRoute()`, add a line to that block.
+**Sub-builder composition:**
+```typescript
+// buildRoutes() assembles the full table from domain-scoped sub-builders:
+return [
+  ...buildConfigRoutes(configPath, bootVersions),
+  ...buildOrchestratorRoutes(orchestratorLogsDir, ledgerRoot),
+  ...buildRepoRoutes(ledgerRoot),
+  ...buildKnowledgeRoutes(ledgerRoot),
+  ...buildModelRoutes(ledgerRoot, configPath),
+  ...buildProjectRoutes(ledgerRoot),
+];
+```
 
-**Tier 2 — `handleRequest()` special-case blocks:** Handles routes that require body parsing (via `readBody()`) or path-tail extraction (via `path.slice()` + `decodeURIComponent()`). Each block is a guarded early-return placed before the `matchRoute()` fallback call.
+Each sub-builder receives only the closure variables its handlers require. The Section A/B/C ordering invariant (see below) is preserved by construction — sub-builders place their routes in the correct section, and the spread ordering in `buildRoutes()` must not be changed.
 
-**Current split (as of WP-009):**
+**Table sections (must be preserved in order):**
 
-| Tier | Routes |
-|------|--------|
-| `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
-| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `POST /api/projects/:repo/:slug/reset`, `PATCH /api/projects/:slug`, `PATCH /api/projects/:repo/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+| Section | Purpose | `noBody` |
+|---------|---------|---------|
+| **Section A** | Body-parsing routes (`PUT`, `PATCH`, `POST` that read a request body) | — (omitted; default) |
+| **Section B** | Keyword-specific body-free routes (`noBody: true`). Must precede Section C — more-specific patterns before catch-alls. | `true` |
+| **Section C** | Catch-all body-free routes (`noBody: true`). Matches remaining path shapes (e.g. `GET /:repo/:slug`). | `true` |
 
-**Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
+**Section B/C ordering is load-bearing:** `dispatchRoute()` walks the table in declaration order and returns on the first match. A Section C catch-all placed before Section B keyword routes would silently shadow them.
 
-**Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
+**Adding a new route:**
+1. Determine which domain the route belongs to (→ correct sub-builder).
+2. Determine whether the route reads a request body (→ Section A) or not (→ Section B or C).
+3. Determine whether it has a fixed keyword suffix (→ Section B) or is a catch-all (→ Section C).
+4. Add it to the appropriate sub-builder in the correct section position.
+5. Use a RegExp with **named capture groups** for parameterised paths (positional groups are prohibited — see Constraint 59).
+6. Run `npm test` to confirm the route table structural tests still pass.
+
+**Test coverage:** Route table structural invariants (valid methods, named-only groups, no duplicates) are enforced by `tests/gui/route-table.test.ts` at CI time. Tests call `getRouteDescriptors()` (the zero-argument factory) instead of `buildRoutes()` directly.
+
+---
+
+### 71a. `HttpMethod` Type Alias — Compile-Time Route Method Safety
+
+**Rule:** All route method fields in `gui/server.ts` must be typed as `HttpMethod` (not `string`). The `HttpMethod` union type (`'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`) is exported from `server.ts` and used as the type of `Route.method`. Adding a new method string that falls outside the union is a compile-time error.
+
+```typescript
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+```
+
+**Relationship to the route-table structural test:** The valid-methods test in `tests/gui/route-table.test.ts` (which asserts that every route's `method` field is one of the five values) now serves as **defense-in-depth** alongside the compile-time union guarantee. The runtime check did not become redundant — it confirms the compiled output matches the source type at test time.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — 'string' is too broad; invalid method values are not caught at compile time
+interface Route {
+  method: string;
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — invalid method values (e.g. 'PATCH' typo 'PACH') are a compile error
+interface Route {
+  method: HttpMethod;
+}
+```
 
 ---
 

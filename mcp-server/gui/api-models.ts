@@ -22,7 +22,12 @@
  *   - `PUT /api/models`: returns 409 Conflict when a deletion would leave a
  *     referenced model with no replacement (user must use Replace Model first).
  *   - `PUT /api/model-assignments`: validates all model UUIDs exist in registry
- *     and all persona keys exist in name-mapping.json.
+ *     and all persona keys exist in name-mapping.json. Per-persona UUID
+ *     validation is batch-mode — all invalid UUIDs are collected before
+ *     throwing a single error that reports the total count (e.g. "2 model
+ *     UUIDs do not exist in the model registry"). Persona key validation
+ *     is fail-fast (exits on the first invalid key) and is a distinct
+ *     validation step that runs before UUID checks.
  *   - `POST /api/model-assignments/replace`: rejects same-model swap and
  *     rejects when old_model_id is not currently referenced.
  *
@@ -334,6 +339,10 @@ export async function handleUpdateAssignments(
 
   let nameMapping: unknown;
   try {
+    // `nameMappingRaw!` — TypeScript cannot narrow across the try/catch above
+    // because `validationError` returns `never` (the throw is inside the
+    // catch block, not the try block). The assertion is safe: if we reach
+    // this line, the readFile succeeded and `nameMappingRaw` is defined.
     nameMapping = JSON.parse(nameMappingRaw!);
   } catch {
     validationError('name-mapping.json is not valid JSON.');
@@ -349,11 +358,16 @@ export async function handleUpdateAssignments(
       .map((e) => e.id as string)
   );
 
-  // 2. Validate all persona keys in persona_models are valid persona IDs
+  // 2. Validate all persona keys in persona_models are valid persona IDs.
+  //    Intentionally fail-fast (exits on the first invalid key): persona-key
+  //    errors are structural misconfiguration, not bulk data errors, so a
+  //    single diagnostic is sufficient. Contrast with step 3 below, which
+  //    collects all invalid UUIDs before throwing (batch validation).
   for (const personaKey of Object.keys(data.persona_models)) {
     if (!validPersonaIds.has(personaKey)) {
       validationError(
-        `Persona key "${personaKey}" does not exist in name-mapping.json. Valid IDs are: ${[...validPersonaIds].join(', ')}.`
+        `One or more persona keys in persona_models are not valid. ` +
+          `Found ${validPersonaIds.size} valid persona ${validPersonaIds.size === 1 ? 'ID' : 'IDs'} in name-mapping.json.`
       );
     }
   }
@@ -364,16 +378,17 @@ export async function handleUpdateAssignments(
 
   if (data.default_model_uuid !== undefined && !validModelIds.has(data.default_model_uuid)) {
     validationError(
-      `default_model_uuid "${data.default_model_uuid}" does not exist in the model registry.`
+      'The default_model_uuid does not exist in the model registry.'
     );
   }
 
-  for (const [personaKey, uuid] of Object.entries(data.persona_models)) {
-    if (!validModelIds.has(uuid)) {
-      validationError(
-        `Model UUID "${uuid}" assigned to persona "${personaKey}" does not exist in the model registry.`
-      );
-    }
+  const invalidPersonaUUIDs = Object.entries(data.persona_models)
+    .filter(([, uuid]) => !validModelIds.has(uuid));
+  if (invalidPersonaUUIDs.length > 0) {
+    const n = invalidPersonaUUIDs.length;
+    validationError(
+      `${n} model ${n === 1 ? 'UUID' : 'UUIDs'} in persona_models do not exist in the model registry.`
+    );
   }
 
   // 4. Persist
@@ -430,13 +445,13 @@ export async function handleReplaceAssignedModel(
 
   if (!validModelIds.has(old_model_id)) {
     validationError(
-      `old_model_id "${old_model_id}" does not exist in the model registry.`
+      'The specified old_model_id does not exist in the model registry.'
     );
   }
 
   if (!validModelIds.has(new_model_id)) {
     validationError(
-      `new_model_id "${new_model_id}" does not exist in the model registry.`
+      'The specified new_model_id does not exist in the model registry.'
     );
   }
 
@@ -444,20 +459,13 @@ export async function handleReplaceAssignedModel(
   const assignments = await readAssignments();
 
   // Check that old_model_id is actually referenced
-  let referenced = false;
-  if (assignments.default_model_uuid === old_model_id) {
-    referenced = true;
-  }
-  for (const uuid of Object.values(assignments.persona_models)) {
-    if (uuid === old_model_id) {
-      referenced = true;
-      break;
-    }
-  }
+  const referenced =
+    assignments.default_model_uuid === old_model_id ||
+    Object.values(assignments.persona_models).some((uuid) => uuid === old_model_id);
 
   if (!referenced) {
     validationError(
-      `Model "${old_model_id}" is not referenced in any current assignment. Nothing to replace.`
+      'The specified model is not referenced in any current assignment. Nothing to replace.'
     );
   }
 

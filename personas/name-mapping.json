@@ -4,6 +4,10 @@
     "id": "ledger-1-planner",
     "role": "Planner",
     "version": "2.2.0",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "1-planner.agent.md",
       "agent_name": "1 - Planner v2.2.0"
@@ -22,6 +26,10 @@
     "id": "ledger-2-pm",
     "role": "Project Manager",
     "version": "3.7.6",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "2-pm.agent.md",
       "agent_name": "2 - Project Manager v3.7.6"
@@ -40,6 +48,10 @@
     "id": "ledger-3-dev",
     "role": "Developer",
     "version": "3.7.1",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "3-dev.agent.md",
       "agent_name": "3 - Developer v3.7.1"
@@ -58,6 +70,10 @@
     "id": "ledger-4-qa",
     "role": "QA",
     "version": "3.6.3",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "4-qa.agent.md",
       "agent_name": "4 - QA v3.6.3"
@@ -76,6 +92,10 @@
     "id": "ledger-5-security-auditor",
     "role": "Security Auditor",
     "version": "3.6.4",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "5-security-auditor.agent.md",
       "agent_name": "5 - Security Auditor v3.6.4"
@@ -94,6 +114,10 @@
     "id": "ledger-6-reviewer",
     "role": "Reviewer",
     "version": "3.7.0",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "6-reviewer.agent.md",
       "agent_name": "6 - Reviewer v3.7.0"
@@ -112,6 +136,10 @@
     "id": "ledger-7-release-engineer",
     "role": "Release Engineer",
     "version": "3.7.3",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "7-release-engineer.agent.md",
       "agent_name": "7 - Release Engineer v3.7.3"
@@ -130,6 +158,10 @@
     "id": "ledger-8-docs",
     "role": "Documentation",
     "version": "3.7.2",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "8-docs.agent.md",
       "agent_name": "8 - Documentation v3.7.2"
@@ -148,6 +180,10 @@
     "id": "ledger-9-synthesis",
     "role": "Synthesis",
     "version": "3.7.1",
+    "suite": "ledger",
+    "model": "Claude Sonnet 4.6",
+    "model_slug": "claude-sonnet-4-6",
+    "cc_model": "inherit",
     "vscode": {
       "file_name": "9-synthesis.agent.md",
       "agent_name": "9 - Synthesis v3.7.1"
@@ -159,6 +195,688 @@
     "deep_agents": {
       "file_name": "9-synthesis.md",
       "agent_name": "9-synthesis"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-bootstrapper",
+    "role": "Ledger Bootstrapper",
+    "version": "1.2.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-bootstrapper.agent.md",
+      "agent_name": "Ledger Bootstrapper"
+    },
+    "claude_code": {
+      "file_name": "ledger-bootstrapper.md",
+      "agent_name": "ledger-bootstrapper"
+    },
+    "deep_agents": {
+      "file_name": "ledger-bootstrapper.md",
+      "agent_name": "ledger-bootstrapper"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-claude-coordinator",
+    "role": "Ledger Claude Coordinator",
+    "version": "1.0.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-claude-coordinator.agent.md",
+      "agent_name": "Ledger Claude Coordinator"
+    },
+    "claude_code": {
+      "file_name": "ledger-claude-coordinator.md",
+      "agent_name": "ledger-claude-coordinator"
+    },
+    "deep_agents": {
+      "file_name": "ledger-claude-coordinator.md",
+      "agent_name": "ledger-claude-coordinator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-dependency-sequencer",
+    "role": "Ledger Dependency Sequencer",
+    "version": "1.3.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-dependency-sequencer.agent.md",
+      "agent_name": "Ledger Dependency Sequencer"
+    },
+    "claude_code": {
+      "file_name": "ledger-dependency-sequencer.md",
+      "agent_name": "ledger-dependency-sequencer"
+    },
+    "deep_agents": {
+      "file_name": "ledger-dependency-sequencer.md",
+      "agent_name": "ledger-dependency-sequencer"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-doctor",
+    "role": "Ledger Doctor",
+    "version": "1.3.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-doctor.agent.md",
+      "agent_name": "Ledger Doctor"
+    },
+    "claude_code": {
+      "file_name": "ledger-doctor.md",
+      "agent_name": "ledger-doctor"
+    },
+    "deep_agents": {
+      "file_name": "ledger-doctor.md",
+      "agent_name": "ledger-doctor"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-knowledge-archiver",
+    "role": "Ledger Knowledge Archiver",
+    "version": "1.6.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-knowledge-archiver.agent.md",
+      "agent_name": "Ledger Knowledge Archiver"
+    },
+    "claude_code": {
+      "file_name": "ledger-knowledge-archiver.md",
+      "agent_name": "ledger-knowledge-archiver"
+    },
+    "deep_agents": {
+      "file_name": "ledger-knowledge-archiver.md",
+      "agent_name": "ledger-knowledge-archiver"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-knowledge-curator",
+    "role": "Ledger Knowledge Curator",
+    "version": "1.2.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-knowledge-curator.agent.md",
+      "agent_name": "Ledger Knowledge Curator"
+    },
+    "claude_code": {
+      "file_name": "ledger-knowledge-curator.md",
+      "agent_name": "ledger-knowledge-curator"
+    },
+    "deep_agents": {
+      "file_name": "ledger-knowledge-curator.md",
+      "agent_name": "ledger-knowledge-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-orchestrator-runner",
+    "role": "Ledger Orchestrator Runner",
+    "version": "1.5.1",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-orchestrator-runner.agent.md",
+      "agent_name": "Ledger Orchestrator Runner"
+    },
+    "claude_code": {
+      "file_name": "ledger-orchestrator-runner.md",
+      "agent_name": "ledger-orchestrator-runner"
+    },
+    "deep_agents": {
+      "file_name": "ledger-orchestrator-runner.md",
+      "agent_name": "ledger-orchestrator-runner"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-pipeline-configurator",
+    "role": "Ledger Pipeline Configurator",
+    "version": "1.1.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-pipeline-configurator.agent.md",
+      "agent_name": "Ledger Pipeline Configurator"
+    },
+    "claude_code": {
+      "file_name": "ledger-pipeline-configurator.md",
+      "agent_name": "ledger-pipeline-configurator"
+    },
+    "deep_agents": {
+      "file_name": "ledger-pipeline-configurator.md",
+      "agent_name": "ledger-pipeline-configurator"
+    }
+  },
+  {
+    "number": null,
+    "id": "ledger-support-standalone-archiver",
+    "role": "Ledger Standalone Archiver",
+    "version": "1.5.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "standalone-archiver.agent.md",
+      "agent_name": "Ledger Standalone Archiver"
+    },
+    "claude_code": {
+      "file_name": "standalone-archiver.md",
+      "agent_name": "standalone-archiver"
+    },
+    "deep_agents": {
+      "file_name": "standalone-archiver.md",
+      "agent_name": "standalone-archiver"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ledger-wp-decomposer",
+    "role": "Ledger WP Decomposer",
+    "version": "1.3.0",
+    "suite": "ledger-support",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ledger-wp-decomposer.agent.md",
+      "agent_name": "Ledger WP Decomposer"
+    },
+    "claude_code": {
+      "file_name": "ledger-wp-decomposer.md",
+      "agent_name": "ledger-wp-decomposer"
+    },
+    "deep_agents": {
+      "file_name": "ledger-wp-decomposer.md",
+      "agent_name": "ledger-wp-decomposer"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-agents-md-curator",
+    "role": "AGENTS.md Curator",
+    "version": "1.2.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "agents-md-curator.agent.md",
+      "agent_name": "AGENTS.md Curator"
+    },
+    "claude_code": {
+      "file_name": "agents-md-curator.md",
+      "agent_name": "agents-md-curator"
+    },
+    "deep_agents": {
+      "file_name": "agents-md-curator.md",
+      "agent_name": "agents-md-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-ctx-architect",
+    "role": "CTX Architect",
+    "version": "1.2.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "ctx-architect.agent.md",
+      "agent_name": "CTX Architect"
+    },
+    "claude_code": {
+      "file_name": "ctx-architect.md",
+      "agent_name": "ctx-architect"
+    },
+    "deep_agents": {
+      "file_name": "ctx-architect.md",
+      "agent_name": "ctx-architect"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-changelog-curator",
+    "role": "Changelog Curator",
+    "version": "1.3.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "changelog-curator.agent.md",
+      "agent_name": "Changelog Curator"
+    },
+    "claude_code": {
+      "file_name": "changelog-curator.md",
+      "agent_name": "changelog-curator"
+    },
+    "deep_agents": {
+      "file_name": "changelog-curator.md",
+      "agent_name": "changelog-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-comms-curator",
+    "role": "Communications Curator",
+    "version": "1.0.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "comms-curator.agent.md",
+      "agent_name": "Communications Curator"
+    },
+    "claude_code": {
+      "file_name": "comms-curator.md",
+      "agent_name": "comms-curator"
+    },
+    "deep_agents": {
+      "file_name": "comms-curator.md",
+      "agent_name": "comms-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-composer-curator",
+    "role": "Composer Curator",
+    "version": "1.0.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "composer-curator.agent.md",
+      "agent_name": "Composer Curator"
+    },
+    "claude_code": {
+      "file_name": "composer-curator.md",
+      "agent_name": "composer-curator"
+    },
+    "deep_agents": {
+      "file_name": "composer-curator.md",
+      "agent_name": "composer-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "developer-standalone",
+    "role": "Developer",
+    "version": "1.3.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "developer-standalone.agent.md",
+      "agent_name": "Developer (Standalone)"
+    },
+    "claude_code": {
+      "file_name": "developer-standalone.md",
+      "agent_name": "developer-standalone"
+    },
+    "deep_agents": {
+      "file_name": "developer-standalone.md",
+      "agent_name": "developer-standalone"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-documentation-curator",
+    "role": "Documentation",
+    "version": "1.0.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "documentation-curator.agent.md",
+      "agent_name": "Documentation (Standalone)"
+    },
+    "claude_code": {
+      "file_name": "documentation-curator.md",
+      "agent_name": "documentation-curator"
+    },
+    "deep_agents": {
+      "file_name": "documentation-curator.md",
+      "agent_name": "documentation-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-git-committer",
+    "role": "Git Committer",
+    "version": "1.3.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "git-committer.agent.md",
+      "agent_name": "Git Committer"
+    },
+    "claude_code": {
+      "file_name": "git-committer.md",
+      "agent_name": "git-committer"
+    },
+    "deep_agents": {
+      "file_name": "git-committer.md",
+      "agent_name": "git-committer"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-manifest-curator",
+    "role": "Manifest Curator",
+    "version": "1.0.7",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "manifest-curator.agent.md",
+      "agent_name": "Manifest Curator"
+    },
+    "claude_code": {
+      "file_name": "manifest-curator.md",
+      "agent_name": "manifest-curator"
+    },
+    "deep_agents": {
+      "file_name": "manifest-curator.md",
+      "agent_name": "manifest-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-module-intent-architect",
+    "role": "Module Intent Architect",
+    "version": "1.0.4",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "module-intent-architect.agent.md",
+      "agent_name": "Module Intent Architect"
+    },
+    "claude_code": {
+      "file_name": "module-intent-architect.md",
+      "agent_name": "module-intent-architect"
+    },
+    "deep_agents": {
+      "file_name": "module-intent-architect.md",
+      "agent_name": "module-intent-architect"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-persona-curator",
+    "role": "Persona Curator",
+    "version": "1.3.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "persona-curator.agent.md",
+      "agent_name": "Persona Curator"
+    },
+    "claude_code": {
+      "file_name": "persona-curator.md",
+      "agent_name": "persona-curator"
+    },
+    "deep_agents": {
+      "file_name": "persona-curator.md",
+      "agent_name": "persona-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-plan-architect-reviewer",
+    "role": "Plan Architect Reviewer",
+    "version": "2.2.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "plan-architect-reviewer.agent.md",
+      "agent_name": "Plan Architect Reviewer"
+    },
+    "claude_code": {
+      "file_name": "plan-architect-reviewer.md",
+      "agent_name": "plan-architect-reviewer"
+    },
+    "deep_agents": {
+      "file_name": "plan-architect-reviewer.md",
+      "agent_name": "plan-architect-reviewer"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-plan-auditor",
+    "role": "Plan Auditor",
+    "version": "1.7.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "plan-auditor.agent.md",
+      "agent_name": "Plan Auditor"
+    },
+    "claude_code": {
+      "file_name": "plan-auditor.md",
+      "agent_name": "plan-auditor"
+    },
+    "deep_agents": {
+      "file_name": "plan-auditor.md",
+      "agent_name": "plan-auditor"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-plan-refiner",
+    "role": "Plan Refiner",
+    "version": "1.3.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "plan-refiner.agent.md",
+      "agent_name": "Plan Refiner"
+    },
+    "claude_code": {
+      "file_name": "plan-refiner.md",
+      "agent_name": "plan-refiner"
+    },
+    "deep_agents": {
+      "file_name": "plan-refiner.md",
+      "agent_name": "plan-refiner"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-planner",
+    "role": "Planner",
+    "version": "2.0.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "planner.agent.md",
+      "agent_name": "Planner (Standalone)"
+    },
+    "claude_code": {
+      "file_name": "planner.md",
+      "agent_name": "planner"
+    },
+    "deep_agents": {
+      "file_name": "planner.md",
+      "agent_name": "planner"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-readme-curator",
+    "role": "README Curator",
+    "version": "1.3.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "readme-curator.agent.md",
+      "agent_name": "README Curator"
+    },
+    "claude_code": {
+      "file_name": "readme-curator.md",
+      "agent_name": "readme-curator"
+    },
+    "deep_agents": {
+      "file_name": "readme-curator.md",
+      "agent_name": "readme-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-recipe-curator",
+    "role": "Recipe Curator",
+    "version": "1.10.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "recipe-curator.agent.md",
+      "agent_name": "Recipe Curator"
+    },
+    "claude_code": {
+      "file_name": "recipe-curator.md",
+      "agent_name": "recipe-curator"
+    },
+    "deep_agents": {
+      "file_name": "recipe-curator.md",
+      "agent_name": "recipe-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-researcher",
+    "role": "Researcher",
+    "version": "1.2.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "researcher.agent.md",
+      "agent_name": "Researcher"
+    },
+    "claude_code": {
+      "file_name": "researcher.md",
+      "agent_name": "researcher"
+    },
+    "deep_agents": {
+      "file_name": "researcher.md",
+      "agent_name": "researcher"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-unit-test-auditor",
+    "role": "Unit Test Auditor",
+    "version": "1.1.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "unit-test-auditor.agent.md",
+      "agent_name": "Unit Test Auditor"
+    },
+    "claude_code": {
+      "file_name": "unit-test-auditor.md",
+      "agent_name": "unit-test-auditor"
+    },
+    "deep_agents": {
+      "file_name": "unit-test-auditor.md",
+      "agent_name": "unit-test-auditor"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-whatsnew-curator",
+    "role": "WHATSNEW Curator",
+    "version": "1.0.1",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "whatsnew-curator.agent.md",
+      "agent_name": "WHATSNEW Curator"
+    },
+    "claude_code": {
+      "file_name": "whatsnew-curator.md",
+      "agent_name": "whatsnew-curator"
+    },
+    "deep_agents": {
+      "file_name": "whatsnew-curator.md",
+      "agent_name": "whatsnew-curator"
+    }
+  },
+  {
+    "number": null,
+    "id": "standalone-workspace-architect",
+    "role": "Workspace Architect",
+    "version": "1.0.0",
+    "suite": "standalone",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
+    "vscode": {
+      "file_name": "workspace-architect.agent.md",
+      "agent_name": "Workspace Architect"
+    },
+    "claude_code": {
+      "file_name": "workspace-architect.md",
+      "agent_name": "workspace-architect"
+    },
+    "deep_agents": {
+      "file_name": "workspace-architect.md",
+      "agent_name": "workspace-architect"
     }
   }
 ]

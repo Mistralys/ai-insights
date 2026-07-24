@@ -14,7 +14,7 @@
  *   AC-6:  PUT /api/models — delete unreferenced model → succeeds
  *   AC-7:  POST /api/models/load-defaults — merges without overwriting; returns conflicts
  *   AC-8:  GET /api/model-assignments — stale detection (3 cases)
- *   AC-9:  PUT /api/model-assignments — UUID + persona key validation; 400 when name-mapping absent
+ *   AC-9:  PUT /api/model-assignments — UUID + persona key validation; 400 when name-mapping absent; batch UUID validation with count
  *   AC-10: POST /api/model-assignments/replace — swap all; reject when not referenced; reject same-model
  *   AC-11: GET /api/personas — returns all / empty array when file absent
  *   AC-12: POST /api/personas/rebuild — success / failure with output
@@ -482,6 +482,41 @@ describe('api-models.ts — Model Registry API Handlers', () => {
       const body = { persona_models: {} };
       const result = await handleUpdateAssignments(body);
       expect(result.persona_models).toEqual({});
+    });
+
+    it('AC-9: batch-validates persona_models UUIDs — returns a single error with the invalid count', async () => {
+      const UUID_BAD_1 = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+      const UUID_BAD_2 = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+      const UUID_BAD_3 = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+      await seedNameMapping([
+        { id: 'ledger-1-planner', role: 'Planner', suite: 'ledger' },
+        { id: 'ledger-2-pm', role: 'Project Manager', suite: 'ledger' },
+        { id: 'ledger-3-dev', role: 'Developer', suite: 'ledger' },
+      ]);
+
+      const body = {
+        persona_models: {
+          'ledger-1-planner': UUID_BAD_1,
+          'ledger-2-pm': UUID_BAD_2,
+          'ledger-3-dev': UUID_BAD_3,
+        },
+      };
+
+      try {
+        await handleUpdateAssignments(body);
+        expect.fail('Should have thrown');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.code).toBe('VALIDATION_ERROR');
+        // Single error with the count — not three separate errors, not fail-fast
+        expect(apiErr.message).toContain('3');
+        // Must not reflect any user-submitted UUID string
+        expect(apiErr.message).not.toContain(UUID_BAD_1);
+        expect(apiErr.message).not.toContain(UUID_BAD_2);
+        expect(apiErr.message).not.toContain(UUID_BAD_3);
+      }
     });
   });
 

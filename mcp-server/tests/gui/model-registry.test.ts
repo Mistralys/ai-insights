@@ -818,4 +818,159 @@ describe('model-registry.ts', () => {
       expect(result.default_model_slug).toBeNull();
     });
   });
+
+  // ─── OWASP A05 — error message hardening (generic messages + stderr) ───────
+
+  describe('readModels — OWASP A05 error hardening', () => {
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true as unknown as boolean);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+    });
+
+    it('READ_ERROR returns a generic message with no OS-level detail', async () => {
+      // Write a file that cannot be read: create the path as a directory instead of a file
+      // so that readFile throws an OS-level ENOENT-adjacent error on systems, OR
+      // create a file with the wrong permissions — simplest is to not create local.json
+      // but remove default.json too so auto-init also fails.
+      // Actually: write a non-readable file by placing a directory at the local.json path.
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      // Place a directory at local.json path — readFile will throw EISDIR (OS detail)
+      await mkdirFs(join(registryDir(), 'local.json'), { recursive: true });
+
+      const { ApiError } = await import('../../src/gui/errors.js');
+      await expect(readModels()).rejects.toThrow(ApiError);
+      await expect(readModels()).rejects.toMatchObject({
+        code: 'READ_ERROR',
+        message: 'Failed to read local.json due to a system error.',
+      });
+    });
+
+    it('READ_ERROR writes original error detail to stderr', async () => {
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      await mkdirFs(join(registryDir(), 'local.json'), { recursive: true });
+
+      try { await readModels(); } catch { /* expected */ }
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(calls.some((msg) => msg.includes('[server] readModels READ_ERROR:'))).toBe(true);
+    });
+
+    it('PARSE_ERROR returns a generic message with no parse-error detail', async () => {
+      await writeFile(join(registryDir(), 'local.json'), '{ this is NOT valid json !!!', 'utf-8');
+
+      const { ApiError } = await import('../../src/gui/errors.js');
+      await expect(readModels()).rejects.toMatchObject({
+        code: 'PARSE_ERROR',
+        message: 'Failed to parse local.json: the file contains invalid JSON.',
+      });
+    });
+
+    it('PARSE_ERROR writes original error detail to stderr', async () => {
+      await writeFile(join(registryDir(), 'local.json'), '{ bad json', 'utf-8');
+
+      try { await readModels(); } catch { /* expected */ }
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(calls.some((msg) => msg.includes('[server] readModels PARSE_ERROR:'))).toBe(true);
+    });
+  });
+
+  describe('readAssignments — OWASP A05 error hardening', () => {
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true as unknown as boolean);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+    });
+
+    it('READ_ERROR returns a generic message with no OS-level detail', async () => {
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      // Place a directory at assignments.json path — readFile will throw EISDIR
+      await mkdirFs(join(registryDir(), 'assignments.json'), { recursive: true });
+
+      const { ApiError } = await import('../../src/gui/errors.js');
+      await expect(readAssignments()).rejects.toThrow(ApiError);
+      await expect(readAssignments()).rejects.toMatchObject({
+        code: 'READ_ERROR',
+        message: 'Failed to read assignments.json due to a system error.',
+      });
+    });
+
+    it('READ_ERROR writes original error detail to stderr', async () => {
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      await mkdirFs(join(registryDir(), 'assignments.json'), { recursive: true });
+
+      try { await readAssignments(); } catch { /* expected */ }
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(calls.some((msg) => msg.includes('[server] readAssignments READ_ERROR:'))).toBe(true);
+    });
+
+    it('PARSE_ERROR returns a generic message with no parse-error detail', async () => {
+      await writeFile(join(registryDir(), 'assignments.json'), '{ bad json', 'utf-8');
+
+      const { ApiError } = await import('../../src/gui/errors.js');
+      await expect(readAssignments()).rejects.toMatchObject({
+        code: 'PARSE_ERROR',
+        message: 'Failed to parse assignments.json: the file contains invalid JSON.',
+      });
+    });
+
+    it('PARSE_ERROR writes original error detail to stderr', async () => {
+      await writeFile(join(registryDir(), 'assignments.json'), '{ bad json', 'utf-8');
+
+      try { await readAssignments(); } catch { /* expected */ }
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(calls.some((msg) => msg.includes('[server] readAssignments PARSE_ERROR:'))).toBe(true);
+    });
+  });
+
+  describe('loadDefaults — OWASP A05 error hardening', () => {
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true as unknown as boolean);
+    });
+
+    afterEach(() => {
+      stderrSpy.mockRestore();
+    });
+
+    it('READ_ERROR returns a generic message with no OS-level detail', async () => {
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      // Place a directory at default.json path — readFile will throw EISDIR
+      await mkdirFs(join(registryDir(), 'default.json'), { recursive: true });
+
+      const { ApiError } = await import('../../src/gui/errors.js');
+      await expect(loadDefaults()).rejects.toThrow(ApiError);
+      await expect(loadDefaults()).rejects.toMatchObject({
+        code: 'READ_ERROR',
+        message: 'Failed to read default.json due to a system error.',
+      });
+    });
+
+    it('READ_ERROR writes original error detail to stderr', async () => {
+      const { mkdir: mkdirFs } = await import('fs/promises');
+      await mkdirFs(join(registryDir(), 'default.json'), { recursive: true });
+
+      try { await loadDefaults(); } catch { /* expected */ }
+
+      expect(stderrSpy).toHaveBeenCalled();
+      const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+      expect(calls.some((msg) => msg.includes('[server] loadDefaults READ_ERROR:'))).toBe(true);
+    });
+  });
 });

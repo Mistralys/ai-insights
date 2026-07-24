@@ -114,9 +114,10 @@ export async function readModels(): Promise<ModelEntry[]> {
     if (isNodeError(err) && err.code === 'ENOENT') {
       return await _initializeLocalFromDefault();
     }
+    process.stderr.write(`[server] readModels READ_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'READ_ERROR',
-      `Failed to read local.json: ${(err as Error).message}`
+      'Failed to read local.json due to a system error.'
     );
   }
 
@@ -124,9 +125,10 @@ export async function readModels(): Promise<ModelEntry[]> {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
+    process.stderr.write(`[server] readModels PARSE_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'PARSE_ERROR',
-      `Failed to parse local.json as JSON: ${(err as Error).message}`
+      'Failed to parse local.json: the file contains invalid JSON.'
     );
   }
 
@@ -263,9 +265,10 @@ export async function readAssignments(): Promise<ModelAssignments> {
     if (isNodeError(err) && err.code === 'ENOENT') {
       return { default_model_uuid: undefined, persona_models: {} };
     }
+    process.stderr.write(`[server] readAssignments READ_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'READ_ERROR',
-      `Failed to read assignments.json: ${(err as Error).message}`
+      'Failed to read assignments.json due to a system error.'
     );
   }
 
@@ -273,9 +276,10 @@ export async function readAssignments(): Promise<ModelAssignments> {
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
+    process.stderr.write(`[server] readAssignments PARSE_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'PARSE_ERROR',
-      `Failed to parse assignments.json as JSON: ${(err as Error).message}`
+      'Failed to parse assignments.json: the file contains invalid JSON.'
     );
   }
 
@@ -340,9 +344,10 @@ export async function loadDefaults(): Promise<LoadDefaultsResult> {
   try {
     defaultParsed = await readJsonFile(defaultJsonPath());
   } catch (err) {
+    process.stderr.write(`[server] loadDefaults READ_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'READ_ERROR',
-      `Failed to read default.json: ${(err as Error).message}`
+      'Failed to read default.json due to a system error.'
     );
   }
 
@@ -515,9 +520,10 @@ async function _initializeLocalFromDefault(): Promise<ModelEntry[]> {
   try {
     defaultParsed = await readJsonFile(defaultJsonPath());
   } catch (err) {
+    process.stderr.write(`[server] _initializeLocalFromDefault READ_ERROR: ${String(err)}\n`);
     throw new ApiError(
       'READ_ERROR',
-      `Auto-initialization failed: could not read default.json: ${(err as Error).message}`
+      'Auto-initialization failed: could not read default.json due to a system error.'
     );
   }
 

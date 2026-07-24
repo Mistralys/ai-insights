@@ -1655,12 +1655,14 @@ Return { ...insight, formatted_id: 'KN-NNNN' } to agent
 
 These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
 
-**Dispatch tier summary:**
+**Route dispatch summary:**
 
-| Tier | Routes | Mechanism |
-|------|--------|-----------|
-| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
-| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+All five knowledge endpoints are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()` in `gui/server.ts`.
+
+| Route type | Routes | `noBody` |
+|-----------|--------|---------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `true` — query params read by handler from `URLSearchParams` |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | — (omitted) — `readJsonBody` applies 1 MiB body limit |
 
 ---
 
@@ -1669,9 +1671,8 @@ These five HTTP endpoints expose the knowledge store to the browser dashboard. A
 ```
 Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
   ↓
-gui/server.ts matchRoute()
-  method === 'GET', rest === ['knowledge']
-  → parse query string: scope, category, tags (comma-split), repository_name, query, limit, offset
+gui/server.ts dispatchRoute() → Route{ method:'GET', path:'/api/knowledge', noBody:true }
+  → URLSearchParams: scope, category, tags (comma-split), repository_name, query, limit, offset
   ↓
 handleListKnowledge(ledgerRoot, params)
   ↓
@@ -1698,10 +1699,9 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ```
 Browser → DELETE /api/knowledge/42?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'DELETE', rest === ['knowledge', '42']
-  → parse :id (decodeURIComponent, raw string)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'DELETE', path:/^\/api\/knowledge\/(?<id>[^/]+)$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
@@ -1728,10 +1728,9 @@ gui/server.ts → HTTP 204 No Content
 ```
 Browser → POST /api/knowledge/42/promote?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'POST', rest === ['knowledge', '42', 'promote']
-  → parse :id (decodeURIComponent)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'POST', path:/^\/api\/knowledge\/(?<id>[^/]+)\/promote$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓

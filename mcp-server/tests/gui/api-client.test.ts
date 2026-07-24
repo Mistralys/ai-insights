@@ -2,13 +2,13 @@
 
 /**
  * Tests for gui/public/api-client.js — run log, server-info, orchestrator,
- * and knowledge methods.
+ * knowledge, chunk, and model registry methods.
  *
  * Uses jsdom + vm.runInThisContext to load the browser-side script, then mocks
  * globalThis.fetch to assert the URLs and options that API methods produce.
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -23,6 +23,12 @@ const apiClientJs = readFileSync(join(publicDir, 'api-client.js'), 'utf-8');
 // Execute once so the API var is available globally (as in a browser)
 beforeAll(() => {
   vm.runInThisContext(apiClientJs);
+});
+
+// Remove the fetch mock after every test so that residual mocks from one test
+// cannot bleed into the next test's setup or assertion phase.
+afterEach(() => {
+  delete (globalThis as unknown as Record<string, unknown>)['fetch'];
 });
 
 // Declare globalThis.API for TypeScript
@@ -467,6 +473,175 @@ describe('API.getChunkStructured', () => {
     expect(calls[0]!.url).toBe(
       '/api/projects/my%20repo/my%20slug/chunks/file%20name.jsonl/rendered?format=structured',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Model Registry methods
+// ---------------------------------------------------------------------------
+
+describe('API.getModels', () => {
+  it('calls GET /api/models and resolves to the model array', async () => {
+    const payload = [{ id: 'uuid-1', slug: 'gpt-4o', label: 'GPT-4o' }];
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.getModels();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/models');
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(payload);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'SERVER_ERROR', message: 'Internal error' } }, 500);
+
+    await expect(globalThis.API.getModels()).rejects.toMatchObject({ code: 'SERVER_ERROR' });
+  });
+});
+
+describe('API.saveModels', () => {
+  it('sends PUT /api/models with the models array serialised as the JSON body', async () => {
+    const models = [{ id: 'uuid-1', slug: 'gpt-4o', label: 'GPT-4o' }];
+    const calls = mockFetch({ models });
+
+    await globalThis.API.saveModels(models);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/models');
+    expect(calls[0]!.opts.method).toBe('PUT');
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(calls[0]!.opts.body as string)).toEqual(models);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'CONFLICT', message: 'Referenced model' } }, 409);
+
+    await expect(globalThis.API.saveModels([])).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+});
+
+describe('API.loadDefaultModels', () => {
+  it('sends POST /api/models/load-defaults with no body', async () => {
+    const payload = { models: [], conflicts: [] };
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.loadDefaultModels();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/models/load-defaults');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(calls[0]!.opts.body).toBeUndefined();
+    expect(result).toEqual(payload);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'ERROR', message: 'Load failed' } }, 500);
+
+    await expect(globalThis.API.loadDefaultModels()).rejects.toMatchObject({ code: 'ERROR' });
+  });
+});
+
+describe('API.getPersonas', () => {
+  it('calls GET /api/personas and resolves to the personas array', async () => {
+    const payload = [{ role: 'developer', name: 'Alice' }];
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.getPersonas();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/personas');
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(payload);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'NOT_FOUND', message: 'No personas' } }, 404);
+
+    await expect(globalThis.API.getPersonas()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+describe('API.getAssignments', () => {
+  it('calls GET /api/model-assignments and resolves to the assignment object', async () => {
+    const payload = { default_model_uuid: 'uuid-1', persona_models: {}, stale: false };
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.getAssignments();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/model-assignments');
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(payload);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'ERROR', message: 'Failed' } }, 500);
+
+    await expect(globalThis.API.getAssignments()).rejects.toMatchObject({ code: 'ERROR' });
+  });
+});
+
+describe('API.updateAssignments', () => {
+  it('sends PUT /api/model-assignments with the assignment data as JSON body', async () => {
+    const data = { default_model_uuid: 'uuid-1', persona_models: { developer: 'uuid-2' } };
+    const calls = mockFetch(data);
+
+    await globalThis.API.updateAssignments(data);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/model-assignments');
+    expect(calls[0]!.opts.method).toBe('PUT');
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(calls[0]!.opts.body as string)).toEqual(data);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'VALIDATION_ERROR', message: 'Invalid UUID' } }, 400);
+
+    await expect(globalThis.API.updateAssignments({})).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+});
+
+describe('API.replaceAssignedModel', () => {
+  it('sends POST /api/model-assignments/replace with old_model_id and new_model_id in the body', async () => {
+    const calls = mockFetch({ default_model_uuid: 'uuid-2', persona_models: {} });
+
+    await globalThis.API.replaceAssignedModel('uuid-1', 'uuid-2');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/model-assignments/replace');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body).toEqual({ old_model_id: 'uuid-1', new_model_id: 'uuid-2' });
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'CONFLICT', message: 'Same model' } }, 409);
+
+    await expect(globalThis.API.replaceAssignedModel('uuid-1', 'uuid-1')).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+});
+
+describe('API.rebuildPersonas', () => {
+  it('sends POST /api/personas/rebuild with no body', async () => {
+    const payload = { success: true, output: 'Built OK' };
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.rebuildPersonas();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/personas/rebuild');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(calls[0]!.opts.body).toBeUndefined();
+    expect(result).toEqual(payload);
+  });
+
+  it('throws when the response is not ok', async () => {
+    mockFetch({ error: { code: 'BUILD_FAILED', message: 'Exit code 1' } }, 500);
+
+    await expect(globalThis.API.rebuildPersonas()).rejects.toMatchObject({ code: 'BUILD_FAILED' });
   });
 });
 

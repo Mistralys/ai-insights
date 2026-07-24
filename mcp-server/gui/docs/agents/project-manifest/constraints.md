@@ -139,13 +139,20 @@ All responses include:
 
 ---
 
-## 9. Route Dispatch Ordering
+## 9. Route Dispatch Ordering and Sub-Builder Composition
 
-Routes in `server.ts` `matchRoute()` are matched by **segment count first**, then by segment values in declaration order. When adding new routes:
+Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to six non-exported domain sub-builders (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread. When adding a route, add it to the appropriate sub-builder. The table is organized into three sections:
 
-- More-specific patterns must appear BEFORE catch-all patterns at the same segment count.
-- Use explicit keyword exclusion arrays (`rest[2] !== 'plan' && ...`) to prevent shadowing.
-- Namespaced routes (`/:repo/:slug/...`) and legacy flat routes (`/:slug/...`) coexist — the namespaced versions appear after the flat ones.
+- **Section A** — Body-parsing routes (`PUT`, `PATCH`, `POST`). These routes use `readJsonBody()` and have no `noBody` flag.
+- **Section B** — Keyword-specific body-free routes (`noBody: true`). Both active namespaced (`/:repo/:slug/keyword`) and deprecated flat (`/:slug/keyword`) variants live here. **Section B MUST precede Section C** — this is a load-bearing ordering constraint, not cosmetic. A Section C catch-all regex would shadow keyword-specific routes if declared first.
+- **Section C** — Catch-all body-free routes (`noBody: true`). These match any remaining path shapes after Section B has had priority.
+
+When adding new routes:
+
+- More-specific patterns (keyword routes) must appear in **Section B** before the **Section C** catch-alls.
+- All parameterised routes must use RegExp with **named capture groups** (e.g., `(?<slug>[^/]+)`) — positional groups are not permitted.
+- Namespaced routes (`/:repo/:slug/...`) and legacy flat routes (`/:slug/...`) coexist within the same section — both are equally matched by `dispatchRoute()`.
+- Route handlers conform to the `Route` interface defined in `server.ts`. `Route.method` is typed as the `HttpMethod` union (`'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`) — not `string` — giving compile-time safety for route method values.
 
 ---
 
