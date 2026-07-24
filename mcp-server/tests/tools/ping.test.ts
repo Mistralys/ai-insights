@@ -4,9 +4,9 @@
  * Verifies that:
  * - ledger_ping returns status "ok" with the expected fields.
  * - stale is false when versions match.
- * - stale is true with stale_detail when versions differ.
+ * - stale is true with instruction when versions differ.
  * - uptime_seconds is a non-negative integer.
- * - stale is null with stale_detail when readPackageVersion() throws.
+ * - stale is null with instruction when readPackageVersion() throws.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -50,7 +50,7 @@ describe('ledger_ping', () => {
     mockReadThrows = false;
   });
 
-  it('returns status "ok" with expected fields', async () => {
+  it('returns status "ok" when versions are fresh', async () => {
     const result = await ping();
     const parsed = parseResult(result);
 
@@ -67,20 +67,21 @@ describe('ledger_ping', () => {
     const parsed = parseResult(result);
 
     expect(parsed.stale).toBe(false);
-    expect(parsed.stale_detail).toBeUndefined();
+    expect(parsed.instruction).toBeUndefined();
   });
 
-  it('returns stale: true with stale_detail when versions differ', async () => {
+  it('returns stale: true with instruction when versions differ', async () => {
     mockDiskVersion = '1.14.1';
 
     const result = await ping();
     const parsed = parseResult(result);
 
+    expect(parsed.status).toBe('warn');
     expect(parsed.stale).toBe(true);
-    expect(typeof parsed.stale_detail).toBe('string');
-    expect(parsed.stale_detail as string).toContain('1.14.0');
-    expect(parsed.stale_detail as string).toContain('1.14.1');
-    expect(parsed.stale_detail as string).toContain('Restart the MCP server');
+    expect(typeof parsed.instruction).toBe('string');
+    expect(parsed.instruction as string).toContain('1.14.0');
+    expect(parsed.instruction as string).toContain('1.14.1');
+    expect(parsed.instruction as string).toContain('restart the MCP server');
   });
 
   it('uptime_seconds is a non-negative integer', async () => {
@@ -92,14 +93,15 @@ describe('ledger_ping', () => {
     expect(uptime).toBeGreaterThanOrEqual(0);
   });
 
-  it('returns stale: null with stale_detail when readPackageVersion() throws', async () => {
+  it('returns stale: null with instruction when readPackageVersion() throws', async () => {
     mockReadThrows = true;
 
     const result = await ping();
     const parsed = parseResult(result);
 
+    expect(parsed.status).toBe('warn');
     expect(parsed.stale).toBeNull();
-    expect(typeof parsed.stale_detail).toBe('string');
-    expect(parsed.stale_detail as string).toContain('package.json');
+    expect(typeof parsed.instruction).toBe('string');
+    expect(parsed.instruction as string).toContain('package.json');
   });
 });

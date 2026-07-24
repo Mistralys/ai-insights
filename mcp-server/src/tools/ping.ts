@@ -16,20 +16,27 @@ const PingSchema = z.object({});
 interface PingResponseFresh {
   status: 'ok';
   server_version: string;
-  stale: boolean;
+  stale: false;
   uptime_seconds: number;
-  stale_detail?: string;
+}
+
+interface PingResponseStale {
+  status: 'warn';
+  server_version: string;
+  stale: true;
+  uptime_seconds: number;
+  instruction: string;
 }
 
 interface PingResponseUnknownStaleness {
-  status: 'ok';
+  status: 'warn';
   server_version: string;
   stale: null;
   uptime_seconds: number;
-  stale_detail: string;
+  instruction: string;
 }
 
-type PingResponse = PingResponseFresh | PingResponseUnknownStaleness;
+type PingResponse = PingResponseFresh | PingResponseStale | PingResponseUnknownStaleness;
 
 async function ping(): Promise<{ content: [{ type: 'text'; text: string }] }> {
   const uptimeSeconds = Math.floor(process.uptime());
@@ -40,11 +47,11 @@ async function ping(): Promise<{ content: [{ type: 'text'; text: string }] }> {
     const diskVersion = readPackageVersion();
     if (diskVersion !== SERVER_VERSION) {
       response = {
-        status: 'ok',
+        status: 'warn',
         server_version: SERVER_VERSION,
         stale: true,
         uptime_seconds: uptimeSeconds,
-        stale_detail: `Running v${SERVER_VERSION} but dist was rebuilt as v${diskVersion}. Restart the MCP server.`,
+        instruction: `STOP — The running server (v${SERVER_VERSION}) is outdated; a newer build (v${diskVersion}) is on disk. Halt this workflow, ask the user to restart the MCP server, then re-run preflight before continuing.`,
       };
     } else {
       response = {
@@ -57,13 +64,12 @@ async function ping(): Promise<{ content: [{ type: 'text'; text: string }] }> {
   } catch (err) {
     // package.json momentarily absent (e.g., during a rebuild) — report
     // staleness as unknown rather than propagating an opaque MCP error.
-    const message = err instanceof Error ? err.message : String(err);
     response = {
-      status: 'ok',
+      status: 'warn',
       server_version: SERVER_VERSION,
       stale: null,
       uptime_seconds: uptimeSeconds,
-      stale_detail: `Could not read package.json to verify version freshness: ${message}`,
+      instruction: `STOP — Server version freshness could not be confirmed because package.json was unreadable. Halt this workflow, ask the user to resolve the issue, then re-run preflight before continuing.`,
     };
   }
 
@@ -85,7 +91,7 @@ export function register(server: McpServer): void {
     'ledger_ping',
     {
       description:
-        'Lightweight health check — verify MCP server reachability and detect stale instances. Returns status, server_version, stale (true/false/null), and uptime_seconds. Use this for preflight connectivity checks instead of ledger_help to avoid 2,000-token overhead. If stale is true, restart the MCP server before proceeding.',
+        'Lightweight health check — verify MCP server reachability and detect stale instances. Returns status ("ok" = fresh, "warn" = stale or unknown), server_version, stale (true/false/null), and uptime_seconds. When stale is true or null, status is "warn" and the response includes an instruction field with an explicit, persona-facing action to take. Use this for preflight connectivity checks instead of ledger_help to avoid 2,000-token overhead.',
       inputSchema: PingSchema.passthrough(),
     },
     // TODO: remove `as any` cast once the MCP SDK exposes compatible Zod
