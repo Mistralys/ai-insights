@@ -42,6 +42,18 @@ import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import {
+  storeInit,
+  storeAdd,
+  storeRemove,
+  storeList,
+  storeSetDefault,
+  storeConflicts,
+  storeStatus,
+  storeRepoAdd,
+  storeRepoMove,
+  storeRepoList,
+} from './lib/store-commands.js';
 
 // --- Constants ---
 
@@ -556,6 +568,213 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+// ─── Store command group ──────────────────────────────────────────────────────
+
+/**
+ * Formats and prints a storeList result to the console.
+ * @param {Array} stores
+ * @param {string} defaultStore
+ */
+function printStoreList(stores, defaultStore) {
+  if (stores.length === 0) {
+    log('  No stores configured. Run `store init` to get started.', 'dim');
+    return;
+  }
+  for (const s of stores) {
+    const marker = s.is_default ? C.green('★ default') : C.dim('         ');
+    log(`  ${marker}  ${C.bold(s.id)}  ${C.dim(s.path)}`);
+    log(`           repos: ${s.repo_count}  projects: ${s.project_count}`);
+  }
+}
+
+function cmdStore(args) {
+  const sub  = args[0];
+  const rest = args.slice(1);
+
+  switch (sub) {
+
+    case 'init': {
+      const ledgerRoot = rest[0] ?? undefined;
+      const result = storeInit({ ledgerRoot });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} stores.json created at ${result.configPath}`);
+      log(`    Default store → ${result.config.stores[0].path}`);
+      break;
+    }
+
+    case 'add': {
+      const [id, storePath] = rest;
+      if (!id || !storePath) {
+        log('  Usage: store add <id> <path>', 'red');
+        process.exit(1);
+      }
+      const result = storeAdd({ id, storePath });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} Store '${result.id}' added → ${result.path}`);
+      break;
+    }
+
+    case 'remove': {
+      const [id] = rest;
+      if (!id) { log('  Usage: store remove <id>', 'red'); process.exit(1); }
+      const result = storeRemove({ id });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      if (result.warned) {
+        log(`  ${C.yellow('⚠')} Store '${id}' removed from stores.json.`, 'yellow');
+        log(`    ${C.yellow('Warning:')} The store's .repositories.json contains entries. The directory was NOT deleted.`, 'yellow');
+      } else {
+        log(`  ${C.green('✓')} Store '${id}' removed from stores.json (directory not deleted).`);
+      }
+      break;
+    }
+
+    case 'list': {
+      const result = storeList();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to load stores.json.`, 'red');
+        process.exit(1);
+      }
+      printStoreList(result.stores, result.default_store);
+      break;
+    }
+
+    case 'default': {
+      const [id] = rest;
+      if (!id) { log('  Usage: store default <id>', 'red'); process.exit(1); }
+      const result = storeSetDefault({ id });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} Default store set to '${result.default_store}'.`);
+      break;
+    }
+
+    case 'conflicts': {
+      const result = storeConflicts();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to detect conflicts.`, 'red');
+        process.exit(1);
+      }
+      if (result.conflicts.length === 0) {
+        log(`  ${C.green('✓')} No conflicts — each repository is registered in exactly one store.`);
+      } else {
+        log(`  ${C.yellow('⚠')} Found ${result.conflicts.length} conflict(s):`);
+        for (const c of result.conflicts) {
+          log(`\n  ${C.bold(c.repo_name)}`);
+          for (const e of c.entries) {
+            const tag = e.store_id === c.winner_store_id
+              ? C.green('  Active (winner)  ')
+              : C.red('  Shadowed         ');
+            log(`    ${tag}  ${C.dim('store:')} ${e.store_id}`);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'status': {
+      const result = storeStatus();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to retrieve store status.`, 'red');
+        process.exit(1);
+      }
+      if (result.statuses.length === 0) {
+        log('  No stores configured.', 'dim');
+      } else {
+        for (const s of result.statuses) {
+          if (!s.is_git) {
+            log(`  ${C.dim('—')} ${C.bold(s.id)}  ${C.dim('(not a git repo)')}`);
+          } else if (s.status === 'no upstream') {
+            log(`  ${C.yellow('?')} ${C.bold(s.id)}  ${C.dim('(no upstream configured)')}`);
+          } else {
+            const ahead  = s.ahead  > 0 ? C.yellow(`↑${s.ahead}`)  : '';
+            const behind = s.behind > 0 ? C.yellow(`↓${s.behind}`) : '';
+            const sync   = (s.ahead === 0 && s.behind === 0)
+              ? C.green('in sync')
+              : [ahead, behind].filter(Boolean).join(' ');
+            log(`  ${C.bold(s.id)}  ${sync}  ${C.dim(s.path)}`);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'repo': {
+      const repoSub = rest[0];
+      const repoRest = rest.slice(1);
+
+      switch (repoSub) {
+
+        case 'add': {
+          const [repoName, storeId] = repoRest;
+          if (!repoName || !storeId) {
+            log('  Usage: store repo add <repo-name> <store-id>', 'red');
+            process.exit(1);
+          }
+          const result = storeRepoAdd({ repoName, storeId });
+          if (!result.ok) {
+            log(`  ${C.red('✗')} ${result.reason}`, 'red');
+            process.exit(1);
+          }
+          log(`  ${C.green('✓')} Repository '${result.repoName}' added to store '${result.storeId}'.`);
+          break;
+        }
+
+        case 'move': {
+          const [repoName, targetStoreId] = repoRest;
+          if (!repoName || !targetStoreId) {
+            log('  Usage: store repo move <repo-name> <target-store-id>', 'red');
+            process.exit(1);
+          }
+          const result = storeRepoMove({ repoName, targetStoreId });
+          if (!result.ok) {
+            log(`  ${C.red('✗')} ${result.reason}`, 'red');
+            process.exit(1);
+          }
+          log(`  ${C.green('✓')} Repository '${result.repoName}' moved from '${result.fromStoreId}' → '${result.toStoreId}'.`);
+          break;
+        }
+
+        case 'list': {
+          const result = storeRepoList();
+          if (!result.ok) {
+            log(`  ${C.red('✗')} Failed to load repo list.`, 'red');
+            process.exit(1);
+          }
+          if (result.repos.length === 0) {
+            log('  No repositories registered in any store.', 'dim');
+          } else {
+            for (const r of result.repos) {
+              const shadow = r.is_shadowed ? C.red(' [shadowed]') : '';
+              log(`  ${C.bold(r.folder_names?.join(', ') ?? r.id)}${shadow}  ${C.dim('store:')} ${r.store_id}`);
+            }
+          }
+          break;
+        }
+
+        default:
+          log(`  Unknown repo subcommand '${repoSub ?? ''}'. Use: store repo add|move|list`, 'red');
+          process.exit(1);
+      }
+      break;
+    }
+
+    default:
+      log(`  Unknown store subcommand '${sub ?? ''}'. Use: store init|add|remove|list|default|conflicts|status|repo`, 'red');
+      process.exit(1);
+  }
+}
+
 async function cmdOrchestratorTests(args) {
   const pytest = venvBin('python');
   let marker = 'integration or deepagent';
@@ -832,6 +1051,27 @@ const COMMANDS = [
       ['orchestrator-tests --live',  'Include live MCP tests (auto-builds, needs API key)'],
     ],
     run:          cmdOrchestratorTests,
+  },
+  {
+    id:           'store',
+    key:          null,
+    label:        'Store management',
+    category:     'MCP Server',
+    description:  'Manage multi-store ledger configuration and repositories',
+    helpVariants: [
+      ['store init [ledger-root]',                    'Create stores.json pointing at ledger root'],
+      ['store add <id> <path>',                       'Register a new store directory'],
+      ['store remove <id>',                           'Remove a store (directory not deleted)'],
+      ['store list',                                  'Show all stores with repo and project counts'],
+      ['store default <id>',                          'Set the default store'],
+      ['store conflicts',                             'Show cross-store repository registry conflicts'],
+      ['store status',                                'Show Git sync status for each store'],
+      ['store repo add <repo-name> <store-id>',       'Add a repository to a store registry'],
+      ['store repo move <repo-name> <target-store-id>', 'Move a repository between stores'],
+      ['store repo list',                             'List all repositories across all stores'],
+    ],
+    helpHidden:   true,
+    run:          cmdStore,
   },
 ];
 
