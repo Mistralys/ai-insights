@@ -3367,3 +3367,410 @@ th[data-sort="total_work_packages"] {
   color: var(--color-text-muted);
   border-color: var(--color-border);
 }
+
+/* ============================================================
+   Configuration Page — Tab navigation
+   Mirrors .knowledge-tabs / .knowledge-tab (generic class names)
+   ============================================================ */
+
+/* ── Tab navigation ──────────────────────────────────────── */
+
+/* Flex container with a bottom border that acts as the tab underline track */
+.config-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+/* Individual tab button — resets <button> defaults, adds transparent bottom border
+   that is promoted to --color-ready on hover/active to sit on top of the track */
+.config-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px; /* overlap the track so the active border hides it */
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.config-tab:hover {
+  color: var(--color-text);
+  border-bottom-color: var(--color-border);
+}
+
+/* Active tab — uses --color-ready for both text and border */
+.config-tab.active {
+  color: var(--color-ready);
+  border-bottom-color: var(--color-ready);
+  font-weight: 600;
+}
+
+/* ============================================================
+   Model Registry Tab
+   ============================================================ */
+
+/* ── Dirty indicator dot — shared by Model Registry and Persona Models tabs ── */
+/* Both selectors share this declaration block intentionally. Restyling here    */
+/* affects both tabs. Add per-tab overrides below this rule if needed.          */
+.mr-dirty-dot,
+.pm-dirty-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-in-progress);
+  margin-right: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* ── Row states ──────────────────────────────────────────── */
+.mr-model-deleted td {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.mr-model-new td {
+  background: #f0fdf4; /* faint green tint for new entries */
+}
+
+[data-theme="dark"] .mr-model-new td {
+  background: rgba(22, 163, 74, 0.1);
+}
+
+/* ── Edit row inputs ─────────────────────────────────────── */
+.mr-edit-row td {
+  vertical-align: top;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.mr-edit-row .form-control {
+  width: 100%;
+  min-width: 100px;
+}
+
+.mr-field-error {
+  border-color: var(--color-blocked) !important;
+}
+
+.mr-error-text {
+  color: var(--color-blocked) !important;
+}
+
+/* ── Row actions column ──────────────────────────────────── */
+.mr-row-actions {
+  white-space: nowrap;
+}
+
+.mr-row-actions .btn + .btn {
+  margin-left: 6px;
+}
+
+/* ── Section title ───────────────────────────────────────── */
+.mr-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--color-text);
+}
+
+/* ── Add Model form row ──────────────────────────────────── */
+.mr-add-section {
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.mr-add-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.mr-add-field {
+  flex: 1 1 140px;
+  min-width: 120px;
+  margin-bottom: 0;
+}
+
+.mr-add-action {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+
+/* ── Action bar ──────────────────────────────────────────── */
+.mr-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   Inline spinner (used in buttons during async operations)
+   ============================================================ */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+/* ============================================================
+   Persona Models Tab
+   ============================================================ */
+
+/* ── Empty-registry / pre-build states ───────────────────── */
+.pm-empty-registry,
+.pm-prebuild-state {
+  padding: 16px 0;
+  color: var(--color-text);
+}
+
+.pm-prebuild-state p {
+  margin-bottom: 14px;
+}
+
+/* ── Stale banner override (local positioning) ───────────── */
+.pm-stale-banner {
+  position: relative;   /* override sticky so it stays in the card flow */
+  top: auto;
+  z-index: auto;
+  margin-bottom: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Build error pre-block ───────────────────────────────── */
+.pm-build-error-pre {
+  border: 2px solid var(--color-blocked);
+  border-radius: 4px;
+  padding: 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--color-text);
+  background: var(--color-surface);
+  margin: 0;
+}
+
+/* ── Section spacing ─────────────────────────────────────── */
+.pm-section {
+  margin-bottom: 20px;
+}
+
+/* ── Default model row ───────────────────────────────────── */
+.pm-default-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pm-default-display,
+.pm-default-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Persona model display / edit rows ───────────────────── */
+.pm-persona-display,
+.pm-persona-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Inline icon-style edit button ──────────────────────── */
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover, var(--color-border));
+}
+
+/* ── Link-style button ──────────────────────────────────── */
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-ready);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: var(--color-text);
+}
+
+/* ── Model text (static display) ─────────────────────────── */
+.pm-model-text {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+/* Model dropdown — consistent width in flex context */
+.pm-model-select {
+  min-width: 160px;
+  max-width: 260px;
+}
+
+/* ── Suite section ───────────────────────────────────────── */
+.pm-suite-section {
+  margin-bottom: 12px;
+}
+
+/* Collapsible suite header button */
+.pm-suite-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface, #f9f9f9);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  transition: background 0.15s;
+}
+
+.pm-suite-header:hover {
+  background: var(--color-surface-hover, var(--color-border));
+}
+
+.pm-suite-chevron {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.pm-suite-count {
+  font-weight: 400;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+/* Suite body (collapsible area) */
+.pm-suite-body {
+  padding: 0 4px;
+  margin-top: 4px;
+}
+
+/* ── Persona table ───────────────────────────────────────── */
+.pm-personas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pm-personas-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pm-personas-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.pm-personas-table tr:last-child td {
+  border-bottom: none;
+}
+
+.pm-persona-name {
+  width: 40%;
+  white-space: nowrap;
+}
+
+.pm-persona-model {
+  width: 60%;
+}
+
+/* ── Assignments header (title + Replace Model button) ───── */
+.pm-assignments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* ── Replace Model form ──────────────────────────────────── */
+.pm-replace-form {
+  background: var(--color-surface, #f9f9f9);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.pm-replace-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.pm-replace-field {
+  flex: 1 1 160px;
+  min-width: 140px;
+  margin-bottom: 0;
+}
+
+.pm-replace-action {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+  display: flex;
+  align-items: flex-end;
+}
+
+/* ── Action bar ──────────────────────────────────────────── */
+.pm-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}

@@ -35,14 +35,20 @@ memory: {{cc_memory}}`;
 /**
  * VS Code frontmatter template for the ledger persona suite.
  *
+ * The `model` field is conditional: when the resolved model is the
+ * "inherit" sentinel (i.e. `model` is falsy in the build context), the
+ * field is omitted entirely so VS Code inherits from user settings.
+ * Claude Code templates always render their `model:` line — see
+ * FRONTMATTER_LEDGER_CC / CC_FRONTMATTER_FIELDS below.
+ *
  * Used when target === 'vscode' and suite === 'ledger'.
  */
 const FRONTMATTER_LEDGER_VSCODE = `---
 id: {{id}}
 name: '{{number}} - {{role}} v{{version}}'
 description: 'Step {{number}}/{{total}} in the agent workflow.'
-model: '{{model}}'
-role: {{role}}
+{{#if model}}model: '{{model}}'
+{{/if}}role: {{role}}
 author: {{author}}
 version: {{version}}
 {{#if last_updated}}

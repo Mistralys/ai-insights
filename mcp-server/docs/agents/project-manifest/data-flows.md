@@ -940,6 +940,176 @@ Agent chain terminates; manual routing by the user is required
 
 ---
 
+## Flow 14: Model Settings Data Flow
+
+**Context:** The model registry system manages AI model configuration for all personas. Three file types live under `{WORKSPACE_ROOT}/personas/model-registry/`. The GUI API handlers in `gui/api-models.ts` are the primary write path; the build system and orchestrator consume the resolved assignments at startup.
+
+### 14a: Registry Initialization (first access)
+
+```
+GUI requests GET /api/models (first run — local.json absent)
+  ↓
+handleGetModels() → readModels()
+  ↓
+  readFile(local.json) → ENOENT
+    ↓
+  _initializeLocalFromDefault():
+    readFile(default.json) → parse → ModelRegistrySchema.parse()
+      ↓
+    atomicWriteJson(local.json, defaultModels)
+    process.stderr.write('[model-registry] auto-initialized from default.json')
+      ↓
+  Return defaultModels
+  ↓
+GUI receives ModelEntry[] (the shipped defaults)
+```
+
+### 14b: User Saves Model Registry
+
+```
+GUI submits PUT /api/models with updated model list
+  ↓
+handleSaveModels(body)
+  ↓
+  SaveModelsBodySchema.safeParse(body)
+    Auto-assign UUIDv4 to entries missing an `id` field
+  ↓
+  writeModels(enriched):
+    1. Schema validation (ModelRegistrySchema)
+    2. Slug uniqueness check
+    3. Reserved-slug guard ('inherit' only on sentinel UUID)
+    4. Deletion guard:
+         existingModels = readModels() (current local.json)
+         deletedModels = existing - incoming (by id)
+         For each deleted model:
+           isModelReferenced(model.id) → checks assignments.json
+           If referenced: add to referencedModels[]
+         If referencedModels.length > 0:
+           → return { saved: false, referencedModels }  (no write)
+    5. atomicWriteJson(local.json, validated)
+       → return { saved: true, models }
+  ↓
+  If not saved: HTTP 409 Conflict with { conflict: true, referencedModels }
+  If saved:     HTTP 200 with { models }
+```
+
+### 14c: User Assigns Models to Personas
+
+```
+GUI submits PUT /api/model-assignments
+  body: { default_model_uuid?: UUID, persona_models: { [personaId]: UUID } }
+  ↓
+handleUpdateAssignments(body)
+  ↓
+  ModelAssignmentsSchema.safeParse(body)
+  ↓
+  Validate persona keys against name-mapping.json:
+    readFile(personas/name-mapping.json) → parse → extract id values
+    For each personaKey in persona_models:
+      if not in validPersonaIds → throw VALIDATION_ERROR 400
+  ↓
+  Validate model UUIDs against local.json:
+    readModels() → extract id values
+    if default_model_uuid not in validModelIds → throw VALIDATION_ERROR 400
+    For each [personaKey, uuid] in persona_models:
+      if uuid not in validModelIds → throw VALIDATION_ERROR 400
+  ↓
+  writeAssignments(data):
+    ModelAssignmentsSchema.safeParse(data)
+    atomicWriteJson(assignments.json, validated)
+  ↓
+  HTTP 200 with ModelAssignments
+```
+
+### 14d: Replace Assigned Model (bulk swap)
+
+```
+GUI submits POST /api/model-assignments/replace
+  body: { old_model_id: UUID, new_model_id: UUID }
+  ↓
+handleReplaceAssignedModel(body)
+  ↓
+  Reject if old_model_id === new_model_id
+  Validate both UUIDs exist in readModels()
+  ↓
+  readAssignments() → current assignments
+  ↓
+  Check old_model_id is referenced:
+    assignments.default_model_uuid === old_model_id? → referenced
+    any value in assignments.persona_models === old_model_id? → referenced
+  If not referenced → throw VALIDATION_ERROR 400
+  ↓
+  Swap: replace all occurrences of old_model_id with new_model_id in:
+    - default_model_uuid (if matches)
+    - each value in persona_models (where value matches)
+  ↓
+  writeAssignments(updated)
+  ↓
+  HTTP 200 with updated ModelAssignments
+```
+
+### 14e: Build System Consumption (startup)
+
+```
+node scripts/build-personas.js
+  ↓
+  Reads YAML sources from personas/{suite}/src/meta/
+  ↓
+  Post-build: generates personas/name-mapping.json
+    For each ledger persona YAML:
+      Extract role, number, id, version, cc_file_name, vs_file_name, da_file_name
+    Write sorted array (9 entries) to name-mapping.json
+  ↓
+  (Model registry is not read by the build script directly —
+   assignments are resolved by the GUI via getResolvedAssignments()
+   and surfaced on GET /api/personas for display)
+```
+
+### 14f: Orchestrator Consumption (startup)
+
+```
+orchestrator/src/utils/persona_models.py
+  → extract_persona_model_slugs()
+  ↓
+  Reads personas/ledger/src/meta/_shared.yaml → default_model_slug
+  For each persona N-*.yaml:
+    Reads model_slug (per-persona override) or falls back to default_model_slug
+  ↓
+  Returns { role → model_slug } map (populated at pipeline startup)
+  ↓
+  Used by Config.stage_models for per-stage model selection
+  Written to stage_start / stage_complete / stage_error JSONL entries as `model` field
+
+Note: The orchestrator reads YAML directly — it does not call the GUI API or read
+assignments.json. GUI-managed model assignments (via PUT /api/model-assignments) are
+not consumed by the orchestrator unless a future integration is added.
+```
+
+### 14g: Staleness Detection
+
+```
+GUI requests GET /api/model-assignments
+  ↓
+computeStale():
+  getMtime(assignments.json) → assignmentsMtime (null if absent)
+  getMtime(local.json)       → localMtime (null if absent)
+  getMtime(personas/name-mapping.json) → nameMappingMtime (null if absent)
+  ↓
+  stale = false when: assignmentsMtime === null AND localMtime === null
+                       (no user changes — no build needed)
+  stale = false when: nameMappingMtime === null
+                       (no build output to compare against)
+  stale = max(assignmentsMtime, localMtime) > nameMappingMtime
+  ↓
+Response: { ...assignments, stale: boolean }
+  stale: true  → Frontend shows "Rebuild personas" prompt
+  stale: false → No action needed
+```
+
+**Result:** The model registry flow separates concerns cleanly — `local.json` is the live model list, `assignments.json` maps persona IDs to stable UUIDs, and `name-mapping.json` is the build artifact that bridges persona identities across GUI and registry. The staleness flag guides users to trigger a persona rebuild after making registry or assignment changes.
+
+---
+
 ## Data Flow Patterns
 
 ### Pattern 1: Read-Validate-Process-Return
@@ -1485,12 +1655,14 @@ Return { ...insight, formatted_id: 'KN-NNNN' } to agent
 
 These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
 
-**Dispatch tier summary:**
+**Route dispatch summary:**
 
-| Tier | Routes | Mechanism |
-|------|--------|-----------|
-| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
-| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+All five knowledge endpoints are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()` in `gui/server.ts`.
+
+| Route type | Routes | `noBody` |
+|-----------|--------|---------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `true` — query params read by handler from `URLSearchParams` |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | — (omitted) — `readJsonBody` applies 1 MiB body limit |
 
 ---
 
@@ -1499,9 +1671,8 @@ These five HTTP endpoints expose the knowledge store to the browser dashboard. A
 ```
 Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
   ↓
-gui/server.ts matchRoute()
-  method === 'GET', rest === ['knowledge']
-  → parse query string: scope, category, tags (comma-split), repository_name, query, limit, offset
+gui/server.ts dispatchRoute() → Route{ method:'GET', path:'/api/knowledge', noBody:true }
+  → URLSearchParams: scope, category, tags (comma-split), repository_name, query, limit, offset
   ↓
 handleListKnowledge(ledgerRoot, params)
   ↓
@@ -1528,10 +1699,9 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ```
 Browser → DELETE /api/knowledge/42?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'DELETE', rest === ['knowledge', '42']
-  → parse :id (decodeURIComponent, raw string)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'DELETE', path:/^\/api\/knowledge\/(?<id>[^/]+)$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
@@ -1558,10 +1728,9 @@ gui/server.ts → HTTP 204 No Content
 ```
 Browser → POST /api/knowledge/42/promote?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'POST', rest === ['knowledge', '42', 'promote']
-  → parse :id (decodeURIComponent)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'POST', path:/^\/api\/knowledge\/(?<id>[^/]+)\/promote$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓

@@ -23,6 +23,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── kill-orchestrator.js
     └── lib/
         ├── health-checks.js
+        ├── persona-model-resolution.js
     └── normalize-ctx-paths.js
     └── package-personas.js
     └── preflight-bootstrap.js
@@ -51,6 +52,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
+import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -122,13 +124,13 @@ if (!CHECK) {
 
 // Post-build: generate personas/name-mapping.json (real builds only)
 if (!CHECK) {
-  const metaDir = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
-  const outPath = path.join(ROOT, 'personas', 'name-mapping.json');
+  const ledgerMetaDir = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
+  const outPath       = path.join(ROOT, 'personas', 'name-mapping.json');
 
-  // Dynamically derive persona filenames from the filesystem — all files matching
+  // Dynamically derive ledger persona filenames from the filesystem — all files matching
   // /^\d+-.*\.yaml$/ in personas/ledger/src/meta/, sorted by leading digit.
   // This eliminates manual synchronization with shared/workflow-manifest.json.
-  const PERSONA_FILES = fs.readdirSync(metaDir)
+  const LEDGER_PERSONA_FILES = fs.readdirSync(ledgerMetaDir)
     .filter(f => /^\d+-.*\.yaml$/.test(f))
     .sort((a, b) => {
       const numA = parseInt(a.match(/^(\d+)/)[1], 10);
@@ -136,7 +138,25 @@ if (!CHECK) {
       return numA - numB;
     });
 
+  // Non-ledger suite definitions: [suiteName, metaDir]
+  const NON_LEDGER_SUITES = [
+    ['standalone',     path.join(ROOT, 'personas', 'standalone', 'src', 'meta')],
+    ['ledger-support', path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta')],
+  ];
+
   const SCALAR_FIELDS = ['number', 'role', 'id', 'version', 'vs_file_name', 'cc_file_name', 'da_file_name'];
+
+  // Non-ledger personas use the same scalar fields minus number/role (which are
+  // absent or derived differently).
+  const STANDALONE_SCALAR_FIELDS = ['id', 'name', 'version', 'vs_file_name', 'cc_file_name', 'da_file_name', 'model_slug'];
+
+  // ---------------------------------------------------------------------------
+  // Load model registry once for the entire name-mapping pass
+  // (loadModelRegistry and resolveModel are imported from lib/persona-model-resolution.js)
+  // ---------------------------------------------------------------------------
+
+  const registryDir = path.join(ROOT, 'personas', 'model-registry');
+  const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir);
 
   /**
    * Extracts simple scalar (string/number) fields from a YAML file without
@@ -152,12 +172,21 @@ if (!CHECK) {
       const key = m[1];
       if (!fields.includes(key)) continue;
       let val = m[2].trim();
-      // Strip surrounding single or double quotes
-      if ((val.startsWith('"') && val.endsWith('"')) ||
-          (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
+      // Strip surrounding single or double quotes (handles `"value"` and `'value'`).
+      // Also handles quoted values followed by a trailing inline comment:
+      //   `key: "value"   # comment` → first match the closing quote, strip comment, then unquote.
+      if (val.startsWith('"') || val.startsWith("'")) {
+        const q = val[0];
+        // Find the closing quote; content between quotes may contain any char.
+        const closeIdx = val.indexOf(q, 1);
+        if (closeIdx !== -1) {
+          val = val.slice(1, closeIdx);
+        } else {
+          // Unclosed quote — fall back to comment-strip and trim
+          val = val.replace(/\s+#.*$/, '').trim();
+        }
       } else {
-        // Strip trailing inline YAML comments from unquoted scalar values
+        // Unquoted scalar: strip trailing inline YAML comment
         // e.g. `role: Developer # note` → `Developer`
         val = val.replace(/\s+#.*$/, '').trim();
       }
@@ -277,13 +306,22 @@ if (!CHECK) {
     return filename.replace(/\.[^.]+$/, '');
   }
 
-  // Read shared metadata for default_version — used as fallback when a persona YAML omits `version`.
-  const sharedRaw      = fs.readFileSync(path.join(metaDir, '_shared.yaml'), 'utf8');
-  const sharedData     = parseYamlScalars(sharedRaw, ['default_version']);
-  const DEFAULT_VERSION = sharedData.default_version;
+  // ---------------------------------------------------------------------------
+  // Ledger suite — read _shared.yaml for default_version and default model info
+  // ---------------------------------------------------------------------------
 
-  const mapping = PERSONA_FILES.map(file => {
-    const raw  = fs.readFileSync(path.join(metaDir, file), 'utf8');
+  const ledgerSharedRaw   = fs.readFileSync(path.join(ledgerMetaDir, '_shared.yaml'), 'utf8');
+  const ledgerSharedData  = parseYamlScalars(ledgerSharedRaw, ['default_version', 'default_model', 'default_model_slug']);
+  const DEFAULT_VERSION   = ledgerSharedData.default_version;
+  const LEDGER_DEFAULT_MODEL      = ledgerSharedData.default_model;
+  const LEDGER_DEFAULT_MODEL_SLUG = ledgerSharedData.default_model_slug;
+
+  // ---------------------------------------------------------------------------
+  // Build ledger entries
+  // ---------------------------------------------------------------------------
+
+  const ledgerEntries = LEDGER_PERSONA_FILES.map(file => {
+    const raw  = fs.readFileSync(path.join(ledgerMetaDir, file), 'utf8');
     const data = parseYamlScalars(raw, SCALAR_FIELDS);
 
     validateChangelogField(raw, file);
@@ -295,11 +333,25 @@ if (!CHECK) {
     const number     = Number(data.number);
     const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
 
+    const modelInfo = resolveModel(
+      data.id,
+      undefined, // ledger personas don't carry per-persona model_slug in YAML (uses shared default)
+      LEDGER_DEFAULT_MODEL_SLUG,
+      LEDGER_DEFAULT_MODEL,
+      uuidToSlug,
+      assignments,
+      registryEntries,
+    );
+
     return {
       number,
-      id:     data.id,
-      role:   data.role,
+      id:         data.id,
+      role:       data.role,
       version,
+      suite:      'ledger',
+      model:      modelInfo.model,
+      model_slug: modelInfo.model_slug,
+      cc_model:   modelInfo.cc_model,
       vscode: {
         file_name:  data.vs_file_name,
         agent_name: `${number} - ${data.role} v${version}`,
@@ -316,10 +368,111 @@ if (!CHECK) {
   });
 
   // Sort by number (files are already ordered, but be explicit)
-  mapping.sort((a, b) => a.number - b.number);
+  ledgerEntries.sort((a, b) => a.number - b.number);
+
+  // ---------------------------------------------------------------------------
+  // Non-ledger suites (standalone, ledger-support)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Derives the role name for a non-ledger persona by stripping the known suite
+   * suffix from the persona's `name` field.
+   * e.g. "Developer (Standalone)"  → "Developer"
+   *      "Ledger Bootstrapper"     → "Ledger Bootstrapper"  (no recognized suffix)
+   */
+  function deriveRole(name) {
+    return name
+      .replace(/\s+\(Standalone\)$/i, '')
+      .replace(/\s+\(Ledger Support\)$/i, '')
+      .trim();
+  }
+
+  const nonLedgerEntries = [];
+
+  for (const [suiteName, suiteMetaDir] of NON_LEDGER_SUITES) {
+    if (!fs.existsSync(suiteMetaDir)) continue;
+
+    const suiteFiles = fs.readdirSync(suiteMetaDir)
+      .filter(f => f.endsWith('.yaml') && !f.startsWith('_'));
+
+    // Read suite-level _shared.yaml for default model slug (if present)
+    const suiteSharedPath = path.join(suiteMetaDir, '_shared.yaml');
+    let suiteDefaultModelSlug = undefined;
+    if (fs.existsSync(suiteSharedPath)) {
+      const suiteSharedData = parseYamlScalars(
+        fs.readFileSync(suiteSharedPath, 'utf8'),
+        ['default_model_slug'],
+      );
+      suiteDefaultModelSlug = suiteSharedData.default_model_slug || undefined;
+    }
+
+    for (const file of suiteFiles) {
+      const raw  = fs.readFileSync(path.join(suiteMetaDir, file), 'utf8');
+      const data = parseYamlScalars(raw, STANDALONE_SCALAR_FIELDS);
+
+      if (!data.id) continue; // malformed YAML — skip silently
+
+      const ccFileName = data.cc_file_name;
+      if (!ccFileName) continue; // no output target — skip
+
+      const daFileName = data.da_file_name || ccFileName;
+      const ccStem     = stem(ccFileName);
+      const daStem     = stem(daFileName);
+      const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
+      const personaName = data.name || stem(file);
+      const role        = deriveRole(personaName);
+
+      const modelInfo = resolveModel(
+        data.id,
+        data.model_slug || suiteDefaultModelSlug,
+        undefined,  // no ledger-style shared model default for non-ledger suites
+        undefined,
+        uuidToSlug,
+        assignments,
+        registryEntries,
+      );
+
+      const entry = {
+        number:     null,
+        id:         data.id,
+        role,
+        version,
+        suite:      suiteName,
+        model:      modelInfo.model,
+        model_slug: modelInfo.model_slug,
+        cc_model:   modelInfo.cc_model,
+        vscode: {
+          file_name:  data.vs_file_name || ccFileName,
+          agent_name: personaName,
+        },
+        claude_code: {
+          file_name:  ccFileName,
+          agent_name: ccStem,
+        },
+        deep_agents: {
+          file_name:  daFileName,
+          agent_name: daStem,
+        },
+      };
+
+      nonLedgerEntries.push(entry);
+    }
+  }
+
+  // Sort non-ledger entries alphabetically by suite then role for stable output
+  nonLedgerEntries.sort((a, b) => {
+    if (a.suite !== b.suite) return a.suite < b.suite ? -1 : 1;
+    return a.role < b.role ? -1 : 1;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Write name-mapping.json — ledger entries first, then non-ledger suites
+  // ---------------------------------------------------------------------------
+
+  const mapping = [...ledgerEntries, ...nonLedgerEntries];
 
   fs.writeFileSync(outPath, JSON.stringify(mapping, null, 2) + '\n', 'utf8');
-  console.log(`Generated personas/name-mapping.json with ${mapping.length} entries.`);
+  console.log(`Generated personas/name-mapping.json with ${mapping.length} entries (${ledgerEntries.length} ledger, ${nonLedgerEntries.length} non-ledger).`);
 }
 
 // Always: validate {{agent_slug_*}} cross-references (real builds AND --check).
@@ -3492,6 +3645,191 @@ export async function runChecks(costFilter) {
   );
 
   return results;
+}
+
+```
+###  Path: `/scripts/lib/persona-model-resolution.js`
+
+```js
+/**
+ * scripts/lib/persona-model-resolution.js
+ *
+ * Model resolution helpers for the personas name-mapping build pass.
+ *
+ * Provides:
+ *   loadModelRegistry(registryDir)  — reads local.json / default.json + assignments.json
+ *   resolveModel(...)               — resolves model fields using the priority chain
+ *
+ * Both functions are pure (no side-effects beyond the file reads performed by
+ * loadModelRegistry), making them straightforwardly unit-testable.
+ *
+ * Priority chain for resolveModel:
+ *   1. assignments.json persona_models[personaId]  (skip when resolved slug === "inherit")
+ *   2. per-persona YAML model_slug                 (skip when value === "inherit")
+ *   3. assignments.json default_model_uuid          (skip when resolved slug === "inherit")
+ *   4. _shared.yaml default_model_slug
+ *   5. "inherit" sentinel fallback
+ */
+
+import fs from 'fs';
+import path from 'path';
+
+// ---------------------------------------------------------------------------
+// loadModelRegistry
+// ---------------------------------------------------------------------------
+
+/**
+ * Load the model registry files from `registryDir`.
+ *
+ * Reads `local.json` (falling back to `default.json`) to build the UUID → slug
+ * map, and reads `assignments.json` when present.
+ *
+ * @param {string} registryDir  Absolute path to the model-registry directory.
+ * @param {{ warn?: (msg: string) => void }} [opts]
+ *   Optional overrides — `warn` defaults to `console.warn`.
+ * @returns {{ uuidToSlug: Map<string,string>, registryEntries: object[], assignments: object|null }}
+ */
+export function loadModelRegistry(registryDir, opts = {}) {
+  const warn = opts.warn ?? ((msg) => console.warn(msg));
+
+  const localJsonPath   = path.join(registryDir, 'local.json');
+  const defaultJsonPath = path.join(registryDir, 'default.json');
+  const assignmentsPath = path.join(registryDir, 'assignments.json');
+
+  // Build UUID → slug map from local.json (seed from default.json if absent)
+  const uuidToSlug     = new Map();
+  let   registryEntries = [];
+
+  const regPath = fs.existsSync(localJsonPath) ? localJsonPath : defaultJsonPath;
+  if (fs.existsSync(regPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(regPath, 'utf8'));
+      if (Array.isArray(parsed)) {
+        registryEntries = parsed;
+        for (const entry of parsed) {
+          if (entry && typeof entry.id === 'string' && typeof entry.slug === 'string') {
+            uuidToSlug.set(entry.id, entry.slug);
+          }
+        }
+      }
+    } catch (e) {
+      warn(`[WARN] build-personas: failed to parse model registry at ${regPath}: ${e.message}`);
+    }
+  }
+
+  // Load assignments.json (optional — absent in clean installs)
+  let assignments = null;
+  if (fs.existsSync(assignmentsPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(assignmentsPath, 'utf8'));
+      if (raw && typeof raw === 'object') {
+        assignments = raw;
+      }
+    } catch (e) {
+      warn(`[WARN] build-personas: failed to parse assignments.json: ${e.message}`);
+    }
+  }
+
+  return { uuidToSlug, registryEntries, assignments };
+}
+
+// ---------------------------------------------------------------------------
+// resolveModel
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve display name, slug, and cc_model for a persona.
+ *
+ * Priority chain (mirrors the build plugin + orchestrator):
+ *   1. assignments.json persona_models[personaId]  (skip if resolved slug === "inherit")
+ *   2. yamlModelSlug                               (skip if value === "inherit")
+ *   3. assignments.json default_model_uuid          (skip if resolved slug === "inherit")
+ *   4. sharedModelSlug / sharedModelName
+ *   5. "inherit" sentinel — { model: "Inherit / Auto", model_slug: "inherit", cc_model: "inherit" }
+ *
+ * @param {string|undefined}       personaId       Persona ID (used as assignments key).
+ * @param {string|undefined}       yamlModelSlug   Per-persona model_slug from YAML.
+ * @param {string|undefined}       sharedModelSlug Shared default model slug (_shared.yaml).
+ * @param {string|undefined}       sharedModelName Shared default model name (_shared.yaml).
+ * @param {Map<string,string>}     uuidToSlug      UUID → slug from registry.
+ * @param {object|null}            assignments     Parsed assignments.json (or null).
+ * @param {object[]}               registryEntries Array of { id, name, slug, cc_model } registry entries.
+ * @returns {{ model: string, model_slug: string, cc_model: string }}
+ */
+export function resolveModel(
+  personaId,
+  yamlModelSlug,
+  sharedModelSlug,
+  sharedModelName,
+  uuidToSlug,
+  assignments,
+  registryEntries,
+) {
+  // Build slug → entry map for name / cc_model lookups
+  const slugToEntry = new Map();
+  for (const entry of registryEntries) {
+    if (entry && typeof entry.slug === 'string') {
+      slugToEntry.set(entry.slug, entry);
+    }
+  }
+
+  function entryForSlug(slug) {
+    return slugToEntry.get(slug) || null;
+  }
+
+  // 1. Per-persona assignment
+  if (assignments && assignments.persona_models && personaId) {
+    const uuid = assignments.persona_models[personaId];
+    if (uuid) {
+      const slug = uuidToSlug.get(uuid);
+      if (slug && slug !== 'inherit') {
+        const entry = entryForSlug(slug);
+        return {
+          model:      entry ? entry.name : slug,
+          model_slug: slug,
+          cc_model:   entry ? entry.cc_model : 'inherit',
+        };
+      }
+      // slug === 'inherit' → skip, fall through
+    }
+  }
+
+  // 2. Per-persona YAML model_slug
+  if (yamlModelSlug && yamlModelSlug !== 'inherit') {
+    const entry = entryForSlug(yamlModelSlug);
+    return {
+      model:      entry ? entry.name : yamlModelSlug,
+      model_slug: yamlModelSlug,
+      cc_model:   entry ? entry.cc_model : 'inherit',
+    };
+  }
+
+  // 3. Default assignment from assignments.json
+  if (assignments && assignments.default_model_uuid) {
+    const slug = uuidToSlug.get(assignments.default_model_uuid);
+    if (slug && slug !== 'inherit') {
+      const entry = entryForSlug(slug);
+      return {
+        model:      entry ? entry.name : slug,
+        model_slug: slug,
+        cc_model:   entry ? entry.cc_model : 'inherit',
+      };
+    }
+    // slug === 'inherit' → skip, fall through
+  }
+
+  // 4. _shared.yaml default
+  if (sharedModelSlug && sharedModelSlug !== 'inherit') {
+    const entry = entryForSlug(sharedModelSlug);
+    return {
+      model:      entry ? entry.name  : (sharedModelName || sharedModelSlug),
+      model_slug: sharedModelSlug,
+      cc_model:   entry ? entry.cc_model : 'inherit',
+    };
+  }
+
+  // 5. Ultimate fallback — inherit sentinel
+  return { model: 'Inherit / Auto', model_slug: 'inherit', cc_model: 'inherit' };
 }
 
 ```

@@ -18,7 +18,10 @@
  *   AC-5: Plugin hook composition — roster_rendered and mcp_tools_table in context after onBuildContext
  */
 
-import { createRequire } from 'module';
+import { createRequire }  from 'module';
+import fs   from 'fs';
+import path from 'path';
+import os   from 'os';
 
 const require = createRequire(import.meta.url);
 
@@ -581,5 +584,159 @@ describe('ledgerPlugin()', () => {
     expect(plugin.frontmatterTemplates).toBeDefined();
     plugin.onSuiteInit(standaloneSuite, {});
     expect(plugin.frontmatterTemplates).toBeUndefined();
+  });
+
+  // AC-6: VS Code template has {{#if model}} conditional; CC template always has model:
+  it('VS Code frontmatter template wraps model field in {{#if model}} conditional', () => {
+    const plugin = ledgerPlugin();
+    plugin.onSuiteInit(suite, {});
+    const vsTemplate = plugin.frontmatterTemplates['vscode'];
+    expect(vsTemplate).toContain('{{#if model}}');
+    expect(vsTemplate).not.toMatch(/^model:\s/m); // no unconditional model: line
+  });
+
+  it('Claude Code frontmatter template always renders its model: line (no {{#if model}})', () => {
+    const plugin = ledgerPlugin();
+    plugin.onSuiteInit(suite, {});
+    const ccTemplate = plugin.frontmatterTemplates['claude-code'];
+    // CC template must include model: unconditionally (via CC_FRONTMATTER_FIELDS)
+    expect(ccTemplate).toContain("model: '{{cc_model}}'");
+    // Should NOT have a {{#if model}} gate on the CC model line
+    expect(ccTemplate).not.toMatch(/\{\{#if model\}\}model:/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ledgerPlugin() — model resolution in onBuildContext (AC-1 through AC-5)
+// ---------------------------------------------------------------------------
+
+describe('ledgerPlugin() model resolution', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-plugin-model-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Minimal registry entries for tests */
+  const REGISTRY_ENTRIES = [
+    { id: '00000000-0000-0000-0000-000000000000', name: 'Inherit / Auto',    slug: 'inherit',          cc_model: 'inherit' },
+    { id: '00000000-0000-0000-0000-000000000001', name: 'Claude Sonnet 4.6', slug: 'claude-sonnet-4-6', cc_model: 'inherit' },
+    { id: '00000000-0000-0000-0000-000000000002', name: 'Gemini 3.5 Flash',  slug: 'gemini-3-5-flash',  cc_model: 'gemini-3-5-flash' },
+  ];
+
+  function writeRegistry(entries, assignments) {
+    fs.writeFileSync(path.join(tmpDir, 'default.json'), JSON.stringify(entries), 'utf8');
+    if (assignments) {
+      fs.writeFileSync(path.join(tmpDir, 'assignments.json'), JSON.stringify(assignments), 'utf8');
+    }
+  }
+
+  // AC-1, AC-7: per-persona assignment is highest priority
+  it('onBuildContext resolves model from per-persona assignment (priority 1)', () => {
+    writeRegistry(REGISTRY_ENTRIES, {
+      persona_models: { 'my-persona': '00000000-0000-0000-0000-000000000002' }, // Gemini
+      default_model_uuid: '00000000-0000-0000-0000-000000000001',               // Sonnet — should be ignored
+    });
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const context = { default_model_slug: 'claude-sonnet-4-6', default_model: 'Claude Sonnet 4.6', cc_model: 'inherit' };
+    const ctx     = plugin.onBuildContext(context, persona, suite);
+    expect(ctx['model']).toBe('Gemini 3.5 Flash');
+    expect(ctx['model_slug']).toBe('gemini-3-5-flash');
+  });
+
+  // AC-2: cc_model resolved from registry entry
+  it('onBuildContext resolves cc_model from the registry entry for the assigned model', () => {
+    writeRegistry(REGISTRY_ENTRIES, {
+      persona_models: { 'my-persona': '00000000-0000-0000-0000-000000000002' }, // Gemini has cc_model
+    });
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const ctx     = plugin.onBuildContext({}, persona, suite);
+    expect(ctx['cc_model']).toBe('gemini-3-5-flash');
+  });
+
+  // AC-3: inherit assignment → model is falsy (empty string)
+  it('onBuildContext sets model to "" (falsy) when assignment resolves to inherit', () => {
+    writeRegistry(REGISTRY_ENTRIES, {
+      persona_models: { 'my-persona': '00000000-0000-0000-0000-000000000000' }, // inherit UUID
+    });
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const ctx     = plugin.onBuildContext({}, persona, suite);
+    expect(ctx['model']).toBeFalsy();
+  });
+
+  // AC-4: inherit assignment → cc_model is 'inherit'
+  it('onBuildContext sets cc_model to "inherit" when assignment resolves to inherit', () => {
+    writeRegistry(REGISTRY_ENTRIES, {
+      persona_models: { 'my-persona': '00000000-0000-0000-0000-000000000000' }, // inherit UUID
+    });
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const ctx     = plugin.onBuildContext({}, persona, suite);
+    expect(ctx['cc_model']).toBe('inherit');
+  });
+
+  // AC-1: falls back to _shared.yaml default when no assignment or YAML model_slug
+  it('onBuildContext falls back to _shared.yaml default_model_slug (priority 4)', () => {
+    writeRegistry(REGISTRY_ENTRIES); // no assignments.json
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const context = { default_model_slug: 'claude-sonnet-4-6', default_model: 'Claude Sonnet 4.6', cc_model: 'inherit' };
+    const ctx     = plugin.onBuildContext(context, persona, suite);
+    expect(ctx['model']).toBe('Claude Sonnet 4.6');
+    expect(ctx['model_slug']).toBe('claude-sonnet-4-6');
+  });
+
+  // AC-5: graceful fallback when registry files absent — uses YAML-supplied defaults
+  it('onBuildContext falls back to YAML defaults when registry dir has no files', () => {
+    // tmpDir exists but has no files — empty registry
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const context = { default_model_slug: 'claude-sonnet-4-6', default_model: 'Claude Sonnet 4.6', cc_model: 'inherit' };
+    const ctx     = plugin.onBuildContext(context, persona, suite);
+    // With no registry, slugToEntry is empty — slug is used as name
+    expect(ctx['model_slug']).toBe('claude-sonnet-4-6');
+    expect(ctx['model']).toBe('Claude Sonnet 4.6'); // sharedModelName used as fallback
+  });
+
+  // AC-5: graceful fallback when assignments.json absent — no error, YAML used
+  it('onBuildContext works correctly when assignments.json is absent', () => {
+    writeRegistry(REGISTRY_ENTRIES); // only default.json, no assignments.json
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const context = { default_model_slug: 'claude-sonnet-4-6', default_model: 'Claude Sonnet 4.6', cc_model: 'inherit' };
+    const ctx     = plugin.onBuildContext(context, persona, suite);
+    expect(ctx['model_slug']).toBe('claude-sonnet-4-6');
+  });
+
+  // inherit sentinel fallback when no model configured anywhere
+  it('onBuildContext produces falsy model when no model is configured at any level', () => {
+    // Empty registry, no context defaults
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const ctx     = plugin.onBuildContext({}, persona, suite);
+    expect(ctx['model']).toBeFalsy();
+    expect(ctx['model_slug']).toBe('inherit');
+    expect(ctx['cc_model']).toBe('inherit');
+  });
+
+  // AC-1: per-persona assignment skips inherit UUID and falls through to YAML model_slug
+  it('onBuildContext skips per-persona assignment when it resolves to inherit slug', () => {
+    writeRegistry(REGISTRY_ENTRIES, {
+      persona_models: { 'my-persona': '00000000-0000-0000-0000-000000000000' }, // inherit
+    });
+    const plugin  = ledgerPlugin({ registryDir: tmpDir });
+    const persona = { id: 'my-persona' };
+    const context = { model_slug: 'gemini-3-5-flash' }; // per-persona YAML slug
+    const ctx     = plugin.onBuildContext(context, persona, suite);
+    // Should fall through to YAML model_slug
+    expect(ctx['model_slug']).toBe('gemini-3-5-flash');
+    expect(ctx['model']).toBe('Gemini 3.5 Flash');
   });
 });

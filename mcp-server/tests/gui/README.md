@@ -207,6 +207,76 @@ in the default Node environment and do not need to load any frontend scripts. Th
 test TypeScript handlers directly by importing from `../../gui/api.ts` and related
 modules.
 
+### Dispatcher Isolation Testing — `startDispatchServer` Pattern
+
+`dispatch-route.test.ts` tests `dispatchRoute()` directly — bypassing `handleRequest()`
+and the full GUI router setup — via the `startDispatchServer` helper. Use this approach
+when you need to verify dispatcher-level behavior (query-parameter injection, `noBody`
+semantics, custom `statusCode`, `ApiError` propagation, `INTERNAL_ERROR` fallback) with
+minimal test overhead and no ledger or filesystem dependencies.
+
+**When to use `startDispatchServer` (dispatcher isolation):**
+- Testing `dispatchRoute()` contracts in isolation (route matching, query parsing, error propagation)
+- Writing unit tests for a new handler's HTTP contract without a real ledger root
+- Verifying dispatcher behavior that should not depend on `handleRequest()` middleware (body limits, CORS headers, etc.)
+
+**When to use `handleRequest()` (integration-level):**
+- Testing routes that require ledger state, config, or log filesystem paths
+- Verifying body-size limits, security headers, or CORS — middleware concerns owned by `handleRequest()`
+- Regression tests that specifically target the `handleRequest → dispatchRoute` call chain
+
+**`startDispatchServer` signature:**
+
+```typescript
+function startDispatchServer(routes: Route[]): Promise<{ server: Server; baseUrl: string }>
+```
+
+The helper accepts a synthetic `Route[]` table, starts a real `node:http` server on an
+ephemeral port (`0` on `127.0.0.1`), and delegates every request to `dispatchRoute()`.
+Unmatched routes receive a synthetic HTTP 404. The `.catch()` branch is a safety net —
+`dispatchRoute()` catches all handler errors internally and always resolves, so the branch
+is unreachable in normal operation.
+
+**Usage template:**
+
+```typescript
+import { dispatchRoute } from '../../gui/server.js';
+import type { Route } from '../../gui/server.js';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+
+function startDispatchServer(routes: Route[]): Promise<{ server: Server; baseUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      const method = req.method?.toUpperCase() ?? 'GET';
+      const url = req.url ?? '/';
+      dispatchRoute(req, res, method, url, 0, routes).then((matched) => {
+        if (!matched) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'no route matched' } }));
+        }
+      }).catch((err) => {
+        // Safety net only — dispatchRoute always resolves in practice.
+        process.stderr.write(`[test-server] Unhandled: ${String(err)}\n`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'error' } }));
+        }
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') resolve({ server, baseUrl: `http://127.0.0.1:${addr.port}` });
+      else reject(new Error('Could not determine server port'));
+    });
+    server.on('error', reject);
+  });
+}
+```
+
+See `dispatch-route.test.ts` for the complete reference implementation including
+`stopServer`, `afterEach` cleanup, and `vi.restoreAllMocks()` for stderr spies.
+
 ---
 
 ## Running the Suite

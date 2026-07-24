@@ -99,7 +99,145 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 
 ---
 
-### 1.4 Configuration & Server Info
+### 1.4 Model Registry
+
+All routes are handled by `api-models.ts` and are registered in the declarative `buildRoutes()` table — dispatched by `dispatchRoute()` along with every other API route.
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/models` | `handleGetModels` | Returns model list. Auto-initializes `local.json` from `default.json` on first access. |
+| `PUT` | `/api/models` | `handleSaveModels` | Bulk-save the model list. Auto-assigns UUIDv4 to entries without `id`. Returns 409 when a deletion would remove a referenced model. |
+| `POST` | `/api/models/load-defaults` | `handleLoadDefaults` | Merge `default.json` into `local.json` without overwriting existing entries. Returns `{ models, conflicts }`. |
+
+#### PUT /api/models Request Body
+
+Array of model entries validated by `SaveModelsBodySchema`:
+
+```typescript
+Array<{
+  id?: string;          // UUIDv4 — omit to auto-assign
+  name: string;         // Display name (min 1 char)
+  slug: string;         // Lowercase kebab-case (regex: /^[a-z0-9]+(-[a-z0-9]+)*$/)
+  cc_model?: string;    // Claude Code model identifier (default: "inherit")
+}>
+```
+
+**Validation rules:**
+- Duplicate `slug` values → 400
+- Reserved slug `"inherit"` on a non-sentinel entry → 400
+- Removing a model that is referenced in assignments → 409 with `referencedModels` details (user must use Replace Model first)
+
+#### PUT /api/models Response
+
+```typescript
+// Success
+{ models: ModelEntry[] }
+
+// 409 Conflict (referenced model deletion blocked)
+{
+  conflict: true;
+  referencedModels: Array<{ model: ModelEntry; usages: string[] }>;
+}
+```
+
+---
+
+### 1.5 Model Assignments
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/model-assignments` | `handleGetAssignments` | Returns assignments enriched with `stale` boolean. |
+| `PUT` | `/api/model-assignments` | `handleUpdateAssignments` | Validate and persist assignments. Returns 400 when `name-mapping.json` is absent or invalid. |
+| `POST` | `/api/model-assignments/replace` | `handleReplaceAssignedModel` | Swap all occurrences of `old_model_id` with `new_model_id`. Returns 400 for same-model swap or unreferenced source. |
+
+#### GET /api/model-assignments Response
+
+```typescript
+{
+  default_model_uuid?: string;              // Optional global default
+  persona_models: Record<string, string>;   // Persona ID → model UUID
+  stale: boolean;                           // See staleness rules below
+}
+```
+
+**Staleness rules for `stale`:**
+
+| Condition | `stale` |
+|-----------|---------|
+| `max(mtime(assignments.json), mtime(local.json))` > `mtime(name-mapping.json)` | `true` — rebuild needed |
+| Neither `assignments.json` nor `local.json` exist | `false` — no user changes yet |
+| `name-mapping.json` does not exist | `false` — no build output to compare |
+| Only `default.json` is newer than `name-mapping.json` | `false` — Git checkout mtime, not a user change |
+
+#### PUT /api/model-assignments Request Body
+
+```typescript
+{
+  default_model_uuid?: string;             // Must exist in model registry if provided
+  persona_models: Record<string, string>;  // Key: persona id from name-mapping.json; Value: model UUID
+}
+```
+
+**Validation rules:**
+- `name-mapping.json` must exist → 400 if absent
+- All persona keys in `persona_models` must appear as `id` values in `name-mapping.json` → 400 if invalid
+- All model UUIDs (including `default_model_uuid`) must exist in the registry → 400 if not found
+
+#### POST /api/model-assignments/replace Request Body
+
+```typescript
+{ old_model_id: string; new_model_id: string }  // Both must be UUIDs in registry
+```
+
+**Rejection conditions (400):**
+- `old_model_id === new_model_id` — "Source and target models must be different"
+- `old_model_id` not referenced in any assignment — "Model is not referenced in any current assignment"
+
+---
+
+### 1.6 Personas
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/personas` | `handleGetPersonas` | Returns all entries from `name-mapping.json`, or empty array if file absent. Returns 400 if file is malformed JSON. |
+| `POST` | `/api/personas/rebuild` | `handleRebuildPersonas` | Spawns `node scripts/build-personas.js`. Returns 409 when a build is already in progress. |
+
+#### GET /api/personas Response
+
+Array of `PersonaEntry` objects:
+
+```typescript
+interface PersonaEntry {
+  id: string;          // Persona identifier — use as key in PUT /api/model-assignments
+  role: string;        // Human-readable display name
+  suite: string;       // Persona suite (e.g. "ledger", "standalone")
+  model?: string;      // Resolved model name (populated after build)
+  model_slug?: string; // Matching ModelEntry.slug in local registry
+  cc_model?: string;   // Effective Claude Code model identifier
+  number?: number;     // Display ordering index within the suite
+}
+```
+
+Optional fields are only populated after WP-003 is implemented and a build has run.
+
+#### POST /api/personas/rebuild Response
+
+```typescript
+// Exit code 0
+{ success: true; output: string }
+
+// Non-zero exit code → HTTP 500
+{ success: false; output: string; exitCode: number }
+
+// Build already running → HTTP 409
+{ error: { code: 'CONFLICT'; message: string } }
+```
+
+The `buildInProgress` module-level flag prevents concurrent builds. It is cleared in a `finally` block so process errors never leave the guard permanently set.
+
+---
+
+### 1.7 Configuration & Server Info
 
 | Method | Path | Handler | Description |
 |--------|------|---------|-------------|
@@ -171,11 +309,49 @@ Variants:
 
 ---
 
+## 1.X Server-side TypeScript Exports (`gui/server.ts`)
+
+These types and functions are exported from `gui/server.ts` and used by test code and other server-side modules.
+
+### Exported Types
+
+#### `HttpMethod`
+
+```typescript
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+```
+
+Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as defense-in-depth alongside the compile-time union.
+
+#### `Route` (interface)
+
+A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `method` | `HttpMethod` | ✓ | HTTP method — one of `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE'`. |
+| `path` | `string \| RegExp` | ✓ | Exact string path or RegExp with named capture groups (`(?<name>…)`). |
+| `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), named capture groups, and query parameters. |
+| `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses. |
+| `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations. |
+
+### Exported Functions
+
+#### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
+
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9).
+
+#### `getRouteDescriptors(): Route[]`
+
+Zero-argument factory for structural testing. Calls `buildRoutes('/dev/null', '/dev/null', '/dev/null', null)` with sentinel arguments so tests can inspect the route table structure without requiring real filesystem paths. Use this in test code instead of calling `buildRoutes()` directly with dummy constants.
+
+---
+
 ## 2. Frontend Global Namespaces
 
 ### 2.1 `API` (api-client.js)
 
-Client-side REST API wrapper. All methods return Promises.
+Client-side REST API wrapper. All methods return Promises. All methods can reject with `{ code: string, message: string }` on HTTP error responses — callers should handle this shape at every call site.
 
 | Method | Signature | Endpoint |
 |--------|-----------|----------|
@@ -206,12 +382,22 @@ Client-side REST API wrapper. All methods return Promises.
 | `getChunkText` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/text` — prose-only extraction; returns `data.content` (AI text turns, no tool-call JSON) |
 | `getConfig` | `() → Promise<object>` | `GET /api/config` |
 | `updateConfig` | `(data) → Promise<object>` | `PUT /api/config` |
+| `getModels` | `() → Promise<object[]>` | `GET /api/models` |
+| `saveModels` | `(models: object[]) → Promise<object>` | `PUT /api/models` |
+| `loadDefaultModels` | `() → Promise<object>` | `POST /api/models/load-defaults` |
+| `getPersonas` | `() → Promise<object[]>` | `GET /api/personas` |
+| `getAssignments` | `() → Promise<object>` | `GET /api/model-assignments` |
+| `updateAssignments` | `(data: object) → Promise<object>` | `PUT /api/model-assignments` |
+| `replaceAssignedModel` | `(oldModelId: string, newModelId: string) → Promise<object>` | `POST /api/model-assignments/replace` |
+| `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
+| `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
 | `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
 | `orchestratorKill` | `(id) → Promise<object>` | `POST /api/orchestrator/kill/:id` |
 | `orchestratorDismiss` | `(id) → Promise<null>` | `POST /api/orchestrator/dismiss/:id` |
+| `orchestratorDelete` | `(id) → Promise<object>` | `POST /api/orchestrator/delete/:id` |
 | `getKnowledge` | `(params?) → Promise<object>` | `GET /api/knowledge` |
 | `updateKnowledge` | `(id, scope, repositoryName, data) → Promise<object>` | `PATCH /api/knowledge/:id` |
 | `deleteKnowledge` | `(id, scope, repositoryName?) → Promise<null>` | `DELETE /api/knowledge/:id` |
@@ -302,6 +488,108 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderOrchestrator` | `orchestrator.js` | `#/orchestrator` |
 | `renderConfig` | `config.js` | `#/config` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
+
+#### `config.js` — Internal Functions
+
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (implemented in `config-persona-models.js`), and Model Registry (implemented in `config-model-registry.js`).
+
+**Scaffold functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, and `API.getAssignments()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist. |
+| `renderConfigPage(app, config, models, personas, assignments)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+
+**General tab functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderGeneralTab(config)` | Returns the General tab HTML (wraps the settings form in a `UI.card()`). |
+| `wireGeneralTabEvents()` | Attaches `change` and `input` listeners (both needed — checkboxes fire `change`, text/number inputs fire `input`) plus the `submit` handler to the General tab form. Sets `configDirty.general = false` on successful save. |
+
+**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`):
+
+| Function | Description |
+|----------|-------------|
+| `renderPersonaModelsTab(models, personas, assignments)` | Entry point called by `renderConfigTabContent()`. Initializes pm* module state on first render or after a discard reset (`pmModels === null`); preserves existing state across tab switches that don't trigger the discard-changes path, so unsaved edits survive navigation. Returns `pmBuildTabHtml()`. |
+| `pmRefreshTab()` | Re-renders the Persona Models tab into `#config-tab-content`, re-wires events, and syncs `configDirty.personaModels` via `pmHasChanges()`. Called after any state mutation. |
+| `pmBuildTabHtml()` | Builds the full tab HTML: suite sections (collapsed/expanded), per-persona model dropdowns, default model selector, stale-assignments banner, and action bar. |
+| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. |
+| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
+| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Shows a build-progress state and refreshes the tab on completion. |
+| `pmHasChanges()` | Returns `true` when `pmAssignments` differs from `pmOriginal` (checks `default_model_uuid` and all `persona_models` entries). |
+| `pmCloneAssignments(a)` | Deep-clones an assignments object for snapshot comparison. |
+| `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`. |
+| `pmDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot, or `''`. |
+| `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; optionally prepends a "Default" option. |
+
+**Model Registry tab — core render functions:**
+
+| Function | Description |
+|----------|-------------|
+| `renderModelRegistryTab(models)` | Main render entry. Initialises `mrModels` / `mrOriginal` / `mrEditingId` from server data on first call; preserves existing state if already populated (user may have unsaved edits). Returns `mrBuildTabHtml()`. |
+| `mrRefreshTab()` | Re-renders the tab content into `#config-tab-content` and re-wires all event handlers. Syncs `configDirty.modelRegistry` via `mrHasChanges()`. Called after any state mutation (edit, delete, restore, save). |
+| `mrBuildTabHtml()` | Builds the full Model Registry tab HTML string: model table (with read/edit rows), Add Model form, and action bar. Disables the Save button when any row has a slug validation error. |
+| `mrRenderRow(model)` | Returns HTML for a single read-only model row. Shows dirty-indicator dots for changed fields (name, slug, cc_model) vs the original snapshot. Adds strikethrough row class for pending deletions. |
+| `mrRenderEditRow(model)` | Returns HTML for the inline edit row (name/slug/cc_model inputs + Done/Cancel buttons). Done button is disabled while slug validation fails. |
+
+**Model Registry tab — event wiring:**
+
+| Function | Description |
+|----------|-------------|
+| `mrWireEvents()` | Wires all interactive elements: Edit/Cancel/Done/Delete/Restore row buttons, live slug validation on input, Add Model button, Save button, Load Defaults button. |
+| `mrRefreshDirtyDots(id, tbody, origModel, model)` | No-op stub. Dirty dots are updated on full re-renders triggered by Done/Cancel/Delete/Restore actions, not on every keystroke. This function is a hook reserved for future fine-grained optimisation — callers should keep calling it so a future implementation can update dots in-place without requiring a full re-render. |
+| `mrValidateAddSlug()` | Validates the Add Model slug field and shows/hides the error message. |
+| `mrShowAddSlugError(msg)` | Shows or hides the inline slug error below the Add Model slug input. The Add button is intentionally NOT disabled here — validation runs on click instead, to avoid blocking mid-typing. |
+| `mrSyncSaveButton()` | Enables/disables the global Save button based on whether any non-deleted row has a slug validation error. |
+
+**Model Registry tab — helpers:**
+
+| Function | Description |
+|----------|-------------|
+| `mrDeriveSlug(name)` | Derives a URL-safe slug from a human-readable name: lowercase, spaces → hyphens, strip non-alphanumeric. Mirrors the auto-slug derivation on the Add Model form. |
+| `mrValidateSlug(slug)` | Validates a slug string. Returns an error message string, or `''` if valid. Rejects empty values, the reserved slug `"inherit"`, and strings that don't match `/^[a-z0-9]+(-[a-z0-9]+)*$/`. |
+| `mrCloneModels(arr)` | Deep-clones a model array (shallow clone of each entry object). Used to create `mrOriginal` snapshot at init time and after a successful save. |
+| `mrHasChanges()` | Returns `true` when `mrModels` differs from `mrOriginal`. Uses index-based positional comparison — correct for the stable-order bulk-save pattern. |
+| `mrDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot when `isDirty` is true, or `''` otherwise. |
+
+**Model Registry tab — API actions:**
+
+| Function | Description |
+|----------|-------------|
+| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
+| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. On success, refreshes state and displays slug-collision conflicts if any were returned. |
+
+**Module-level state** (`config.js` globals):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`). Persists across tab switches within a page visit. |
+| `configDirty` | `{ general, personaModels, modelRegistry: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. |
+| `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
+| `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
+| `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
+| `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+
+**`configDirty` cross-module contract:**
+
+`configDirty` is a shared mutable object with three boolean keys — `general`, `personaModels`, and `modelRegistry`. It is declared and owned by `config.js` but mutated directly by all three tab modules:
+
+| Module | Key written | When written |
+|--------|-------------|--------------|
+| `config.js` (General tab) | `.general` | `change`/`input` → `true`; successful form submit → `false` |
+| `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
+| `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
+
+**Rules companion modules must follow:**
+1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all three known keys on fresh load.
+3. **Load order** — `config-model-registry.js` and `config-persona-models.js` must load _before_ `config.js` (see `index.html`). Both files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+
+The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
+
+**Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
 
 ---
 

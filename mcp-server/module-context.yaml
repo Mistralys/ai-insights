@@ -47,6 +47,22 @@ documents:
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "api-surface.md"
+      - type: file
+        description: "GUI-layer API surface (REST endpoints, request/response schemas, model registry, assignments, personas)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
+        filePattern: "api-surface.md"
+
+  - description: 'MCP Server - Manifest (UI Components)'
+    outputPath: 'mcp-server/manifest-ui-components.md'
+    sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: UI Components
+          CSS component library for the GUI: custom properties (light/dark theme tokens), badge and banner colour tokens, layout classes, button classes, and all view-specific component classes. Use this reference when adding new UI elements — reuse existing classes before creating new ones.
+      - type: file
+        description: "GUI-layer CSS component catalogue (tokens, badges, banners, layout, buttons, view components)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
+        filePattern: "ui-components.md"
 
   - description: 'MCP Server - Manifest (Constraints)'
     outputPath: 'mcp-server/manifest-constraints.md'
@@ -98,6 +114,10 @@ documents:
           Annotated directory listing of every source file with its role and relationships. Use to locate files before reading them.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "file-tree.md"
+      - type: file
+        description: "GUI-layer file tree (annotated listing of GUI source files and their roles)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
         filePattern: "file-tree.md"
 
   - description: 'MCP Server - Source (GUI API Handlers)'

@@ -20,6 +20,23 @@
  *   - Override the real `showLoading`/`showError` implementations — tests that
  *     need spy versions set them in their own `beforeAll`.
  *   - Set up `Router` — each test file provides its own stub or loads router.js.
+ *
+ * Global ownership map (vm.runInThisContext context):
+ *   When view scripts are loaded via `vm.runInThisContext()`, their top-level
+ *   `var` declarations become properties on the Node `global` / `globalThis`.
+ *   Each script "owns" its globals — tests that load multiple view scripts in
+ *   the same jsdom context must reset owned globals in `beforeEach` to prevent
+ *   cross-test state leakage.
+ *
+ *   config-model-registry.js  → mrModels, mrOriginal, mrEditingId, MR_SLUG_REGEX
+ *   config-persona-models.js  → pmModels, pmPersonas, pmAssignments, pmOriginal,
+ *                               pmIsBuilding, pmCollapsed, pmReplaceOpen,
+ *                               PM_SUITE_LABELS, PM_SUITE_ORDER
+ *   config.js                 → configDirty, configActiveTab (do not load here —
+ *                               it depends on the modules above)
+ *
+ *   This file only loads shared utilities (utils.js, components.js). All
+ *   view-module globals listed above are loaded and reset by individual test files.
  */
 
 import { readFileSync } from 'node:fs';

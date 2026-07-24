@@ -33,18 +33,16 @@ Incoming HTTP Request
   │       └── Not found → 404 JSON error
   │
   └── API path (/api/...)
-      ├── Body-parsing routes (PUT, PATCH, POST with body)
-      │   ├── readJsonBody(req) — enforce 1 MiB limit
-      │   ├── Call handler with parsed body
-      │   └── sendJson(res, 200, result)
-      │
-      └── Body-free routes
-          ├── matchRoute(method, url, ledgerRoot, orchestratorLogsDir)
-          │   ├── Parse URL segments
-          │   ├── Match against route table (segment count + values)
-          │   └── Return handler thunk or null
-          ├── handler() → result
-          └── sendJson(res, 200, result)
+      └── dispatchRoute(req, res, method, url, port, buildRoutes(...))
+          ├── parseQueryString(url) → URLSearchParams (passed as 3rd handler arg)
+          ├── Match Route[] table (method + path/RegExp; noBody:true skips body read)
+          │   ├── Section A — body-parsing routes (PUT, PATCH, POST)
+          │   ├── Section B — keyword-specific body-free routes (noBody:true; must precede §C)
+          │   └── Section C — catch-all body-free routes (noBody:true)
+          ├── readJsonBody(req) — enforce 1 MiB limit (skipped when noBody:true)
+          ├── route.handler(body, groups?, query?) → result
+          └── sendJson(res, statusCode ?? 200, result) | writeHead(204) + res.end()
+          No match → 404 JSON error
 
 Error handling (any path):
   ApiError           → sendError(res, statusFromCode, code, message)
@@ -323,7 +321,7 @@ User opens a chunk dialogue in the work-package detail view
       ├── API.getChunkStructured(repo, slug, filename)
       │   └── GET /api/projects/:repo/:slug/chunks/:filename/rendered?format=structured
       │       │
-      │       └── server.ts (matchRoute)
+      │       └── server.ts (dispatchRoute)
       │           ├── URLSearchParams.get('format') === 'structured'
       │           ├── handleGetChunkFile(ledgerRoot, slug, filename, repoName)
       │           │   → { content: string }  (raw JSONL text)

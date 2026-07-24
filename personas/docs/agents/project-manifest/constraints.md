@@ -164,6 +164,16 @@
 <a name="c26a"></a>
 21a. **`default_model_slug` in `_shared.yaml` applies to all ledger personas** unless overridden per-persona via the `model_slug` field. This follows the identical `default_X` + per-persona override pattern as `default_model` / `model`. The slug is an API-compatible identifier used by the orchestrator to route calls to the correct model endpoint (e.g. `"claude-sonnet-4-6"`). It is **not** rendered into generated frontmatter templates — it is consumed directly from YAML source by the orchestrator.
 
+<a name="c26b"></a>
+21b. **Model registry assignments take precedence over YAML model fields.** The GUI-managed model registry (`personas/model-registry/`) adds a higher-priority layer above the YAML-based model fields. The full model resolution priority chain for the effective model slug consumed at runtime is:
+
+   1. **Per-persona GUI assignment** — `assignments.json` → `persona_models[persona.id]`, resolved to a slug via `getResolvedAssignments()` in `mcp-server/src/gui/model-registry.ts`.
+   2. **Workspace-default GUI assignment** — `assignments.json` → `default_model_uuid`, resolved to a slug.
+   3. **Per-persona YAML override** — `model_slug` field in the persona's `N-*.yaml` file.
+   4. **Suite default** — `_shared.yaml` → `default_model_slug`.
+
+   The persona `id` field is the stable key used in `assignments.json`. Assignments survive persona renames and slug changes because they are keyed by UUID, not by slug. The build system and orchestrator resolve this chain locally at startup; the GUI surfaces resolved slugs via `GET /api/personas`. Do not read YAML model fields to determine the effective model when GUI assignments may be active.
+
 <a name="c27"></a>
 22. **`cc_model` resolution chain:** The Claude Code `model` frontmatter value is resolved in Layer 3 as: `persona.cc_model → persona.model → _shared.default_model → _shared.cc_model`. This means a per-persona `cc_model` takes highest priority, followed by the persona's VS Code `model` override, then the shared default model, and finally the shared `cc_model` value (typically `"inherit"`).
 

@@ -23,6 +23,8 @@
 /personas/ledger/claude-code/*.md
 /personas/ledger/vs-code/*.md
 /personas/ledger/deep-agents/*.md
+/personas/model-registry/local.json
+/personas/model-registry/assignments.json
 /orchestrator/.env
 /orchestrator/.venv/
 /orchestrator/checkpoints/

@@ -60,6 +60,7 @@ mcp-server/
 │   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers: handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss, handleGetRunMetadata (reads plan_dir/.orchestrator-run.json — serves run provenance for the Resume Run button); knowledge handlers are NOT in this file — they were extracted to gui/api-knowledge.ts (WP-003)
 │   ├── api-knowledge.ts     # GUI REST handlers for the /api/knowledge/* endpoints — extracted from gui/api.ts (WP-003); exports: KnowledgeUpdateBodySchema, KnowledgeMoveBodySchema, KnowledgeListParams interface, parseKnowledgeId helper, handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge; handlePromoteKnowledge and handleMoveKnowledge delegate to KnowledgeStoreManager.moveInsight() (atomic, no add→delete compose); re-exports ApiError for convenience; when query param is present, handleListKnowledge forwards tags, limit, and offset to searchInsights() — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call
 │   ├── api-repos.ts         # GUI REST handlers for the /api/repos and /api/repos/:repoId endpoints (WP-006); follows the domain-split pattern established by api-knowledge.ts; exports: RepoCreateBodySchema (@internal — test use only), RepoUpdateBodySchema (@internal — test use only), RepoListItem interface (list/get projection with has_vision boolean), handleListRepos, handleGetRepo, handleCreateRepo, handleUpdateRepo, handleDeleteRepo; re-exports ApiError for convenience; assertNoFolderNameConflicts() private helper enforces global folder_name uniqueness across all registry entries; toListItem() pure projection omits the vision object from list responses and computes has_vision = (at least one horizon field is non-null); handleCreateRepo returns HTTP 201 (intentional — wired in server.ts); handleDeleteRepo removes only the declaration, never project files
+│   ├── api-models.ts        # GUI REST handlers for the /api/models, /api/model-assignments, and /api/personas endpoints (model-settings plan); exports: PersonaEntry interface, handleGetModels, handleSaveModels, handleLoadDefaults, handleGetAssignments, handleUpdateAssignments, handleReplaceAssignedModel, handleGetPersonas, handleRebuildPersonas; re-exports ApiError; SaveModelsBodySchema (accepts id-optional entries — auto-assigns UUIDv4 on save); concurrency guard for persona rebuild (module-level buildInProgress flag); computeStale() private helper computes staleness by comparing max(mtime(assignments.json), mtime(local.json)) vs mtime(name-mapping.json); _resetBuildInProgress() exported for test use only
 │   ├── chunk-accumulator.ts # Shared accumulation layer (split from chunk-renderer.ts): all types (JsonValue, ToolCallChunk, MergedToolCall, ContentBlock, MergedMessage, NamespaceKey), JSONL parsing (isValidHeader, parseChunkLine), chunk merging (chunkId, chunkType, mergeContent, mergeToolCallChunks, mergeUsageMetadata), namespace helpers (namespaceKey, namespaceLabel), accumulateChunks(); pure-function module, no I/O
 │   ├── chunk-renderer.ts    # Rendering layer: imports from chunk-accumulator.ts; exports renderChunksToMarkdown(jsonlContent) — verbose format with ## Role headings, JSON fenced tool-call blocks, and token-usage footer; renderChunksToDialogue(jsonlContent) — compact chat-like format with plain-paragraph AI text, per-tool single-line tool-call summaries, hidden ToolMessages (execute/task results shown inline), and sub-agent ### headings; exports DialogueBlock discriminated union type (text | tool-call | checklist | subagent-heading — tool-call has optional result field for non-inline tools); exports renderChunksToStructured(jsonlContent) — typed alternative to renderChunksToDialogue() that returns DialogueBlock[] for frontend-controlled rendering (collapsible tool calls, interactive checklists); module-private buildFullToolResultIndex() indexes ALL ToolMessage entries (unlike buildToolResultIndex() which filters to inline tools only)
 │   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles body-free routes (GET /api/knowledge, DELETE /api/knowledge/:id, POST /api/knowledge/:id/promote, GET /api/repos, GET /api/repos/:repoId, DELETE /api/repos/:repoId, plus all /:slug and /:repo/:slug GET routes); handleRequest() handles body-parsing routes (PATCH /api/knowledge/:id, POST /api/knowledge/:id/move, POST /api/repos [returns 201], PUT /api/repos/:repoId, PUT /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) and path-parameter extraction routes; resolveRepoName() private helper reads .meta.json to resolve canonical repository_name from a /:repo/:slug URL pair; serves static files from gui/public/
@@ -80,7 +81,7 @@ mcp-server/
 │   │   ├── project-detail-helpers.js  # Module-level helpers exposed on globalThis: _findScrollAnchor(el, _getStyle) — walks up the DOM to find the nearest scrollable ancestor (injectable _getStyle for jsdom tests; falls back to document.documentElement); renderRunsList(runsEl, sorted, repo, slug, activeFilename, matchingQueueEntry) — rebuilds orchestrator runs list in-place with scroll preservation and log-preview drain/restart; _snapshotProjectState(project, overviewResult) — captures synthesis_generated, outcome_summary, and WP state for diff comparison; _diffProjectState(prev, next) — detects changes to synthesis_generated, outcome_summary, and WP counts and classifies them as data-only or structural
 │   │   ├── project-detail-dialogues.js  # buildDialogueHTML(blocks) (WP-006) — transforms DialogueBlock[] into interactive HTML: text blocks as escapeHtml+marked.parseInline paragraphs, tool-call blocks as collapsed-by-default cards (toggle button + always-visible ↳ detail lines + hidden args/result body), checklist blocks, subagent-heading h3s; all strings escaped via escapeHtml(); ES5-only; renderDialoguesSection(sectionEl, repo, slug) — fetches all chunks/dialogues (no WP filter), merges (chunks take priority), groups by source+stage, renders overview table; clicking a revision button opens _openDialogueModal(): useChunks=true → getChunkStructured() → buildDialogueHTML() with delegated expand/collapse listener; useChunks=false → getDialogueContent() → marked.parse() (legacy path); sub-module loaded before project-detail.js
 │   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
-│   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
+│   │   ├── config.js          # renderConfig — three-tab configuration page (General, Persona Models, Model Registry); General tab: auto_handoff_enabled, max_handoff_depth, capture_dialogues, auto_archive_days; Persona Models tab: pmModels/pmPersonas/pmAssignments module state, pmBuildTabHtml/pmWireEvents/pmDoSave/pmDoRebuild, suite-grouped persona table, default model click-to-edit, dirty indicators (.pm-dirty-dot), stale-banner, Replace Model inline form, fixed action bar; Model Registry tab: mrModels/mrOriginal/mrEditingId state, renderModelRegistryTab/mrWireEvents; shared dirty-tracking via configDirty object
 │   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
 │   │   ├── knowledge.js       # renderKnowledge — Knowledge page (#/knowledge); tab navigation (Global/Repository scopes); client-side filtering by category, repository_name (Repository tab only), and free-text query; formatConfidence() helper with named bucket constants (0.0–0.3 low / 0.3–0.7 medium / 0.7–1.0 high); card-level Edit (inline form with in-card error display), Delete (inline confirmation), Promote to Global, and Move to Repository actions; buildKnowledgeHtml() — renders insight cards with escapeHtml() on all dynamic values; no polling (knowledge is human-curated)
 │   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011); renderQueueTable delegates to four closure-scoped helpers: _clearSuccessBanner (removes success banner when queue is non-empty; leaves error banners intact), _buildQueueHtml (builds table HTML string), _bindQueueActions (injects Kill/Dismiss/View-Project buttons and toggle listeners), _mountLogPreviews (starts live log-preview widgets for expanded rows) (WP-006)
@@ -97,6 +98,7 @@ mcp-server/
 │   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
 │   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
 │   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir; migrateOrphanedLogs
+│   │   ├── model-registry.ts    # File-based model registry and assignment system for the persona model configuration feature; exports: ModelEntrySchema, ModelRegistrySchema, ModelAssignmentsSchema (Zod schemas + inferred types); getModelRegistryPath() → '{WORKSPACE_ROOT}/personas/model-registry'; readModels() (auto-initializes local.json from default.json on first access); writeModels(models) (schema + slug-uniqueness + reserved-slug + deletion-guard — re-throws PARSE_ERROR/VALIDATION_ERROR for corrupt local.json so callers cannot bypass the guard; see API surface doc for full error contract); readAssignments() / writeAssignments(data); loadDefaults() → { models, conflicts } (id-based merge, slug-collision detection); isModelReferenced(modelId) → { referenced, usages }; getResolvedAssignments() → { default_model_slug, persona_models } (UUID-to-slug resolution, graceful degradation for unresolvable UUIDs); all writes use atomicWriteJson; STDIO-discipline: only writes to stderr (WP-002 model-settings plan)
 │   │   ├── orchestrator-manager.ts  # Queue mutation (killQueueEntry, dismissQueueEntry), preflight checks, startOrchestrator, getRunStatus, runStatusFilename; re-exports getQueue, all types, QUEUE_FILENAME from queue/ sub-modules for backward compat (WP-005, WP-006, WP-007, WP-A, WP-B)
 │   │   ├── queue/               # Run-queue helpers: types, reading, validation, progress resolution, status computation (WP-001, WP-003, WP-004, WP-A, WP-B)
 │   │   │   ├── types.ts             # Shared type definitions and QUEUE_FILENAME constant: RawQueueEntry, QueueEntry, KillResult, PreflightResult, StartResult, RunStatus — leaf module, no intra-queue deps beyond compute-effective-status.ts (WP-A)
@@ -189,6 +191,8 @@ mcp-server/
     │   ├── log-resolver.test.ts
     │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers: planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
     │   ├── api-knowledge.test.ts  # Unit tests for gui/api-knowledge.ts handlers (WP-003); imports from ../../gui/api-knowledge.js; complements knowledge-api.test.ts
+│   ├── model-registry.test.ts # Unit tests for src/gui/model-registry.ts (model-settings plan): readModels (auto-init from default.json, ENOENT path, parse/validation errors), writeModels (schema validation, slug uniqueness, reserved-slug guard, deletion guard — referenced UUID returns { saved: false, referencedModels }, unreferenced UUID proceeds, corrupt local.json re-throw), readAssignments (ENOENT default, parse error, validation error), writeAssignments (validation error), loadDefaults (id-based merge — local wins, slug collision recorded, new entries appended, conditional write), isModelReferenced (default usage, persona usage, combined, absent file returns false), getResolvedAssignments (UUID→slug resolution, missing default_model_uuid, unresolvable UUID omitted, absent files graceful degradation); real temp dirs; no mocks
+│   ├── api-models.test.ts     # Unit and integration tests for gui/api-models.ts handlers (model-settings plan): handleGetModels (auto-init from defaults), handleSaveModels (UUID auto-assign, slug uniqueness, deletion guard — referenced model returns 409 conflict shape), handleLoadDefaults (id-based merge, slug-collision conflict reporting), handleGetAssignments (stale flag computation), handleUpdateAssignments (persona key validation against name-mapping.json, model UUID validation against local.json), handleReplaceAssignedModel (same-model rejection, unreferenced old_model rejection, full swap), handleGetPersonas (empty on missing file), handleRebuildPersonas (success path, failure path with exitCode, concurrency guard via buildInProgress flag); real temp dirs; no mocks for storage layer
 │   ├── api-repos.test.ts      # 46 tests for gui/api-repos.ts handlers (WP-006): AC-1 (GET /api/repos — returns RepoListItem[] with has_vision boolean), AC-2 (POST /api/repos — SLUG_REGEX validation, unique id, unique folder_names, HTTP 201), AC-3 (PUT /api/repos/:repoId — partial update, self-conflict allowed, last_modified stamped), AC-4 (DELETE /api/repos/:repoId — removes entry only, releases folder_names, no project data deleted), AC-5 (GET /api/repos/:repoId — returns RepositoryEntry or 404), AC-6 (folder_name uniqueness — assertNoFolderNameConflicts rejects create/update that would conflict across entries); real temp dirs + RegistryRegistry fixtures; zero mocks for storage layer
     │   ├── knowledge-api.test.ts  # Unit tests for the 5 knowledge REST handlers (handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge): imports handlers from ../../gui/api-knowledge.js (updated WP-003); real temp directories + KnowledgeStoreManager fixtures; covers scope disambiguation (global vs repository), ID validation (parseKnowledgeId — non-integer, zero, float rejection), VALIDATION_ERROR/NOT_FOUND paths, promote/move cross-store ID-change semantics; WP-001 added 3 scope-validation tests for handleListKnowledge; WP-004 added 4 repository_name format-validation tests (AC-1 through AC-4 rework) for handleDeleteKnowledge and handlePromoteKnowledge
     │   ├── knowledge-repository-scope.test.ts  # Integration tests for repository-scope knowledge functionality across two layers (WP-010, updated WP-001/WP-004): storage layer — repositoryStorePath path generation and reserved-name guard, addInsight with repository scope, readRepositoryStore empty/populated, listInsights unfiltered/scope-filtered/name-filtered, searchInsights with repository_name, updateInsight and deleteInsight with repository scope, moveInsight global→repo/repo→repo/same-name rejection, origin_plan preservation through add+update+move; GUI REST handlers — handleListKnowledge with repository_name, handleUpdateKnowledge with repository scope, handleDeleteKnowledge success and missing-repository_name, handlePromoteKnowledge from repository (success) and from global (rejection), handleMoveKnowledge global→repo/same-repo rejection/missing-target rejection, scope:'project' rejection by all 5 handlers (VALIDATION_ERROR — handleListKnowledge now throws VALIDATION_ERROR for unrecognised scope per WP-001; handleDeleteKnowledge and handlePromoteKnowledge throw VALIDATION_ERROR for malformed repository_name per WP-004); real temp dirs + KnowledgeStoreManager — no mocks; follows knowledge-api.test.ts patterns
@@ -306,5 +310,91 @@ The following directories are not version-controlled:
 - dist/ — TypeScript compilation output
 - storage/ledger/{repoName}/{slug}/ — per-project ledger runtime data (repo-namespaced since WP-002)
 
+
+```
+_SOURCE: GUI-layer file tree (annotated listing of GUI source files and their roles)_
+# GUI-layer file tree (annotated listing of GUI source files and their roles)
+```
+// Structure of documents
+└── mcp-server/
+    └── gui/
+        └── docs/
+            └── agents/
+                └── project-manifest/
+                    └── file-tree.md
+
+```
+###  Path: `/mcp-server/gui/docs/agents/project-manifest/file-tree.md`
+
+```md
+# File Tree — MCP Server GUI
+
+```
+gui/
+├── server.ts                    # HTTP server: routing, static files, CORS, security headers
+├── api.ts                       # REST API handlers (projects, work packages, orchestrator, config)
+├── api-knowledge.ts             # REST API handlers (knowledge CRUD, promote, move)
+├── api-models.ts                # REST API handlers (model registry, assignments, personas)
+├── orchestrator-manager.ts      # Queue reader, preflight checks, process spawn/kill/dismiss
+├── chunk-accumulator.ts         # Shared accumulation layer: all types (JsonValue, ToolCallChunk, MergedToolCall, ContentBlock, MergedMessage, NamespaceKey), JSONL parsing (isValidHeader, parseChunkLine), chunk merging (chunkId, chunkType, mergeContent, mergeToolCallChunks, mergeUsageMetadata), namespace helpers (namespaceKey, namespaceLabel), and accumulateChunks(); pure-function module, no I/O
+├── chunk-renderer.ts            # Rendering layer: imports all types and accumulateChunks() from chunk-accumulator.ts; exports renderChunksToMarkdown (verbose, ## Role headings + JSON tool-call blocks), renderChunksToDialogue (compact chat-like, plain paragraphs, per-tool summary lines, hidden ToolMessages), and renderChunksToStructured (structured DialogueBlock[] array for interactive frontend rendering); also exports the DialogueBlock discriminated union type (text | tool-call | subagent-heading | checklist); pure-function module, no I/O
+├── docs/
+│   └── agents/
+│       └── project-manifest/    # This manifest
+└── public/                      # Static SPA assets (served as-is, no build step)
+    ├── index.html               # Single HTML entry point (script loading order defined here)
+    ├── styles.css               # Complete CSS: component library, layout, theming (2671 lines)
+    ├── app.js                   # Bootstrap: Theme.init(), Router.init(), StaleCheck.init()
+    ├── router.js                # Hash-based SPA router (Router namespace)
+    ├── api-client.js            # Client-side API wrapper (API namespace)
+    ├── utils.js                 # Shared utilities: escapeHtml, formatDate, breadcrumb, etc.    ├── components.js              # Shared UI render helpers (UI namespace): badge, banner, emptyState    ├── theme.js                 # Theme toggle logic (Theme namespace)
+    ├── theme-init.js            # Early theme application (prevents FOUC; runs in <head>)
+    ├── stale-check.js           # Background polling for server version mismatch (StaleCheck namespace)
+    ├── views/                   # One JS file per SPA view/page
+    │   ├── project-list.js      # Projects table with filtering, sorting, pagination
+    │   ├── project-detail-helpers.js  # project-detail sub-module: pure helpers (extractSynopsis,
+    │   │                              #   STAGE_ABBREV, buildPipelineTrack, buildRunBadges,
+    │   │                              #   _findScrollAnchor, _snapshotProjectState, _diffProjectState)
+    │   │                              #   STAGE_ABBREV is also consumed by work-package.js
+    │   ├── project-detail-orch.js     # project-detail sub-module: orchestrator section
+    │   │                              #   (renderOrchToolbar, renderRunsList, _orchRunsStructureKey,
+    │   │                              #   _patchOrchStatusCard); uses globalThis._pdLogPreviewCleanups
+    │   ├── project-detail-modal.js    # project-detail sub-module: Reset Project modal
+    │   │                              #   (PIPELINE_STAGES, showResetModal)
+    │   ├── project-detail.js    # Single project: WP table, plan synopsis, run controls (main)
+    │   │                        #   Loads after helpers → orch → modal (see index.html)
+    │   ├── work-package.js      # Work package detail: pipelines, acceptance criteria, dialogues
+    │   ├── run-log.js           # Orchestrator run log viewer (streaming JSONL events)
+    │   ├── orchestrator.js      # Orchestrator management: queue, start run, preflight
+    │   ├── config.js            # GUI configuration editor and Model Registry tab; three tabs: General (auto_handoff_enabled, max_handoff_depth, capture_dialogues, auto_archive_days), Persona Models (stub — coming soon), Model Registry (full implementation: model table with name/slug/cc_model columns; inline row editing with dirty-indicator dots; strikethrough-then-Restore deletion UX; client-side slug validation against /^[a-z0-9]+(-[a-z0-9]+)*$/ with reserved "inherit" check; Add Model form with auto-slug derivation from name via mrDeriveSlug(); Save (PUT /api/models) with 409 conflict handling; Load Defaults (POST /api/models/load-defaults) with confirmation and slug-collision display); module-level state: configActiveTab, configDirty (per-tab dirty flags), mrModels, mrOriginal, mrEditingId; unsaved-changes guard fires on tab navigation
+    │   ├── insights.js          # Cross-project comment aggregation view
+    │   └── knowledge.js         # Knowledge base browser (global + repository scopes)
+    ├── js/                      # Shared widget libraries
+    │   └── orchestrator-widgets.js  # OrchestratorWidgets namespace (reusable UI components)
+    └── libs/                    # Vendored third-party libraries
+        └── marked.min.js        # Markdown parser (used for plan/synthesis/dialogue rendering)
+```
+
+---
+
+## File Sizes (approximate)
+
+| File | Lines | Role |
+|------|-------|------|
+| `server.ts` | ~1960 | Largest backend file — all routing logic lives here |
+| `api.ts` | ~900 | Project/WP/config handlers |
+| `api-knowledge.ts` | ~350 | Knowledge CRUD handlers |
+| `api-models.ts` | ~590 | Model registry, assignment, and persona handlers |
+| `orchestrator-manager.ts` | ~400 | Queue + preflight + spawn |
+| `chunk-renderer.ts` | ~1100 | Pure JSONL → output (renderChunksToMarkdown + renderChunksToDialogue + renderChunksToStructured + DialogueBlock type) |
+| `public/styles.css` | ~2670 | Complete CSS component library |
+| `public/api-client.js` | ~350 | All API methods |
+| `public/utils.js` | ~200 | Shared utility functions |
+| `public/components.js` | ~80 | UI namespace (badge, banner, emptyState) |
+| `public/js/orchestrator-widgets.js` | ~500 | Widget library |
+| `public/views/project-detail-helpers.js` | ~240 | project-detail sub-module: pure helpers |
+| `public/views/project-detail-orch.js` | ~310 | project-detail sub-module: orchestrator section |
+| `public/views/project-detail-modal.js` | ~270 | project-detail sub-module: Reset Project modal |
+| `public/views/project-detail.js` | ~1040 | project-detail main (trimmed; was ~1886 lines pre-decomposition) |
 
 ```

@@ -4,6 +4,21 @@ utils/persona_models.py — Per-stage model slug extractor.
 Reads persona YAML metadata files from ``personas/ledger/src/meta/`` and
 returns the API-compatible model identifier for each orchestrator stage.
 
+Model resolution follows a four-layer priority chain for each stage:
+
+1. ``personas/model-registry/assignments.json`` ``persona_models[stage_id]``
+   UUID resolved via ``local.json`` — skipped when the resolved slug is
+   ``"inherit"`` (the orchestrator always requires a concrete slug for API
+   calls).
+2. Per-persona ``model_slug`` field from the ledger YAML file.
+3. ``assignments.json`` ``default_model_uuid`` resolved via ``local.json`` —
+   skipped when the resolved slug is ``"inherit"``.
+4. ``default_model_slug`` from ``_shared.yaml``.
+
+When ``assignments.json`` or ``local.json`` are absent or unreadable, layers
+1 and 3 are silently bypassed and resolution falls through to the YAML-only
+layers, preserving backward compatibility.
+
 Example::
 
     slugs = extract_persona_model_slugs(workspace_root)
@@ -21,6 +36,10 @@ log = logging.getLogger(__name__)
 # Paths relative to workspace root.
 _META_DIR_RELATIVE = Path("personas") / "ledger" / "src" / "meta"
 _MANIFEST_RELATIVE = Path("shared") / "workflow-manifest.json"
+_REGISTRY_DIR_RELATIVE = Path("personas") / "model-registry"
+
+# Sentinel slug that tells the orchestrator to skip the assignment override.
+_INHERIT_SLUG = "inherit"
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +142,62 @@ def _extract_yaml_list(text: str, key: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Model-registry helpers (assignments.json / local.json)
+# ---------------------------------------------------------------------------
+
+def _read_uuid_to_slug_map(workspace_root: Path) -> dict[str, str]:
+    """Build a UUID → slug map from ``personas/model-registry/local.json``.
+
+    Returns an empty dict if the file is absent, unreadable, or invalid JSON.
+    Entries that lack both ``id`` and ``slug`` fields are silently skipped.
+
+    Note
+    ----
+    ``local.json`` is machine-generated and expected to contain unique UUIDs.
+    If duplicate ``id`` values appear, the last entry wins (dict comprehension
+    last-write-wins).  This is benign in practice but worth noting if the file
+    ever becomes hand-editable.
+    """
+    local_path = workspace_root / _REGISTRY_DIR_RELATIVE / "local.json"
+    if not local_path.is_file():
+        return {}
+    try:
+        entries = json.loads(local_path.read_text(encoding="utf-8"))
+        if not isinstance(entries, list):
+            log.debug("local.json is not a JSON array — skipping UUID map build.")
+            return {}
+        return {
+            e["id"]: e["slug"]
+            for e in entries
+            if isinstance(e, dict) and "id" in e and "slug" in e
+        }
+    except (OSError, ValueError) as exc:
+        log.debug("Could not read local.json for UUID-to-slug map: %s", exc)
+        return {}
+
+
+def _read_assignments(workspace_root: Path) -> dict | None:
+    """Read ``personas/model-registry/assignments.json``.
+
+    Returns the parsed dict on success, or ``None`` if the file is absent,
+    unreadable, or does not contain a valid JSON object with the expected shape.
+    """
+    assignments_path = workspace_root / _REGISTRY_DIR_RELATIVE / "assignments.json"
+    if not assignments_path.is_file():
+        log.debug("assignments.json not found — using YAML-only model resolution.")
+        return None
+    try:
+        data = json.loads(assignments_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        log.debug("Could not read assignments.json: %s — using YAML-only fallback.", exc)
+        return None
+    if not isinstance(data, dict):
+        log.debug("assignments.json is not a JSON object — using YAML-only fallback.")
+        return None
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -140,9 +215,9 @@ def find_ledger_yaml_for_stage(
 
     Notes
     -----
-    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
-    numeric prefix (i.e. role numbers 1–9).  If a tenth role is ever added with
-    a two-digit prefix it will be silently skipped.
+    The glob pattern ``[0-9]*-*.yaml`` matches files with any numeric prefix
+    (e.g. ``1-name.yaml``, ``10-name.yaml``), supporting persona role numbers
+    beyond single digits.
     """
     workspace_root = Path(workspace_root)
     meta_dir = workspace_root / _META_DIR_RELATIVE
@@ -157,7 +232,9 @@ def find_ledger_yaml_for_stage(
     if target_number is None:
         return None
 
-    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
+    # Pattern [0-9]*-*.yaml matches any numeric prefix; "number" field inside
+    # each file confirms the match (glob() has no tighter alternative).
+    for yaml_file in sorted(meta_dir.glob("[0-9]*-*.yaml")):
         text = yaml_file.read_text(encoding="utf-8")
         number_str = _extract_yaml_scalar(text, "number")
         if number_str is None:
@@ -174,17 +251,29 @@ def find_ledger_yaml_for_stage(
 def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
     """Read persona YAML metadata and return ``{stage_id: model_slug}``.
 
-    The ``model_slug`` for each stage is resolved as follows:
+    The ``model_slug`` for each stage is resolved via a four-layer priority
+    chain:
 
-    1. Use the per-persona ``model_slug`` field if present.
-    2. Fall back to ``default_model_slug`` from ``_shared.yaml``.
+    1. ``assignments.json`` ``persona_models[stage_id]`` UUID resolved to a
+       slug via ``local.json`` — **skipped** when the resolved slug is
+       ``"inherit"`` (the orchestrator always needs a concrete model slug for
+       API calls; ``"inherit"`` is an IDE-only sentinel).
+    2. Per-persona ``model_slug`` field from the ledger YAML file.
+    3. ``assignments.json`` ``default_model_uuid`` resolved to a slug via
+       ``local.json`` — **skipped** when the resolved slug is ``"inherit"``.
+    4. ``default_model_slug`` from ``_shared.yaml``.
+
+    When ``assignments.json`` or ``local.json`` are absent or unreadable,
+    layers 1 and 3 are silently skipped and resolution falls through to the
+    YAML-only layers (identical to the pre-assignments behavior).
 
     Parameters
     ----------
     workspace_root:
         Path to the monorepo workspace root.  The metadata directory
-        ``personas/ledger/src/meta/`` and the shared manifest
-        ``shared/workflow-manifest.json`` are resolved relative to this path.
+        ``personas/ledger/src/meta/``, the shared manifest
+        ``shared/workflow-manifest.json``, and the model-registry directory
+        ``personas/model-registry/`` are resolved relative to this path.
 
     Returns
     -------
@@ -204,11 +293,14 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
 
     Notes
     -----
-    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
-    numeric prefix (i.e. role numbers 1–9). If a tenth role is ever added with a
-    two-digit prefix (e.g. ``10-new-role.yaml``), it will be **silently skipped**
-    by this function. Update the pattern in ``_META_DIR_RELATIVE`` glob call if
-    the total number of roles exceeds 9.
+    For the full priority-chain narrative and graceful-fallback behaviour when
+    ``assignments.json`` or ``local.json`` are absent, see the **module
+    docstring** at the top of ``persona_models.py``.
+
+    The glob pattern ``[0-9]*-*.yaml`` matches files with any numeric prefix
+    (e.g. ``1-name.yaml``, ``10-name.yaml``), supporting persona role numbers
+    beyond single digits. This delegates to ``find_ledger_yaml_for_stage()``,
+    which owns the actual glob call.
     """
     workspace_root = Path(workspace_root)
     meta_dir = workspace_root / _META_DIR_RELATIVE
@@ -244,7 +336,40 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
     stage_ids = [r["id"] for r in manifest_data["roles"]]
 
     # ------------------------------------------------------------------
-    # 3. For each stage, locate its persona YAML and extract model_slug.
+    # 3. Load assignments and UUID-to-slug map (graceful — may be absent).
+    # ------------------------------------------------------------------
+    uuid_to_slug = _read_uuid_to_slug_map(workspace_root)
+    assignments = _read_assignments(workspace_root)
+    persona_models: dict[str, str] = {}
+    default_assignment_slug: str | None = None
+
+    if assignments is not None:
+        raw_persona_models = assignments.get("persona_models", {})
+        if isinstance(raw_persona_models, dict):
+            persona_models = raw_persona_models
+
+        default_uuid = assignments.get("default_model_uuid")
+        if default_uuid and isinstance(default_uuid, str):
+            resolved = uuid_to_slug.get(default_uuid)
+            if resolved and resolved != _INHERIT_SLUG:
+                default_assignment_slug = resolved
+                log.debug(
+                    "Assignments default model UUID %r → slug %r.",
+                    default_uuid,
+                    resolved,
+                )
+            elif resolved == _INHERIT_SLUG:
+                log.debug(
+                    "Assignments default model UUID %r resolves to 'inherit' "
+                    "— skipping default assignment override.",
+                    default_uuid,
+                )
+
+    # Effective default: assignment default (if any) overrides _shared.yaml.
+    effective_default = default_assignment_slug or default_slug
+
+    # ------------------------------------------------------------------
+    # 4. For each stage, locate its persona YAML and resolve model_slug.
     # ------------------------------------------------------------------
     result: dict[str, str] = {}
     for stage_id in stage_ids:
@@ -253,7 +378,33 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
             log.warning("No persona YAML found for stage %r — skipping.", stage_id)
             continue
         yaml_file, text = found
-        model_slug = _extract_yaml_scalar(text, "model_slug") or default_slug
+
+        # Layer 1: per-persona assignment from assignments.json.
+        assignment_uuid = persona_models.get(stage_id)
+        assignment_slug: str | None = None
+        if assignment_uuid and isinstance(assignment_uuid, str):
+            resolved = uuid_to_slug.get(assignment_uuid)
+            if resolved and resolved != _INHERIT_SLUG:
+                assignment_slug = resolved
+                log.debug(
+                    "Stage %r → assignment UUID %r resolved to slug %r.",
+                    stage_id,
+                    assignment_uuid,
+                    resolved,
+                )
+            elif resolved == _INHERIT_SLUG:
+                log.debug(
+                    "Stage %r → assignment UUID %r resolves to 'inherit' "
+                    "— skipping per-persona assignment override.",
+                    stage_id,
+                    assignment_uuid,
+                )
+
+        # Layer 2: per-persona YAML model_slug.
+        yaml_slug = _extract_yaml_scalar(text, "model_slug")
+
+        # Apply priority chain: assignment > yaml > effective_default.
+        model_slug = assignment_slug or yaml_slug or effective_default
         result[stage_id] = model_slug
         log.debug(
             "Stage %r → model slug %r (from %s).",

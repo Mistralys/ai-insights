@@ -94,6 +94,7 @@ async function render(
       const r = pollResults[pollCallCount++];
       return Promise.resolve(r ?? makeResult([]));
     }),
+    getRepo: vi.fn().mockResolvedValue(null),
   };
 
   globalThis.renderRunLog(app, repo, slug, filename);
