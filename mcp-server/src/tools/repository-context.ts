@@ -4,6 +4,7 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import { loadRegistry, findByFolderName } from '../storage/repository-registry.js';
 import { KnowledgeStoreManager, SlugValidationError } from '../storage/knowledge-store.js';
 import { resolveLedgerRoot, deriveRepoName } from '../utils/ledger-root.js';
+import { getMultiStoreManager, getStoreRouter, isStoreContextInitialized } from '../storage/store-context.js';
 import type { ProjectMeta } from '../schema/project-meta.js';
 import type { RepositoryEntry } from '../schema/repository-registry.js';
 import type { Insight } from '../schema/knowledge.js';
@@ -82,8 +83,6 @@ async function getRepositoryContext(
   args: z.infer<typeof GetRepositoryContextSchema>
 ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
-    const ledgerRoot = resolveLedgerRoot();
-
     // 1. Resolve repository name
     let repositoryName: string;
     if (args.repository_name) {
@@ -107,9 +106,21 @@ async function getRepositoryContext(
       };
     }
 
-    // 2. Consult the registry for this repository
-    const registry = await loadRegistry(ledgerRoot);
-    const registryEntry = findByFolderName(registry, repositoryName);
+    // Evaluate the store context once for the lifetime of this call.
+    const isMultiStore = isStoreContextInitialized();
+
+    // 2. Consult the registry for this repository.
+    //    In multi-store mode: use the merged registry (store-order priority).
+    //    In single-store/legacy mode: load the single default store's registry.
+    let registryEntry: RepositoryEntry | null;
+    if (isMultiStore) {
+      const mergedRegistry = await getMultiStoreManager().getMergedRegistry();
+      registryEntry = mergedRegistry.find((e) => e.folder_names.includes(repositoryName)) ?? null;
+    } else {
+      const ledgerRoot = resolveLedgerRoot();
+      const registry = await loadRegistry(ledgerRoot);
+      registryEntry = findByFolderName(registry, repositoryName);
+    }
 
     // 3. Collect folder names to scan
     //    - Registry match: scan ALL declared folder_names (cross-folder aggregation)
@@ -118,11 +129,27 @@ async function getRepositoryContext(
       ? registryEntry.folder_names
       : [repositoryName];
 
-    // 4. Read projects from the targeted namespace directories only
-    const allProjects = await LedgerStore.listProjectsByFolderNames(
-      folderNamesToScan,
-      ledgerRoot
-    );
+    // 4. Read projects from the targeted namespace directories.
+    //    In multi-store mode: scan each configured store path and deduplicate by plan_path.
+    //    In single-store/legacy mode: scan only the default ledger root.
+    let allProjects: ProjectMeta[];
+    if (isMultiStore) {
+      const allStorePaths = getStoreRouter().getAllStorePaths();
+      const seen = new Set<string>();
+      allProjects = [];
+      for (const storePath of allStorePaths) {
+        const storeProjects = await LedgerStore.listProjectsByFolderNames(folderNamesToScan, storePath);
+        for (const p of storeProjects) {
+          if (!seen.has(p.plan_path)) {
+            seen.add(p.plan_path);
+            allProjects.push(p);
+          }
+        }
+      }
+    } else {
+      const ledgerRoot = resolveLedgerRoot();
+      allProjects = await LedgerStore.listProjectsByFolderNames(folderNamesToScan, ledgerRoot);
+    }
 
     // 5. Sort by date_created descending (most recently created first)
     const sorted = [...allProjects].sort((a, b) =>
@@ -154,15 +181,28 @@ async function getRepositoryContext(
       return entry;
     });
 
-    // 8. Query knowledge store for relevant insights (optional)
+    // 8. Query knowledge store for relevant insights (optional).
+    //    In multi-store mode: search across all stores via MultiStoreManager (deduplication built in).
+    //    In single-store/legacy mode: use a single KnowledgeStoreManager for the default root.
     let relevantInsights: Insight[] = [];
     if (args.include_insights !== false) {
-      const knowledgeManager = new KnowledgeStoreManager(ledgerRoot);
-      // Query both global and repository-scoped insights
-      const [globalInsights, repoInsights] = await Promise.all([
-        knowledgeManager.listInsights({ scope: 'global', limit: 20 }),
-        safeListRepositoryInsights(knowledgeManager, repositoryName),
-      ]);
+      let globalInsights: Insight[];
+      let repoInsights: Insight[];
+
+      if (isMultiStore) {
+        [globalInsights, repoInsights] = await Promise.all([
+          getMultiStoreManager().listKnowledge({ scope: 'global', limit: 20 }),
+          safeListAllStoreRepositoryInsights(repositoryName),
+        ]);
+      } else {
+        const ledgerRoot = resolveLedgerRoot();
+        const knowledgeManager = new KnowledgeStoreManager(ledgerRoot);
+        [globalInsights, repoInsights] = await Promise.all([
+          knowledgeManager.listInsights({ scope: 'global', limit: 20 }),
+          safeListRepositoryInsights(knowledgeManager, repositoryName),
+        ]);
+      }
+
       // Deduplicate by insight id (global insights take precedence over repo-scoped)
       const seenIds = new Set<number>();
       const deduped: Insight[] = [];
@@ -226,6 +266,27 @@ async function safeListRepositoryInsights(
 ): Promise<Insight[]> {
   try {
     return await manager.listInsights({ scope: 'repository', repository_name: repoName });
+  } catch (err) {
+    if (err instanceof SlugValidationError) {
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * Cross-store variant of {@link safeListRepositoryInsights} for multi-store mode.
+ *
+ * Delegates to {@link MultiStoreManager.listKnowledge} which aggregates insights
+ * across all configured stores with deduplication by insight id. Suppresses
+ * {@link SlugValidationError} for the same reasons as the single-store variant.
+ */
+async function safeListAllStoreRepositoryInsights(repoName: string): Promise<Insight[]> {
+  try {
+    return await getMultiStoreManager().listKnowledge({
+      scope: 'repository',
+      repository_name: repoName,
+    });
   } catch (err) {
     if (err instanceof SlugValidationError) {
       return [];

@@ -9,24 +9,26 @@ import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
 
 /**
- * File name for the central repository registry.
- * Stored directly under the ledger root — not inside any project sub-directory.
+ * File name for the per-store repository registry.
+ * Stored directly under the store root — not inside any project sub-directory.
+ * Each store owns its own `.repositories.json`, making stores self-contained
+ * and portable across devices.
  */
 const REGISTRY_FILENAME = '.repositories.json';
 
 /**
- * Returns the absolute path of the registry file for a given ledger root.
+ * Returns the absolute path of the registry file for a given store root.
  *
- * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @param storePath - Absolute path to the store root directory
  */
-function registryPath(ledgerRoot: string): string {
-  return join(ledgerRoot, REGISTRY_FILENAME);
+function registryPath(storePath: string): string {
+  return join(storePath, REGISTRY_FILENAME);
 }
 
 // ==================== Public API ====================
 
 /**
- * Reads and parses the `.repositories.json` registry file.
+ * Reads and parses the `.repositories.json` registry file from the given store root.
  *
  * Returns `{ repositories: [] }` when:
  *   - the file does not exist (first-run scenario)
@@ -35,12 +37,12 @@ function registryPath(ledgerRoot: string): string {
  * Callers that need to distinguish between "absent" and "corrupt" should
  * handle errors from `atomicWriteJson` / `saveRegistry` separately.
  *
- * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @param storePath - Absolute path to the store root directory
  */
 export async function loadRegistry(
-  ledgerRoot: string
+  storePath: string
 ): Promise<RepositoryRegistry> {
-  const path = registryPath(ledgerRoot);
+  const path = registryPath(storePath);
 
   try {
     const content = await readFile(path, 'utf-8');
@@ -55,23 +57,23 @@ export async function loadRegistry(
 /**
  * Writes the registry to `.repositories.json` atomically under a file lock.
  *
- * The lock is acquired on `ledgerRoot` so that concurrent writes to any
- * ledger file within the same root are serialized by the same lock.
+ * The lock is acquired on `storePath` so that concurrent writes to any
+ * file within the same store root are serialized by the same lock.
  * The write itself uses `atomicWriteJson` (write-to-temp-then-rename) so
  * readers never observe a partial write.
  *
- * @param ledgerRoot - Absolute path to the centralized ledger root directory
- * @param registry   - Registry data to persist (validated against schema before write)
+ * @param storePath - Absolute path to the store root directory
+ * @param registry  - Registry data to persist (validated against schema before write)
  * @throws Error if schema validation fails or if the atomic write fails
  */
 export async function saveRegistry(
-  ledgerRoot: string,
+  storePath: string,
   registry: RepositoryRegistry
 ): Promise<void> {
   const validated = RepositoryRegistrySchema.parse(registry);
-  const path = registryPath(ledgerRoot);
+  const path = registryPath(storePath);
 
-  await withLock(ledgerRoot, async () => {
+  await withLock(storePath, async () => {
     await atomicWriteJson(path, validated);
   });
 }
