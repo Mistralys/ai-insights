@@ -27,8 +27,12 @@ import {
   handleDeleteRepo,
   ApiError,
 } from '../../gui/api-repos.js';
-import { loadRegistry } from '../../src/storage/repository-registry.js';
+import { loadRegistry, saveRegistry } from '../../src/storage/repository-registry.js';
+import { setStoreContext } from '../../src/storage/store-context.js';
+import { StoreRouter } from '../../src/storage/store-router.js';
+import { MultiStoreManager } from '../../src/storage/multi-store-manager.js';
 import type { RepositoryEntry } from '../../src/schema/repository-registry.js';
+import type { StoresConfig } from '../../src/schema/store-config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -659,5 +663,269 @@ describe('handleListRepos — include_undeclared (WP-005)', () => {
     const result = await handleListRepos(ledgerRoot, true);
     const archiveItem = result.find((r) => r.id === '.archive');
     expect(archiveItem).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-006: handleListRepos — multi-store mode (consolidated code path)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeStoreConfig(stores: Array<{ id: string; path: string; label: string }>): StoresConfig {
+  return {
+    stores: stores.map((s) => ({ id: s.id, path: s.path, label: s.label })),
+    default_store: stores[0]!.id,
+  };
+}
+
+function restoreStoreContextToLegacy(): void {
+  const legacyRouter = new StoreRouter(null);
+  setStoreContext(legacyRouter, new MultiStoreManager(legacyRouter));
+}
+
+describe('WP-006 — handleListRepos: multi-store consolidated code path', () => {
+  let tempDir: string;
+  let storeAPath: string;
+  let storeBPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'api-repos-multi-'));
+    storeAPath = join(tempDir, 'store-a');
+    storeBPath = join(tempDir, 'store-b');
+    await mkdir(storeAPath, { recursive: true });
+    await mkdir(storeBPath, { recursive: true });
+  });
+
+  afterEach(async () => {
+    restoreStoreContextToLegacy();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function initTwoStoreContext(): void {
+    const config = makeStoreConfig([
+      { id: 'store-a', path: storeAPath, label: 'Store A' },
+      { id: 'store-b', path: storeBPath, label: 'Store B' },
+    ]);
+    const router = new StoreRouter(config);
+    setStoreContext(router, new MultiStoreManager(router));
+  }
+
+  async function writeRepoRegistry(storePath: string, ids: string[]): Promise<void> {
+    const now = new Date().toISOString();
+    const registry = {
+      repositories: ids.map((id) => ({
+        id,
+        label: id,
+        folder_names: [id],
+        vision: { short_term: null, mid_term: null, long_term: null },
+        created_at: now,
+        last_modified: now,
+      })),
+    };
+    await saveRegistry(storePath, registry);
+  }
+
+  it('returns merged repos from all stores with store_id tagged', async () => {
+    await writeRepoRegistry(storeAPath, ['repo-a1', 'repo-a2']);
+    await writeRepoRegistry(storeBPath, ['repo-b1']);
+
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored-ledger-root');
+    expect(result).toHaveLength(3);
+
+    const a1 = result.find((r) => r.id === 'repo-a1');
+    const a2 = result.find((r) => r.id === 'repo-a2');
+    const b1 = result.find((r) => r.id === 'repo-b1');
+
+    expect(a1?.store_id).toBe('store-a');
+    expect(a2?.store_id).toBe('store-a');
+    expect(b1?.store_id).toBe('store-b');
+  });
+
+  it('returns empty array when no stores have repositories', async () => {
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored-ledger-root');
+    expect(result).toEqual([]);
+  });
+
+  it('each returned item includes standard fields (id, label, folder_names, has_vision)', async () => {
+    await writeRepoRegistry(storeAPath, ['my-repo']);
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored-ledger-root');
+    expect(result).toHaveLength(1);
+    const item = result[0]!;
+    expect(item).toHaveProperty('id', 'my-repo');
+    expect(item).toHaveProperty('label', 'my-repo');
+    expect(item).toHaveProperty('folder_names', ['my-repo']);
+    expect(item).toHaveProperty('has_vision', false);
+    expect(item).toHaveProperty('has_full_vision', false);
+    expect(item).toHaveProperty('store_id', 'store-a');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-011: handleCreateRepo / handleUpdateRepo / handleDeleteRepo — multi-store
+//         routing (write handlers locate the correct store)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('WP-011 — Write handler routing in multi-store mode', () => {
+  let tempDir: string;
+  let storeAPath: string;
+  let storeBPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'api-repos-write-multi-'));
+    storeAPath = join(tempDir, 'store-a');
+    storeBPath = join(tempDir, 'store-b');
+    await mkdir(storeAPath, { recursive: true });
+    await mkdir(storeBPath, { recursive: true });
+  });
+
+  afterEach(async () => {
+    restoreStoreContextToLegacy();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function initTwoStoreContext(): void {
+    const config = makeStoreConfig([
+      { id: 'store-a', path: storeAPath, label: 'Store A' },
+      { id: 'store-b', path: storeBPath, label: 'Store B' },
+    ]);
+    const router = new StoreRouter(config);
+    setStoreContext(router, new MultiStoreManager(router));
+  }
+
+  async function seedRepo(storePath: string, id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await saveRegistry(storePath, {
+      repositories: [
+        {
+          id,
+          label: id,
+          folder_names: [id],
+          vision: { short_term: null, mid_term: null, long_term: null },
+          created_at: now,
+          last_modified: now,
+        },
+      ],
+    });
+  }
+
+  // ─── POST /api/repos ─────────────────────────────────────────────────────
+
+  describe('handleCreateRepo (POST /api/repos) — AC-3 store routing', () => {
+    it('routes to the store specified by store_id in the request body', async () => {
+      initTwoStoreContext();
+
+      await handleCreateRepo('ignored', {
+        ...makeCreateBody({ id: 'repo-b', folder_names: ['fb'] }),
+        store_id: 'store-b',
+      });
+
+      const registryA = await loadRegistry(storeAPath);
+      const registryB = await loadRegistry(storeBPath);
+      expect(registryA.repositories).toHaveLength(0);
+      expect(registryB.repositories).toHaveLength(1);
+      expect(registryB.repositories[0]!.id).toBe('repo-b');
+    });
+
+    it('routes to the default store when store_id is omitted', async () => {
+      initTwoStoreContext();
+
+      await handleCreateRepo('ignored', makeCreateBody({ id: 'repo-default', folder_names: ['fd'] }));
+
+      // Default store is store-a (first entry in the config)
+      const registryA = await loadRegistry(storeAPath);
+      const registryB = await loadRegistry(storeBPath);
+      expect(registryA.repositories).toHaveLength(1);
+      expect(registryA.repositories[0]!.id).toBe('repo-default');
+      expect(registryB.repositories).toHaveLength(0);
+    });
+
+    it('rejects an unknown store_id with VALIDATION_ERROR', async () => {
+      initTwoStoreContext();
+
+      await expect(
+        handleCreateRepo('ignored', { ...makeCreateBody(), store_id: 'no-such-store' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+  });
+
+  // ─── PUT /api/repos/:repoId ──────────────────────────────────────────────
+
+  describe('handleUpdateRepo (PUT /api/repos/:repoId) — AC-1 store routing', () => {
+    it('locates the owning store via findEntryInStores() and persists the update there', async () => {
+      await seedRepo(storeBPath, 'repo-b');
+      initTwoStoreContext();
+
+      const result = await handleUpdateRepo('ignored', 'repo-b', { label: 'Repo B Updated' });
+
+      expect(result.label).toBe('Repo B Updated');
+
+      const registryA = await loadRegistry(storeAPath);
+      const registryB = await loadRegistry(storeBPath);
+      expect(registryA.repositories).toHaveLength(0);
+      expect(registryB.repositories[0]!.label).toBe('Repo B Updated');
+    });
+
+    it('does not write to a different store than the owning one', async () => {
+      await seedRepo(storeAPath, 'repo-a');
+      await seedRepo(storeBPath, 'repo-b');
+      initTwoStoreContext();
+
+      await handleUpdateRepo('ignored', 'repo-b', { label: 'Updated B' });
+
+      const registryA = await loadRegistry(storeAPath);
+      // repo-a in store-a must remain untouched
+      expect(registryA.repositories[0]!.label).toBe('repo-a');
+    });
+
+    it('returns NOT_FOUND when the repo does not exist in any store', async () => {
+      initTwoStoreContext();
+
+      await expect(
+        handleUpdateRepo('ignored', 'ghost-repo', { label: 'X' })
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  // ─── DELETE /api/repos/:repoId ───────────────────────────────────────────
+
+  describe('handleDeleteRepo (DELETE /api/repos/:repoId) — AC-2 store routing', () => {
+    it('locates the owning store via findEntryInStores() and removes the entry from it', async () => {
+      await seedRepo(storeBPath, 'repo-b');
+      initTwoStoreContext();
+
+      const result = await handleDeleteRepo('ignored', 'repo-b');
+
+      expect(result).toEqual({ deleted: true });
+
+      const registryA = await loadRegistry(storeAPath);
+      const registryB = await loadRegistry(storeBPath);
+      expect(registryA.repositories).toHaveLength(0);
+      expect(registryB.repositories).toHaveLength(0);
+    });
+
+    it('does not affect entries in other stores', async () => {
+      await seedRepo(storeAPath, 'repo-a');
+      await seedRepo(storeBPath, 'repo-b');
+      initTwoStoreContext();
+
+      await handleDeleteRepo('ignored', 'repo-b');
+
+      const registryA = await loadRegistry(storeAPath);
+      expect(registryA.repositories).toHaveLength(1);
+      expect(registryA.repositories[0]!.id).toBe('repo-a');
+    });
+
+    it('returns NOT_FOUND when the repo does not exist in any store', async () => {
+      initTwoStoreContext();
+
+      await expect(
+        handleDeleteRepo('ignored', 'ghost-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 });
