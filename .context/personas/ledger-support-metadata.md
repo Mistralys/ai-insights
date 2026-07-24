@@ -20,6 +20,7 @@ _SOURCE: YAML metadata for all 9 ledger-support personas (shared defaults + per-
                 └── ledger-doctor.yaml
                 └── ledger-knowledge-archiver.yaml
                 └── ledger-knowledge-curator.yaml
+                └── ledger-orchestrator-archaeologist.yaml
                 └── ledger-orchestrator-runner.yaml
                 └── ledger-pipeline-configurator.yaml
                 └── ledger-wp-decomposer.yaml
@@ -204,6 +205,25 @@ tools:
   - read
   - search
   - central_pm/*
+
+```
+###  Path: `/personas/ledger-support/src/meta/ledger-orchestrator-archaeologist.yaml`
+
+```yaml
+slug: ledger-orchestrator-archaeologist
+name: "Ledger Orchestrator Archaeologist"
+description: "Excavate stored orchestrator run artifacts to identify technical issues, friction points, and behavioral anomalies in LangGraph Deep Agents pipeline execution."
+vs_file_name: ledger-orchestrator-archaeologist.agent.md
+id: standalone-ledger-orchestrator-archaeologist
+cc_file_name: ledger-orchestrator-archaeologist.md
+changelog: |
+  1.0.1 (2026-07-23): Domain knowledge audit fixes — remove non-existent `halt` action, add `halted_wp_cancelled`; fix `route` field description to distinguish WP-routing vs early-routing fields; fix `metadata.checkpoint_ns` → `metadata.langgraph_checkpoint_ns`; fix `lc_versions` key casing (`langchain-core` → `langchain_core`)
+  1.0.0 (2026-07-23): Initial release — forensic analysis of orchestrator logs and dialogue chunks
+
+tools:
+  - vscode
+  - read
+  - search
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-orchestrator-runner.yaml`

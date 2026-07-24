@@ -33,6 +33,7 @@ _SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-per
                 └── recipe-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
+                └── web-gui-specialist.yaml
                 └── whatsnew-curator.yaml
                 └── workspace-architect.yaml
 
@@ -622,6 +623,33 @@ tools:
   - web
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/web-gui-specialist.yaml`
+
+```yaml
+slug: web-gui-specialist
+name: "Web GUI Specialist"
+description: "Design and implement engaging, visually optimized web app and tool interfaces with strong UX, accessibility, and frontend performance discipline."
+vs_file_name: web-gui-specialist.agent.md
+id: standalone-web-gui-specialist
+cc_file_name: web-gui-specialist.md
+changelog: |
+  1.0.1 (2026-07-22): Added curated non-obvious GUI heuristics for typography, accessibility, and frontend rendering quality
+  1.0.0 (2026-07-22): Initial release - focused web GUI design and implementation specialist for standalone workflows
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - browser
+  - agent
+  - todo
+
+subagents:
+  - standalone-archiver
 
 ```
 ###  Path: `/personas/standalone/src/meta/whatsnew-curator.yaml`

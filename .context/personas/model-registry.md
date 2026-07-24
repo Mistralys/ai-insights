@@ -121,10 +121,54 @@ _SOURCE: Shipped seed model catalog (default.json)_
 
 ```json
 [
-  { "id": "00000000-0000-0000-0000-000000000000", "name": "Inherit / Auto", "slug": "inherit", "cc_model": "inherit" },
-  { "id": "00000000-0000-0000-0000-000000000001", "name": "Claude Opus 4.6", "slug": "claude-opus-4-6", "cc_model": "inherit" },
-  { "id": "00000000-0000-0000-0000-000000000002", "name": "Claude Sonnet 4.6", "slug": "claude-sonnet-4-6", "cc_model": "inherit" },
-  { "id": "00000000-0000-0000-0000-000000000003", "name": "Gemini 3.5 Flash", "slug": "gemini-3-5-flash", "cc_model": "gemini-3-5-flash" }
+  {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "name": "Inherit / Auto",
+    "slug": "inherit",
+    "cc_model": "inherit"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "Claude Opus 4.6 (Anthropic)",
+    "slug": "Claude Opus 4.6 (anthropic)",
+    "cc_model": "claude-opus-4-6"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "name": "Claude Sonnet 4.6 (Copilot)",
+    "slug": "Claude Sonnet 4.6 (copilot)",
+    "cc_model": "claude-sonnet-4-6"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000003",
+    "name": "Gemini 3.6 Flash",
+    "slug": "Gemini 3.6 Flash (Preview) (copilot)",
+    "cc_model": "inherit"
+  },
+  {
+    "id": "389cf92e-7bed-4bb2-b6f4-f10bc888c856",
+    "name": "GPT-5.6 Luna",
+    "slug": "GPT-5.6 Luna (copilot)",
+    "cc_model": "inherit"
+  },
+  {
+    "id": "420f0a4f-88a4-463f-8d0a-e34a55787d75",
+    "name": "GPT-5.6 Terra",
+    "slug": "GPT-5.6 Terra (copilot)",
+    "cc_model": "inherit"
+  },
+  {
+    "id": "76a07931-7017-4824-a399-01bf48d81670",
+    "name": "MAI-Code-1-Flash",
+    "slug": "MAI-Code-1-Flash (copilot)",
+    "cc_model": "inherit"
+  },
+  {
+    "id": "80ca3c6c-616a-4359-b51b-e108d65cc90e",
+    "name": "Claude Sonnet 4.6 (Anthropic)",
+    "slug": "Claude Sonnet 4.6 (anthropic)",
+    "cc_model": "claude-sonnet-4-6"
+  }
 ]
 
 ```

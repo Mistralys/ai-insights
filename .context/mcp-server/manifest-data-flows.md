@@ -1674,12 +1674,14 @@ Return { ...insight, formatted_id: 'KN-NNNN' } to agent
 
 These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
 
-**Dispatch tier summary:**
+**Route dispatch summary:**
 
-| Tier | Routes | Mechanism |
-|------|--------|-----------|
-| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
-| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+All five knowledge endpoints are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()` in `gui/server.ts`.
+
+| Route type | Routes | `noBody` |
+|-----------|--------|---------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `true` — query params read by handler from `URLSearchParams` |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | — (omitted) — `readJsonBody` applies 1 MiB body limit |
 
 ---
 
@@ -1688,9 +1690,8 @@ These five HTTP endpoints expose the knowledge store to the browser dashboard. A
 ```
 Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
   ↓
-gui/server.ts matchRoute()
-  method === 'GET', rest === ['knowledge']
-  → parse query string: scope, category, tags (comma-split), repository_name, query, limit, offset
+gui/server.ts dispatchRoute() → Route{ method:'GET', path:'/api/knowledge', noBody:true }
+  → URLSearchParams: scope, category, tags (comma-split), repository_name, query, limit, offset
   ↓
 handleListKnowledge(ledgerRoot, params)
   ↓
@@ -1717,10 +1718,9 @@ gui/server.ts → HTTP 200 { data: Insight[] }
 ```
 Browser → DELETE /api/knowledge/42?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'DELETE', rest === ['knowledge', '42']
-  → parse :id (decodeURIComponent, raw string)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'DELETE', path:/^\/api\/knowledge\/(?<id>[^/]+)$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
@@ -1747,10 +1747,9 @@ gui/server.ts → HTTP 204 No Content
 ```
 Browser → POST /api/knowledge/42/promote?scope=repository&repository_name=my-repo
   ↓
-gui/server.ts matchRoute()
-  method === 'POST', rest === ['knowledge', '42', 'promote']
-  → parse :id (decodeURIComponent)
-  → parse scope, repository_name from query string
+gui/server.ts dispatchRoute() → Route{ method:'POST', path:/^\/api\/knowledge\/(?<id>[^/]+)\/promote$/, noBody:true }
+  → id = decodeURIComponent(groups.id)
+  → scope, repository_name from URLSearchParams
   ↓
 handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
@@ -1970,18 +1969,16 @@ Incoming HTTP Request
   │       └── Not found → 404 JSON error
   │
   └── API path (/api/...)
-      ├── Body-parsing routes (PUT, PATCH, POST with body)
-      │   ├── readJsonBody(req) — enforce 1 MiB limit
-      │   ├── Call handler with parsed body
-      │   └── sendJson(res, 200, result)
-      │
-      └── Body-free routes
-          ├── matchRoute(method, url, ledgerRoot, orchestratorLogsDir)
-          │   ├── Parse URL segments
-          │   ├── Match against route table (segment count + values)
-          │   └── Return handler thunk or null
-          ├── handler() → result
-          └── sendJson(res, 200, result)
+      └── dispatchRoute(req, res, method, url, port, buildRoutes(...))
+          ├── parseQueryString(url) → URLSearchParams (passed as 3rd handler arg)
+          ├── Match Route[] table (method + path/RegExp; noBody:true skips body read)
+          │   ├── Section A — body-parsing routes (PUT, PATCH, POST)
+          │   ├── Section B — keyword-specific body-free routes (noBody:true; must precede §C)
+          │   └── Section C — catch-all body-free routes (noBody:true)
+          ├── readJsonBody(req) — enforce 1 MiB limit (skipped when noBody:true)
+          ├── route.handler(body, groups?, query?) → result
+          └── sendJson(res, statusCode ?? 200, result) | writeHead(204) + res.end()
+          No match → 404 JSON error
 
 Error handling (any path):
   ApiError           → sendError(res, statusFromCode, code, message)
@@ -2062,7 +2059,6 @@ User clicks link or navigates
           │   ├── /projects/:repo/:slug/wp/:wpId    → renderWorkPackageDetail(app, repo, slug, wpId)
           │   ├── /projects/:repo/:slug/runs/:file  → renderRunLog(app, repo, slug, file)
           │   ├── /config                           → renderConfig(app)
-          │   ├── /insights                         → renderInsights(app)
           │   ├── /knowledge                        → renderKnowledge(app)
           │   ├── /orchestrator                     → renderOrchestrator(app)
           │   └── (no match)                        → error banner "Page not found"
@@ -2261,7 +2257,7 @@ User opens a chunk dialogue in the work-package detail view
       ├── API.getChunkStructured(repo, slug, filename)
       │   └── GET /api/projects/:repo/:slug/chunks/:filename/rendered?format=structured
       │       │
-      │       └── server.ts (matchRoute)
+      │       └── server.ts (dispatchRoute)
       │           ├── URLSearchParams.get('format') === 'structured'
       │           ├── handleGetChunkFile(ledgerRoot, slug, filename, repoName)
       │           │   → { content: string }  (raw JSONL text)

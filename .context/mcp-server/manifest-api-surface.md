@@ -834,7 +834,7 @@ These handler functions are exported from `gui/api-knowledge.ts` (extracted from
 
 The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch tier:
 
-**Tier 1 — body-free routes (dispatched via `matchRoute()`)**
+**Body-free routes (dispatched via `dispatchRoute()`, `noBody: true`)**
 
 | Method | Path | Query Parameters | Return Shape | Error Codes |
 |--------|------|-----------------|--------------|-------------|
@@ -842,7 +842,7 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 | `DELETE` | `/api/knowledge/:id` | `scope` (required), `repository_name` (required when `scope=repository`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing repository_name), 404 (insight not found) |
 | `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"repository"`), `repository_name` (required when `scope=repository`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"repository"`; missing repository_name), 404 (insight not found) |
 
-**Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
+**Body-parsing routes (dispatched via `dispatchRoute()`)**
 
 | Method | Path | Request Body | Return Shape | Error Codes |
 |--------|------|-------------|--------------|-------------|
@@ -1070,13 +1070,13 @@ export async function handleMoveKnowledge(
 
 These handler functions are exported from `gui/api-repos.ts` (introduced in WP-006) and called by the HTTP server in `gui/server.ts`. They implement the full CRUD lifecycle for the central `.repositories.json` registry — the same registry that `ledger_get_repository_context` reads when resolving project history for a repository.
 
-> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. Body-free routes (`GET`, `DELETE`) are dispatched via `matchRoute()`; body-parsing routes (`POST`, `PUT`) are handled as explicit early-return blocks in `handleRequest()` — consistent with the pattern used for knowledge body-parsing routes.
+> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
 
 ### HTTP Route Table
 
-The five repository endpoints registered in `gui/server.ts`, grouped by dispatch tier:
+The five repository endpoints registered in `gui/server.ts`:
 
-**Tier 1 — body-free routes (dispatched via `matchRoute()`)**
+**Body-free routes (dispatched via `dispatchRoute()`, `noBody: true`)**
 
 | Method | Path | Return Shape | Status Code | Error Codes |
 |--------|------|--------------|-------------|-------------|
@@ -1084,7 +1084,7 @@ The five repository endpoints registered in `gui/server.ts`, grouped by dispatch
 | `GET` | `/api/repos/:repoId` | `RepositoryEntry` (full shape) | 200 | 404 (repo not found) |
 | `DELETE` | `/api/repos/:repoId` | `{ deleted: true }` | 200 | 404 (repo not found) |
 
-**Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
+**Body-parsing routes (dispatched via `dispatchRoute()`)**
 
 | Method | Path | Request Body | Return Shape | Status Code | Error Codes |
 |--------|------|-------------|--------------|-------------|-------------|
@@ -1092,8 +1092,8 @@ The five repository endpoints registered in `gui/server.ts`, grouped by dispatch
 | `PUT` | `/api/repos/:repoId` | `RepoUpdateBodySchema` — `label`?, `folder_names`?, `vision`? | `RepositoryEntry` (updated entry) | 200 | 400 (invalid body, folder_names conflict), 404 (repo not found) |
 
 **Notes:**
-- `POST /api/repos` returns HTTP **201** (Created), unlike most other mutation endpoints in `server.ts` which return 200. This is intentional REST practice and explicitly wired in `server.ts`.
-- `:repoId` is URL-decoded by the server routing layer before being passed to handlers — `decodeURIComponent` is applied at the `matchRoute()` and `handleRequest()` dispatch levels.
+- `POST /api/repos` returns HTTP **201** (Created), unlike most other mutation endpoints in `server.ts` which return 200. This is intentional REST practice — the `statusCode: 201` is set on the route entry in `buildRoutes()`.
+- `:repoId` is URL-decoded by the server routing layer before being passed to handlers — `decodeURIComponent` is applied at the `dispatchRoute()` dispatch level.
 - All routes return `application/json`. Errors follow `{ error: { code: string, message: string, details?: unknown } }` shape.
 - `DELETE /api/repos/:repoId` removes only the registry declaration. **No project data is deleted.** Released folder names become immediately reusable.
 - An empty-body `PUT` (`{}`) is valid — all fields are optional. It is accepted as a no-op update that still stamps `last_modified`. If the product team later requires at least one field to be present, add a `z.refine()` guard to `RepoUpdateBodySchema`.
@@ -1476,7 +1476,7 @@ export async function getResolvedAssignments(): Promise<ResolvedAssignments>
 
 These handler functions are exported from `gui/api-models.ts` (introduced in the model-settings plan) and called by the HTTP server in `gui/server.ts`. They provide the full CRUD lifecycle for the model registry and per-persona model assignments, plus persona listing and rebuild triggering. The implementation follows the domain-split pattern established by `api-knowledge.ts` and `api-repos.ts`.
 
-> **Route wiring note:** Body-free routes (`GET /api/models`, `GET /api/model-assignments`, `GET /api/personas`) are dispatched via `matchRoute()`. Body-parsing routes (`PUT /api/models`, `POST /api/models/load-defaults`, `PUT /api/model-assignments`, `POST /api/model-assignments/replace`, `POST /api/personas/rebuild`) are handled in `handleRequest()` — consistent with the pattern used for other domain handlers.
+> **Route wiring note:** All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`. Body-free routes use `noBody: true` on their route entry.
 
 ### HTTP Route Table
 
@@ -4089,25 +4089,6 @@ export class ApiError extends Error {
   details?: unknown;
 }
 
-// Shape returned by GET /api/insights — one entry per project_comment
-export interface InsightEntry {
-  project_slug: string;          // slug of the source project
-  project_status: ProjectStatus; // current status of the source project
-  repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
-  type: string;                  // e.g. 'note' | 'decision' | 'incident'
-  priority: 'low' | 'medium' | 'high';
-  timestamp: string;             // ISO 8601
-  agent: string;                 // agent who added the comment
-  note: string;
-  context?: IncidentContext;     // present on 'incident' type comments only
-}
-
-// GET /api/insights — aggregates all project_comments across every project, sorted by timestamp descending
-// Per-project read failures are logged to stderr and skipped gracefully; returns [] when no comments exist.
-// repository_name is derived from the storage path using the same pattern as ProjectSummary — original casing
-// is preserved (not lowercased/validated) since this is a display field, not a storage key.
-export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
-
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
 // bad project never breaks the full response.
@@ -4306,8 +4287,8 @@ export async function handleGetRunMetadata(
 // Returns 404 for unknown repo/slug (no .meta.json) or path-traversal attempts in either segment.
 
 // GET /api/server-info — stale-instance detection (no auth required)
-// Handled via a **special-case block** in server.ts before matchRoute() — needs the
-// bootVersions closure captured once by main() at startup.
+// Registered in buildRoutes() as a noBody:true route — needs the bootVersions closure
+// captured once by main() at startup.
 //
 // Response shape:
 //   { stale: boolean, bootVersions: WorkspaceVersions, diskVersions: WorkspaceVersions }
@@ -4339,8 +4320,8 @@ export async function handleUpdateConfig(configPath: string, body: unknown): Pro
 // dry_run = true  → returns ProjectResetDiagnosis (no writes)
 // dry_run = false → decisions required (missing or empty → 400); returns ProjectResetResult
 // Slug validation: assertSafeSlug + ledgerDirExists; missing/invalid slug → 404
-// Handled via a **dedicated POST block** in server.ts (ahead of matchRoute()) because the
-// endpoint requires async body parsing via readBody().
+// Registered in buildRoutes() as a body-parsing route; dispatchRoute() handles async
+// body parsing via readJsonBody().
 export async function handleResetProject(
   ledgerRoot: string,
   slug: string,
@@ -4460,6 +4441,36 @@ export async function handleGetChunkFile(
   repoName?: string
 ): Promise<{ content: string }>;
 
+// GET /api/projects/:repo/:slug/chunks/:filename/text
+// Returns extracted prose-only text for a chunk file as { content: string, cached: boolean }.
+// Cache-first strategy:
+//   1. Derives the .md filename server-side by replacing the validated .jsonl suffix.
+//   2. If a .md file already exists (pre-generated by the CLI or a prior request), reads and
+//      returns it with { content, cached: true } — no extraction performed.
+//   3. On cache miss: reads the .jsonl, calls renderChunksToText(), writes the .md as a
+//      best-effort side-effect (write errors are silently swallowed — the read path must never
+//      fail due to a caching failure), and returns { content, cached: false }.
+// Security:
+//   - slug validated via assertSafeSlug().
+//   - filename must match CHUNK_FILENAME_RE (allowlist — rejects traversal).
+//   - Derived .md path is validated with a resolve() prefix check (defence-in-depth).
+//   - The .md filename is derived server-side; never accepted from the caller.
+//   - No prefix check is applied to filePath: CHUNK_FILENAME_RE already bounds the .jsonl
+//     filename to safe characters, making the .jsonl path safe by construction. The .md path
+//     requires a check because it is derived via string replacement, not validated directly.
+// Error behaviour:
+//   Throws ApiError NOT_FOUND when filename fails the allowlist or the .jsonl does not exist.
+//   Throws INTERNAL_ERROR (500) if renderChunksToText() cannot parse the .jsonl content
+//   (e.g. corrupt or structurally invalid file) — callers should distinguish this from NOT_FOUND.
+// Route is dispatched from gui/server.ts at rest.length === 6, rest[5] === 'text', immediately
+// after the /rendered route (both are 6-segment — no ambiguity with /rendered at rest[4]).
+export async function handleGetChunkText(
+  ledgerRoot: string,
+  slug: string,
+  filename: string,
+  repoName?: string
+): Promise<{ content: string; cached: boolean }>;
+
 // GET /api/projects/:repo/:slug/chunks/:filename/rendered[?format=structured]
 // GET /api/projects/:slug/chunks/:filename/rendered[?format=structured]  (@deprecated)
 // Convenience route: calls handleGetChunkFile then renders the chunk content.
@@ -4520,6 +4531,19 @@ export type DialogueBlock =
 // of tool name — unlike buildToolResultIndex() which filters to inline tools only.
 // Returns [] for empty input; never throws on valid JSONL with unknown block shapes.
 export function renderChunksToStructured(jsonlContent: string): DialogueBlock[];
+
+// Parses a JSONL chunk file and returns prose-only text extracted from AI message turns.
+// Tool calls, tool results, and non-AI message types are omitted — only the AI's reasoning
+// text is included. Used by handleGetChunkText() to produce the /text endpoint's content.
+// Output format:
+//   Single namespace: flat prose string (no section headers).
+//   Dual namespace (both '' and non-'' keys present): sections headed by
+//     '## Outer Agent' and '## Inner Agent', each followed by prose text.
+// Returns '*No dialogue recorded.\n' when the input is empty or contains no AI text.
+// Always terminates with '\n'. Pure function — no I/O, no side effects.
+// Does not throw on valid JSONL with unknown message shapes; throws on structurally
+// corrupt input (e.g. unreadable JSON lines) — callers should treat this as a 500 error.
+export function renderChunksToText(jsonlContent: string): string;
 
 // ---------------------------------------------------------------------------
 // Orchestrator lifecycle handlers (WP-008)
@@ -4791,7 +4815,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 
 **API route table:**
 
-The server uses a two-tier routing architecture: body-free routes are dispatched in `matchRoute()`; body-parsing routes are handled in `handleRequest()` (noted below). Routes follow the repo-namespaced `/:repo/:slug` pattern — see the Active Routes and Deprecated Routes sections below.
+The server uses a unified routing architecture: all routes (body-free and body-parsing) are registered in the declarative `buildRoutes()` table and dispatched by `dispatchRoute()`. Routes follow the repo-namespaced `/:repo/:slug` pattern — see the Active Routes and Deprecated Routes sections below.
 
 **Active Routes (namespaced `/:repo/:slug` — use these going forward):**
 
@@ -4811,28 +4835,30 @@ The server uses a two-tier routing architecture: body-free routes are dispatched
 | GET | `/api/projects/:repo/:slug/chunks` | `handleListChunks` | Optional: `?wp=WP-001` filter |
 | GET | `/api/projects/:repo/:slug/chunks/:filename` | `handleGetChunkFile` | Returns raw JSONL; filename allowlist + resolve() prefix guard |
 | GET | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` or `renderChunksToStructured` | Default: `{ content: string }` dialogue Markdown; with `?format=structured`: `{ blocks: DialogueBlock[] }` |
+| GET | `/api/projects/:repo/:slug/chunks/:filename/text` | `handleGetChunkText` | Returns `{ content: string, cached: boolean }`; prose-only extraction via `renderChunksToText()`; transparent `.md` caching alongside the `.jsonl` |
 | GET | `/api/projects/:repo/:slug/runs` | `handleListRunLogs` | Sorted `RunLogEntry[]`; heals stale runs as side-effect |
 | GET | `/api/projects/:repo/:slug/runs/:filename` | `handleGetRunLog` | `{ entries, totalLines }`; optional `?after=N` for incremental polling |
 | DELETE | `/api/projects/:repo/:slug` | `handleDeleteProject` | |
 | POST | `/api/projects/:repo/:slug/archive` | `handleArchiveProject` | |
 | POST | `/api/projects/:repo/:slug/unarchive` | `handleUnarchiveProject` | |
 | POST | `/api/projects/:repo/:slug/complete` | `handleMarkProjectComplete` | |
-| PATCH | `/api/projects/:repo/:slug` | `handleRenameProject` | Body-parsing — handled in `handleRequest()` |
-| POST | `/api/projects/:repo/:slug/reset` | `handleResetProject` | Body-parsing — handled in `handleRequest()` |
+| PATCH | `/api/projects/:repo/:slug` | `handleRenameProject` | Body-parsing route |
+| POST | `/api/projects/:repo/:slug/reset` | `handleResetProject` | Body-parsing route |
 | GET | `/api/config` | `handleGetConfig` | |
-| PUT | `/api/config` | `handleUpdateConfig` | Body parsed inline |
+| PUT | `/api/config` | `handleUpdateConfig` | Body-parsing route |
 | GET | `/api/insights` | `handleGetInsights` | |
-| GET | `/api/server-info` | *(special-case block)* | Before `matchRoute()`; returns `{ stale, bootVersions, diskVersions }` |
-| GET | `/api/orchestrator/queue` | `handleGetOrchestratorQueue` | Via `matchRoute()`; returns enriched `QueueEntry[]` |
+| GET | `/api/server-info` | *(inline handler)* | `noBody: true`; returns `{ stale, bootVersions, diskVersions }` |
+| GET | `/api/orchestrator/queue` | `handleGetOrchestratorQueue` | `noBody: true`; returns enriched `QueueEntry[]` |
 | GET | `/api/orchestrator/run-status/:filename` | *(status handler)* | |
-| POST | `/api/orchestrator/start` | `handleOrchestratorStart` | Special-case block before `matchRoute()`; body parsed via `readBody()`; dispatches `WORKSPACE_ROOT` as `workspaceRoot` |
-| POST | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` | Special-case block; `id` extracted via `decodeURIComponent(path.slice('/api/orchestrator/kill/'.length))` before `assertSafeQueueId` |
-| POST | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` | Special-case block; same `decodeURIComponent` extraction; responds HTTP 204 No Content |
+| POST | `/api/orchestrator/start` | `handleOrchestratorStart` | Body-parsing route; `workspaceRoot` is `WORKSPACE_ROOT` |
+| POST | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` | `noBody: true`; `id` from named capture group, URL-decoded |
+| POST | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` | `noBody: true`; HTTP 204 No Content |
+| POST | `/api/orchestrator/delete/:id` | `handleOrchestratorDelete` | `noBody: true`; permanently deletes the log entry; HTTP 204 No Content |
 | GET | `/api/knowledge` | `handleListKnowledge` | Optional: `?scope&category&tags&repository_name&query&limit&offset` |
 | DELETE | `/api/knowledge/:id` | `handleDeleteKnowledge` | Optional: `?scope&repository_name` |
 | POST | `/api/knowledge/:id/promote` | `handlePromoteKnowledge` | Optional: `?scope&repository_name` |
-| PATCH | `/api/knowledge/:id` | `handleUpdateKnowledge` | Body-parsing — handled in `handleRequest()` |
-| POST | `/api/knowledge/:id/move` | `handleMoveKnowledge` | Body-parsing — handled in `handleRequest()` |
+| PATCH | `/api/knowledge/:id` | `handleUpdateKnowledge` | Body-parsing route |
+| POST | `/api/knowledge/:id/move` | `handleMoveKnowledge` | Body-parsing route |
 
 **Deprecated Routes (non-namespaced `/:slug` — retained for backward compatibility; will be removed in the next major version):**
 
@@ -4897,25 +4923,60 @@ and missing projects are indistinguishable from the client side.
 Exported for direct unit testing (previously unexported/private). Used by all namespaced route
 handlers in `server.ts`.
 
-#### `matchRoute(method, url, ledgerRoot, orchestratorLogsDir): RouteHandler | null`
+#### `HttpMethod` (type alias, exported)
 
-Matches an HTTP method and URL to a registered API handler thunk. Returns the thunk, or `null`
-if no route matches.
+```typescript
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+```
+
+Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as a defense-in-depth check alongside the compile-time union.
+
+#### `Route` (interface, exported)
+
+A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `method` | `HttpMethod` | ✓ | HTTP method — one of `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE'`. Typed as `HttpMethod` (not `string`) to catch invalid method values at compile time. |
+| `path` | `string \| RegExp` | ✓ | Exact string path or RegExp with named capture groups (`(?<name>…)`). |
+| `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), any named capture groups extracted from the RegExp match, and the parsed query parameters. |
+| `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses — the dispatcher writes the status header and skips `sendJson()`. |
+| `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations registered in the route table. |
+
+#### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
+
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. All closure variables required by route handlers are captured at construction time. Routes are organized into three sections: Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C.
 
 **Parameters:**
-- `method: string` — HTTP method (e.g. `'GET'`, `'DELETE'`)
-- `url: string` — raw request URL including any query string
 - `ledgerRoot: string` — resolved ledger root directory path
+- `configPath: string` — resolved GUI config file path
 - `orchestratorLogsDir: string` — resolved orchestrator logs directory path
+- `bootVersions: WorkspaceVersions | null` — version snapshot captured at server boot; `null` triggers a live `captureWorkspaceVersions()` call inside the `GET /api/server-info` handler
 
-All body-free API routes (GET, DELETE, and simple POST/PATCH without request-body parsing) are
-dispatched through this function. Body-parsing routes (PATCH, some POST routes) are handled as
-explicit early-return blocks in `handleRequest()` **before** `matchRoute()` is called.
+#### `getRouteDescriptors(): Route[]`
 
-> **Testing seam only.** Exported solely to enable unit-level route tests
-> (`tests/gui/route-structured-format.test.ts`). Not intended for external callers. If
-> `server.ts` ever gains a dedicated public API module, `matchRoute` should be moved to an
-> internal/testing-only export there.
+Zero-argument factory for structural testing. Calls `buildRoutes('/dev/null', '/dev/null', '/dev/null', null)` with sentinel arguments so tests can inspect the route table structure without requiring real filesystem paths. Use this in test code instead of calling `buildRoutes()` directly with dummy constants. No handler is invoked during structural inspection.
+
+#### `dispatchRoute(req, res, method, url, port, routes): Promise<boolean>`
+
+Iterates the route table, matches the request by method and path, conditionally parses the request body (skipped when `noBody: true`), invokes the matched handler, and writes the JSON response.
+
+Returns `true` if a route was matched (caller should return immediately), `false` if no route matched.
+
+**Parameters:**
+- `req: IncomingMessage` — the HTTP request
+- `res: ServerResponse` — the HTTP response
+- `method: string` — HTTP method (uppercase)
+- `url: string` — full request URL including query string
+- `port: number` — server port (used for the CORS origin header)
+- `routes: Route[]` — route table to search (typically from `buildRoutes()`)
+
+**Dispatch logic:**
+- String `path` entries: exact match required.
+- RegExp `path` entries: `.exec(path)` used; named capture groups forwarded as the `groups` argument.
+- `noBody: true` — `readJsonBody()` is skipped; handler receives `undefined` as `body`.
+- `statusCode: 204` — dispatcher writes the status header and returns without calling `sendJson()` (empty response body).
+- `ApiError` throws from the handler — caught and mapped to HTTP status via `apiErrorToStatus()`.
 
 ---
 
@@ -4927,11 +4988,11 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 | File | Purpose |
 |------|---------|
-| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/config` Config), `<div id="app">` mount point |
+| `index.html` | HTML shell — nav (`#/` Projects, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/strategy` Strategy, `#/config` Config), `<div id="app">` mount point |
 | `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success/stale banners, comment cards, reset modal, action menu dropdown |
 | `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
-| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/insights`, `/knowledge`, `/orchestrator` |
+| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/knowledge`, `/orchestrator`, `/strategy` |
 | `utils.js` | Shared utilities: `makeProjectCacheKey()`, `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
 | `components.js` | `UI` IIFE — shared render helpers: `UI.badge()`, `UI.banner()`, `UI.emptyState()` (WP-001); `UI.card()` (WP-006); `UI.filterBar()` (WP-007) |
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
@@ -4940,7 +5001,6 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/project-detail-dialogues.js` | `buildDialogueHTML(blocks)` (WP-006), `renderDialoguesSection(sectionEl, repo, slug)` |
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
-| `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
 | `views/knowledge.js` | `renderKnowledge(app)` — Knowledge page; tab navigation between Global and Repository scopes; client-side filtering; card-level edit/delete/promote/move actions |
 | `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
@@ -5108,13 +5168,13 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 | `.btn-resume:disabled` | Disabled state: `opacity: 0.6; cursor: not-allowed` — applied immediately on click to prevent double-submit; re-enabled on error |
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 32 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
+- **`API`** — async fetch wrappers for all 40 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending); **Model Registry group** (all 8 methods carry `@throws {{ code: string, message: string }} On HTTP error responses.` JSDoc): `getModels()` → `GET /api/models` (auto-initialises `local.json` from `default.json` on first access); `saveModels(models)` → `PUT /api/models` (bulk save; entries missing `id` receive auto-assigned UUIDv4; returns `{ models }` or `{ conflict: true, referencedModels }` on 409); `loadDefaultModels()` → `POST /api/models/load-defaults` (merges `default.json` into `local.json` without overwriting; returns `{ models, conflicts }`); `getPersonas()` → `GET /api/personas` (returns empty array when `name-mapping.json` absent); `getAssignments()` → `GET /api/model-assignments` (enriched with a `stale` boolean indicating whether the persona build output may be out of date); `updateAssignments(data)` → `PUT /api/model-assignments` (validates all model UUIDs and persona keys before persisting); `replaceAssignedModel(oldModelId, newModelId)` → `POST /api/model-assignments/replace` (replaces all occurrences of one UUID across assignments; rejects when IDs are equal or `old_model_id` is not referenced); `rebuildPersonas()` → `POST /api/personas/rebuild` (spawns `node scripts/build-personas.js`; returns `{ success: true, output }` on exit 0 or `{ success: false, output, exitCode }` with HTTP 500; returns 409 when a build is already in progress)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
 
 **`router.js`:**
-- **`Router`** — hash-based dispatch (`#/`, `#/projects/:repo/:slug`, `#/projects/:repo/:slug/plan`, `#/projects/:repo/:slug/synthesis`, `#/projects/:repo/:slug/wp/:wpId`, `#/projects/:repo/:slug/runs/:filename`, `#/config`, `#/insights`, `#/orchestrator`, `#/knowledge`); all five project routes use two-segment `([^/]+)/([^/]+)` capture patterns; `decodeURIComponent` applied to both `repo` and `slug` segments in every dispatch branch; suffixed routes (plan, synthesis, wp, runs) are matched before the bare two-segment route to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
+- **`Router`** — hash-based dispatch (`#/`, `#/projects/:repo/:slug`, `#/projects/:repo/:slug/plan`, `#/projects/:repo/:slug/synthesis`, `#/projects/:repo/:slug/wp/:wpId`, `#/projects/:repo/:slug/runs/:filename`, `#/config`, `#/orchestrator`, `#/knowledge`, `#/strategy`); all five project routes use two-segment `([^/]+)/([^/]+)` capture patterns; `decodeURIComponent` applied to both `repo` and `slug` segments in every dispatch branch; suffixed routes (plan, synthesis, wp, runs) are matched before the bare two-segment route to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 
 **`utils.js`:**
 - **`makeProjectCacheKey(repo, slug)`** — Returns the composite cache key `repo + '/' + slug` used by `ProjectNameCache` and all three call sites (`project-list.js`, `project-detail.js`, `breadcrumb().project()`). Centralises key construction to prevent separator-drift if additional views are added. Plain function declaration (no ES module export) — globally available in the browser context. Added in WP-004 (plan `2026-05-31-orchestrator-sidecar-gui-resume-rework-3`).
@@ -5280,8 +5340,6 @@ Wired interactions:
 | `.pm-model-select` | Common class on all `<select>` elements in the Persona Models tab |
 | `.spinner` | Inline spinner used inside buttons during async operations (rebuild); `display: inline-block`, animated `border` rotation |
 
-**`views/insights.js`:**
-- **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
 
 **`views/knowledge.js`:**
 - **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a Move to Repository inline slug input. Uses the CSS classes documented below.
@@ -5991,6 +6049,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `GET` | `/api/projects/:repo/:slug/chunks` | `handleListChunks` | Chunk file list (optional `?wp=` filter). |
 | `GET` | `/api/projects/:repo/:slug/chunks/:filename` | `handleGetChunkFile` | Raw chunk JSONL content. |
 | `GET` | `/api/projects/:repo/:slug/chunks/:filename/rendered` | `handleGetChunkFile` + `renderChunksToDialogue` / `renderChunksToStructured` | Rendered chunk. Without `?format=structured`: Markdown string (`{ content }`) — compact chat-like format, plain paragraphs, per-tool summaries. With `?format=structured`: JSON array (`{ blocks: DialogueBlock[] }`) for interactive frontend rendering. |
+| `GET` | `/api/projects/:repo/:slug/chunks/:filename/text` | `handleGetChunkText` | Prose-only extraction via `renderChunksToText()`. Returns `{ content: string }` — AI text turns only, no tool-call JSON, no tool results. Single-namespace: flat prose. Dual-namespace: `## Outer Agent` / `## Inner Agent` sections. |
 | `GET` | `/api/projects/:repo/:slug/runs` | `handleListRunLogs` | Orchestrator run log file list. |
 | `GET` | `/api/projects/:repo/:slug/runs/:filename` | `handleGetRunLog` | Log entries (supports `?after=N` for streaming). |
 | `DELETE` | `/api/projects/:repo/:slug` | `handleDeleteProject` | Permanently delete a project. |
@@ -6054,7 +6113,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 
 ### 1.4 Model Registry
 
-All routes are handled by `api-models.ts`. Body-parsing routes live inline in `server.ts handleRequest()`; GET routes are registered in `matchRoute()`.
+All routes are handled by `api-models.ts` and are registered in the declarative `buildRoutes()` table — dispatched by `dispatchRoute()` along with every other API route.
 
 | Method | Path | Handler | Description |
 |--------|------|---------|-------------|
@@ -6234,13 +6293,14 @@ Pure-function module. No I/O, no side effects, no imports from `mcp-server/src/`
 
 ### `chunk-renderer.ts` — Rendering layer
 
-Imports all types and functions from `chunk-accumulator.ts`. Exports three pure renderers and the `DialogueBlock` discriminated union type:
+Imports all types and functions from `chunk-accumulator.ts`. Exports four pure renderers and the `DialogueBlock` discriminated union type:
 
 | Export | Signature | Description |
 |--------|-----------|-------------|
 | `renderChunksToMarkdown` | `(jsonlContent: string) → string` | Verbose format: `## Role` headings, JSON fenced tool-call blocks, token-usage footer. |
 | `renderChunksToDialogue` | `(jsonlContent: string) → string` | Compact chat-like format: plain-paragraph AI text, per-tool summary lines, hidden ToolMessages, sub-agent `### Subagent:` headings. |
 | `renderChunksToStructured` | `(jsonlContent: string) → DialogueBlock[]` | Structured format: returns a typed JSON array of `DialogueBlock` objects for interactive frontend rendering. |
+| `renderChunksToText` | `(jsonlContent: string) → string` | Prose-only extraction: AI text turns only, no tool-call JSON, no tool results. Single-namespace files render as flat prose; multi-namespace files get `## Outer Agent` / `## Inner Agent` section headers (one per inner namespace, all labeled identically). Returns `'*No dialogue recorded.*\n'` for empty or content-free input. Shares its `.md` output format with `scripts/extract-dialogue.js`. |
 | `DialogueBlock` | *(exported type)* | Discriminated union describing one rendered block in the structured view. |
 
 #### `DialogueBlock` Type
@@ -6261,11 +6321,49 @@ Variants:
 
 ---
 
+## 1.X Server-side TypeScript Exports (`gui/server.ts`)
+
+These types and functions are exported from `gui/server.ts` and used by test code and other server-side modules.
+
+### Exported Types
+
+#### `HttpMethod`
+
+```typescript
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+```
+
+Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as defense-in-depth alongside the compile-time union.
+
+#### `Route` (interface)
+
+A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `method` | `HttpMethod` | ✓ | HTTP method — one of `'GET' \| 'POST' \| 'PUT' \| 'PATCH' \| 'DELETE'`. |
+| `path` | `string \| RegExp` | ✓ | Exact string path or RegExp with named capture groups (`(?<name>…)`). |
+| `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), named capture groups, and query parameters. |
+| `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses. |
+| `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations. |
+
+### Exported Functions
+
+#### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
+
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9).
+
+#### `getRouteDescriptors(): Route[]`
+
+Zero-argument factory for structural testing. Calls `buildRoutes('/dev/null', '/dev/null', '/dev/null', null)` with sentinel arguments so tests can inspect the route table structure without requiring real filesystem paths. Use this in test code instead of calling `buildRoutes()` directly with dummy constants.
+
+---
+
 ## 2. Frontend Global Namespaces
 
 ### 2.1 `API` (api-client.js)
 
-Client-side REST API wrapper. All methods return Promises.
+Client-side REST API wrapper. All methods return Promises. All methods can reject with `{ code: string, message: string }` on HTTP error responses — callers should handle this shape at every call site.
 
 | Method | Signature | Endpoint |
 |--------|-----------|----------|
@@ -6293,6 +6391,7 @@ Client-side REST API wrapper. All methods return Promises.
 | `getChunks` | `(repo, slug, wpId?) → Promise<object[]>` | `GET …/chunks` |
 | `getChunkRendered` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/rendered` — Markdown string response |
 | `getChunkStructured` | `(repo, slug, filename) → Promise<DialogueBlock[]>` | `GET …/chunks/:filename/rendered?format=structured` — structured JSON response (unwrapped array) |
+| `getChunkText` | `(repo, slug, filename) → Promise<string>` | `GET …/chunks/:filename/text` — prose-only extraction; returns `data.content` (AI text turns, no tool-call JSON) |
 | `getConfig` | `() → Promise<object>` | `GET /api/config` |
 | `updateConfig` | `(data) → Promise<object>` | `PUT /api/config` |
 | `getModels` | `() → Promise<object[]>` | `GET /api/models` |
@@ -6303,13 +6402,14 @@ Client-side REST API wrapper. All methods return Promises.
 | `updateAssignments` | `(data: object) → Promise<object>` | `PUT /api/model-assignments` |
 | `replaceAssignedModel` | `(oldModelId: string, newModelId: string) → Promise<object>` | `POST /api/model-assignments/replace` |
 | `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
-| `getInsights` | `() → Promise<object>` | `GET /api/insights` |
+| `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
 | `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
 | `orchestratorKill` | `(id) → Promise<object>` | `POST /api/orchestrator/kill/:id` |
 | `orchestratorDismiss` | `(id) → Promise<null>` | `POST /api/orchestrator/dismiss/:id` |
+| `orchestratorDelete` | `(id) → Promise<object>` | `POST /api/orchestrator/delete/:id` |
 | `getKnowledge` | `(params?) → Promise<object>` | `GET /api/knowledge` |
 | `updateKnowledge` | `(id, scope, repositoryName, data) → Promise<object>` | `PATCH /api/knowledge/:id` |
 | `deleteKnowledge` | `(id, scope, repositoryName?) → Promise<null>` | `DELETE /api/knowledge/:id` |
@@ -6399,12 +6499,11 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderRunLog` | `run-log.js` | `#/projects/:repo/:slug/runs/:filename` |
 | `renderOrchestrator` | `orchestrator.js` | `#/orchestrator` |
 | `renderConfig` | `config.js` | `#/config` |
-| `renderInsights` | `insights.js` | `#/insights` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
 
 #### `config.js` — Internal Functions
 
-`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (stub), and Model Registry (fully implemented).
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (implemented in `config-persona-models.js`), and Model Registry (implemented in `config-model-registry.js`).
 
 **Scaffold functions:**
 
@@ -6421,11 +6520,21 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderGeneralTab(config)` | Returns the General tab HTML (wraps the settings form in a `UI.card()`). |
 | `wireGeneralTabEvents()` | Attaches `change` and `input` listeners (both needed — checkboxes fire `change`, text/number inputs fire `input`) plus the `submit` handler to the General tab form. Sets `configDirty.general = false` on successful save. |
 
-**Persona Models tab:**
+**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`):
 
 | Function | Description |
 |----------|-------------|
-| `renderPersonaModelsTab(models, personas, assignments)` | **Stub** — renders a "Coming soon" empty-state card. Will be replaced when the Persona Models tab is implemented. |
+| `renderPersonaModelsTab(models, personas, assignments)` | Entry point called by `renderConfigTabContent()`. Initializes pm* module state on first render or after a discard reset (`pmModels === null`); preserves existing state across tab switches that don't trigger the discard-changes path, so unsaved edits survive navigation. Returns `pmBuildTabHtml()`. |
+| `pmRefreshTab()` | Re-renders the Persona Models tab into `#config-tab-content`, re-wires events, and syncs `configDirty.personaModels` via `pmHasChanges()`. Called after any state mutation. |
+| `pmBuildTabHtml()` | Builds the full tab HTML: suite sections (collapsed/expanded), per-persona model dropdowns, default model selector, stale-assignments banner, and action bar. |
+| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. |
+| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
+| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Shows a build-progress state and refreshes the tab on completion. |
+| `pmHasChanges()` | Returns `true` when `pmAssignments` differs from `pmOriginal` (checks `default_model_uuid` and all `persona_models` entries). |
+| `pmCloneAssignments(a)` | Deep-clones an assignments object for snapshot comparison. |
+| `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`. |
+| `pmDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot, or `''`. |
+| `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; optionally prepends a "Default" option. |
 
 **Model Registry tab — core render functions:**
 
@@ -6474,6 +6583,23 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
 | `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+
+**`configDirty` cross-module contract:**
+
+`configDirty` is a shared mutable object with three boolean keys — `general`, `personaModels`, and `modelRegistry`. It is declared and owned by `config.js` but mutated directly by all three tab modules:
+
+| Module | Key written | When written |
+|--------|-------------|--------------|
+| `config.js` (General tab) | `.general` | `change`/`input` → `true`; successful form submit → `false` |
+| `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
+| `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
+
+**Rules companion modules must follow:**
+1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all three known keys on fresh load.
+3. **Load order** — `config-model-registry.js` and `config-persona-models.js` must load _before_ `config.js` (see `index.html`). Both files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+
+The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
 
 **Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
 

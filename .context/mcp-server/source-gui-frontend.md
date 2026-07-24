@@ -19,8 +19,9 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
             └── theme.js
             └── utils.js
             └── views/
+                └── config-model-registry.js
+                └── config-persona-models.js
                 └── config.js
-                └── insights.js
                 └── knowledge.js
                 └── orchestrator.js
                 └── project-detail-dialogues.js
@@ -85,6 +86,73 @@ var API = (function () {
     return parts.length ? '?' + parts.join('&') : '';
   }
 
+  /**
+   * GUI configuration object returned by `getConfig` and `updateConfig`.
+   *
+   * Defined server-side as `GuiConfig` in `src/gui/config.ts`
+   * (`GuiConfigSchema = z.object({...})`).  `ledger_root` is read-only from
+   * the GUI's perspective — `updateConfig` rejects any body that includes it.
+   *
+   * @typedef {Object} GuiConfig
+   * @property {boolean} auto_handoff_enabled - When `true`, the orchestrator
+   *   automatically hands off to the next agent after each pipeline completes.
+   * @property {number}  max_handoff_depth    - Maximum consecutive auto-handoffs
+   *   before the orchestrator stops (guards against infinite loops).
+   * @property {number}  auto_archive_days    - Projects not updated within this
+   *   many days are automatically archived (`0` disables auto-archiving).
+   * @property {boolean} capture_dialogues    - When `true`, per-pipeline
+   *   dialogue files are captured to disk.
+   * @property {string}  ledger_root          - Absolute filesystem path to the
+   *   ledger root directory (read-only from the GUI).
+   */
+
+  /**
+   * A single knowledge insight entry returned by `getInsights`.
+   *
+   * Each entry is a project comment flattened from a project ledger's
+   * `project_comments` array, enriched with `project_slug`,
+   * `project_status`, and `repository_name` (derived from the plan path).
+   * Defined server-side as `InsightEntry` in `gui/api.ts`.
+   *
+   * @typedef {Object} InsightEntry
+   * @property {string}          project_slug   - Unique slug of the project that owns this insight.
+   * @property {string}          project_status - Status of the owning project
+   *   (e.g. `'IN_PROGRESS'`, `'COMPLETE'`, `'ARCHIVED'`).
+   * @property {string|null}     repository_name - Repository name derived from the plan path;
+   *   `null` when the repository cannot be resolved.
+   * @property {string}          type           - Comment type (e.g. `'note'`, `'decision'`, `'incident'`).
+   * @property {'low'|'medium'|'high'} priority - Comment priority.
+   * @property {string}          timestamp      - ISO 8601 timestamp when the comment was recorded.
+   * @property {string}          agent          - Agent role that recorded the comment.
+   * @property {string}          note           - Comment body text.
+   * @property {object}          [context]      - Optional incident context (present when
+   *   `type === 'incident'`); includes `os`, `tool`, `resolved`, and optionally `workaround`.
+   */
+
+  /**
+   * Server runtime information returned by `getServerInfo`.
+   *
+   * Used by the GUI's stale-instance detection (`stale-check.js`) to compare
+   * boot-time versions against current on-disk versions and display a banner
+   * when the server is running outdated code.  Versions are captured from
+   * `package.json` files at server startup and again on each poll.
+   *
+   * @typedef {Object} ServerInfo
+   * @property {boolean}     stale        - `true` when any on-disk version differs
+   *   from the corresponding boot-time version (i.e. the server is stale).
+   * @property {ServerVersions} bootVersions - Versions captured at server startup.
+   * @property {ServerVersions} diskVersions - Versions read from disk at request time.
+   */
+
+  /**
+   * Version snapshot used in {@link ServerInfo}.
+   *
+   * @typedef {Object} ServerVersions
+   * @property {string} mcpServer   - Version from the MCP server's `package.json`.
+   * @property {string} personas    - Version from the personas package's `package.json`.
+   * @property {string} orchestrator - Version from the orchestrator package's `package.json`.
+   */
+
   return {
     /**
      * List all projects, optionally filtered by query parameters.
@@ -92,6 +160,7 @@ var API = (function () {
      * @param {Record<string, any>|null|undefined} params - Query parameters
      *   (e.g. `{ status, repo }`). `undefined`/empty-string values are omitted.
      * @returns {Promise<object[]>} Parsed JSON response from `GET /api/projects`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getProjects: function (params) {
       return request('GET', '/projects' + buildQueryString(params));
@@ -103,6 +172,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Project detail from `GET /api/projects/{repo}/{slug}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getProject: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
 
@@ -112,6 +182,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object[]>} Work package list from `GET /api/projects/{repo}/{slug}/work-packages`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getWorkPackages: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages'); },
 
@@ -122,6 +193,7 @@ var API = (function () {
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @param {string} wpId - Work package ID (e.g. `'WP-001'`; URI-encoded automatically).
      * @returns {Promise<object>} Work package detail from `GET /api/projects/{repo}/{slug}/work-packages/{wpId}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getWorkPackage: function (repo, slug, wpId) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/' + encodeURIComponent(wpId)); },
 
@@ -131,6 +203,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     deleteProject: function (repo, slug) { return request('DELETE', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug)); },
 
@@ -140,6 +213,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/archive`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     archiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/archive'); },
 
@@ -149,12 +223,52 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/unarchive`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     unarchiveProject: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/unarchive'); },
 
+    /**
+     * Fetch the current server configuration.
+     *
+     * @returns {Promise<GuiConfig>} Configuration object from `GET /api/config`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     getConfig:                function ()             { return request('GET',    '/config'); },
+
+    /**
+     * Update the server configuration.
+     *
+     * `ledger_root` is read-only from the GUI and is rejected by the server if
+     * included in the request body.
+     *
+     * @param {Partial<Omit<GuiConfig, 'ledger_root'>>} data - Configuration fields to update.
+     * @returns {Promise<GuiConfig>} Updated configuration from `PUT /api/config`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
+
+    /**
+     * Fetch all knowledge insights from the ledger.
+     *
+     * Aggregates `project_comments` from every project ledger into a single
+     * flat array, sorted by timestamp descending (newest first).  Per-project
+     * read failures are logged to stderr and skipped gracefully.
+     *
+     * @returns {Promise<InsightEntry[]>} Insight entries from `GET /api/insights`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     getInsights:              function ()             { return request('GET',    '/insights'); },
+
+    /**
+     * Fetch server runtime information and stale-instance status.
+     *
+     * Compares boot-time package versions against current on-disk versions.
+     * Used by the GUI's stale-instance detection (`stale-check.js`) to display
+     * a banner when the running server is outdated.
+     *
+     * @returns {Promise<ServerInfo>} Server info from `GET /api/server-info`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
 
     /**
@@ -163,6 +277,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Plan document from `GET /api/projects/{repo}/{slug}/plan`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getPlanDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/plan'); },
 
@@ -172,6 +287,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Synthesis document from `GET /api/projects/{repo}/{slug}/synthesis`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getSynthesisDocument: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/synthesis'); },
 
@@ -184,6 +300,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Reset analysis from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: true`).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     analyzeProjectReset: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
 
@@ -194,6 +311,7 @@ var API = (function () {
      * @param {string}   slug      - Unique project slug within the repository (URI-encoded automatically).
      * @param {object[]} decisions - Array of decision objects returned by `analyzeProjectReset`.
      * @returns {Promise<object>} Reset result from `POST /api/projects/{repo}/{slug}/reset` (`dry_run: false`).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     applyProjectReset: function (repo, slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
 
@@ -203,6 +321,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Health report from `GET /api/projects/{repo}/{slug}/health`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getProjectHealth: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/health'); },
 
@@ -212,6 +331,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Overview from `GET /api/projects/{repo}/{slug}/work-packages/overview`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getWorkPackageOverview: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/work-packages/overview'); },
 
@@ -222,6 +342,7 @@ var API = (function () {
      * @param {string} slug  - Unique project slug within the repository (URI-encoded automatically).
      * @param {string} title - New display title for the project.
      * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     renameProject: function (repo, slug, title) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { title: title }); },
 
@@ -232,6 +353,7 @@ var API = (function () {
      * @param {string} slug    - Current project slug (URI-encoded automatically).
      * @param {string} newSlug - New slug to assign to the project.
      * @returns {Promise<object>} Updated project from `PATCH /api/projects/{repo}/{slug}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     renameSlug: function (repo, slug, newSlug) { return request('PATCH', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug), { slug: newSlug }); },
 
@@ -241,6 +363,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Updated project from `POST /api/projects/{repo}/{slug}/complete`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     markProjectComplete: function (repo, slug) { return request('POST', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/complete'); },
 
@@ -250,6 +373,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object[]>} Run log file list from `GET /api/projects/{repo}/{slug}/runs`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getRunLogs: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/runs'); },
 
@@ -270,6 +394,7 @@ var API = (function () {
      *   Pass `null` or `undefined` to retrieve all entries from the start.
      *   `0` is a valid value and correctly produces `?after=0`.
      * @returns {Promise<object>} Log entries from `GET /api/projects/{repo}/{slug}/runs/{filename}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getRunLogEntries: function (repo, slug, filename, afterLine) {
       var qs = (afterLine !== undefined && afterLine !== null) ? ('?after=' + encodeURIComponent(afterLine)) : '';
@@ -282,6 +407,7 @@ var API = (function () {
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
      * @param {string} slug - Unique project slug within the repository (URI-encoded automatically).
      * @returns {Promise<object>} Run metadata from `GET /api/projects/{repo}/{slug}/run-metadata`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getRunMetadata: function (repo, slug) { return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/run-metadata'); },
 
@@ -293,6 +419,7 @@ var API = (function () {
      * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
      *   Pass `undefined` to retrieve dialogues for all work packages.
      * @returns {Promise<object[]>} Dialogue list from `GET /api/projects/{repo}/{slug}/dialogues`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getDialogues: function (repo, slug, wpId) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
@@ -309,6 +436,7 @@ var API = (function () {
      *   `GET /api/projects/{repo}/{slug}/dialogues/{filename}`.
      *   The response is parsed as JSON (`{ content: string }`); this function returns
      *   `data.content` — it does **not** call `res.text()`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getDialogueContent: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
@@ -323,6 +451,7 @@ var API = (function () {
      * @param {string|undefined} wpId - Optional work package ID filter (e.g. `'WP-001'`).
      *   Pass `undefined` to retrieve chunks for all work packages.
      * @returns {Promise<object[]>} Chunk list from `GET /api/projects/{repo}/{slug}/chunks`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getChunks: function (repo, slug, wpId) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
@@ -336,6 +465,7 @@ var API = (function () {
      * @param {string} filename - Chunk filename (URI-encoded automatically).
      * @returns {Promise<string>} Rendered chunk content string from
      *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getChunkRendered: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
@@ -381,10 +511,25 @@ var API = (function () {
      *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/rendered?format=structured`.
      *   Each element is a {@link DialogueBlock} — inspect the `type` field to
      *   determine which variant properties are present.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getChunkStructured: function (repo, slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered?format=structured')
         .then(function (data) { return data.blocks; });
+    },
+
+    /**
+     * Fetch extracted plain-prose text for a single context chunk.
+     *
+     * @param {string} repo     - Repository name that owns the project (URI-encoded automatically).
+     * @param {string} slug     - Unique project slug within the repository (URI-encoded automatically).
+     * @param {string} filename - Chunk filename (URI-encoded automatically).
+     * @returns {Promise<string>} Extracted prose as a Markdown string from
+     *   `GET /api/projects/{repo}/{slug}/chunks/{filename}/text`.
+     */
+    getChunkText: function (repo, slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/text')
+        .then(function (data) { return data.content; });
     },
 
     // -- Repositories (Strategy) ---------------------------------------
@@ -423,6 +568,7 @@ var API = (function () {
      * accordingly.
      *
      * @returns {Promise<object[]>} Parsed JSON response from `GET /api/repos`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     listRepos: function (includeUndeclared) {
       var qs = includeUndeclared ? '?include_undeclared=true' : '';
@@ -434,6 +580,7 @@ var API = (function () {
      *
      * @param {string} repoId - Repository ID (URI-encoded automatically).
      * @returns {Promise<object>} Repository detail from `GET /api/repos/{repoId}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getRepo: function (repoId) {
       return request('GET', '/repos/' + encodeURIComponent(repoId));
@@ -444,6 +591,7 @@ var API = (function () {
      *
      * @param {object} data - Repository fields: id, label, folder_names, vision.
      * @returns {Promise<object>} Created repository from `POST /api/repos`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     createRepo: function (data) {
       return request('POST', '/repos', data);
@@ -455,6 +603,7 @@ var API = (function () {
      * @param {string} repoId - Repository ID (URI-encoded automatically).
      * @param {object} data   - Fields to update: label, folder_names, vision.
      * @returns {Promise<object>} Updated repository from `PUT /api/repos/{repoId}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     updateRepo: function (repoId, data) {
       return request('PUT', '/repos/' + encodeURIComponent(repoId), data);
@@ -466,21 +615,71 @@ var API = (function () {
      *
      * @param {string} repoId - Repository ID (URI-encoded automatically).
      * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     deleteRepo: function (repoId) {
       return request('DELETE', '/repos/' + encodeURIComponent(repoId));
     },
 
     // -- Orchestrator --------------------------------------------------
+
+    /**
+     * Start a new orchestrator run for a plan.
+     *
+     * @param {string}          planPath        - Absolute path to the plan directory on the server.
+     * @param {boolean}         dryRun          - When `true`, runs in dry-run mode (no side-effects).
+     * @param {string|undefined} resumeThreadId - Optional thread ID to resume an existing run.
+     * @returns {Promise<object>} Run descriptor from `POST /api/orchestrator/start`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorStart: function (planPath, dryRun, resumeThreadId) {
       var body = { planPath: planPath, dryRun: dryRun };
       if (resumeThreadId !== undefined) body.resumeThreadId = resumeThreadId;
       return request('POST', '/orchestrator/start', body);
     },
+
+    /**
+     * Fetch the current orchestrator run queue.
+     *
+     * @returns {Promise<object[]>} Queue entries from `GET /api/orchestrator/queue`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
+
+    /**
+     * Fetch the run status for a specific plan slug.
+     *
+     * @param {string} slug - Plan slug (URI-encoded automatically).
+     * @returns {Promise<object>} Run status from `GET /api/orchestrator/run-status/{slug}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
+
+    /**
+     * Kill an active orchestrator run.
+     *
+     * @param {string} id - Run ID (URI-encoded automatically).
+     * @returns {Promise<object>} Result from `POST /api/orchestrator/kill/{id}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
+
+    /**
+     * Dismiss a completed or failed orchestrator run from the queue.
+     *
+     * @param {string} id - Run ID (URI-encoded automatically).
+     * @returns {Promise<object>} Result from `POST /api/orchestrator/dismiss/{id}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorDismiss:     function (id)               { return request('POST',   '/orchestrator/dismiss/'    + encodeURIComponent(id)); },
+
+    /**
+     * Permanently delete an orchestrator run record.
+     *
+     * @param {string} id - Run ID (URI-encoded automatically).
+     * @returns {Promise<object>} Result from `POST /api/orchestrator/delete/{id}`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
     orchestratorDelete:      function (id)               { return request('POST',   '/orchestrator/delete/'     + encodeURIComponent(id)); },
 
     // -- Knowledge -----------------------------------------------------
@@ -498,6 +697,7 @@ var API = (function () {
      * @param {Record<string, any>|null|undefined} params - Query parameters
      *   (e.g. `{ scope, repository_name, category, tags, q }`).
      * @returns {Promise<object>} Parsed JSON response from `GET /api/knowledge`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getKnowledge: function (params) {
       return request('GET', '/knowledge' + buildQueryString(params));
@@ -518,6 +718,7 @@ var API = (function () {
      * @param {string|null}   repositoryName - Repository name; null/undefined values are omitted.
      * @param {object}        data           - Fields to update (merged before scope/name).
      * @returns {Promise<object>} Updated insight from `PATCH /api/knowledge/:id`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     updateKnowledge: function (id, scope, repositoryName, data) {
       return request('PATCH', '/knowledge/' + encodeURIComponent(id), Object.assign({}, data, {
@@ -538,6 +739,7 @@ var API = (function () {
      * @param {string}        scope          - Insight scope (`'global'` or `'repository'`).
      * @param {string|null}   repositoryName - Repository name; null/undefined values are omitted.
      * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     deleteKnowledge: function (id, scope, repositoryName) {
       return request('DELETE', '/knowledge/' + encodeURIComponent(id) + buildQueryString({
@@ -561,6 +763,7 @@ var API = (function () {
      * @param {string|null}   repositoryName - Source repository name; null/undefined values are omitted.
      * @returns {Promise<object>} The newly created global insight (with a new ID
      *   assigned by the global store — different from the original repository insight ID).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     promoteKnowledge: function (id, scope, repositoryName) {
       return request('POST', '/knowledge/' + encodeURIComponent(id) + '/promote' + buildQueryString({
@@ -587,6 +790,7 @@ var API = (function () {
      * @param {string}        targetRepositoryName  - Destination repository name (always required).
      * @returns {Promise<object>} The newly created insight in the target repository (with a new
      *   ID assigned by the target store — different from the original insight ID).
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     moveKnowledge: function (id, sourceScope, sourceRepositoryName, targetRepositoryName) {
       return request('POST', '/knowledge/' + encodeURIComponent(id) + '/move', {
@@ -603,6 +807,7 @@ var API = (function () {
      * Auto-initializes `local.json` from `default.json` on first access.
      *
      * @returns {Promise<object[]>} Model array from `GET /api/models`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getModels: function () {
       return request('GET', '/models');
@@ -615,6 +820,7 @@ var API = (function () {
      *
      * @param {object[]} models - Array of model entry objects to save.
      * @returns {Promise<object>} `{ models }` on success, or `{ conflict: true, referencedModels }` on 409.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     saveModels: function (models) {
       return request('PUT', '/models', models);
@@ -625,26 +831,33 @@ var API = (function () {
      * Returns the post-merge model list and any slug-collision conflicts.
      *
      * @returns {Promise<object>} `{ models, conflicts }` from `POST /api/models/load-defaults`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     loadDefaultModels: function () {
       return request('POST', '/models/load-defaults');
     },
+
+    // -- Personas ---------------------------------------------------------
 
     /**
      * Fetch all personas from `name-mapping.json`.
      * Returns an empty array when the file does not exist.
      *
      * @returns {Promise<object[]>} Persona array from `GET /api/personas`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getPersonas: function () {
       return request('GET', '/personas');
     },
+
+    // -- Model Assignments ------------------------------------------------
 
     /**
      * Fetch the current model assignments enriched with a `stale` boolean.
      * `stale: true` means the persona build output may be out of date.
      *
      * @returns {Promise<object>} `{ default_model_uuid, persona_models, stale }` from `GET /api/model-assignments`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getAssignments: function () {
       return request('GET', '/model-assignments');
@@ -656,6 +869,7 @@ var API = (function () {
      *
      * @param {object} data - `{ default_model_uuid?, persona_models }` assignment object.
      * @returns {Promise<object>} Saved assignments from `PUT /api/model-assignments`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     updateAssignments: function (data) {
       return request('PUT', '/model-assignments', data);
@@ -668,6 +882,7 @@ var API = (function () {
      * @param {string} oldModelId - UUID of the model to replace.
      * @param {string} newModelId - UUID of the replacement model.
      * @returns {Promise<object>} Updated assignments from `POST /api/model-assignments/replace`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     replaceAssignedModel: function (oldModelId, newModelId) {
       return request('POST', '/model-assignments/replace', {
@@ -682,6 +897,7 @@ var API = (function () {
      *
      * @returns {Promise<object>} `{ success: true, output }` on exit 0,
      *   or `{ success: false, output, exitCode }` with HTTP 500 on failure.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     rebuildPersonas: function () {
       return request('POST', '/personas/rebuild');
@@ -1568,11 +1784,6 @@ var Router = (function () {
       return;
     }
 
-    if (path === '/insights') {
-      renderInsights(app);
-      return;
-    }
-
     if (path === '/knowledge') {
       renderKnowledge(app);
       return;
@@ -1932,6 +2143,10 @@ function breadcrumb() {
       segments.push({ label: ProjectNameCache.get(makeProjectCacheKey(repo, slug)), href: '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) });
       return api;
     },
+    repo: function (repoId, repoLabel) {
+      segments.push({ label: repoLabel || repoId, href: '#/strategy/' + encodeURIComponent(repoId) });
+      return api;
+    },
     leaf: function (label) {
       segments.push({ label: label });
       return api;
@@ -1976,233 +2191,640 @@ function formatDuration(ms) {
 }
 
 ```
-###  Path: `/mcp-server/gui/public/views/config.js`
+###  Path: `/mcp-server/gui/public/views/config-model-registry.js`
 
 ```js
 /* ============================================================
-   views/config.js — Configuration view
-   Section 4d of the MCP Server Dashboard SPA
-   Depends on: API, UI, escapeHtml, showLoading, showError
+   views/config-model-registry.js — Model Registry tab module
+   Section 4d-mr of the MCP Server Dashboard SPA
+   Depends on: API (api-client.js), UI (components.js), escapeHtml (utils.js), crypto.randomUUID (browser built-in), configDirty (config.js)
+   Must be loaded BEFORE config.js.
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
 
-var configActiveTab = 'general';
+/* Module-level state for Model Registry tab.
+   mrModels:    working copy of the model list (may have edits / pending deletions).
+   mrOriginal:  snapshot loaded from the server — used for dirty comparison.
+   mrEditingId: id of the row currently in edit mode (null when none). */
+var mrModels    = null;
+var mrOriginal  = null;
+var mrEditingId = null;
 
-/* Dirty-tracking: keyed by tab name, true when the tab has unsaved changes */
-var configDirty = {
-  general: false,
-  personaModels: false,
-  modelRegistry: false
-};
+/* Slug validation regex — mirrors the server-side rule. */
+var MR_SLUG_REGEX = /^[A-Za-z0-9][A-Za-z0-9 .()\-]*$/;
 
-/* ── Entry point ─────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────────────── */
 
-function renderConfig(app) {
-  showLoading(app);
-
-  Promise.all([
-    API.getConfig(),
-    API.getModels ? API.getModels() : Promise.resolve([]),
-    API.getPersonas ? API.getPersonas() : Promise.resolve([]),
-    API.getAssignments ? API.getAssignments() : Promise.resolve([])
-  ]).then(function (results) {
-    var config      = results[0];
-    var models      = results[1];
-    var personas    = results[2];
-    var assignments = results[3];
-
-    renderConfigPage(app, config, models, personas, assignments);
-  }).catch(function (err) {
-    showError(app, 'Failed to load configuration: ' + (err.message || String(err)));
-  });
+/** Derive a slug from a human-readable name. */
+function mrDeriveSlug(name) {
+  return (name || '')
+    .replace(/[^A-Za-z0-9 .()\-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-/* ── Page scaffold ───────────────────────────────────────── */
+/** Validate a slug string.  Returns an error message or '' if valid. */
+function mrValidateSlug(slug) {
+  if (!slug || !slug.trim()) return 'Slug is required.';
+  if (slug === 'inherit') return 'The slug "inherit" is reserved.';
+  if (!MR_SLUG_REGEX.test(slug)) return 'Slug must start with a letter or digit and may contain letters, digits, spaces, dots, hyphens, and parentheses (e.g. Claude Opus 4.6 (anthropic)).';
+  return '';
+}
 
-function renderConfigPage(app, config, models, personas, assignments) {
-  /* Reset dirty flags — fresh server data has just been loaded, so any stale
-     dirty state from a previous page visit is no longer meaningful. */
-  configDirty.general       = false;
-  configDirty.personaModels = false;
-  configDirty.modelRegistry = false;
+/** Deep-clone a models array so mutations do not affect the original snapshot. */
+function mrCloneModels(arr) {
+  return arr.map(function (m) { return Object.assign({}, m); });
+}
 
-  /* Reset Model Registry local state so it re-initialises from fresh server data. */
-  mrModels    = null;
-  mrOriginal  = null;
-  mrEditingId = null;
+/** Return true when the working copy has any unsaved changes vs the snapshot.
+ *
+ * Comparison is index-based (position i in mrModels vs position i in mrOriginal),
+ * not ID-based. This is correct because mrDoSave() submits activeModels in
+ * iteration order and the server reflects that same order back in result.models.
+ * If the server ever returns models in a different order (e.g. alphabetical sort),
+ * this function would always return true after a save. Should that happen,
+ * replace this loop with an ID-keyed map comparison instead.
+ */
+function mrHasChanges() {
+  if (!mrModels || !mrOriginal) return false;
+  if (mrModels.length !== mrOriginal.length) return true;
+  for (var i = 0; i < mrModels.length; i++) {
+    var a = mrModels[i];
+    var b = mrOriginal[i];
+    if (a.id !== b.id || a.name !== b.name || a.slug !== b.slug || a.cc_model !== b.cc_model || a._deleted !== b._deleted) return true;
+  }
+  return false;
+}
 
-  /* Reset Persona Models local state so it re-initialises from fresh server data. */
-  pmModels      = null;
-  pmPersonas    = null;
-  pmAssignments = null;
-  pmOriginal    = null;
-  pmIsBuilding  = false;
-  pmCollapsed   = {};
-  pmReplaceOpen = false;
+/* ── Render helpers ──────────────────────────────────────── */
 
-  app.innerHTML =
-    '<div class="page-header"><h1>Configuration</h1></div>' +
-    '<div class="config-tabs" id="config-tab-bar">' +
-      '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
-      '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
-      '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
-    '</div>' +
-    '<div id="config-tab-content"></div>';
+/** Render the dirty indicator dot HTML for a field that has changed. */
+function mrDirtyDot(isDirty) {
+  return isDirty ? '<span class="mr-dirty-dot" title="Unsaved change"></span>' : '';
+}
 
-  /* Render active tab content */
-  renderConfigTabContent(config, models, personas, assignments);
+/** Render a single read-only model row. */
+function mrRenderRow(model) {
+  var orig = mrOriginal ? mrOriginal.find(function (o) { return o.id === model.id; }) : null;
+  var isNew      = !orig;
+  var isDeleted  = !!model._deleted;
+  var nameDirty  = orig && model.name     !== orig.name;
+  var slugDirty  = orig && model.slug     !== orig.slug;
+  var ccDirty    = orig && model.cc_model !== orig.cc_model;
 
-  /* Wire tab-bar clicks */
-  var tabBar = document.getElementById('config-tab-bar');
-  if (tabBar) {
-    tabBar.addEventListener('click', function (e) {
-      var btn = e.target.closest('button[data-tab]');
-      if (!btn) return;
-      var tab = btn.getAttribute('data-tab');
-      if (tab === configActiveTab) return;
+  var rowClass = 'mr-model-row' + (isDeleted ? ' mr-model-deleted' : '') + (isNew ? ' mr-model-new' : '');
 
-      /* Unsaved-changes guard */
-      if (configDirty[configActiveTab]) {
-        if (!confirm('You have unsaved changes. Discard them?')) {
-          return; /* Stay */
+  return '<tr class="' + rowClass + '" data-id="' + escapeHtml(model.id) + '">' +
+    '<td>' + mrDirtyDot(nameDirty || isNew) + escapeHtml(model.name) + '</td>' +
+    '<td>' + mrDirtyDot(slugDirty || isNew) + '<code>' + escapeHtml(model.slug) + '</code></td>' +
+    '<td>' +
+      mrDirtyDot(ccDirty || isNew) +
+      '<span title="Claude Code model override. Use \'inherit\' to defer to your Claude Code model setting.">' +
+        escapeHtml(model.cc_model || 'inherit') +
+      '</span>' +
+    '</td>' +
+    '<td class="mr-row-actions">' +
+      (model.slug === 'inherit'
+        ? '<span class="badge badge-secondary" title="This is a built-in system entry and cannot be edited or deleted.">Built-in</span>'
+        : isDeleted
+          ? '<button class="btn btn-sm btn-secondary mr-restore-btn" data-id="' + escapeHtml(model.id) + '">Restore</button>'
+          : '<button class="btn btn-sm btn-secondary mr-edit-btn"    data-id="' + escapeHtml(model.id) + '">Edit</button>' +
+            '<button class="btn btn-sm btn-danger  mr-delete-btn"   data-id="' + escapeHtml(model.id) + '">Delete</button>'
+      ) +
+    '</td>' +
+  '</tr>';
+}
+
+/** Render the edit row for the model currently being edited. */
+function mrRenderEditRow(model) {
+  var orig = mrOriginal ? mrOriginal.find(function (o) { return o.id === model.id; }) : null;
+  var isNew      = !orig;
+  var nameDirty  = orig && model.name     !== orig.name;
+  var slugDirty  = orig && model.slug     !== orig.slug;
+  var ccDirty    = orig && model.cc_model !== orig.cc_model;
+  var slugError  = mrValidateSlug(model.slug);
+
+  return '<tr class="mr-model-row mr-edit-row" data-id="' + escapeHtml(model.id) + '">' +
+    '<td>' +
+      mrDirtyDot(nameDirty || isNew) +
+      '<input type="text" class="form-control mr-field-name" value="' + escapeHtml(model.name) + '" placeholder="Model name" data-id="' + escapeHtml(model.id) + '">' +
+      '<p class="form-note mr-error-text mr-name-error" style="display:none;color:var(--color-danger);">Name is required.</p>' +
+    '</td>' +
+    '<td>' +
+      mrDirtyDot(slugDirty || isNew) +
+      '<input type="text" class="form-control mr-field-slug' + (slugError ? ' mr-field-error' : '') + '" value="' + escapeHtml(model.slug) + '" placeholder="e.g. Claude Opus 4.6 (anthropic)" data-id="' + escapeHtml(model.id) + '">'+
+      (slugError ? '<p class="form-note mr-error-text">' + escapeHtml(slugError) + '</p>' : '') +
+    '</td>' +
+    '<td>' +
+      mrDirtyDot(ccDirty || isNew) +
+      '<input type="text" class="form-control mr-field-cc" value="' + escapeHtml(model.cc_model || '') + '" placeholder="inherit" data-id="' + escapeHtml(model.id) + '">' +
+      '<p class="form-note">Claude Code model override. Use <code>inherit</code> to defer to your Claude Code model setting.</p>' +
+    '</td>' +
+    '<td class="mr-row-actions">' +
+      '<button class="btn btn-sm btn-primary mr-save-row-btn" data-id="' + escapeHtml(model.id) + '"' + (slugError ? ' disabled' : '') + '>Done</button>' +
+      '<button class="btn btn-sm btn-secondary mr-cancel-edit-btn" data-id="' + escapeHtml(model.id) + '">Cancel</button>' +
+    '</td>' +
+  '</tr>';
+}
+
+/* ── Main render function ────────────────────────────────── */
+
+function renderModelRegistryTab(models) {
+  /* Initialise local state from the server data on first render, or after
+     a successful save.  If state is already populated we keep it (the user
+     may have unsaved edits when re-rendering the tab, e.g. after a dirty-
+     state guard was skipped). */
+  if (mrModels === null) {
+    mrModels   = mrCloneModels(models || []);
+    mrOriginal = mrCloneModels(models || []);
+    mrEditingId = null;
+  }
+
+  return mrBuildTabHtml();
+}
+
+/** (Re-)render the tab content and re-wire all event handlers. */
+function mrRefreshTab() {
+  var contentEl = document.getElementById('config-tab-content');
+  if (!contentEl) return;
+  contentEl.innerHTML = mrBuildTabHtml();
+  mrWireEvents();
+  /* Sync dirty flag */
+  configDirty.modelRegistry = mrHasChanges();
+}
+
+/** Build the full HTML string for the Model Registry tab. */
+function mrBuildTabHtml() {
+  var hasValidationErrors = mrModels
+    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
+    : false;
+
+  /* Table rows — sorted alphabetically by label for display (mrModels order unchanged). */
+  var rows = '';
+  if (!mrModels || mrModels.length === 0) {
+    rows = '<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted);padding:24px;">No models registered. Add one below or click "Load Defaults".</td></tr>';
+  } else {
+    var displayModels = mrModels.slice().sort(function (a, b) {
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
+    rows = displayModels.map(function (m) {
+      return (mrEditingId === m.id) ? mrRenderEditRow(m) : mrRenderRow(m);
+    }).join('');
+  }
+
+  var tableHtml =
+    '<div class="table-wrapper" style="margin-bottom:20px;">' +
+      '<table id="mr-table">' +
+        '<thead><tr>' +
+          '<th>Label</th>' +
+          '<th>VS Code</th>' +
+          '<th>Claude Code</th>' +
+          '<th style="width:140px;"></th>' +
+        '</tr></thead>' +
+        '<tbody id="mr-tbody">' +
+          rows +
+        '</tbody>' +
+      '</table>' +
+    '</div>';
+
+  /* Add Model form */
+  var addFormHtml =
+    '<div class="mr-add-section">' +
+      '<h3 class="mr-section-title">Add Model</h3>' +
+      '<div class="mr-add-row">' +
+        '<div class="form-group mr-add-field">' +
+          '<label class="form-label" for="mr-add-name">Label</label>' +
+          '<input type="text" id="mr-add-name" class="form-control" placeholder="e.g. Claude Opus 4">' +
+        '</div>' +
+        '<div class="form-group mr-add-field">' +
+          '<label class="form-label" for="mr-add-slug">VS Code</label>' +
+          '<input type="text" id="mr-add-slug" class="form-control" placeholder="e.g. Claude Opus 4.6 (anthropic)">' +
+          '<p id="mr-add-slug-error" class="form-note mr-error-text" style="display:none;"></p>' +
+        '</div>' +
+        '<div class="form-group mr-add-field">' +
+          '<label class="form-label" for="mr-add-cc">Claude Code</label>' +
+          '<input type="text" id="mr-add-cc" class="form-control" value="inherit" placeholder="inherit">' +
+          '<p class="form-note">Claude Code model override. Use <code>inherit</code> to defer to your Claude Code model setting.</p>' +
+        '</div>' +
+        '<div class="form-group mr-add-action">' +
+          '<label class="form-label" style="visibility:hidden;">Action</label>' +
+          '<button id="mr-add-btn" class="btn btn-primary">Add Model</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  /* Action bar */
+  var saveDisabled = hasValidationErrors ? ' disabled title="Fix validation errors before saving"' : '';
+  var actionBarHtml =
+    '<div class="mr-action-bar">' +
+      '<button id="mr-save-btn" class="btn btn-primary"' + saveDisabled + '>Save</button>' +
+      '<button id="mr-load-defaults-btn" class="btn btn-secondary">Load Defaults</button>' +
+      '<div id="mr-msg" style="display:inline-block;margin-left:12px;"></div>' +
+    '</div>';
+
+  var inner = tableHtml + addFormHtml + actionBarHtml;
+
+  return UI.card('Model Registry', inner);
+}
+
+/* ── Event wiring ────────────────────────────────────────── */
+
+/** Wire all interactive elements on the Model Registry tab. */
+function mrWireEvents() {
+  var tbody = document.getElementById('mr-tbody');
+  if (tbody) {
+    /* Edit button */
+    tbody.addEventListener('click', function (e) {
+      var btn = e.target.closest('.mr-edit-btn');
+      if (btn) {
+        mrEditingId = btn.getAttribute('data-id');
+        mrRefreshTab();
+        return;
+      }
+
+      /* Cancel edit */
+      var cancelBtn = e.target.closest('.mr-cancel-edit-btn');
+      if (cancelBtn) {
+        mrEditingId = null;
+        mrRefreshTab();
+        return;
+      }
+
+      /* Done (save row) */
+      var saveRowBtn = e.target.closest('.mr-save-row-btn');
+      if (saveRowBtn) {
+        var id = saveRowBtn.getAttribute('data-id');
+        var row = document.querySelector('.mr-edit-row[data-id="' + id + '"]');
+        if (row) {
+          var nameInput = row.querySelector('.mr-field-name');
+          var slugInput = row.querySelector('.mr-field-slug');
+          var ccInput   = row.querySelector('.mr-field-cc');
+          var newName   = nameInput ? nameInput.value.trim() : '';
+          var newSlug   = slugInput ? slugInput.value.trim() : '';
+          var newCc     = ccInput   ? ccInput.value.trim()   : 'inherit';
+
+          /* Empty-name guard: reject blank model names inline without a server round-trip */
+          if (!newName) {
+            var nameErrEl = row.querySelector('.mr-name-error');
+            if (nameErrEl) nameErrEl.style.display = '';
+            if (nameInput) nameInput.focus();
+            return;
+          }
+
+          var slugErr   = mrValidateSlug(newSlug);
+          if (slugErr) return; /* button should be disabled, but guard anyway */
+          var model = mrModels.find(function (m) { return m.id === id; });
+          if (model) {
+            model.name     = newName;
+            model.slug     = newSlug;
+            model.cc_model = newCc || 'inherit';
+          }
         }
-        configDirty[configActiveTab] = false;
-        /* Reset Model Registry local state when discarding changes so a
-           fresh load occurs on the next visit. */
-        if (configActiveTab === 'modelRegistry') {
-          mrModels    = null;
-          mrOriginal  = null;
-          mrEditingId = null;
-        }
-        /* Reset Persona Models local state when discarding changes. */
-        if (configActiveTab === 'personaModels') {
-          pmModels      = null;
-          pmPersonas    = null;
-          pmAssignments = null;
-          pmOriginal    = null;
-          pmIsBuilding  = false;
-          pmCollapsed   = {};
-          pmReplaceOpen = false;
+        mrEditingId = null;
+        mrRefreshTab();
+        return;
+      }
+
+      /* Delete */
+      var deleteBtn = e.target.closest('.mr-delete-btn');
+      if (deleteBtn) {
+        var delId = deleteBtn.getAttribute('data-id');
+        var delModel = mrModels.find(function (m) { return m.id === delId; });
+        if (delModel && delModel.slug === 'inherit') return; // sentinel is read-only
+        if (delModel) delModel._deleted = true;
+        if (mrEditingId === delId) mrEditingId = null;
+        mrRefreshTab();
+        return;
+      }
+
+      /* Restore (undo delete) */
+      var restoreBtn = e.target.closest('.mr-restore-btn');
+      if (restoreBtn) {
+        var restId = restoreBtn.getAttribute('data-id');
+        var restModel = mrModels.find(function (m) { return m.id === restId; });
+        if (restModel) delete restModel._deleted;
+        mrRefreshTab();
+        return;
+      }
+    });
+
+    /* Live field updates during edit — dirty dots and slug validation */
+    tbody.addEventListener('input', function (e) {
+      var nameInput = e.target.closest('.mr-field-name');
+      var slugInput = e.target.closest('.mr-field-slug');
+      var ccInput   = e.target.closest('.mr-field-cc');
+
+      if (nameInput) {
+        var id = nameInput.getAttribute('data-id');
+        var model = mrModels.find(function (m) { return m.id === id; });
+        if (model) {
+          /* Clear the name-required error as soon as the user starts typing */
+          var row = nameInput.closest('tr');
+          if (row) {
+            var nameErrEl = row.querySelector('.mr-name-error');
+            if (nameErrEl) nameErrEl.style.display = 'none';
+          }
+
+          /* Auto-derive slug unless it has been manually edited */
+          var currentSlugInput = tbody.querySelector('.mr-field-slug[data-id="' + id + '"]');
+          var origModel        = mrOriginal ? mrOriginal.find(function (o) { return o.id === id; }) : null;
+          var autoSlug         = mrDeriveSlug(nameInput.value);
+          /* Only auto-derive if slug hasn't diverged from the derived value of the current name,
+             or if this is a new model whose slug was not manually touched. */
+          if (currentSlugInput) {
+            var currentSlugVal = currentSlugInput.value.trim();
+            var prevAutoSlug   = mrDeriveSlug(model.name);
+            if (currentSlugVal === prevAutoSlug || currentSlugVal === '') {
+              currentSlugInput.value = autoSlug;
+              model.slug = autoSlug;
+              /* Update validation state */
+              var slugErr = mrValidateSlug(autoSlug);
+              currentSlugInput.classList.toggle('mr-field-error', !!slugErr);
+              /* Update Done button disabled state */
+              var doneBtn = tbody.querySelector('.mr-save-row-btn[data-id="' + id + '"]');
+              if (doneBtn) doneBtn.disabled = !!slugErr;
+            }
+          }
+          model.name = nameInput.value;
+          mrRefreshDirtyDots(id, tbody, origModel, model);
         }
       }
 
-      /* Update active tab state */
-      configActiveTab = tab;
+      if (slugInput) {
+        var slugId  = slugInput.getAttribute('data-id');
+        var slugMod = mrModels.find(function (m) { return m.id === slugId; });
+        if (slugMod) {
+          slugMod.slug = slugInput.value.trim();
+          var slugErr2 = mrValidateSlug(slugMod.slug);
+          slugInput.classList.toggle('mr-field-error', !!slugErr2);
+          /* Show / hide error text */
+          var errEl2 = slugInput.nextElementSibling;
+          if (errEl2 && errEl2.classList.contains('mr-error-text')) {
+            errEl2.textContent = slugErr2;
+            errEl2.style.display = slugErr2 ? '' : 'none';
+          } else if (slugErr2) {
+            var newErr = document.createElement('p');
+            newErr.className = 'form-note mr-error-text';
+            newErr.textContent = slugErr2;
+            slugInput.parentNode.insertBefore(newErr, slugInput.nextSibling);
+          }
+          /* Update Done button disabled state */
+          var doneBtn2 = tbody.querySelector('.mr-save-row-btn[data-id="' + slugId + '"]');
+          if (doneBtn2) doneBtn2.disabled = !!slugErr2;
+          /* Update save button too */
+          mrSyncSaveButton();
+          var origMod = mrOriginal ? mrOriginal.find(function (o) { return o.id === slugId; }) : null;
+          mrRefreshDirtyDots(slugId, tbody, origMod, slugMod);
+        }
+      }
 
-      /* Update active class on buttons without re-rendering the full page */
-      var allBtns = tabBar.querySelectorAll('.config-tab');
-      allBtns.forEach(function (b) {
-        b.classList.toggle('active', b.getAttribute('data-tab') === tab);
-      });
-
-      /* Re-render only the tab content area */
-      renderConfigTabContent(config, models, personas, assignments);
+      if (ccInput) {
+        var ccId  = ccInput.getAttribute('data-id');
+        var ccMod = mrModels.find(function (m) { return m.id === ccId; });
+        if (ccMod) {
+          ccMod.cc_model = ccInput.value.trim() || 'inherit';
+          var origCc = mrOriginal ? mrOriginal.find(function (o) { return o.id === ccId; }) : null;
+          mrRefreshDirtyDots(ccId, tbody, origCc, ccMod);
+        }
+      }
     });
   }
-}
 
-/* ── Tab content dispatcher ──────────────────────────────── */
+  /* Add Model form */
+  var addNameInput = document.getElementById('mr-add-name');
+  var addSlugInput = document.getElementById('mr-add-slug');
 
-function renderConfigTabContent(config, models, personas, assignments) {
-  var contentEl = document.getElementById('config-tab-content');
-  if (!contentEl) return;
+  if (addNameInput) {
+    /* _prevValue is a custom property stored directly on the DOM input element.
+       It tracks the name value from the previous input event so we can compare
+       mrDeriveSlug(prev) with the current slug field value.  If they match (or
+       the slug is empty), the slug was not manually edited, and we auto-update it.
+       Once the user types a slug that diverges from the auto-derived value, we
+       stop overwriting it — the slug is considered "manually set".
+       We store state on the element rather than in a module-level variable to
+       avoid a full re-render on every keystroke.  If the Add form is ever
+       extracted into a proper component, replace _prevValue with explicit
+       local component state. */
+    addNameInput.addEventListener('input', function () {
+      if (!addSlugInput) return;
+      /* Auto-derive slug unless the user has manually edited the slug field */
+      var autoSlug = mrDeriveSlug(addNameInput.value);
+      var prevAuto = mrDeriveSlug(addNameInput._prevValue || '');
+      if (addSlugInput.value === prevAuto || addSlugInput.value === '') {
+        addSlugInput.value = autoSlug;
+        mrValidateAddSlug();
+      }
+      addNameInput._prevValue = addNameInput.value;
+    });
+  }
 
-  if (configActiveTab === 'general') {
-    contentEl.innerHTML = renderGeneralTab(config);
-    wireGeneralTabEvents();
-  } else if (configActiveTab === 'personaModels') {
-    contentEl.innerHTML = renderPersonaModelsTab(models, personas, assignments);
-    pmWireEvents(config, models, personas, assignments);
-  } else if (configActiveTab === 'modelRegistry') {
-    contentEl.innerHTML = renderModelRegistryTab(models);
-    mrWireEvents();
+  if (addSlugInput) {
+    addSlugInput.addEventListener('input', mrValidateAddSlug);
+  }
+
+  var addBtn = document.getElementById('mr-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', function () {
+      var name  = (addNameInput ? addNameInput.value.trim() : '');
+      var slug  = (addSlugInput ? addSlugInput.value.trim() : '');
+      var ccEl  = document.getElementById('mr-add-cc');
+      var cc    = ccEl ? (ccEl.value.trim() || 'inherit') : 'inherit';
+
+      var slugErr = mrValidateSlug(slug);
+      if (slugErr) {
+        mrShowAddSlugError(slugErr);
+        return;
+      }
+      if (!name) {
+        /* Focus name field */
+        if (addNameInput) addNameInput.focus();
+        return;
+      }
+
+      mrModels = mrModels || [];
+      mrModels.push({ id: crypto.randomUUID(), name: name, slug: slug, cc_model: cc });
+      mrRefreshTab();
+    });
+  }
+
+  /* Save button */
+  var saveBtn = document.getElementById('mr-save-btn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', mrDoSave);
+  }
+
+  /* Load Defaults button */
+  var loadDefaultsBtn = document.getElementById('mr-load-defaults-btn');
+  if (loadDefaultsBtn) {
+    loadDefaultsBtn.addEventListener('click', mrDoLoadDefaults);
   }
 }
 
-/* ── General tab ─────────────────────────────────────────── */
-
-function renderGeneralTab(config) {
-  return UI.card(null,
-    '<form id="config-form">' +
-      '<div class="form-group">' +
-        '<label class="form-label" for="auto-handoff">' +
-          '<input type="checkbox" id="auto-handoff" class="form-check" ' + (config.auto_handoff_enabled ? 'checked' : '') + '>' +
-          ' Auto-handoff enabled' +
-        '</label>' +
-        '<p class="form-note">When enabled, the MCP server automatically chains work to the next agent in the workflow.</p>' +
-      '</div>' +
-      '<div class="form-group">' +
-        '<label class="form-label" for="max-depth">Max handoff depth</label>' +
-        '<input type="number" id="max-depth" class="form-control" min="1" value="' + escapeHtml(String(config.max_handoff_depth)) + '">' +
-        '<p class="form-note">Maximum number of automatic agent handoffs before stopping.</p>' +
-      '</div>' +
-      '<div class="form-group">' +
-        '<label class="form-label" for="capture-dialogues">' +
-          '<input type="checkbox" id="capture-dialogues" class="form-check" ' + (config.capture_dialogues ? 'checked' : '') + '>' +
-          ' Capture agent dialogues' +
-        '</label>' +
-        '<p class="form-note">When enabled, the orchestrator saves the full LLM conversation for each pipeline stage to the project\'s ledger as Markdown files. Changes take effect on the next orchestrator run.</p>' +
-      '</div>' +
-      '<div class="form-group">' +
-        '<label class="form-label" for="auto-archive-days">Auto-archive after (days)</label>' +
-        '<input type="number" id="auto-archive-days" class="form-control" min="0" step="1" value="' + escapeHtml(String(config.auto_archive_days != null ? config.auto_archive_days : 6)) + '">' +
-        '<p class="form-note">Number of days after last update before a COMPLETE project is automatically archived. Set to 0 to disable auto-archiving.</p>' +
-      '</div>' +
-      '<div class="form-group">' +
-        '<label class="form-label" for="ledger-root">Ledger root path</label>' +
-        '<input type="text" id="ledger-root" class="form-control" readonly value="' + escapeHtml(config.ledger_root || '') + '">' +
-        '<p class="form-note">Read-only. Changing this requires restarting the server with <code>--ledger-dir</code>.</p>' +
-      '</div>' +
-      '<button type="submit" class="btn btn-primary">Save</button>' +
-      '<div id="config-msg"></div>' +
-    '</form>',
-    { style: 'max-width:560px' }
-  );
+/** Refresh only the dirty-indicator dots for a specific row (avoids full re-render).
+ *
+ *  Design intent: dirty-indicator dots update on full re-renders, which are triggered
+ *  by explicit user actions — Done, Cancel, Delete, Restore.  They do NOT update on
+ *  every keystroke during inline editing.  This means a dot will not appear while the
+ *  user is mid-edit; it appears only after they click Done.
+ *
+ *  This function is a documented no-op stub.  It is called by the input event handlers
+ *  so that future maintainers can implement in-place dot updates (e.g. toggling a CSS
+ *  class on the `<td>` directly) without needing to find all the call sites.  Do NOT
+ *  remove the calls to this function — they serve as extension points.
+ */
+function mrRefreshDirtyDots(id, tbody, origModel, model) {
+  void id; void tbody; void origModel; void model;
 }
 
-function wireGeneralTabEvents() {
-  var form = document.getElementById('config-form');
-  if (!form) return;
-
-  /* Mark tab dirty on any input change.
-     Both 'change' and 'input' are intentional: checkboxes fire 'change'
-     (not 'input'), while text/number inputs fire 'input' on each keystroke.
-     Using both ensures all form control types are covered. */
-  form.addEventListener('change', function () {
-    configDirty.general = true;
-  });
-  form.addEventListener('input', function () {
-    configDirty.general = true;
-  });
-
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var autoHandoff = document.getElementById('auto-handoff').checked;
-    var maxDepth = parseInt(document.getElementById('max-depth').value, 10);
-    if (isNaN(maxDepth) || maxDepth < 1) {
-      showError(document.getElementById('config-msg'), 'Max handoff depth must be a positive integer.');
-      return;
-    }
-    var captureDialogues = document.getElementById('capture-dialogues').checked;
-    var autoArchiveDays = parseInt(document.getElementById('auto-archive-days').value, 10);
-    if (isNaN(autoArchiveDays) || autoArchiveDays < 0) {
-      showError(document.getElementById('config-msg'), 'Auto-archive days must be a non-negative integer.');
-      return;
-    }
-    /* ledger_root intentionally omitted (read-only) */
-    API.updateConfig({ auto_handoff_enabled: autoHandoff, max_handoff_depth: maxDepth, capture_dialogues: captureDialogues, auto_archive_days: autoArchiveDays })
-      .then(function () {
-        configDirty.general = false;
-        document.getElementById('config-msg').innerHTML = '<p class="success-banner">Configuration saved.</p>';
-      })
-      .catch(function (err) {
-        showError(document.getElementById('config-msg'), 'Save failed: ' + (err.message || String(err)));
-      });
-  });
+/** Validate the Add Model slug field and show/hide error message. */
+function mrValidateAddSlug() {
+  var addSlugInput = document.getElementById('mr-add-slug');
+  if (!addSlugInput) return;
+  var slug = addSlugInput.value.trim();
+  var err  = slug ? mrValidateSlug(slug) : '';
+  mrShowAddSlugError(err);
 }
 
-/* ── Persona Models tab ──────────────────────────────────── */
+function mrShowAddSlugError(msg) {
+  var errEl = document.getElementById('mr-add-slug-error');
+  if (errEl) {
+    errEl.textContent    = msg;
+    errEl.style.display  = msg ? '' : 'none';
+  }
+  /* Add button intentionally NOT disabled here — we validate on click instead
+     (slug may be empty/invalid during mid-typing without intent to submit). */
+}
+
+/** Re-evaluate whether the global Save button should be enabled. */
+function mrSyncSaveButton() {
+  var saveBtn = document.getElementById('mr-save-btn');
+  if (!saveBtn) return;
+  var hasErrors = mrModels
+    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
+    : false;
+  saveBtn.disabled = hasErrors;
+}
+
+/* ── API actions ─────────────────────────────────────────── */
+
+/** Send the working model list to PUT /api/models. */
+function mrDoSave() {
+  var saveBtn = document.getElementById('mr-save-btn');
+  var msgEl   = document.getElementById('mr-msg');
+  if (saveBtn) saveBtn.disabled = true;
+  if (msgEl)   msgEl.innerHTML  = '<span style="color:var(--color-text-muted);font-size:13px;">Saving…</span>';
+
+  /* Client-side duplicate-slug pre-check: detect duplicates before sending to server */
+  var activeModels = (mrModels || []).filter(function (m) { return !m._deleted; });
+  var slugsSeen = {};
+  var duplicateSlugs = [];
+  activeModels.forEach(function (m) {
+    if (slugsSeen[m.slug]) {
+      if (duplicateSlugs.indexOf(m.slug) === -1) duplicateSlugs.push(m.slug);
+    } else {
+      slugsSeen[m.slug] = true;
+    }
+  });
+  if (duplicateSlugs.length > 0) {
+    if (saveBtn) saveBtn.disabled = false;
+    if (msgEl) {
+      msgEl.innerHTML = '<p class="error-banner">Duplicate slug' +
+        (duplicateSlugs.length > 1 ? 's' : '') + ': ' +
+        duplicateSlugs.map(function (s) { return '<code>' + escapeHtml(s) + '</code>'; }).join(', ') +
+        '. Each model must have a unique slug.</p>';
+    }
+    return;
+  }
+
+  /* Strip the internal _deleted sentinel from entries that are being removed;
+     the server expects a plain array where absent entries are deletions. */
+  var payload = activeModels.map(function (m) {
+    return { id: m.id, name: m.name, slug: m.slug, cc_model: m.cc_model };
+  });
+
+  API.saveModels(payload)
+    .then(function (result) {
+      /* Refresh state from server response */
+      var saved = (result && result.models) ? result.models : payload;
+      mrModels   = mrCloneModels(saved);
+      mrOriginal = mrCloneModels(saved);
+      mrEditingId = null;
+      configDirty.modelRegistry = false;
+      mrRefreshTab();
+      /* Show success message */
+      var msg2 = document.getElementById('mr-msg');
+      if (msg2) msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Saved successfully.</span>';
+    })
+    .catch(function (err) {
+      var msg2 = document.getElementById('mr-msg');
+      if (saveBtn) saveBtn.disabled = false;
+      if (err && err.code === 'CONFLICT') {
+        /* 409 — referenced model deletion */
+        var conflictMsg =
+          'Cannot delete one or more models because they are referenced by personas. ' +
+          'Use the <strong>Replace Model</strong> feature on the Persona Models tab to reassign personas first, then retry.';
+        if (msg2) msg2.innerHTML = '<p class="error-banner">' + conflictMsg + '</p>';
+      } else {
+        if (msg2) msg2.innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
+      }
+    });
+}
+
+/** Call POST /api/models/load-defaults with confirmation. */
+function mrDoLoadDefaults() {
+  if (!confirm('Load default models? Existing entries with matching slugs will NOT be overwritten. New defaults will be added to your registry.')) {
+    return;
+  }
+  var msgEl = document.getElementById('mr-msg');
+  if (msgEl) msgEl.innerHTML = '<span style="color:var(--color-text-muted);font-size:13px;">Loading defaults…</span>';
+
+  API.loadDefaultModels()
+    .then(function (result) {
+      var loaded    = (result && result.models)    ? result.models    : [];
+      var conflicts = (result && result.conflicts) ? result.conflicts : [];
+
+      mrModels    = mrCloneModels(loaded);
+      mrOriginal  = mrCloneModels(loaded);
+      mrEditingId = null;
+      configDirty.modelRegistry = false;
+      mrRefreshTab();
+
+      var msg2 = document.getElementById('mr-msg');
+      if (msg2) {
+        if (conflicts.length > 0) {
+          var conflictList = conflicts.map(function (c) {
+            return '<li><code>' + escapeHtml(c.slug || String(c)) + '</code>' +
+              (c.reason ? ' — ' + escapeHtml(c.reason) : '') + '</li>';
+          }).join('');
+          msg2.innerHTML =
+            '<p class="info-banner" style="display:inline-block;">' +
+              'Defaults loaded. The following slug(s) already existed and were not overwritten:' +
+              '<ul style="margin:8px 0 0 16px;">' + conflictList + '</ul>' +
+            '</p>';
+        } else {
+          msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Default models loaded.</span>';
+        }
+      }
+    })
+    .catch(function (err) {
+      var msg2 = document.getElementById('mr-msg');
+      if (msg2) msg2.innerHTML = '<p class="error-banner">Failed to load defaults: ' + escapeHtml(err.message || String(err)) + '</p>';
+    });
+}
+
+```
+###  Path: `/mcp-server/gui/public/views/config-persona-models.js`
+
+```js
+/* ============================================================
+   views/config-persona-models.js — Persona Models tab module
+   Section 4d-pm of the MCP Server Dashboard SPA
+   Depends on: API, UI, escapeHtml, configDirty (defined in config.js)
+   Must be loaded BEFORE config.js.
+   ============================================================ */
+
+/* ── Module-level state ──────────────────────────────────── */
 
 /* Module-level state for Persona Models tab.
    pmModels:       working copy of model list (loaded from server, used for dropdowns).
@@ -2271,15 +2893,19 @@ function pmDirtyDot(isDirty) {
 }
 
 /** Build <option> elements for a model dropdown.
- *  If includeDefault is true, prepends a "Default" option with value ''. */
+ *  If includeDefault is true, prepends a "Default" option with value ''.
+ *  Options are sorted alphabetically by label. */
 function pmBuildModelOptions(selectedUuid, includeDefault) {
   var opts = '';
   if (includeDefault) {
     opts += '<option value=""' + (!selectedUuid ? ' selected' : '') + '>Default</option>';
   }
   if (pmModels) {
-    for (var i = 0; i < pmModels.length; i++) {
-      var m = pmModels[i];
+    var sorted = pmModels.slice().sort(function (a, b) {
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
+    for (var i = 0; i < sorted.length; i++) {
+      var m = sorted[i];
       var sel = (m.id === selectedUuid) ? ' selected' : '';
       opts += '<option value="' + escapeHtml(m.id) + '"' + sel + '>' + escapeHtml(m.name) + '</option>';
     }
@@ -2290,12 +2916,13 @@ function pmBuildModelOptions(selectedUuid, includeDefault) {
 /* ── Full tab rebuild ────────────────────────────────────── */
 
 /** (Re-)render the Persona Models tab content and re-wire events. */
-function pmRefreshTab(config, models, personas, assignments) {
+function pmRefreshTab() {
   var contentEl = document.getElementById('config-tab-content');
   if (!contentEl) return;
   contentEl.innerHTML = pmBuildTabHtml();
-  pmWireEvents(config, models, personas, assignments);
-  /* Sync dirty flag */
+  pmWireEvents();
+  /* Sync dirty flag. configDirty is defined in config.js (which loads after this file),
+     but is only accessed here inside a function body — safe forward-reference. */
   configDirty.personaModels = pmHasChanges();
 }
 
@@ -2503,18 +3130,11 @@ function pmBuildTabHtml() {
 /**
  * Wire all interactive elements on the Persona Models tab.
  *
- * Parameter note — pass-through only, not consumed here:
- *   The four parameters (config, models, personas, assignments) are NOT read by
- *   this function or its event handlers. All rendering reads from module-level
- *   pm* state (pmModels, pmPersonas, pmAssignments, pmOriginal, pmIsBuilding,
- *   pmCollapsed, pmReplaceOpen). The parameters exist solely to be forwarded to
- *   pmRefreshTab() calls, which in turn pass them back into the next pmWireEvents
- *   invocation — forming the recursive closure chain that drives full tab re-renders.
- *
- *   To update displayed data, mutate the module-level pm* state directly.
- *   Do not route new data through these parameters.
+ * All rendering reads from module-level pm* state (pmModels, pmPersonas,
+ * pmAssignments, pmOriginal, pmIsBuilding, pmCollapsed, pmReplaceOpen).
+ * To update displayed data, mutate the module-level pm* state directly.
  */
-function pmWireEvents(config, models, personas, assignments) {
+function pmWireEvents() {
 
   /* Go-to-Registry button (empty registry state) */
   var gotoRegBtn = document.querySelector('.pm-goto-registry');
@@ -2533,7 +3153,7 @@ function pmWireEvents(config, models, personas, assignments) {
   var prebuildBtn = document.getElementById('pm-prebuild-rebuild-btn');
   if (prebuildBtn) {
     prebuildBtn.addEventListener('click', function () {
-      pmDoRebuild(config, models, personas, assignments);
+      pmDoRebuild();
     });
   }
 
@@ -2555,7 +3175,7 @@ function pmWireEvents(config, models, personas, assignments) {
       }
       document.getElementById('pm-default-display').style.display = '';
       document.getElementById('pm-default-edit').style.display    = 'none';
-      pmRefreshTab(config, models, personas, assignments);
+      pmRefreshTab();
     });
   }
   var defaultCancelBtn = document.getElementById('pm-default-cancel-btn');
@@ -2572,7 +3192,7 @@ function pmWireEvents(config, models, personas, assignments) {
     hdr.addEventListener('click', function () {
       var suite = hdr.getAttribute('data-suite');
       pmCollapsed[suite] = !pmCollapsed[suite];
-      pmRefreshTab(config, models, personas, assignments);
+      pmRefreshTab();
     });
   });
 
@@ -2608,7 +3228,7 @@ function pmWireEvents(config, models, personas, assignments) {
             }
           }
         }
-        pmRefreshTab(config, models, personas, assignments);
+        pmRefreshTab();
         return;
       }
 
@@ -2630,7 +3250,7 @@ function pmWireEvents(config, models, personas, assignments) {
   if (replaceToggle) {
     replaceToggle.addEventListener('click', function () {
       pmReplaceOpen = !pmReplaceOpen;
-      pmRefreshTab(config, models, personas, assignments);
+      pmRefreshTab();
     });
   }
 
@@ -2665,7 +3285,7 @@ function pmWireEvents(config, models, personas, assignments) {
             }
           }
           pmReplaceOpen = false;
-          pmRefreshTab(config, models, personas, assignments);
+          pmRefreshTab();
         })
         .catch(function (err) {
           replaceAllBtn.disabled = false;
@@ -2680,7 +3300,7 @@ function pmWireEvents(config, models, personas, assignments) {
   if (replaceCancelBtn) {
     replaceCancelBtn.addEventListener('click', function () {
       pmReplaceOpen = false;
-      pmRefreshTab(config, models, personas, assignments);
+      pmRefreshTab();
     });
   }
 
@@ -2688,7 +3308,7 @@ function pmWireEvents(config, models, personas, assignments) {
   var bannerRebuildBtn = document.getElementById('pm-banner-rebuild-btn');
   if (bannerRebuildBtn) {
     bannerRebuildBtn.addEventListener('click', function () {
-      pmDoRebuild(config, models, personas, assignments);
+      pmDoRebuild();
     });
   }
 
@@ -2696,7 +3316,7 @@ function pmWireEvents(config, models, personas, assignments) {
   var rebuildBtn = document.getElementById('pm-rebuild-btn');
   if (rebuildBtn) {
     rebuildBtn.addEventListener('click', function () {
-      pmDoRebuild(config, models, personas, assignments);
+      pmDoRebuild();
     });
   }
 
@@ -2704,7 +3324,7 @@ function pmWireEvents(config, models, personas, assignments) {
   var saveBtn = document.getElementById('pm-save-btn');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
-      pmDoSave(config, models, personas, assignments);
+      pmDoSave();
     });
   }
 }
@@ -2712,7 +3332,7 @@ function pmWireEvents(config, models, personas, assignments) {
 /* ── API actions ─────────────────────────────────────────── */
 
 /** Save the current assignment working copy to PUT /api/model-assignments. */
-function pmDoSave(config, models, personas, assignments) {
+function pmDoSave() {
   var saveBtn = document.getElementById('pm-save-btn');
   var msgEl   = document.getElementById('pm-save-msg');
   if (saveBtn) saveBtn.disabled = true;
@@ -2736,8 +3356,8 @@ function pmDoSave(config, models, personas, assignments) {
           pmAssignments.persona_models     = result.persona_models || {};
         }
       }
-      configDirty.personaModels = false;
-      pmRefreshTab(config, models, personas, assignments);
+      configDirty.personaModels = false; /* forward-reference to config.js — safe, inside function body */
+      pmRefreshTab();
       var msg2 = document.getElementById('pm-save-msg');
       if (msg2) msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Saved.</span>';
     })
@@ -2749,7 +3369,7 @@ function pmDoSave(config, models, personas, assignments) {
 }
 
 /** Trigger a persona rebuild. Shared by all rebuild buttons (banner + fixed + pre-build). */
-function pmDoRebuild(config, models, personas, assignments) {
+function pmDoRebuild() {
   if (pmIsBuilding) return;
   pmIsBuilding = true;
 
@@ -2757,7 +3377,7 @@ function pmDoRebuild(config, models, personas, assignments) {
   var errEl = document.getElementById('pm-build-error');
   if (errEl) { errEl.style.display = 'none'; errEl.innerHTML = ''; }
 
-  pmRefreshTab(config, models, personas, assignments);
+  pmRefreshTab();
 
   API.rebuildPersonas()
     .then(function (result) {
@@ -2771,15 +3391,15 @@ function pmDoRebuild(config, models, personas, assignments) {
         var freshAssignments = refreshed[1] || {};
         /* Update stale flag from server */
         if (pmAssignments) pmAssignments.stale = freshAssignments.stale;
-        pmRefreshTab(config, models, pmPersonas, assignments);
+        pmRefreshTab();
       }).catch(function () {
         /* Even if refresh fails, just re-render with existing data */
-        pmRefreshTab(config, models, personas, assignments);
+        pmRefreshTab();
       });
     })
     .catch(function (err) {
       pmIsBuilding = false;
-      pmRefreshTab(config, models, personas, assignments);
+      pmRefreshTab();
       /* Show build error output */
       var errEl2 = document.getElementById('pm-build-error');
       if (errEl2) {
@@ -2793,9 +3413,19 @@ function pmDoRebuild(config, models, personas, assignments) {
 
 /* ── Entry point ─────────────────────────────────────────── */
 
-/** Called by renderConfigTabContent() to render the Persona Models tab. */
+/**
+ * Called by renderConfigTabContent() to render the Persona Models tab.
+ *
+ * State is initialized only on first render (pmModels === null). On every
+ * subsequent call — including when the user switches away and back to this tab
+ * without discarding changes — the existing module-level state (pmAssignments,
+ * pmReplaceOpen, etc.) is kept intact so unsaved edits are preserved. State is
+ * reset to null by the coordinator's discard-changes path in config.js, which
+ * sets pmModels = null, causing the next render to re-initialize from the
+ * freshly fetched server data passed in via the arguments.
+ */
 function renderPersonaModelsTab(models, personas, assignments) {
-  /* Initialize module-level state on first render (or after a page reload). */
+  /* Initialize module-level state on first render (or after a discard reset). */
   if (pmModels === null) {
     pmModels    = models || [];
     pmPersonas  = personas || [];
@@ -2811,706 +3441,201 @@ function renderPersonaModelsTab(models, personas, assignments) {
   return pmBuildTabHtml();
 }
 
-/* ── Model Registry tab ──────────────────────────────────── */
-
-/* Module-level state for Model Registry tab.
-   mrModels:    working copy of the model list (may have edits / pending deletions).
-   mrOriginal:  snapshot loaded from the server — used for dirty comparison.
-   mrEditingId: id of the row currently in edit mode (null when none). */
-var mrModels    = null;
-var mrOriginal  = null;
-var mrEditingId = null;
-
-/* Slug validation regex — mirrors the server-side rule. */
-var MR_SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-/* ── Helpers ─────────────────────────────────────────────── */
-
-/** Derive a slug from a human-readable name. */
-function mrDeriveSlug(name) {
-  return (name || '')
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-/** Validate a slug string.  Returns an error message or '' if valid. */
-function mrValidateSlug(slug) {
-  if (!slug) return 'Slug is required.';
-  if (slug === 'inherit') return 'The slug "inherit" is reserved.';
-  if (!MR_SLUG_REGEX.test(slug)) return 'Slug must be lowercase alphanumeric with hyphens (e.g. my-model).';
-  return '';
-}
-
-/** Deep-clone a models array so mutations do not affect the original snapshot. */
-function mrCloneModels(arr) {
-  return arr.map(function (m) { return Object.assign({}, m); });
-}
-
-/** Return true when the working copy has any unsaved changes vs the snapshot. */
-function mrHasChanges() {
-  if (!mrModels || !mrOriginal) return false;
-  if (mrModels.length !== mrOriginal.length) return true;
-  for (var i = 0; i < mrModels.length; i++) {
-    var a = mrModels[i];
-    var b = mrOriginal[i];
-    if (a.id !== b.id || a.name !== b.name || a.slug !== b.slug || a.cc_model !== b.cc_model || a._deleted !== b._deleted) return true;
-  }
-  return false;
-}
-
-/* ── Render helpers ──────────────────────────────────────── */
-
-/** Render the dirty indicator dot HTML for a field that has changed. */
-function mrDirtyDot(isDirty) {
-  return isDirty ? '<span class="mr-dirty-dot" title="Unsaved change"></span>' : '';
-}
-
-/** Render a single read-only model row. */
-function mrRenderRow(model) {
-  var orig = mrOriginal ? mrOriginal.find(function (o) { return o.id === model.id; }) : null;
-  var isNew      = !orig;
-  var isDeleted  = !!model._deleted;
-  var nameDirty  = orig && model.name     !== orig.name;
-  var slugDirty  = orig && model.slug     !== orig.slug;
-  var ccDirty    = orig && model.cc_model !== orig.cc_model;
-
-  var rowClass = 'mr-model-row' + (isDeleted ? ' mr-model-deleted' : '') + (isNew ? ' mr-model-new' : '');
-
-  return '<tr class="' + rowClass + '" data-id="' + escapeHtml(model.id) + '">' +
-    '<td>' + mrDirtyDot(nameDirty || isNew) + escapeHtml(model.name) + '</td>' +
-    '<td>' + mrDirtyDot(slugDirty || isNew) + '<code>' + escapeHtml(model.slug) + '</code></td>' +
-    '<td>' +
-      mrDirtyDot(ccDirty || isNew) +
-      '<span title="Claude Code model override. Use \'inherit\' to defer to your Claude Code model setting.">' +
-        escapeHtml(model.cc_model || 'inherit') +
-      '</span>' +
-    '</td>' +
-    '<td class="mr-row-actions">' +
-      (isDeleted
-        ? '<button class="btn btn-sm btn-secondary mr-restore-btn" data-id="' + escapeHtml(model.id) + '">Restore</button>'
-        : '<button class="btn btn-sm btn-secondary mr-edit-btn"    data-id="' + escapeHtml(model.id) + '">Edit</button>' +
-          '<button class="btn btn-sm btn-danger  mr-delete-btn"   data-id="' + escapeHtml(model.id) + '">Delete</button>'
-      ) +
-    '</td>' +
-  '</tr>';
-}
-
-/** Render the edit row for the model currently being edited. */
-function mrRenderEditRow(model) {
-  var orig = mrOriginal ? mrOriginal.find(function (o) { return o.id === model.id; }) : null;
-  var isNew      = !orig;
-  var nameDirty  = orig && model.name     !== orig.name;
-  var slugDirty  = orig && model.slug     !== orig.slug;
-  var ccDirty    = orig && model.cc_model !== orig.cc_model;
-  var slugError  = mrValidateSlug(model.slug);
-
-  return '<tr class="mr-model-row mr-edit-row" data-id="' + escapeHtml(model.id) + '">' +
-    '<td>' +
-      mrDirtyDot(nameDirty || isNew) +
-      '<input type="text" class="form-control mr-field-name" value="' + escapeHtml(model.name) + '" placeholder="Model name" data-id="' + escapeHtml(model.id) + '">' +
-    '</td>' +
-    '<td>' +
-      mrDirtyDot(slugDirty || isNew) +
-      '<input type="text" class="form-control mr-field-slug' + (slugError ? ' mr-field-error' : '') + '" value="' + escapeHtml(model.slug) + '" placeholder="model-slug" data-id="' + escapeHtml(model.id) + '">' +
-      (slugError ? '<p class="form-note mr-error-text">' + escapeHtml(slugError) + '</p>' : '') +
-    '</td>' +
-    '<td>' +
-      mrDirtyDot(ccDirty || isNew) +
-      '<input type="text" class="form-control mr-field-cc" value="' + escapeHtml(model.cc_model || '') + '" placeholder="inherit" data-id="' + escapeHtml(model.id) + '">' +
-      '<p class="form-note">Claude Code model override. Use <code>inherit</code> to defer to your Claude Code model setting.</p>' +
-    '</td>' +
-    '<td class="mr-row-actions">' +
-      '<button class="btn btn-sm btn-primary mr-save-row-btn" data-id="' + escapeHtml(model.id) + '"' + (slugError ? ' disabled' : '') + '>Done</button>' +
-      '<button class="btn btn-sm btn-secondary mr-cancel-edit-btn" data-id="' + escapeHtml(model.id) + '">Cancel</button>' +
-    '</td>' +
-  '</tr>';
-}
-
-/* ── Main render function ────────────────────────────────── */
-
-function renderModelRegistryTab(models) {
-  /* Initialise local state from the server data on first render, or after
-     a successful save.  If state is already populated we keep it (the user
-     may have unsaved edits when re-rendering the tab, e.g. after a dirty-
-     state guard was skipped). */
-  if (mrModels === null) {
-    mrModels   = mrCloneModels(models || []);
-    mrOriginal = mrCloneModels(models || []);
-    mrEditingId = null;
-  }
-
-  return mrBuildTabHtml();
-}
-
-/** (Re-)render the tab content and re-wire all event handlers. */
-function mrRefreshTab() {
-  var contentEl = document.getElementById('config-tab-content');
-  if (!contentEl) return;
-  contentEl.innerHTML = mrBuildTabHtml();
-  mrWireEvents();
-  /* Sync dirty flag */
-  configDirty.modelRegistry = mrHasChanges();
-}
-
-/** Build the full HTML string for the Model Registry tab. */
-function mrBuildTabHtml() {
-  var hasValidationErrors = mrModels
-    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
-    : false;
-
-  /* Table rows */
-  var rows = '';
-  if (!mrModels || mrModels.length === 0) {
-    rows = '<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted);padding:24px;">No models registered. Add one below or click "Load Defaults".</td></tr>';
-  } else {
-    rows = mrModels.map(function (m) {
-      return (mrEditingId === m.id) ? mrRenderEditRow(m) : mrRenderRow(m);
-    }).join('');
-  }
-
-  var tableHtml =
-    '<div class="table-wrapper" style="margin-bottom:20px;">' +
-      '<table id="mr-table">' +
-        '<thead><tr>' +
-          '<th>Name</th>' +
-          '<th>Slug</th>' +
-          '<th>cc_model</th>' +
-          '<th style="width:140px;"></th>' +
-        '</tr></thead>' +
-        '<tbody id="mr-tbody">' +
-          rows +
-        '</tbody>' +
-      '</table>' +
-    '</div>';
-
-  /* Add Model form */
-  var addFormHtml =
-    '<div class="mr-add-section">' +
-      '<h3 class="mr-section-title">Add Model</h3>' +
-      '<div class="mr-add-row">' +
-        '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-name">Name</label>' +
-          '<input type="text" id="mr-add-name" class="form-control" placeholder="e.g. Claude Opus 4">' +
-        '</div>' +
-        '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-slug">Slug</label>' +
-          '<input type="text" id="mr-add-slug" class="form-control" placeholder="claude-opus-4">' +
-          '<p id="mr-add-slug-error" class="form-note mr-error-text" style="display:none;"></p>' +
-        '</div>' +
-        '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-cc">cc_model</label>' +
-          '<input type="text" id="mr-add-cc" class="form-control" value="inherit" placeholder="inherit">' +
-          '<p class="form-note">Claude Code model override. Use <code>inherit</code> to defer to your Claude Code model setting.</p>' +
-        '</div>' +
-        '<div class="form-group mr-add-action">' +
-          '<label class="form-label" style="visibility:hidden;">Action</label>' +
-          '<button id="mr-add-btn" class="btn btn-primary">Add Model</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-
-  /* Action bar */
-  var saveDisabled = hasValidationErrors ? ' disabled title="Fix validation errors before saving"' : '';
-  var actionBarHtml =
-    '<div class="mr-action-bar">' +
-      '<button id="mr-save-btn" class="btn btn-primary"' + saveDisabled + '>Save</button>' +
-      '<button id="mr-load-defaults-btn" class="btn btn-secondary">Load Defaults</button>' +
-      '<div id="mr-msg" style="display:inline-block;margin-left:12px;"></div>' +
-    '</div>';
-
-  var inner = tableHtml + addFormHtml + actionBarHtml;
-
-  return UI.card('Model Registry', inner);
-}
-
-/* ── Event wiring ────────────────────────────────────────── */
-
-/** Wire all interactive elements on the Model Registry tab. */
-function mrWireEvents() {
-  var tbody = document.getElementById('mr-tbody');
-  if (tbody) {
-    /* Edit button */
-    tbody.addEventListener('click', function (e) {
-      var btn = e.target.closest('.mr-edit-btn');
-      if (btn) {
-        mrEditingId = btn.getAttribute('data-id');
-        mrRefreshTab();
-        return;
-      }
-
-      /* Cancel edit */
-      var cancelBtn = e.target.closest('.mr-cancel-edit-btn');
-      if (cancelBtn) {
-        mrEditingId = null;
-        mrRefreshTab();
-        return;
-      }
-
-      /* Done (save row) */
-      var saveRowBtn = e.target.closest('.mr-save-row-btn');
-      if (saveRowBtn) {
-        var id = saveRowBtn.getAttribute('data-id');
-        var row = document.querySelector('.mr-edit-row[data-id="' + id + '"]');
-        if (row) {
-          var nameInput = row.querySelector('.mr-field-name');
-          var slugInput = row.querySelector('.mr-field-slug');
-          var ccInput   = row.querySelector('.mr-field-cc');
-          var newName   = nameInput ? nameInput.value.trim() : '';
-          var newSlug   = slugInput ? slugInput.value.trim() : '';
-          var newCc     = ccInput   ? ccInput.value.trim()   : 'inherit';
-          var slugErr   = mrValidateSlug(newSlug);
-          if (slugErr) return; /* button should be disabled, but guard anyway */
-          var model = mrModels.find(function (m) { return m.id === id; });
-          if (model) {
-            model.name     = newName;
-            model.slug     = newSlug;
-            model.cc_model = newCc || 'inherit';
-          }
-        }
-        mrEditingId = null;
-        mrRefreshTab();
-        return;
-      }
-
-      /* Delete */
-      var deleteBtn = e.target.closest('.mr-delete-btn');
-      if (deleteBtn) {
-        var delId = deleteBtn.getAttribute('data-id');
-        var delModel = mrModels.find(function (m) { return m.id === delId; });
-        if (delModel) delModel._deleted = true;
-        if (mrEditingId === delId) mrEditingId = null;
-        mrRefreshTab();
-        return;
-      }
-
-      /* Restore (undo delete) */
-      var restoreBtn = e.target.closest('.mr-restore-btn');
-      if (restoreBtn) {
-        var restId = restoreBtn.getAttribute('data-id');
-        var restModel = mrModels.find(function (m) { return m.id === restId; });
-        if (restModel) delete restModel._deleted;
-        mrRefreshTab();
-        return;
-      }
-    });
-
-    /* Live field updates during edit — dirty dots and slug validation */
-    tbody.addEventListener('input', function (e) {
-      var nameInput = e.target.closest('.mr-field-name');
-      var slugInput = e.target.closest('.mr-field-slug');
-      var ccInput   = e.target.closest('.mr-field-cc');
-
-      if (nameInput) {
-        var id = nameInput.getAttribute('data-id');
-        var model = mrModels.find(function (m) { return m.id === id; });
-        if (model) {
-          /* Auto-derive slug unless it has been manually edited */
-          var currentSlugInput = tbody.querySelector('.mr-field-slug[data-id="' + id + '"]');
-          var origModel        = mrOriginal ? mrOriginal.find(function (o) { return o.id === id; }) : null;
-          var autoSlug         = mrDeriveSlug(nameInput.value);
-          /* Only auto-derive if slug hasn't diverged from the derived value of the current name,
-             or if this is a new model whose slug was not manually touched. */
-          if (currentSlugInput) {
-            var currentSlugVal = currentSlugInput.value.trim();
-            var prevAutoSlug   = mrDeriveSlug(model.name);
-            if (currentSlugVal === prevAutoSlug || currentSlugVal === '') {
-              currentSlugInput.value = autoSlug;
-              model.slug = autoSlug;
-              /* Update validation state */
-              var slugErr = mrValidateSlug(autoSlug);
-              var errEl   = currentSlugInput.nextElementSibling;
-              currentSlugInput.classList.toggle('mr-field-error', !!slugErr);
-              /* Update Done button disabled state */
-              var doneBtn = tbody.querySelector('.mr-save-row-btn[data-id="' + id + '"]');
-              if (doneBtn) doneBtn.disabled = !!slugErr;
-            }
-          }
-          model.name = nameInput.value;
-          mrRefreshDirtyDots(id, tbody, origModel, model);
-        }
-      }
-
-      if (slugInput) {
-        var slugId  = slugInput.getAttribute('data-id');
-        var slugMod = mrModels.find(function (m) { return m.id === slugId; });
-        if (slugMod) {
-          slugMod.slug = slugInput.value.trim();
-          var slugErr2 = mrValidateSlug(slugMod.slug);
-          slugInput.classList.toggle('mr-field-error', !!slugErr2);
-          /* Show / hide error text */
-          var errEl2 = slugInput.nextElementSibling;
-          if (errEl2 && errEl2.classList.contains('mr-error-text')) {
-            errEl2.textContent = slugErr2;
-            errEl2.style.display = slugErr2 ? '' : 'none';
-          } else if (slugErr2) {
-            var newErr = document.createElement('p');
-            newErr.className = 'form-note mr-error-text';
-            newErr.textContent = slugErr2;
-            slugInput.parentNode.insertBefore(newErr, slugInput.nextSibling);
-          }
-          /* Update Done button disabled state */
-          var doneBtn2 = tbody.querySelector('.mr-save-row-btn[data-id="' + slugId + '"]');
-          if (doneBtn2) doneBtn2.disabled = !!slugErr2;
-          /* Update save button too */
-          mrSyncSaveButton();
-          var origMod = mrOriginal ? mrOriginal.find(function (o) { return o.id === slugId; }) : null;
-          mrRefreshDirtyDots(slugId, tbody, origMod, slugMod);
-        }
-      }
-
-      if (ccInput) {
-        var ccId  = ccInput.getAttribute('data-id');
-        var ccMod = mrModels.find(function (m) { return m.id === ccId; });
-        if (ccMod) {
-          ccMod.cc_model = ccInput.value.trim() || 'inherit';
-          var origCc = mrOriginal ? mrOriginal.find(function (o) { return o.id === ccId; }) : null;
-          mrRefreshDirtyDots(ccId, tbody, origCc, ccMod);
-        }
-      }
-    });
-  }
-
-  /* Add Model form */
-  var addNameInput = document.getElementById('mr-add-name');
-  var addSlugInput = document.getElementById('mr-add-slug');
-
-  if (addNameInput) {
-    /* _prevValue is a custom property stored directly on the DOM input element.
-       It tracks the name value from the previous input event so we can compare
-       mrDeriveSlug(prev) with the current slug field value.  If they match (or
-       the slug is empty), the slug was not manually edited, and we auto-update it.
-       Once the user types a slug that diverges from the auto-derived value, we
-       stop overwriting it — the slug is considered "manually set".
-       We store state on the element rather than in a module-level variable to
-       avoid a full re-render on every keystroke.  If the Add form is ever
-       extracted into a proper component, replace _prevValue with explicit
-       local component state. */
-    addNameInput.addEventListener('input', function () {
-      if (!addSlugInput) return;
-      /* Auto-derive slug unless the user has manually edited the slug field */
-      var autoSlug = mrDeriveSlug(addNameInput.value);
-      var prevAuto = mrDeriveSlug(addNameInput._prevValue || '');
-      if (addSlugInput.value === prevAuto || addSlugInput.value === '') {
-        addSlugInput.value = autoSlug;
-        mrValidateAddSlug();
-      }
-      addNameInput._prevValue = addNameInput.value;
-    });
-  }
-
-  if (addSlugInput) {
-    addSlugInput.addEventListener('input', mrValidateAddSlug);
-  }
-
-  var addBtn = document.getElementById('mr-add-btn');
-  if (addBtn) {
-    addBtn.addEventListener('click', function () {
-      var name  = (addNameInput ? addNameInput.value.trim() : '');
-      var slug  = (addSlugInput ? addSlugInput.value.trim() : '');
-      var ccEl  = document.getElementById('mr-add-cc');
-      var cc    = ccEl ? (ccEl.value.trim() || 'inherit') : 'inherit';
-
-      var slugErr = mrValidateSlug(slug);
-      if (slugErr) {
-        mrShowAddSlugError(slugErr);
-        return;
-      }
-      if (!name) {
-        /* Focus name field */
-        if (addNameInput) addNameInput.focus();
-        return;
-      }
-
-      mrModels = mrModels || [];
-      mrModels.push({ id: crypto.randomUUID(), name: name, slug: slug, cc_model: cc });
-      mrRefreshTab();
-    });
-  }
-
-  /* Save button */
-  var saveBtn = document.getElementById('mr-save-btn');
-  if (saveBtn) {
-    saveBtn.addEventListener('click', mrDoSave);
-  }
-
-  /* Load Defaults button */
-  var loadDefaultsBtn = document.getElementById('mr-load-defaults-btn');
-  if (loadDefaultsBtn) {
-    loadDefaultsBtn.addEventListener('click', mrDoLoadDefaults);
-  }
-}
-
-/** Refresh only the dirty-indicator dots for a specific row (avoids full re-render).
- *
- *  Design intent: dirty-indicator dots update on full re-renders, which are triggered
- *  by explicit user actions — Done, Cancel, Delete, Restore.  They do NOT update on
- *  every keystroke during inline editing.  This means a dot will not appear while the
- *  user is mid-edit; it appears only after they click Done.
- *
- *  This function is a documented no-op stub.  It is called by the input event handlers
- *  so that future maintainers can implement in-place dot updates (e.g. toggling a CSS
- *  class on the `<td>` directly) without needing to find all the call sites.  Do NOT
- *  remove the calls to this function — they serve as extension points.
- */
-function mrRefreshDirtyDots(id, tbody, origModel, model) {
-  void id; void tbody; void origModel; void model;
-}
-
-/** Validate the Add Model slug field and show/hide error message. */
-function mrValidateAddSlug() {
-  var addSlugInput = document.getElementById('mr-add-slug');
-  if (!addSlugInput) return;
-  var slug = addSlugInput.value.trim();
-  var err  = slug ? mrValidateSlug(slug) : '';
-  mrShowAddSlugError(err);
-}
-
-function mrShowAddSlugError(msg) {
-  var errEl = document.getElementById('mr-add-slug-error');
-  if (errEl) {
-    errEl.textContent    = msg;
-    errEl.style.display  = msg ? '' : 'none';
-  }
-  /* Add button intentionally NOT disabled here — we validate on click instead
-     (slug may be empty/invalid during mid-typing without intent to submit). */
-}
-
-/** Re-evaluate whether the global Save button should be enabled. */
-function mrSyncSaveButton() {
-  var saveBtn = document.getElementById('mr-save-btn');
-  if (!saveBtn) return;
-  var hasErrors = mrModels
-    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
-    : false;
-  saveBtn.disabled = hasErrors;
-}
-
-/* ── API actions ─────────────────────────────────────────── */
-
-/** Send the working model list to PUT /api/models. */
-function mrDoSave() {
-  var saveBtn = document.getElementById('mr-save-btn');
-  var msgEl   = document.getElementById('mr-msg');
-  if (saveBtn) saveBtn.disabled = true;
-  if (msgEl)   msgEl.innerHTML  = '<span style="color:var(--color-text-muted);font-size:13px;">Saving…</span>';
-
-  /* Strip the internal _deleted sentinel from entries that are being removed;
-     the server expects a plain array where absent entries are deletions. */
-  var payload = (mrModels || []).filter(function (m) { return !m._deleted; }).map(function (m) {
-    return { id: m.id, name: m.name, slug: m.slug, cc_model: m.cc_model };
-  });
-
-  API.saveModels(payload)
-    .then(function (result) {
-      /* Refresh state from server response */
-      var saved = (result && result.models) ? result.models : payload;
-      mrModels   = mrCloneModels(saved);
-      mrOriginal = mrCloneModels(saved);
-      mrEditingId = null;
-      configDirty.modelRegistry = false;
-      mrRefreshTab();
-      /* Show success message */
-      var msg2 = document.getElementById('mr-msg');
-      if (msg2) msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Saved successfully.</span>';
-    })
-    .catch(function (err) {
-      var msg2 = document.getElementById('mr-msg');
-      if (saveBtn) saveBtn.disabled = false;
-      if (err && err.code === 'CONFLICT') {
-        /* 409 — referenced model deletion */
-        var conflictMsg =
-          'Cannot delete one or more models because they are referenced by personas. ' +
-          'Use the <strong>Replace Model</strong> feature on the Persona Models tab to reassign personas first, then retry.';
-        if (msg2) msg2.innerHTML = '<p class="error-banner">' + conflictMsg + '</p>';
-      } else {
-        if (msg2) msg2.innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
-      }
-    });
-}
-
-/** Call POST /api/models/load-defaults with confirmation. */
-function mrDoLoadDefaults() {
-  if (!confirm('Load default models? Existing entries with matching slugs will NOT be overwritten. New defaults will be added to your registry.')) {
-    return;
-  }
-  var msgEl = document.getElementById('mr-msg');
-  if (msgEl) msgEl.innerHTML = '<span style="color:var(--color-text-muted);font-size:13px;">Loading defaults…</span>';
-
-  API.loadDefaultModels()
-    .then(function (result) {
-      var loaded    = (result && result.models)    ? result.models    : [];
-      var conflicts = (result && result.conflicts) ? result.conflicts : [];
-
-      mrModels    = mrCloneModels(loaded);
-      mrOriginal  = mrCloneModels(loaded);
-      mrEditingId = null;
-      configDirty.modelRegistry = false;
-      mrRefreshTab();
-
-      var msg2 = document.getElementById('mr-msg');
-      if (msg2) {
-        if (conflicts.length > 0) {
-          var conflictList = conflicts.map(function (c) {
-            return '<li><code>' + escapeHtml(c.slug || String(c)) + '</code>' +
-              (c.reason ? ' — ' + escapeHtml(c.reason) : '') + '</li>';
-          }).join('');
-          msg2.innerHTML =
-            '<p class="info-banner" style="display:inline-block;">' +
-              'Defaults loaded. The following slug(s) already existed and were not overwritten:' +
-              '<ul style="margin:8px 0 0 16px;">' + conflictList + '</ul>' +
-            '</p>';
-        } else {
-          msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Default models loaded.</span>';
-        }
-      }
-    })
-    .catch(function (err) {
-      var msg2 = document.getElementById('mr-msg');
-      if (msg2) msg2.innerHTML = '<p class="error-banner">Failed to load defaults: ' + escapeHtml(err.message || String(err)) + '</p>';
-    });
-}
-
-
-
 ```
-###  Path: `/mcp-server/gui/public/views/insights.js`
+###  Path: `/mcp-server/gui/public/views/config.js`
 
 ```js
 /* ============================================================
-   views/insights.js — Insights view
-   Section 4e of the MCP Server Dashboard SPA
-   Depends on: API, Router, escapeHtml, formatDate,
-               showLoading, showError, UI (components.js)
+   views/config.js — Configuration view coordinator
+   Section 4d of the MCP Server Dashboard SPA
+   Depends on: API, UI, escapeHtml, showLoading, showError
+   Tab modules: config-model-registry.js, config-persona-models.js (load first)
+   Exports (global): configDirty — shared mutable object read/written by all
+     three tab modules. Companion files must mutate its properties only; never
+     reassign configDirty itself (object identity must be preserved so all
+     file-level references stay in sync).
    ============================================================ */
 
-function renderInsights(app) {
+/* ── Module-level state ──────────────────────────────────── */
+
+var configActiveTab = 'general';
+
+/* Dirty-tracking: keyed by tab name, true when the tab has unsaved changes.
+   Ownership: declared here (config.js). Mutated by all three tab modules:
+     - config.js itself          → .general
+     - config-model-registry.js  → .modelRegistry
+     - config-persona-models.js  → .personaModels
+   Object identity is preserved throughout — companion files hold a reference
+   to this object and must never reassign configDirty (only mutate its keys). */
+var configDirty = {
+  general: false,
+  personaModels: false,
+  modelRegistry: false
+};
+
+/* ── Entry point ─────────────────────────────────────────── */
+
+function renderConfig(app) {
   showLoading(app);
 
-  var allEntries = [];
-  var filterType = 'ALL';
-  var filterPriority = 'ALL';
-  var filterProject = 'ALL';
-
-  function buildCards() {
-    var filtered = allEntries.filter(function (e) {
-      if (filterType !== 'ALL' && e.type !== filterType) return false;
-      if (filterPriority !== 'ALL' && e.priority !== filterPriority) return false;
-      if (filterProject !== 'ALL' && e.project_slug !== filterProject) return false;
-      return true;
-    });
-
-    if (!filtered.length) {
-      return UI.emptyState('No insights found.');
-    }
-
-    return filtered.map(function (e) {
-      var priorityClass = e.priority ? ' priority-' + e.priority : '';
-      var contextHtml = '';
-      if (e.context && typeof e.context === 'object') {
-        var ctxItems = Object.entries(e.context).map(function (pair) {
-          return '<span><strong>' + escapeHtml(pair[0]) + ':</strong> ' + escapeHtml(String(pair[1])) + '</span>';
-        }).join('<br>');
-        contextHtml =
-          '<div class="comment-context">' +
-            ctxItems +
-          '</div>';
-      }
-      /* Namespaced link: #/projects/{repo}/{slug} — requires repository_name so
-         the router can scope the project view to the correct repository. Entries
-         where repository_name is null (e.g. from a shallow plan path) fall back
-         to plain escaped text — no anchor, no broken link. */
-      var projectLink = e.repository_name
-        ? '<a href="#/projects/' + encodeURIComponent(e.repository_name) + '/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>'
-        : escapeHtml(e.project_slug);
-      return '<div class="comment-card' + priorityClass + '">' +
-        '<div class="comment-meta">' +
-          projectLink +
-          ' &mdash; ' +
-          escapeHtml(e.agent || '\u2014') +
-          ' <span class="comment-type">' + escapeHtml(e.type || '') + '</span>' +
-          ' <span>' + escapeHtml(formatDate(e.timestamp)) + '</span>' +
-        '</div>' +
-        '<div class="comment-body">' + escapeHtml(e.note || '') + '</div>' +
-        contextHtml +
-      '</div>';
-    }).join('');
-  }
-
-  function renderCards() {
-    var container = document.getElementById('insights-list');
-    if (container) {
-      container.innerHTML = buildCards();
-    }
-  }
-
-  function render(entries) {
-    allEntries = entries;
-
-    // Collect distinct types and project slugs
-    var types = [];
-    var projects = [];
-    entries.forEach(function (e) {
-      if (e.type && types.indexOf(e.type) === -1) types.push(e.type);
-      if (e.project_slug && projects.indexOf(e.project_slug) === -1) projects.push(e.project_slug);
-    });
-    types.sort();
-    projects.sort();
-
-    var fb = UI.filterBar('insights-filter-bar', [
-      { type: 'select', id: 'insights-type', label: 'Type:', options:
-        [{ value: 'ALL', label: 'All types' }].concat(types.map(function (t) {
-          return { value: t, label: t };
-        }))
-      },
-      { type: 'select', id: 'insights-priority', label: 'Priority:', options: [
-        { value: 'ALL', label: 'All priorities' },
-        { value: 'high',   label: 'high'   },
-        { value: 'medium', label: 'medium' },
-        { value: 'low',    label: 'low'    }
-      ]},
-      { type: 'select', id: 'insights-project', label: 'Project:', options:
-        [{ value: 'ALL', label: 'All projects' }].concat(projects.map(function (p) {
-          return { value: p, label: p };
-        }))
-      }
-    ]);
-
-    app.innerHTML =
-      '<div class="page-header"><h1>Insights</h1></div>' +
-      fb.html +
-      '<div id="insights-list">' + buildCards() + '</div>';
-
-    // Restore saved filter values
-    var typeEl  = document.getElementById('insights-type');
-    var priorEl = document.getElementById('insights-priority');
-    var projEl  = document.getElementById('insights-project');
-    if (typeEl)  typeEl.value  = filterType;
-    if (priorEl) priorEl.value = filterPriority;
-    if (projEl)  projEl.value  = filterProject;
-
-    // Wire filter change events
-    fb.bind(function (state) {
-      filterType     = state['insights-type'];
-      filterPriority = state['insights-priority'];
-      filterProject  = state['insights-project'];
-      renderCards();
-    });
-  }
-
-  function load() {
-    API.getInsights().then(function (entries) {
-      render(entries || []);
-    }).catch(function (err) {
-      showError(app, 'Failed to load insights: ' + (err.message || String(err)));
-    });
-  }
-
-  load();
-  Router._setPolling(load, 15000);
+  Promise.all([
+    API.getConfig(),
+    API.getModels ? API.getModels() : Promise.resolve([]),
+    API.getPersonas ? API.getPersonas() : Promise.resolve([]),
+    API.getAssignments ? API.getAssignments() : Promise.resolve([])
+  ]).then(function (results) {
+    renderConfigPage(app, results[0], results[1], results[2], results[3]);
+  }).catch(function (err) {
+    showError(app, 'Failed to load configuration: ' + (err.message || String(err)));
+  });
 }
+
+/* ── Page scaffold ───────────────────────────────────────── */
+
+function renderConfigPage(app, config, models, personas, assignments) {
+  /* Reset dirty flags and all tab module state — fresh server data loaded. */
+  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = false;
+  mrModels = mrOriginal = mrEditingId = null;
+  pmModels = pmPersonas = pmAssignments = pmOriginal = null;
+  pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
+
+  app.innerHTML =
+    '<div class="page-header"><h1>Configuration</h1></div>' +
+    '<div class="config-tabs" id="config-tab-bar">' +
+      '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
+      '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
+      '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
+    '</div>' +
+    '<div id="config-tab-content"></div>';
+
+  renderConfigTabContent(config, models, personas, assignments);
+
+  var tabBar = document.getElementById('config-tab-bar');
+  if (tabBar) {
+    tabBar.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-tab]');
+      if (!btn) return;
+      var tab = btn.getAttribute('data-tab');
+      if (tab === configActiveTab) return;
+
+      /* Unsaved-changes guard */
+      if (configDirty[configActiveTab]) {
+        if (!confirm('You have unsaved changes. Discard them?')) return;
+        configDirty[configActiveTab] = false;
+        if (configActiveTab === 'modelRegistry') {
+          mrModels = mrOriginal = mrEditingId = null;
+        }
+        if (configActiveTab === 'personaModels') {
+          pmModels = pmPersonas = pmAssignments = pmOriginal = null;
+          pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
+        }
+      }
+
+      configActiveTab = tab;
+      tabBar.querySelectorAll('.config-tab').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-tab') === tab);
+      });
+      renderConfigTabContent(config, models, personas, assignments);
+    });
+  }
+}
+
+/* ── Tab content dispatcher ──────────────────────────────── */
+
+function renderConfigTabContent(config, models, personas, assignments) {
+  var contentEl = document.getElementById('config-tab-content');
+  if (!contentEl) return;
+
+  if (configActiveTab === 'general') {
+    contentEl.innerHTML = renderGeneralTab(config);
+    wireGeneralTabEvents();
+  } else if (configActiveTab === 'personaModels') {
+    contentEl.innerHTML = renderPersonaModelsTab(models, personas, assignments);
+    pmWireEvents();
+  } else if (configActiveTab === 'modelRegistry') {
+    contentEl.innerHTML = renderModelRegistryTab(models);
+    mrWireEvents();
+  }
+}
+
+/* ── General tab ─────────────────────────────────────────── */
+
+function renderGeneralTab(config) {
+  return UI.card(null,
+    '<form id="config-form">' +
+      '<div class="form-group">' +
+        '<label class="form-label" for="auto-handoff">' +
+          '<input type="checkbox" id="auto-handoff" class="form-check" ' + (config.auto_handoff_enabled ? 'checked' : '') + '>' +
+          ' Auto-handoff enabled' +
+        '</label>' +
+        '<p class="form-note">When enabled, the MCP server automatically chains work to the next agent in the workflow.</p>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label" for="max-depth">Max handoff depth</label>' +
+        '<input type="number" id="max-depth" class="form-control" min="1" value="' + escapeHtml(String(config.max_handoff_depth)) + '">' +
+        '<p class="form-note">Maximum number of automatic agent handoffs before stopping.</p>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label" for="capture-dialogues">' +
+          '<input type="checkbox" id="capture-dialogues" class="form-check" ' + (config.capture_dialogues ? 'checked' : '') + '>' +
+          ' Capture agent dialogues' +
+        '</label>' +
+        '<p class="form-note">When enabled, the orchestrator saves the full LLM conversation for each pipeline stage to the project\'s ledger as Markdown files. Changes take effect on the next orchestrator run.</p>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label" for="auto-archive-days">Auto-archive after (days)</label>' +
+        '<input type="number" id="auto-archive-days" class="form-control" min="0" step="1" value="' + escapeHtml(String(config.auto_archive_days != null ? config.auto_archive_days : 6)) + '">' +
+        '<p class="form-note">Number of days after last update before a COMPLETE project is automatically archived. Set to 0 to disable auto-archiving.</p>' +
+      '</div>' +
+      '<div class="form-group">' +
+        '<label class="form-label" for="ledger-root">Ledger root path</label>' +
+        '<input type="text" id="ledger-root" class="form-control" readonly value="' + escapeHtml(config.ledger_root || '') + '">' +
+        '<p class="form-note">Read-only. Changing this requires restarting the server with <code>--ledger-dir</code>.</p>' +
+      '</div>' +
+      '<button type="submit" class="btn btn-primary">Save</button>' +
+      '<div id="config-msg"></div>' +
+    '</form>',
+    { style: 'max-width:560px' }
+  );
+}
+
+function wireGeneralTabEvents() {
+  var form = document.getElementById('config-form');
+  if (!form) return;
+
+  /* Mark tab dirty on any input change.
+     Both 'change' and 'input' are intentional: checkboxes fire 'change'
+     (not 'input'), while text/number inputs fire 'input' on each keystroke. */
+  form.addEventListener('change', function () { configDirty.general = true; });
+  form.addEventListener('input',  function () { configDirty.general = true; });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var autoHandoff = document.getElementById('auto-handoff').checked;
+    var maxDepth = parseInt(document.getElementById('max-depth').value, 10);
+    if (isNaN(maxDepth) || maxDepth < 1) {
+      showError(document.getElementById('config-msg'), 'Max handoff depth must be a positive integer.');
+      return;
+    }
+    var captureDialogues = document.getElementById('capture-dialogues').checked;
+    var autoArchiveDays = parseInt(document.getElementById('auto-archive-days').value, 10);
+    if (isNaN(autoArchiveDays) || autoArchiveDays < 0) {
+      showError(document.getElementById('config-msg'), 'Auto-archive days must be a non-negative integer.');
+      return;
+    }
+    /* ledger_root intentionally omitted (read-only) */
+    API.updateConfig({ auto_handoff_enabled: autoHandoff, max_handoff_depth: maxDepth, capture_dialogues: captureDialogues, auto_archive_days: autoArchiveDays })
+      .then(function () {
+        configDirty.general = false;
+        document.getElementById('config-msg').innerHTML = '<p class="success-banner">Configuration saved.</p>';
+      })
+      .catch(function (err) {
+        showError(document.getElementById('config-msg'), 'Save failed: ' + (err.message || String(err)));
+      });
+  });
+}
+
+
 
 ```
 ###  Path: `/mcp-server/gui/public/views/knowledge.js`
@@ -4743,6 +4868,14 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
   var existing = document.getElementById('dialogue-modal-overlay');
   if (existing) existing.remove();
 
+  // Build tab bar HTML only when using the structured chunks path.
+  var tabBarHtml = useChunks
+    ? '<div class="dialogue-modal-tabs" id="dialogue-modal-tabs">' +
+        '<button class="dialogue-tab active" id="dialogue-tab-detailed" data-tab="detailed">Detailed</button>' +
+        '<button class="dialogue-tab" id="dialogue-tab-textonly" data-tab="textonly">Text Only</button>' +
+      '</div>'
+    : '';
+
   var modalHtml =
     '<div class="dialogue-modal-overlay" id="dialogue-modal-overlay">' +
       '<div class="dialogue-modal" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '">' +
@@ -4750,6 +4883,7 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
           '<span class="dialogue-modal-title">' + escapeHtml(title) + '</span>' +
           '<button class="dialogue-modal-close" id="dialogue-modal-close" aria-label="Close">\u00d7</button>' +
         '</div>' +
+        tabBarHtml +
         '<div class="dialogue-modal-body" id="dialogue-modal-body">' +
           '<p class="text-muted">Loading\u2026</p>' +
         '</div>' +
@@ -4774,6 +4908,67 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
   });
 
   if (useChunks) {
+    // Cache variable for the lazily-fetched Text Only content.
+    var cachedTextHtml = null;
+
+    // Detailed content panel — rendered into bodyEl after the structured fetch.
+    var detailedPanel = bodyEl;
+
+    // Text Only content panel — created lazily on first tab switch.
+    var textOnlyPanel = document.createElement('div');
+    textOnlyPanel.id = 'dialogue-panel-textonly';
+    textOnlyPanel.setAttribute('hidden', '');
+    textOnlyPanel.className = 'dialogue-modal-body';
+    textOnlyPanel.style.cssText = detailedPanel.style.cssText;
+    // Insert the Text Only panel immediately after bodyEl inside the modal.
+    bodyEl.parentNode.insertBefore(textOnlyPanel, bodyEl.nextSibling);
+
+    // Delegated tab-switch click handler on the tab bar.
+    var tabBar = document.getElementById('dialogue-modal-tabs');
+    if (tabBar) {
+      tabBar.addEventListener('click', function (e) {
+        var btn = e.target.closest('.dialogue-tab');
+        if (!btn) return;
+        var tab = btn.getAttribute('data-tab');
+        if (!tab) return;
+
+        // Update active class on tab buttons.
+        var tabs = tabBar.querySelectorAll('.dialogue-tab');
+        for (var i = 0; i < tabs.length; i++) {
+          if (tabs[i].getAttribute('data-tab') === tab) {
+            tabs[i].className = 'dialogue-tab active';
+          } else {
+            tabs[i].className = 'dialogue-tab';
+          }
+        }
+
+        if (tab === 'detailed') {
+          detailedPanel.removeAttribute('hidden');
+          textOnlyPanel.setAttribute('hidden', '');
+        } else if (tab === 'textonly') {
+          detailedPanel.setAttribute('hidden', '');
+          textOnlyPanel.removeAttribute('hidden');
+
+          // Lazy-load: only fetch on first click; use cache on subsequent clicks.
+          if (cachedTextHtml !== null) {
+            textOnlyPanel.innerHTML = cachedTextHtml;
+          } else {
+            textOnlyPanel.innerHTML = '<p class="text-muted">Loading\u2026</p>';
+            API.getChunkText(repo, slug, filename).then(function (text) {
+              var rendered = (typeof marked !== 'undefined' && marked.parse)
+                ? marked.parse(text)
+                : '<pre>' + escapeHtml(text) + '</pre>';
+              cachedTextHtml = '<div class="dialogue-markdown">' + rendered + '</div>';
+              textOnlyPanel.innerHTML = cachedTextHtml;
+            }).catch(function (err) {
+              textOnlyPanel.innerHTML = '<p class="text-danger">Error loading text: ' +
+                escapeHtml(err.message || String(err)) + '</p>';
+            });
+          }
+        }
+      });
+    }
+
     // Structured path: fetch DialogueBlock[] and render with buildDialogueHTML().
     API.getChunkStructured(repo, slug, filename).then(function (blocks) {
       if (!bodyEl) return;
@@ -6015,21 +6210,78 @@ globalThis.renderRunsList = renderRunsList;
 var _pdLogPreviewCleanups = [];
 globalThis._pdLogPreviewCleanups = _pdLogPreviewCleanups;
 
+/**
+ * Enhance markdown tables for readability. Mark wide tables (6+ columns)
+ * and add per-cell labels so responsive CSS can present them without
+ * horizontal scrolling.
+ *
+ * @param {Element|null} root
+ * @param {{ isSynthesis?: boolean }} [opts]
+ */
+function _enhanceMarkdownTables(root, opts) {
+  if (!root) return;
+
+  var isSynthesis = !!(opts && opts.isSynthesis);
+  var tables = root.querySelectorAll('table');
+
+  for (var i = 0; i < tables.length; i++) {
+    var table = tables[i];
+    var headerRow = table.querySelector('tr');
+    var headerCells = headerRow ? headerRow.querySelectorAll('th, td') : [];
+    var colCount = headerCells.length;
+    var headers = [];
+
+    for (var h = 0; h < headerCells.length; h++) {
+      headers.push((headerCells[h].textContent || '').trim());
+    }
+
+    if (colCount >= 6) {
+      table.classList.add('doc-wide-table');
+    }
+
+    if (isSynthesis && colCount >= 6) {
+      table.classList.add('synthesis-wide-table');
+    }
+
+    if (!isSynthesis && colCount >= 6) {
+      table.classList.add('plan-wide-table');
+    }
+
+    var rows = table.querySelectorAll('tr');
+    for (var r = 0; r < rows.length; r++) {
+      var bodyCells = rows[r].querySelectorAll('td');
+      for (var c = 0; c < bodyCells.length; c++) {
+        if (!bodyCells[c].hasAttribute('data-label')) {
+          bodyCells[c].setAttribute('data-label', headers[c] || ('Column ' + (c + 1)));
+        }
+      }
+    }
+  }
+}
+
 /* ----------------------------------------------------------
    4b. View: Plan Document
    ---------------------------------------------------------- */
 async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
+  var repoLabel = repo;
   try {
-    var result = await API.getPlanDocument(repo, slug);
+    var results = await Promise.all([
+      API.getPlanDocument(repo, slug),
+      API.getRepo(repo).catch(function () { return null; }),
+    ]);
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
+    _enhanceMarkdownTables(app.querySelector('.plan-content'));
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
+        breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
       app.innerHTML = UI.banner('error', 'Failed to load plan document.');
@@ -6042,16 +6294,24 @@ async function renderPlan(app, repo, slug) {
    ---------------------------------------------------------- */
 async function renderSynthesis(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
+  var repoLabel = repo;
   try {
-    var result = await API.getSynthesisDocument(repo, slug);
+    var results = await Promise.all([
+      API.getSynthesisDocument(repo, slug),
+      API.getRepo(repo).catch(function () { return null; }),
+    ]);
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
+    _enhanceMarkdownTables(app.querySelector('.synthesis-content'), { isSynthesis: true });
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
+        breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
       app.innerHTML = UI.banner('error', 'Failed to load synthesis document.');
@@ -6458,10 +6718,13 @@ function renderProjectDetail(app, repo, slug) {
     API.getProject(repo, slug),
     API.getPlanDocument(repo, slug).catch(function () { return null; }),
     API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
+    API.getRepo(repo).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
     var overviewResult = results[2]; // null if request failed (graceful degradation)
+    var repoData = results[3]; // null if repo not registered in strategy registry
+    var repoLabel = repoData ? repoData.label : repo;
     var meta = project.meta || {};
     var wps = project.work_packages || [];
 
@@ -6520,7 +6783,7 @@ function renderProjectDetail(app, repo, slug) {
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
     ProjectNameCache.set(makeProjectCacheKey(repo, slug), displayTitle);
     app.innerHTML =
-      breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
+      breadcrumb().projects().repo(repo, repoLabel).leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
         '<div class="info-banner" id="archive-banner">' +
           'This project is archived and hidden from the active list. ' +
@@ -6539,6 +6802,9 @@ function renderProjectDetail(app, repo, slug) {
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
+          '<strong>Repository:</strong> ' + (repoData
+            ? '<a href="#/strategy/' + encodeURIComponent(repo) + '">' + escapeHtml(repoLabel) + '</a>'
+            : escapeHtml(repoLabel)) + '<br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
@@ -7396,7 +7662,7 @@ function renderProjectList(app) {
 
     app.innerHTML =
       '<div class="page-header">' +
-        '<h1>Projects</h1>' +
+        '<h1>Projects overview</h1>' +
         '<div class="filter-actions">' +
           '<button class="btn btn-secondary btn-sm" id="refresh-btn">\u21bb Refresh</button>' +
         '</div>' +
@@ -8021,13 +8287,16 @@ function renderRunLog(app, repo, slug, filename) {
   // Whether polling should continue
   var pollingActive = true;
 
+  // Repo display label — updated once getRepo resolves; read by buildPageShell
+  var repoLabel = repo;
+
   /**
    * Builds the page skeleton (breadcrumb + progress bar + timeline container).
    * Called once on initial load; subsequent updates only touch inner elements.
    */
   function buildPageShell() {
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Run Log').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +
@@ -8120,8 +8389,15 @@ function renderRunLog(app, repo, slug, filename) {
     });
   }
 
-  // Initial load — fetch all entries
-  API.getRunLogEntries(repo, slug, filename).then(function (result) {
+  // Initial load — fetch all entries; getRepo runs in parallel to populate repoLabel
+  Promise.all([
+    API.getRunLogEntries(repo, slug, filename),
+    API.getRepo(repo).catch(function () { return null; }),
+  ]).then(function (results) {
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
+
     if (!result) {
       showError(app, 'Failed to load run log: empty response');
       return;
@@ -8158,6 +8434,7 @@ function renderRunLog(app, repo, slug, filename) {
     showError(app, 'Failed to load run log: ' + ((err && err.message) || String(err)));
   });
 }
+
 
 ```
 ###  Path: `/mcp-server/gui/public/views/strategy.js`
@@ -8651,7 +8928,13 @@ function buildWpDetailBar(wp) {
 function renderWorkPackageDetail(app, repo, slug, wpId) {
   showLoading(app);
 
-  API.getWorkPackage(repo, slug, wpId).then(function (wp) {
+  Promise.all([
+    API.getWorkPackage(repo, slug, wpId),
+    API.getRepo(repo).catch(function () { return null; }),
+  ]).then(function (results) {
+    var wp = results[0];
+    var repoData = results[1];
+    var repoLabel = repoData ? repoData.label : repo;
     // Acceptance criteria
     var acHtml = (wp.acceptance_criteria || []).map(function (ac) {
       var met = ac.met === true;
@@ -8727,7 +9010,7 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
       : '';
 
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf(wpId).html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +

@@ -14,6 +14,7 @@ _SOURCE: Test suite directory structure_
         └── gui-server.test.ts
         └── gui/
             ├── README.md
+            ├── api-chunk-text.test.ts
             ├── api-client.test.ts
             ├── api-dialogue-parse.test.ts
             ├── api-knowledge.test.ts
@@ -25,10 +26,13 @@ _SOURCE: Test suite directory structure_
             ├── api-wp-overview.test.ts
             ├── api.test.ts
             ├── auto-archive.test.ts
+            ├── chunk-renderer-text.test.ts
             ├── chunk-renderer.test.ts
             ├── client-rendering.test.ts
+            ├── config-helpers.test.ts
             ├── config.test.ts
             ├── dialogue-qa.test.ts
+            ├── dispatch-route.test.ts
             ├── handoff-config-integration.test.ts
             ├── helpers/
             │   ├── api-stubs.ts
@@ -62,6 +66,7 @@ _SOURCE: Test suite directory structure_
             │   ├── resolve-progress.test.ts
             │   ├── validate-entry.test.ts
             ├── route-structured-format.test.ts
+            ├── route-table.test.ts
             ├── router-utils.test.ts
             ├── run-log-handlers.test.ts
             ├── run-log-server.test.ts

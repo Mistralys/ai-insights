@@ -70,8 +70,9 @@ _SOURCE: MCP server source directory tree_
         │   ├── theme.js
         │   ├── utils.js
         │   ├── views/
+        │   │   └── config-model-registry.js
+        │   │   └── config-persona-models.js
         │   │   └── config.js
-        │   │   └── insights.js
         │   │   └── knowledge.js
         │   │   └── orchestrator.js
         │   │   └── project-detail-dialogues.js
@@ -154,6 +155,7 @@ _SOURCE: MCP server source directory tree_
         ├── gui-server.test.ts
         ├── gui/
         │   ├── README.md
+        │   ├── api-chunk-text.test.ts
         │   ├── api-client.test.ts
         │   ├── api-dialogue-parse.test.ts
         │   ├── api-knowledge.test.ts
@@ -165,10 +167,13 @@ _SOURCE: MCP server source directory tree_
         │   ├── api-wp-overview.test.ts
         │   ├── api.test.ts
         │   ├── auto-archive.test.ts
+        │   ├── chunk-renderer-text.test.ts
         │   ├── chunk-renderer.test.ts
         │   ├── client-rendering.test.ts
+        │   ├── config-helpers.test.ts
         │   ├── config.test.ts
         │   ├── dialogue-qa.test.ts
+        │   ├── dispatch-route.test.ts
         │   ├── handoff-config-integration.test.ts
         │   ├── helpers/
         │   │   ├── api-stubs.ts
@@ -202,6 +207,7 @@ _SOURCE: MCP server source directory tree_
         │   │   ├── resolve-progress.test.ts
         │   │   ├── validate-entry.test.ts
         │   ├── route-structured-format.test.ts
+        │   ├── route-table.test.ts
         │   ├── router-utils.test.ts
         │   ├── run-log-handlers.test.ts
         │   ├── run-log-server.test.ts

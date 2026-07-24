@@ -39,6 +39,7 @@ _SOURCE: Directory tree_
         │   ├── ledger-doctor.md
         │   ├── ledger-knowledge-archiver.md
         │   ├── ledger-knowledge-curator.md
+        │   ├── ledger-orchestrator-archaeologist.md
         │   ├── ledger-orchestrator-runner.md
         │   ├── ledger-pipeline-configurator.md
         │   ├── ledger-wp-decomposer.md
@@ -50,6 +51,7 @@ _SOURCE: Directory tree_
         │   ├── ledger-doctor.md
         │   ├── ledger-knowledge-archiver.md
         │   ├── ledger-knowledge-curator.md
+        │   ├── ledger-orchestrator-archaeologist.md
         │   ├── ledger-orchestrator-runner.md
         │   ├── ledger-pipeline-configurator.md
         │   ├── ledger-wp-decomposer.md
@@ -62,6 +64,7 @@ _SOURCE: Directory tree_
         │   │   ├── ledger-doctor.md
         │   │   ├── ledger-knowledge-archiver.md
         │   │   ├── ledger-knowledge-curator.md
+        │   │   ├── ledger-orchestrator-archaeologist.md
         │   │   ├── ledger-orchestrator-runner.md
         │   │   ├── ledger-pipeline-configurator.md
         │   │   ├── ledger-wp-decomposer.md
@@ -74,6 +77,7 @@ _SOURCE: Directory tree_
         │   │   └── ledger-doctor.yaml
         │   │   └── ledger-knowledge-archiver.yaml
         │   │   └── ledger-knowledge-curator.yaml
+        │   │   └── ledger-orchestrator-archaeologist.yaml
         │   │   └── ledger-orchestrator-runner.yaml
         │   │   └── ledger-pipeline-configurator.yaml
         │   │   └── ledger-wp-decomposer.yaml
@@ -85,6 +89,7 @@ _SOURCE: Directory tree_
         │   └── ledger-doctor.agent.md
         │   └── ledger-knowledge-archiver.agent.md
         │   └── ledger-knowledge-curator.agent.md
+        │   └── ledger-orchestrator-archaeologist.agent.md
         │   └── ledger-orchestrator-runner.agent.md
         │   └── ledger-pipeline-configurator.agent.md
         │   └── ledger-wp-decomposer.agent.md
@@ -158,7 +163,9 @@ _SOURCE: Directory tree_
         │   └── 9-synthesis.agent.md
     └── model-registry/
         ├── README.md
+        ├── assignments.json
         ├── default.json
+        ├── local.json
     └── module-context.yaml
     └── name-mapping.json
     └── package-lock.json
@@ -217,6 +224,7 @@ _SOURCE: Directory tree_
             ├── recipe-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
+            ├── web-gui-specialist.md
             ├── whatsnew-curator.md
             ├── workspace-architect.md
         └── deep-agents/
@@ -239,6 +247,7 @@ _SOURCE: Directory tree_
             ├── recipe-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
+            ├── web-gui-specialist.md
             ├── whatsnew-curator.md
             ├── workspace-architect.md
         └── src/
@@ -262,6 +271,7 @@ _SOURCE: Directory tree_
             │   ├── recipe-curator.md
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
+            │   ├── web-gui-specialist.md
             │   ├── whatsnew-curator.md
             │   ├── workspace-architect.md
             ├── meta/
@@ -285,6 +295,7 @@ _SOURCE: Directory tree_
             │   └── recipe-curator.yaml
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
+            │   └── web-gui-specialist.yaml
             │   └── whatsnew-curator.yaml
             │   └── workspace-architect.yaml
         └── vs-code/
@@ -307,6 +318,7 @@ _SOURCE: Directory tree_
             └── recipe-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
+            └── web-gui-specialist.agent.md
             └── whatsnew-curator.agent.md
             └── workspace-architect.agent.md
 

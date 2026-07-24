@@ -531,7 +531,12 @@ export async function handleMoveKnowledge(
  *   - `PUT /api/models`: returns 409 Conflict when a deletion would leave a
  *     referenced model with no replacement (user must use Replace Model first).
  *   - `PUT /api/model-assignments`: validates all model UUIDs exist in registry
- *     and all persona keys exist in name-mapping.json.
+ *     and all persona keys exist in name-mapping.json. Per-persona UUID
+ *     validation is batch-mode — all invalid UUIDs are collected before
+ *     throwing a single error that reports the total count (e.g. "2 model
+ *     UUIDs do not exist in the model registry"). Persona key validation
+ *     is fail-fast (exits on the first invalid key) and is a distinct
+ *     validation step that runs before UUID checks.
  *   - `POST /api/model-assignments/replace`: rejects same-model swap and
  *     rejects when old_model_id is not currently referenced.
  *
@@ -646,7 +651,7 @@ const SaveModelsBodySchema = z.array(
   z.object({
     id: z.string().uuid().optional(),
     name: z.string().min(1),
-    slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+    slug: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 .()\-]*$/),
     cc_model: z.string().min(1).default('inherit'),
   })
 );
@@ -843,6 +848,10 @@ export async function handleUpdateAssignments(
 
   let nameMapping: unknown;
   try {
+    // `nameMappingRaw!` — TypeScript cannot narrow across the try/catch above
+    // because `validationError` returns `never` (the throw is inside the
+    // catch block, not the try block). The assertion is safe: if we reach
+    // this line, the readFile succeeded and `nameMappingRaw` is defined.
     nameMapping = JSON.parse(nameMappingRaw!);
   } catch {
     validationError('name-mapping.json is not valid JSON.');
@@ -858,11 +867,16 @@ export async function handleUpdateAssignments(
       .map((e) => e.id as string)
   );
 
-  // 2. Validate all persona keys in persona_models are valid persona IDs
+  // 2. Validate all persona keys in persona_models are valid persona IDs.
+  //    Intentionally fail-fast (exits on the first invalid key): persona-key
+  //    errors are structural misconfiguration, not bulk data errors, so a
+  //    single diagnostic is sufficient. Contrast with step 3 below, which
+  //    collects all invalid UUIDs before throwing (batch validation).
   for (const personaKey of Object.keys(data.persona_models)) {
     if (!validPersonaIds.has(personaKey)) {
       validationError(
-        `Persona key "${personaKey}" does not exist in name-mapping.json. Valid IDs are: ${[...validPersonaIds].join(', ')}.`
+        `One or more persona keys in persona_models are not valid. ` +
+          `Found ${validPersonaIds.size} valid persona ${validPersonaIds.size === 1 ? 'ID' : 'IDs'} in name-mapping.json.`
       );
     }
   }
@@ -873,16 +887,17 @@ export async function handleUpdateAssignments(
 
   if (data.default_model_uuid !== undefined && !validModelIds.has(data.default_model_uuid)) {
     validationError(
-      `default_model_uuid "${data.default_model_uuid}" does not exist in the model registry.`
+      'The default_model_uuid does not exist in the model registry.'
     );
   }
 
-  for (const [personaKey, uuid] of Object.entries(data.persona_models)) {
-    if (!validModelIds.has(uuid)) {
-      validationError(
-        `Model UUID "${uuid}" assigned to persona "${personaKey}" does not exist in the model registry.`
-      );
-    }
+  const invalidPersonaUUIDs = Object.entries(data.persona_models)
+    .filter(([, uuid]) => !validModelIds.has(uuid));
+  if (invalidPersonaUUIDs.length > 0) {
+    const n = invalidPersonaUUIDs.length;
+    validationError(
+      `${n} model ${n === 1 ? 'UUID' : 'UUIDs'} in persona_models do not exist in the model registry.`
+    );
   }
 
   // 4. Persist
@@ -939,13 +954,13 @@ export async function handleReplaceAssignedModel(
 
   if (!validModelIds.has(old_model_id)) {
     validationError(
-      `old_model_id "${old_model_id}" does not exist in the model registry.`
+      'The specified old_model_id does not exist in the model registry.'
     );
   }
 
   if (!validModelIds.has(new_model_id)) {
     validationError(
-      `new_model_id "${new_model_id}" does not exist in the model registry.`
+      'The specified new_model_id does not exist in the model registry.'
     );
   }
 
@@ -953,20 +968,13 @@ export async function handleReplaceAssignedModel(
   const assignments = await readAssignments();
 
   // Check that old_model_id is actually referenced
-  let referenced = false;
-  if (assignments.default_model_uuid === old_model_id) {
-    referenced = true;
-  }
-  for (const uuid of Object.values(assignments.persona_models)) {
-    if (uuid === old_model_id) {
-      referenced = true;
-      break;
-    }
-  }
+  const referenced =
+    assignments.default_model_uuid === old_model_id ||
+    Object.values(assignments.persona_models).some((uuid) => uuid === old_model_id);
 
   if (!referenced) {
     validationError(
-      `Model "${old_model_id}" is not referenced in any current assignment. Nothing to replace.`
+      'The specified model is not referenced in any current assignment. Nothing to replace.'
     );
   }
 
@@ -1626,7 +1634,7 @@ export async function handleDeleteRepo(
  * STDIO discipline: this file never writes to process.stdout.
  */
 
-import { rm, readFile, readdir } from 'node:fs/promises';
+import { rm, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
@@ -1645,7 +1653,7 @@ import { ProjectMetaSchema } from '../src/schema/project-meta.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus, WorkPackageStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
-import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
+import type { WorkPackageDetail } from '../src/schema/work-package.js';
 
 /**
  * Extended WP detail response that includes the server's canonical default pipeline stages.
@@ -1679,7 +1687,7 @@ import {
   getRunStatus,
 } from './orchestrator-manager.js';
 import type { QueueEntry, KillResult, StartResult, RunStatus } from './orchestrator-manager.js';
-
+import { renderChunksToText } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -1824,77 +1832,6 @@ async function resolveProjectStore(
     );
     notFound(`Project '${slug}' not found or has no metadata.`);
   }
-}
-
-// ---------------------------------------------------------------------------
-// GET /api/insights
-// ---------------------------------------------------------------------------
-
-export interface InsightEntry {
-  project_slug: string;
-  project_status: ProjectStatus;
-  repository_name: string | null;
-  type: string;
-  priority: 'low' | 'medium' | 'high';
-  timestamp: string;
-  agent: string;
-  note: string;
-  context?: IncidentContext;
-}
-
-/**
- * Aggregates all project_comments from every project ledger into a single
- * flat array, sorted by timestamp descending (newest first).
- * Per-project read failures are logged to stderr and skipped gracefully.
- * Returns an empty array when no projects exist or no comments are found.
- */
-export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]> {
-  const projects = await LedgerStore.listAllProjects(ledgerRoot);
-
-  const entries: InsightEntry[] = [];
-
-  await Promise.all(
-    projects.map(async (meta) => {
-      const store = new LedgerStore(meta.plan_path, ledgerRoot);
-      let rootIndex;
-      try {
-        rootIndex = await store.readRootIndex();
-      } catch (err) {
-        process.stderr.write(
-          `[handleGetInsights] Skipping project "${meta.slug}": ${String(err)}\n`
-        );
-        return;
-      }
-
-      const comments = rootIndex.project_comments;
-      if (!comments || comments.length === 0) return;
-
-      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
-      // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
-      // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
-      // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
-      // like repository_name on InsightEntry and ProjectSummary, where original casing must
-      // be preserved. Both call sites (handleGetInsights and handleListProjects) use this
-      // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
-      const repository_name: string | null = projectRoot
-        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
-        : null;
-
-      for (const comment of comments) {
-        entries.push({
-          ...comment,
-          project_slug: meta.slug,
-          project_status: meta.status,
-          repository_name,
-        });
-      }
-    })
-  );
-
-  // Sort by timestamp descending (newest first)
-  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -2077,8 +2014,9 @@ export async function handleListProjects(
       // NOTE: We intentionally do NOT use deriveRepoName() from ledger-root.ts here.
       // deriveRepoName() lowercases and validates the segment against SLUG_REGEX — that is
       // correct for storage keys (e.g. namespaced folder names) but wrong for display fields
-      // like repository_name on ProjectSummary and InsightEntry, where original casing must
-      // be preserved. Both call sites (handleListProjects and handleGetInsights) use this
+      // like repository_name on ProjectSummary, where original casing must
+      // be preserved. Both call sites (handleListProjects and the removed insights aggregation)
+      // use this inline pattern deliberately; keep them in sync if the derivation logic changes.
       // inline pattern deliberately; keep them in sync if the derivation logic ever changes.
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
@@ -3223,6 +3161,105 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/projects/:repo/:slug/chunks/:filename/text
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns extracted prose text for a chunk file, with transparent `.md` caching.
+ *
+ * Cache-first strategy:
+ *  1. Derives the `.md` filename server-side (never from user input) by replacing
+ *     the validated `.jsonl` suffix.
+ *  2. If the `.md` file already exists (pre-generated by the CLI or a prior
+ *     request), reads and returns it with `{ content, cached: true }`.
+ *  3. On cache miss: reads the `.jsonl` file, calls `renderChunksToText()`,
+ *     writes the `.md` as a best-effort side-effect (write errors are silently
+ *     ignored — the read path must never fail due to a caching failure), and
+ *     returns `{ content, cached: false }`.
+ *
+ * Security:
+ *  - `slug` is validated via `assertSafeSlug()`.
+ *  - `filename` must match `CHUNK_FILENAME_RE` (allowlist — rejects traversal).
+ *  - Resolved `.md` path must share the `chunksDir` prefix (defence-in-depth).
+ *  - The `.md` filename is derived server-side; it is never accepted from the caller.
+ *
+ * @param ledgerRoot  Root directory containing all project ledger folders.
+ * @param slug        Project slug.
+ * @param filename    Chunk file name (e.g. 'WP-001-developer-r0.jsonl').
+ * @param repoName    Repository namespace. Used to namespace the storage path.
+ * @returns           `{ content: string, cached: boolean }`.
+ * @throws            ApiError NOT_FOUND when filename is invalid or the .jsonl does not exist.
+ * @throws            Internal server error (500) if the .jsonl content cannot be parsed by
+ *                    `renderChunksToText()` (e.g. corrupt or structurally invalid JSONL).
+ */
+export async function handleGetChunkText(
+  ledgerRoot: string,
+  slug: string,
+  filename: string,
+  repoName?: string
+): Promise<{ content: string; cached: boolean }> {
+  assertSafeSlug(slug);
+
+  // Allowlist check — rejects path traversal attempts and non-.jsonl names.
+  if (!CHUNK_FILENAME_RE.test(filename)) {
+    console.warn(`[handleGetChunkText] Rejected filename (regex check): '${filename}'`);
+    notFound(`Chunk file not found: '${filename}'.`);
+  }
+
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const chunksDir = resolve(join(store.storageDir, CHUNKS_DIR));
+
+  // Derive the .md filename server-side — never from user input.
+  const mdFilename = filename.replace(/\.jsonl$/, '.md');
+  const mdPath = resolve(join(chunksDir, mdFilename));
+
+  // Defence-in-depth: ensure the derived .md path stays inside chunksDir.
+  if (!mdPath.startsWith(chunksDir + sep) && mdPath !== chunksDir) {
+    console.warn(`[handleGetChunkText] Rejected derived md path (prefix check): '${mdFilename}'`);
+    notFound(`Chunk file not found: '${filename}'.`);
+  }
+
+  // Cache-first: attempt to read a pre-existing .md file.
+  try {
+    const content = await readFile(mdPath, 'utf-8');
+    return { content, cached: true };
+  } catch (err: unknown) {
+    if (!isNodeError(err) || err.code !== 'ENOENT') {
+      throw err;
+    }
+    // ENOENT — fall through to extraction.
+  }
+
+  // Cache miss: read the .jsonl, extract prose, cache best-effort.
+  // No prefix check needed here — CHUNK_FILENAME_RE already bounds the .jsonl filename to safe
+  // characters (alphanumeric, hyphens, underscores + the literal ".jsonl" suffix), so the resolved
+  // filePath is guaranteed to stay inside chunksDir. mdPath requires an explicit prefix check
+  // because it is derived via string replacement (/\.jsonl$/ → '.md') rather than validated
+  // directly, making the defence-in-depth guard above the appropriate layer for that path.
+  const filePath = resolve(join(chunksDir, filename));
+  let chunkContent: string;
+  try {
+    chunkContent = await readFile(filePath, 'utf-8');
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === 'ENOENT') {
+      notFound(`Chunk file not found: '${filename}'.`);
+    }
+    throw err;
+  }
+
+  const textContent = renderChunksToText(chunkContent);
+
+  // Best-effort write — ignore errors so the read path is never broken.
+  try {
+    await writeFile(mdPath, textContent, 'utf-8');
+  } catch {
+    // Intentionally swallowed: permissions or disk errors must not propagate.
+  }
+
+  return { content: textContent, cached: false };
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/orchestrator/start
 // ---------------------------------------------------------------------------
 
@@ -3879,7 +3916,7 @@ export function accumulateChunks(
  * chunk-renderer.ts — Rendering layer for streaming dialogue capture.
  *
  * This module builds on the shared accumulation layer in `chunk-accumulator.ts`
- * and exposes two pure renderers:
+ * and exposes four pure renderers:
  *
  * renderChunksToMarkdown(jsonlContent: string): string
  *   Verbose format: `## Role` headings, JSON fenced tool-call blocks, and a
@@ -3889,6 +3926,16 @@ export function accumulateChunks(
  *   Compact chat-like format: plain-paragraph AI text, per-tool single-line
  *   summaries, hidden ToolMessages (execute/task results shown inline), and
  *   sub-agent `### Subagent:` headings.  Primary renderer used in production.
+ *
+ * renderChunksToStructured(jsonlContent: string): DialogueBlock[]
+ *   Structured block array for frontend rendering (collapsible tool calls,
+ *   interactive checklists, inline results).
+ *
+ * renderChunksToText(jsonlContent: string): string
+ *   Prose-only extraction: AI text turns only, no tool-call JSON, no tool
+ *   results.  Dual-namespace files get `## Outer Agent` / `## Inner Agent`
+ *   section headers; single-namespace files render flat.  Used by the GUI
+ *   "Text Only" tab and the CLI extraction script.
  *
  * Types, parsing, merging, and `accumulateChunks()` live in `chunk-accumulator.ts`.
  *
@@ -4931,7 +4978,7 @@ function collectStructuredNamespaceBlocks(
 }
 
 // ---------------------------------------------------------------------------
-// Public API — structured renderer
+// Public API — structured renderer (renderChunksToStructured)
 // ---------------------------------------------------------------------------
 
 /**
@@ -4988,6 +5035,112 @@ export function renderChunksToStructured(jsonlContent: string): DialogueBlock[] 
   }
 
   return blocks;
+}
+
+// ---------------------------------------------------------------------------
+// Text-only rendering — private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Iterates AI messages and extracts prose text only (no tool calls, no tool
+ * results).  Calls `renderContent(msg.content).trim()` on each AI message and
+ * joins non-empty results with `'\n\n'`.
+ *
+ * Used exclusively by `renderChunksToText()`.
+ */
+function extractTextFromMessages(messages: MergedMessage[]): string {
+  const parts: string[] = [];
+  for (const msg of messages) {
+    const msgType = msg.type.toLowerCase();
+    if (
+      msgType !== 'ai' &&
+      msgType !== 'aimessage' &&
+      msgType !== 'aimessagechunk'
+    ) {
+      continue;
+    }
+    const text = renderContent(msg.content).trim();
+    if (text) {
+      parts.push(text);
+    }
+  }
+  return parts.join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
+// Public API — text-only renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses a JSONL chunk file and returns a prose-only Markdown string
+ * containing only the AI turns' text content — no tool-call JSON, no tool
+ * results.
+ *
+ * Output format:
+ *  - **Single-namespace** files: flat prose paragraphs, no section headers.
+ *  - **Multi-namespace** files (outer agent + one or more inner agents): one
+ *    `## Outer Agent` section followed by one `## Inner Agent` section **per
+ *    inner namespace**.  When N > 1 inner namespaces are present, each gets
+ *    its own `## Inner Agent` header in iteration order — the label is the
+ *    same for all inner namespaces (no distinguishability guarantee).
+ *    Contributors adding N-inner support should replace the fixed label with
+ *    a namespace-derived identifier before relying on label uniqueness.
+ *
+ * This renderer shares its `.md` output format with the CLI extraction script
+ * (`scripts/extract-dialogue.js`) so that either tool can prime the on-disk
+ * cache that the backend's `/chunks/:filename/text` endpoint uses.
+ *
+ * @param jsonlContent  Raw JSONL string (e.g. the content of a `.jsonl` chunk file).
+ * @returns             A Markdown string (always ends with a trailing `\n`).
+ *                      Returns `'*No dialogue recorded.*\n'` for empty input or
+ *                      when all AI turns contain no text content.
+ */
+export function renderChunksToText(jsonlContent: string): string {
+  // --- Parse JSONL content (header validation + line parsing) ---
+  const records = parseJsonlContent(jsonlContent);
+
+  // --- Accumulate chunks into merged messages per namespace ---
+  const nsMap = accumulateChunks(records);
+
+  if (nsMap.size === 0) {
+    return '*No dialogue recorded.*\n';
+  }
+
+  // --- Detect whether sub-agent namespaces are present ---
+  const hasSubAgents = [...nsMap.keys()].some(k => k !== '');
+
+  if (!hasSubAgents) {
+    // Single-namespace: flat prose, no section headers.
+    const mainMessages = nsMap.get('') ?? [];
+    const text = extractTextFromMessages(mainMessages);
+    if (!text) {
+      return '*No dialogue recorded.*\n';
+    }
+    return text + '\n';
+  }
+
+  // --- Dual-namespace: labelled sections ---
+  const mainMessages = nsMap.get('') ?? [];
+  const outerText = extractTextFromMessages(mainMessages);
+
+  const innerTexts: string[] = [];
+  for (const [nsKey, messages] of nsMap.entries()) {
+    if (nsKey === '') continue;
+    innerTexts.push(extractTextFromMessages(messages));
+  }
+
+  // If all sections are empty, return the standard empty sentinel.
+  if (!outerText && innerTexts.every(t => !t)) {
+    return '*No dialogue recorded.*\n';
+  }
+
+  const sections: string[] = [];
+  sections.push('## Outer Agent\n\n' + (outerText || '*No dialogue recorded.*'));
+  for (const innerText of innerTexts) {
+    sections.push('## Inner Agent\n\n' + (innerText || '*No dialogue recorded.*'));
+  }
+
+  return sections.join('\n\n') + '\n';
 }
 
 ```
@@ -5756,7 +5909,6 @@ import {
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
-  handleGetInsights,
   handleGetConfig,
   handleUpdateConfig,
   handleResetProject,
@@ -5770,6 +5922,7 @@ import {
   handleGetDialogueFile,
   handleListChunks,
   handleGetChunkFile,
+  handleGetChunkText,
   handleOrchestratorStart,
   handleGetOrchestratorQueue,
   handleOrchestratorKill,
@@ -5994,7 +6147,38 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 // Router
 // ---------------------------------------------------------------------------
 
-type RouteHandler = () => Promise<unknown>;
+/**
+ * The set of HTTP methods accepted by the route dispatcher.
+ *
+ * Narrowing `Route.method` to this union converts a previously runtime-only
+ * validation (enforced by `route-table.test.ts`) into a compile-time guarantee.
+ * The test continues to serve as defense-in-depth.
+ */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/**
+ * A declarative body-parsing route entry for {@link buildRoutes} and
+ * {@link dispatchRoute}.
+ *
+ * - `method` — HTTP method; must be one of the {@link HttpMethod} values
+ *   (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, uppercase). The union type
+ *   enforces this at compile time; `route-table.test.ts` provides
+ *   defense-in-depth at test time.
+ * - `path` — Exact string path or a RegExp with named capture groups.
+ * - `handler` — Receives the parsed body (or `undefined` when `noBody` is
+ *   set), any named capture groups extracted from the RegExp match, and the
+ *   parsed query parameters from the request URL.
+ * - `statusCode` — Response status code (default `200`). Use `204` for empty
+ *   responses — the dispatcher writes the header and skips `sendJson()`.
+ * - `noBody` — When `true`, skip `readJsonBody()`.
+ */
+export interface Route {
+  method: HttpMethod;
+  path: string | RegExp;
+  handler: (body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>;
+  statusCode?: number;
+  noBody?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Meta helpers
@@ -6067,1095 +6251,21 @@ export async function resolveRepoName(
 /**
  * Extracts query-string parameters from a full URL string.
  * Returns a URLSearchParams instance (empty if no query string present).
+ *
+ * Edge-case behaviour:
+ * - **Bare `?`** (e.g. `/api/foo?`): `url.slice(qIdx + 1)` is `""` → returns
+ *   an empty `URLSearchParams`. Safe, no exceptions.
+ * - **Percent-encoded values** (e.g. `?q=hello%20world`): `URLSearchParams`
+ *   decodes them transparently — `params.get('q')` returns `"hello world"`.
+ * - **Fragment / hash characters** (e.g. `?x=1#anchor`): the `#` and
+ *   everything after it are passed through as literal characters inside the
+ *   query value because no fragment stripping is performed. Browsers strip the
+ *   fragment before sending the request, so in practice this situation does not
+ *   arise for server-received URLs.
  */
 function parseQueryString(url: string): URLSearchParams {
   const qIdx = url.indexOf('?');
   return new URLSearchParams(qIdx !== -1 ? url.slice(qIdx + 1) : '');
-}
-
-/**
- * Matches a method + URL path to an API handler.
- * Returns a handler thunk or null if no route matches.
- *
- * Exported for testing purposes.
- */
-export function matchRoute(
-  method: string,
-  url: string,
-  ledgerRoot: string,
-  orchestratorLogsDir: string
-): RouteHandler | null {
-  const [path] = url.split('?') as [string];
-  const segments = path.split('/').filter(Boolean);
-
-  // All API routes must start with 'api'
-  if (segments[0] !== 'api') return null;
-
-  const rest = segments.slice(1);
-
-  // Route dispatch note:
-  // Routes are matched by segment count (rest.length) first, then by segment values.
-  // Because the dispatcher walks the if-else chain in declaration order, two routes
-  // that share the same rest.length value are ordered by their position here — the
-  // first matching branch wins and subsequent branches at the same length are shadowed.
-  // When adding a new route with the same rest.length as an existing one (e.g. a future
-  // /:slug/synthesis at length 3 alongside /:slug/plan), make sure the more-specific
-  // pattern appears BEFORE the catch-all pattern at that length, or it will never match.
-
-  // GET /api/insights
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
-    return () => handleGetInsights(ledgerRoot);
-  }
-
-  // GET /api/orchestrator/queue
-  if (method === 'GET' && rest.length === 2 && rest[0] === 'orchestrator' && rest[1] === 'queue') {
-    return () => handleGetOrchestratorQueue(orchestratorLogsDir, ledgerRoot);
-  }
-
-  // GET /api/orchestrator/run-status/:filename
-  if (method === 'GET' && rest.length === 3 && rest[0] === 'orchestrator' && rest[1] === 'run-status') {
-    const filename = decodeURIComponent(rest[2]!);
-    return () => handleGetRunStatus(orchestratorLogsDir, filename);
-  }
-
-  // GET /api/projects
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
-    const sp = parseQueryString(url);
-    const params = {
-      page: sp.get('page') ?? undefined,
-      limit: sp.get('limit') ?? undefined,
-      status: sp.get('status') ?? undefined,
-      search: sp.get('search') ?? undefined,
-      sort: sp.get('sort') ?? undefined,
-      dir: sp.get('dir') ?? undefined,
-      runner: sp.get('runner') ?? undefined,
-    };
-    return () => handleListProjects(ledgerRoot, params);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/plan instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/plan
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'plan'
-  ) {
-    const slug = rest[1]!;
-    return () => handleGetPlanDocument(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/synthesis instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/synthesis
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'synthesis'
-  ) {
-    const slug = rest[1]!;
-    return () => handleGetSynthesisDocument(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/health instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/health
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'health'
-  ) {
-    const slug = rest[1]!;
-    return () => handleGetProjectHealth(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/run-metadata instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/run-metadata
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'run-metadata'
-  ) {
-    const slug = rest[1]!;
-    return () => handleGetRunMetadata(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug
-  if (method === 'GET' && rest.length === 2 && rest[0] === 'projects') {
-    const slug = rest[1]!;
-    return () => handleGetProject(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/work-packages
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'work-packages'
-  ) {
-    const slug = rest[1]!;
-    return () => handleListWorkPackages(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/overview instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/work-packages/overview
-  // IMPORTANT: this route has rest.length === 4 and must appear BEFORE the
-  // generic /:wpId handler at the same length, otherwise 'overview' would be
-  // treated as a WP ID.
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'work-packages' &&
-    rest[3] === 'overview'
-  ) {
-    const slug = rest[1]!;
-    return () => handleGetWorkPackageOverview(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/dialogues/:filename instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/dialogues/:filename
-  // rest.length === 4, rest[2] === 'dialogues' — must appear before the generic
-  // work-packages/:wpId handler at the same length.
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'dialogues'
-  ) {
-    const slug = rest[1]!;
-    const filename = decodeURIComponent(rest[3]!);
-    return () => handleGetDialogueFile(ledgerRoot, slug, filename);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/:wpId instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/work-packages/:wpId
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'work-packages'
-  ) {
-    const slug = rest[1]!;
-    const wpId = rest[3]!;
-    return () => handleGetWorkPackage(ledgerRoot, slug, wpId);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/dialogues instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/dialogues[?wp=WP-001]
-  // rest.length === 3, rest[2] === 'dialogues' — does not shadow other rest[2] routes
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'dialogues'
-  ) {
-    const slug = rest[1]!;
-    const sp = parseQueryString(url);
-    const wpId = sp.get('wp') ?? undefined;
-    return () => handleListDialogues(ledgerRoot, slug, wpId);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/chunks instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/chunks
-  // rest.length === 3, rest[2] === 'chunks' — analogous to the dialogues list route
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'chunks'
-  ) {
-    const slug = rest[1]!;
-    const sp = parseQueryString(url);
-    const wpId = sp.get('wp') ?? undefined;
-    return () => handleListChunks(ledgerRoot, slug, wpId);
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename/rendered instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/chunks/:filename/rendered
-  // rest.length === 5, rest[2] === 'chunks', rest[4] === 'rendered'
-  // Placement note: this route (rest.length === 5) and the raw-file route below
-  // (rest.length === 4) have different segment counts, so there is no ordering
-  // requirement between them — the dispatcher can never confuse the two.  This
-  // block is placed here (before the length-4 route) solely to keep all three
-  // chunk routes visually adjacent and in URL-specificity order.
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'chunks' &&
-    rest[4] === 'rendered'
-  ) {
-    const slug = rest[1]!;
-    const filename = decodeURIComponent(rest[3]!);
-    const format = parseQueryString(url).get('format');
-    if (format === 'structured') {
-      return () =>
-        handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
-          blocks: renderChunksToStructured(content),
-        }));
-    }
-    return () =>
-      handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
-        content: renderChunksToDialogue(content),
-      }));
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/chunks/:filename
-  // rest.length === 4, rest[2] === 'chunks' — analogous to dialogues/:filename
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'chunks'
-  ) {
-    const slug = rest[1]!;
-    const filename = decodeURIComponent(rest[3]!);
-    return () => handleGetChunkFile(ledgerRoot, slug, filename);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Namespaced /:repo/:slug routes — added in WP-009.
-  // Each route validates repo and slug separately via SAFE_SLUG_REGEX (same
-  // enforcement as assertSafeSlug but applied before any handler call, giving
-  // explicit path-traversal defence at the routing layer).
-  // resolveRepoName() reads .meta.json to obtain the canonical repository_name
-  // and also serves as the project-existence check (throws NOT_FOUND when the
-  // meta file is absent).
-  //
-  // Ordering note: all keyword-specific /:slug/xxx routes at rest.length===3
-  // appear ABOVE the /:repo/:slug catch-all at the same length. The catch-all
-  // uses explicit keyword exclusion to prevent shadowing.
-  // ---------------------------------------------------------------------------
-
-  // GET /api/projects/:repo/:slug/plan
-  // rest.length === 4, rest[3] === 'plan' — does not conflict with /:slug/keyword (length 3)
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'plan' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetPlanDocument(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/synthesis
-  // rest.length === 4, rest[3] === 'synthesis'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'synthesis' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetSynthesisDocument(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/health
-  // rest.length === 4, rest[3] === 'health'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'health' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetProjectHealth(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/run-metadata
-  // rest.length === 4, rest[3] === 'run-metadata'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'run-metadata' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetRunMetadata(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/work-packages
-  // rest.length === 4, rest[3] === 'work-packages'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'work-packages' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleListWorkPackages(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/dialogues[?wp=WP-001]
-  // rest.length === 4, rest[3] === 'dialogues'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'dialogues' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const sp = parseQueryString(url);
-    const wpId = sp.get('wp') ?? undefined;
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleListDialogues(ledgerRoot, slug, wpId, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/chunks[?wp=WP-001]
-  // rest.length === 4, rest[3] === 'chunks'
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'chunks' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const sp = parseQueryString(url);
-    const wpId = sp.get('wp') ?? undefined;
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleListChunks(ledgerRoot, slug, wpId, repoName);
-    };
-  }
-
-  // POST /api/projects/:repo/:slug/archive
-  // rest.length === 4, rest[3] === 'archive'
-  if (
-    method === 'POST' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'archive' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleArchiveProject(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // POST /api/projects/:repo/:slug/unarchive
-  // rest.length === 4, rest[3] === 'unarchive'
-  if (
-    method === 'POST' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'unarchive' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleUnarchiveProject(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // POST /api/projects/:repo/:slug/complete
-  // rest.length === 4, rest[3] === 'complete'
-  if (
-    method === 'POST' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'complete' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleMarkProjectComplete(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/work-packages/overview
-  // rest.length === 5, rest[3] === 'work-packages', rest[4] === 'overview'
-  // Must appear BEFORE /:repo/:slug/work-packages/:wpId at the same rest.length.
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'work-packages' &&
-    rest[4] === 'overview' &&
-    rest[2] !== 'work-packages'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetWorkPackageOverview(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/dialogues/:filename
-  // rest.length === 5, rest[3] === 'dialogues'
-  // Must appear BEFORE /:repo/:slug/work-packages/:wpId to keep ordering consistent.
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'dialogues' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const filename = decodeURIComponent(rest[4]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetDialogueFile(ledgerRoot, slug, filename, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/work-packages/:wpId
-  // rest.length === 5, rest[3] === 'work-packages'
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'work-packages' &&
-    rest[2] !== 'work-packages'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const wpId = rest[4]!;
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetWorkPackage(ledgerRoot, slug, wpId, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/chunks/:filename/rendered
-  // rest.length === 6, rest[3] === 'chunks', rest[5] === 'rendered'
-  if (
-    method === 'GET' &&
-    rest.length === 6 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'chunks' &&
-    rest[5] === 'rendered' &&
-    rest[2] !== 'chunks'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const filename = decodeURIComponent(rest[4]!);
-    const format = parseQueryString(url).get('format');
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      if (format === 'structured') {
-        return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
-          blocks: renderChunksToStructured(content),
-        }));
-      }
-      return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
-        content: renderChunksToDialogue(content),
-      }));
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/chunks/:filename
-  // rest.length === 5, rest[3] === 'chunks'
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'chunks' &&
-    rest[2] !== 'chunks'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const filename = decodeURIComponent(rest[4]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetChunkFile(ledgerRoot, slug, filename, repoName);
-    };
-  }
-
-  // DELETE /api/projects/:repo/:slug
-  // rest.length === 3, method === 'DELETE' — no conflict with DELETE /:slug (rest.length === 2)
-  if (
-    method === 'DELETE' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleDeleteProject(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug
-  // rest.length === 3 — catch-all; must appear AFTER all /:slug/keyword routes at
-  // rest.length === 3 and uses explicit keyword exclusion to prevent shadowing them.
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] !== 'plan' &&
-    rest[2] !== 'synthesis' &&
-    rest[2] !== 'health' &&
-    rest[2] !== 'work-packages' &&
-    rest[2] !== 'dialogues' &&
-    rest[2] !== 'chunks' &&
-    rest[2] !== 'runs' &&
-    rest[2] !== 'run-metadata'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
-      }
-      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-      return handleGetProject(ledgerRoot, slug, repoName);
-    };
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/runs instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/runs
-  // rest.length === 3, rest[2] === 'runs' — does not shadow work-packages (different rest[2] value)
-  // Resolves the canonical namespaced storage directory first to avoid creating
-  // ghost directories under the legacy flat path when archiveCompletedLogs runs.
-  // Falls back to the legacy flat path for truly pre-namespace projects.
-  if (
-    method === 'GET' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'runs'
-  ) {
-    const slug = decodeURIComponent(rest[1]!);
-    return async () => {
-      const flatProjectDir = join(ledgerRoot, slug);
-      let projectStorageDir: string;
-      try {
-        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
-      } catch {
-        // NOT_FOUND or AMBIGUOUS — fall back to the legacy flat layout.
-        projectStorageDir = flatProjectDir;
-      }
-      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
-      // For namespaced projects, supply the old flat paths as legacy migration
-      // sources so logs written under the pre-namespace layout are carried over.
-      // For flat projects, preserve the original behaviour (migrate from the root).
-      const isNamespaced = projectStorageDir !== flatProjectDir;
-      const legacyLogsDir = isNamespaced ? join(flatProjectDir, 'orchestrator', 'logs') : flatProjectDir;
-      const legacyLogsDir2 = isNamespaced ? flatProjectDir : undefined;
-      return handleListRunLogs(slug, slug, logsDir, orchestratorLogsDir, legacyLogsDir, legacyLogsDir2);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/runs
-  // rest.length === 4, rest[3] === 'runs' — namespaced route; rest[2] !== 'runs' distinguishes from /:slug/runs/:filename
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'runs' &&
-    rest[2] !== 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    return async () => {
-      // Explicit SAFE_SLUG_REGEX guard before any path construction — makes the
-      // path-traversal defence direct rather than relying on the indirect
-      // resolveRepoName NOT_FOUND guard (defence-in-depth per Security Auditor).
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
-      }
-      // logsDir uses the URL segments to locate the directory. Unlike other namespaced
-      // routes, we do NOT call resolveRepoName here — log files must be readable for
-      // active runs whose project ledger hasn't been initialised yet (no .meta.json).
-      // repoUrlParam is already validated by SAFE_SLUG_REGEX above, which satisfies
-      // the assertSafeSlug guard inside handleListRunLogs.
-      const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
-      return handleListRunLogs(slug, repoUrlParam, logsDir, orchestratorLogsDir);
-    };
-  }
-
-  // @deprecated — Use GET /api/projects/:repo/:slug/runs/:filename instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // GET /api/projects/:slug/runs/:filename
-  // rest.length === 4, rest[2] === 'runs' — does not shadow work-packages/:wpId (different rest[2] value)
-  // Resolves the canonical namespaced storage directory first (same as the list
-  // route above) to avoid creating ghost directories under the legacy flat path.
-  if (
-    method === 'GET' &&
-    rest.length === 4 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'runs'
-  ) {
-    const slug = decodeURIComponent(rest[1]!);
-    const filename = decodeURIComponent(rest[3]!);
-    const sp = parseQueryString(url);
-    const afterParam = sp.get('after');
-    const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
-    return async () => {
-      const flatProjectDir = join(ledgerRoot, slug);
-      let projectStorageDir: string;
-      try {
-        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
-      } catch {
-        projectStorageDir = flatProjectDir;
-      }
-      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
-      return handleGetRunLog(slug, slug, filename, logsDir, orchestratorLogsDir, afterLine);
-    };
-  }
-
-  // GET /api/projects/:repo/:slug/runs/:filename
-  // rest.length === 5, rest[3] === 'runs' — namespaced route
-  if (
-    method === 'GET' &&
-    rest.length === 5 &&
-    rest[0] === 'projects' &&
-    rest[3] === 'runs'
-  ) {
-    const repoUrlParam = decodeURIComponent(rest[1]!);
-    const slug = decodeURIComponent(rest[2]!);
-    const filename = decodeURIComponent(rest[4]!);
-    const sp = parseQueryString(url);
-    const afterParam = sp.get('after');
-    const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
-    return async () => {
-      // Explicit SAFE_SLUG_REGEX guard before any path construction — makes the
-      // path-traversal defence direct rather than relying on the indirect
-      // resolveRepoName NOT_FOUND guard (defence-in-depth per Security Auditor).
-      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-        throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
-      }
-      // logsDir uses the URL segments to locate the directory. Unlike other namespaced
-      // routes, we do NOT call resolveRepoName here — log files must be readable for
-      // active runs whose project ledger hasn't been initialised yet (no .meta.json).
-      // repoUrlParam is already validated by SAFE_SLUG_REGEX above, which satisfies
-      // the assertSafeSlug guard inside handleGetRunLog.
-      const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
-      return handleGetRunLog(slug, repoUrlParam, filename, logsDir, orchestratorLogsDir, afterLine);
-    };
-  }
-
-  // @deprecated — Use DELETE /api/projects/:repo/:slug instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // DELETE /api/projects/:slug
-  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'projects') {
-    const slug = rest[1]!;
-    return () => handleDeleteProject(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use POST /api/projects/:repo/:slug/archive instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // POST /api/projects/:slug/archive
-  if (
-    method === 'POST' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'archive'
-  ) {
-    const slug = rest[1]!;
-    return () => handleArchiveProject(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use POST /api/projects/:repo/:slug/unarchive instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // POST /api/projects/:slug/unarchive
-  if (
-    method === 'POST' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'unarchive'
-  ) {
-    const slug = rest[1]!;
-    return () => handleUnarchiveProject(ledgerRoot, slug);
-  }
-
-  // @deprecated — Use POST /api/projects/:repo/:slug/complete instead.
-  // This non-namespaced route is retained for backward compatibility and will be
-  // removed in the next major version.
-  // POST /api/projects/:slug/complete
-  if (
-    method === 'POST' &&
-    rest.length === 3 &&
-    rest[0] === 'projects' &&
-    rest[2] === 'complete'
-  ) {
-    const slug = rest[1]!;
-    return () => handleMarkProjectComplete(ledgerRoot, slug);
-  }
-
-  // GET /api/config and PUT /api/config are handled before matchRoute() is called
-  // (they require configPath which is not passed to this function)
-
-  // POST /api/projects/:slug/reset — handled separately in handleRequest()
-  // because it requires body parsing (like PUT /api/config).
-
-  // POST /api/orchestrator/start — handled separately in handleRequest()
-  // because it requires body parsing.
-  // POST /api/orchestrator/kill/:id and POST /api/orchestrator/dismiss/:id —
-  // handled separately in handleRequest() (path-parameter extraction via path.slice).
-
-  // ---------------------------------------------------------------------------
-  // Repository Registry routes — added in WP-006.
-  // All routes use the unique 'repos' first segment, so they cannot shadow any
-  // existing route. POST /api/repos and PUT /api/repos/:repoId are handled as
-  // special cases in handleRequest() because they require body parsing.
-  // ---------------------------------------------------------------------------
-
-  // GET /api/repos
-  // rest.length === 1, rest[0] === 'repos'
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'repos') {
-    const sp = parseQueryString(url);
-    const includeUndeclared = sp.get('include_undeclared') === 'true';
-    return () => handleListRepos(ledgerRoot, includeUndeclared);
-  }
-
-  // GET /api/repos/:repoId
-  // rest.length === 2, rest[0] === 'repos'
-  if (method === 'GET' && rest.length === 2 && rest[0] === 'repos') {
-    const repoId = decodeURIComponent(rest[1]!);
-    return () => handleGetRepo(ledgerRoot, repoId);
-  }
-
-  // DELETE /api/repos/:repoId
-  // rest.length === 2, rest[0] === 'repos'
-  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'repos') {
-    const repoId = decodeURIComponent(rest[1]!);
-    return () => handleDeleteRepo(ledgerRoot, repoId);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Knowledge routes — added in WP-009.
-  // All three routes use the unique 'knowledge' first segment, so they cannot
-  // shadow any existing route. PATCH /api/knowledge/:id and
-  // POST /api/knowledge/:id/move are handled as special cases in handleRequest()
-  // because they require body parsing.
-  // ---------------------------------------------------------------------------
-
-  // GET /api/knowledge
-  // rest.length === 1, rest[0] === 'knowledge'
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'knowledge') {
-    const sp = parseQueryString(url);
-    const params = {
-      scope: sp.get('scope') ?? undefined,
-      category: sp.get('category') ?? undefined,
-      tags: sp.get('tags') ?? undefined,
-      repository_name: sp.get('repository_name') ?? undefined,
-      query: sp.get('query') ?? undefined,
-      limit: sp.get('limit') ?? undefined,
-      offset: sp.get('offset') ?? undefined,
-    };
-    return () => handleListKnowledge(ledgerRoot, params);
-  }
-
-  // DELETE /api/knowledge/:id
-  // rest.length === 2, rest[0] === 'knowledge'
-  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'knowledge') {
-    const rawId = rest[1]!;
-    const sp = parseQueryString(url);
-    const scope = sp.get('scope') ?? undefined;
-    const repository_name = sp.get('repository_name') ?? undefined;
-    return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name);
-  }
-
-  // POST /api/knowledge/:id/promote
-  // rest.length === 3, rest[0] === 'knowledge', rest[2] === 'promote'
-  if (method === 'POST' && rest.length === 3 && rest[0] === 'knowledge' && rest[2] === 'promote') {
-    const rawId = rest[1]!;
-    const sp = parseQueryString(url);
-    const scope = sp.get('scope') ?? undefined;
-    const repository_name = sp.get('repository_name') ?? undefined;
-    return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Model Registry routes — added in WP-006 (model settings).
-  // All routes use the unique 'models', 'model-assignments', and 'personas'
-  // first segments, so they cannot shadow any existing route.
-  // Body-parsing routes (PUT /api/models, POST /api/models/load-defaults,
-  // PUT /api/model-assignments, POST /api/model-assignments/replace,
-  // POST /api/personas/rebuild) are handled as special cases in
-  // handleRequest() because they require body parsing.
-  // ---------------------------------------------------------------------------
-
-  // GET /api/models
-  // rest.length === 1, rest[0] === 'models'
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'models') {
-    return () => handleGetModels();
-  }
-
-  // GET /api/model-assignments
-  // rest.length === 1, rest[0] === 'model-assignments'
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'model-assignments') {
-    return () => handleGetAssignments();
-  }
-
-  // GET /api/personas
-  // rest.length === 1, rest[0] === 'personas'
-  if (method === 'GET' && rest.length === 1 && rest[0] === 'personas') {
-    return () => handleGetPersonas();
-  }
-
-  // No match found — fall through to 404.
-  // ---------------------------------------------------------------------------
-  // Route map summary
-  // Body-free routes are dispatched in matchRoute(); body-parsing routes are
-  // handled above in handleRequest() and are noted inline below.
-  //
-  // ACTIVE ROUTES (namespaced /:repo/:slug — use these going forward):
-  //   GET    /api/insights
-  //   GET    /api/orchestrator/queue
-  //   GET    /api/orchestrator/run-status/:filename
-  //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]
-  //   GET    /api/projects/:repo/:slug
-  //   GET    /api/projects/:repo/:slug/plan
-  //   GET    /api/projects/:repo/:slug/synthesis
-  //   GET    /api/projects/:repo/:slug/health
-  //   GET    /api/projects/:repo/:slug/run-metadata
-  //   GET    /api/projects/:repo/:slug/work-packages
-  //   GET    /api/projects/:repo/:slug/work-packages/overview
-  //   GET    /api/projects/:repo/:slug/work-packages/:wpId
-  //   GET    /api/projects/:repo/:slug/dialogues[?wp=WP-001]
-  //   GET    /api/projects/:repo/:slug/dialogues/:filename
-  //   GET    /api/projects/:repo/:slug/chunks[?wp=WP-001]
-  //   GET    /api/projects/:repo/:slug/chunks/:filename
-  //   GET    /api/projects/:repo/:slug/chunks/:filename/rendered
-  //   GET    /api/projects/:repo/:slug/runs
-  //   GET    /api/projects/:repo/:slug/runs/:filename[?after=N]
-  //   DELETE /api/projects/:repo/:slug
-  //   POST   /api/projects/:repo/:slug/archive
-  //   POST   /api/projects/:repo/:slug/unarchive
-  //   POST   /api/projects/:repo/:slug/complete
-  //   PATCH  /api/projects/:repo/:slug      (body-parsing — handled in handleRequest)
-  //   POST   /api/projects/:repo/:slug/reset (body-parsing — handled in handleRequest)
-  //   GET    /api/repos
-  //   GET    /api/repos/:repoId
-  //   DELETE /api/repos/:repoId
-  //   POST   /api/repos                     (body-parsing — handled in handleRequest)
-  //   PUT    /api/repos/:repoId             (body-parsing — handled in handleRequest)
-  //   GET    /api/knowledge[?scope&category&tags&repository_name&query&limit&offset]
-  //   DELETE /api/knowledge/:id[?scope&repository_name]
-  //   POST   /api/knowledge/:id/promote[?scope&repository_name]
-  //   PATCH  /api/knowledge/:id             (body-parsing — handled in handleRequest)
-  //   POST   /api/knowledge/:id/move        (body-parsing — handled in handleRequest)
-  //   GET    /api/models
-  //   PUT    /api/models                    (body-parsing — handled in handleRequest)
-  //   POST   /api/models/load-defaults      (body-parsing — handled in handleRequest)
-  //   GET    /api/model-assignments
-  //   PUT    /api/model-assignments         (body-parsing — handled in handleRequest)
-  //   POST   /api/model-assignments/replace (body-parsing — handled in handleRequest)
-  //   GET    /api/personas
-  //   POST   /api/personas/rebuild          (body-parsing — handled in handleRequest)
-  //
-  // DEPRECATED ROUTES (non-namespaced /:slug — retained for backward
-  // compatibility only; will be removed in the next major version):
-  //   GET    /api/projects/:slug                        → /api/projects/:repo/:slug
-  //   GET    /api/projects/:slug/plan                   → /api/projects/:repo/:slug/plan
-  //   GET    /api/projects/:slug/synthesis              → /api/projects/:repo/:slug/synthesis
-  //   GET    /api/projects/:slug/health                 → /api/projects/:repo/:slug/health
-  //   GET    /api/projects/:slug/run-metadata           → /api/projects/:repo/:slug/run-metadata
-  //   GET    /api/projects/:slug/work-packages          → /api/projects/:repo/:slug/work-packages
-  //   GET    /api/projects/:slug/work-packages/overview → /api/projects/:repo/:slug/work-packages/overview
-  //   GET    /api/projects/:slug/work-packages/:wpId    → /api/projects/:repo/:slug/work-packages/:wpId
-  //   GET    /api/projects/:slug/dialogues              → /api/projects/:repo/:slug/dialogues
-  //   GET    /api/projects/:slug/dialogues/:filename    → /api/projects/:repo/:slug/dialogues/:filename
-  //   GET    /api/projects/:slug/chunks                 → /api/projects/:repo/:slug/chunks
-  //   GET    /api/projects/:slug/chunks/:filename       → /api/projects/:repo/:slug/chunks/:filename
-  //   GET    /api/projects/:slug/chunks/:filename/rendered → /api/projects/:repo/:slug/chunks/:filename/rendered
-  //   GET    /api/projects/:slug/runs                   → /api/projects/:repo/:slug/runs
-  //   GET    /api/projects/:slug/runs/:filename         → /api/projects/:repo/:slug/runs/:filename
-  //   DELETE /api/projects/:slug                        → /api/projects/:repo/:slug
-  //   POST   /api/projects/:slug/archive                → /api/projects/:repo/:slug/archive
-  //   POST   /api/projects/:slug/unarchive              → /api/projects/:repo/:slug/unarchive
-  //   POST   /api/projects/:slug/complete               → /api/projects/:repo/:slug/complete
-  //   PATCH  /api/projects/:slug   (body-parsing)       → /api/projects/:repo/:slug
-  //   POST   /api/projects/:slug/reset (body-parsing)   → /api/projects/:repo/:slug/reset
-  // ---------------------------------------------------------------------------
-
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -7197,6 +6307,867 @@ async function serveStatic(
 }
 
 // ---------------------------------------------------------------------------
+// Route dispatcher
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Domain sub-builders
+//
+// Each function returns Route[] for a single domain area and captures only the
+// closure parameters it needs. All sub-builders are non-exported: they are
+// composed exclusively by buildRoutes().
+// ---------------------------------------------------------------------------
+
+/**
+ * Config/server-info routes.
+ *
+ * Section A:
+ *   PUT  /api/config
+ *   GET  /api/server-info
+ *   GET  /api/config
+ */
+function buildConfigRoutes(
+  configPath: string,
+  bootVersions: WorkspaceVersions | null
+): Route[] {
+  return [
+    // PUT /api/config
+    { method: 'PUT', path: '/api/config',
+      handler: async (body) => handleUpdateConfig(configPath, body) },
+    // GET /api/server-info — needs bootVersions closure
+    { method: 'GET', path: '/api/server-info', noBody: true,
+      handler: async () => {
+        const boot = bootVersions ?? captureWorkspaceVersions();
+        const disk = captureWorkspaceVersions();
+        const stale =
+          boot.mcpServer !== disk.mcpServer ||
+          boot.personas !== disk.personas ||
+          boot.orchestrator !== disk.orchestrator;
+        return { stale, bootVersions: boot, diskVersions: disk };
+      } },
+    // GET /api/config
+    { method: 'GET', path: '/api/config', noBody: true,
+      handler: async () => handleGetConfig(configPath) },
+  ];
+}
+
+/**
+ * Orchestrator routes (Section A body-parsing and Section B body-free).
+ *
+ * Section A:
+ *   POST /api/orchestrator/start
+ *   POST /api/orchestrator/kill/:id
+ *   POST /api/orchestrator/dismiss/:id
+ *   POST /api/orchestrator/delete/:id
+ *
+ * Section B:
+ *   GET  /api/orchestrator/queue
+ *   GET  /api/orchestrator/run-status/:filename
+ */
+function buildOrchestratorRoutes(
+  ledgerRoot: string,
+  orchestratorLogsDir: string
+): Route[] {
+  return [
+    // POST /api/orchestrator/start
+    { method: 'POST', path: '/api/orchestrator/start',
+      handler: async (body) => handleOrchestratorStart(WORKSPACE_ROOT, body) },
+    // POST /api/orchestrator/kill/:id
+    { method: 'POST', path: /^\/api\/orchestrator\/kill\/(?<id>.+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleOrchestratorKill(
+          decodeURIComponent(groups!.id!), orchestratorLogsDir, ledgerRoot
+        ) },
+    // POST /api/orchestrator/dismiss/:id — 204 No Content
+    { method: 'POST', path: /^\/api\/orchestrator\/dismiss\/(?<id>.+)$/, noBody: true,
+      statusCode: 204,
+      handler: async (_, groups) => {
+        await handleOrchestratorDismiss(
+          decodeURIComponent(groups!.id!), orchestratorLogsDir, ledgerRoot
+        );
+        return undefined;
+      } },
+    // POST /api/orchestrator/delete/:id — 204 No Content
+    { method: 'POST', path: /^\/api\/orchestrator\/delete\/(?<id>.+)$/, noBody: true,
+      statusCode: 204,
+      handler: async (_, groups) => {
+        await handleOrchestratorDelete(
+          decodeURIComponent(groups!.id!), orchestratorLogsDir
+        );
+        return undefined;
+      } },
+    // GET /api/orchestrator/queue
+    { method: 'GET', path: '/api/orchestrator/queue', noBody: true,
+      handler: async () => handleGetOrchestratorQueue(orchestratorLogsDir, ledgerRoot) },
+    // GET /api/orchestrator/run-status/:filename
+    { method: 'GET', path: /^\/api\/orchestrator\/run-status\/(?<filename>.+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetRunStatus(orchestratorLogsDir, decodeURIComponent(groups!.filename!)) },
+  ];
+}
+
+/**
+ * Repository routes (Section A body-parsing and Section B body-free).
+ *
+ * Section A:
+ *   POST   /api/repos
+ *   PUT    /api/repos/:repoId
+ *
+ * Section B:
+ *   GET    /api/repos
+ *   GET    /api/repos/:repoId
+ *   DELETE /api/repos/:repoId
+ */
+function buildRepoRoutes(ledgerRoot: string): Route[] {
+  return [
+    // POST /api/repos — 201 Created
+    { method: 'POST', path: '/api/repos', statusCode: 201,
+      handler: async (body) => handleCreateRepo(ledgerRoot, body) },
+    // PUT /api/repos/:repoId
+    { method: 'PUT', path: /^\/api\/repos\/(?<repoId>[^/]+)$/,
+      handler: async (body, groups) =>
+        handleUpdateRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
+    // GET /api/repos
+    { method: 'GET', path: '/api/repos', noBody: true,
+      handler: async (_, _groups, query) =>
+        handleListRepos(ledgerRoot, query?.get('include_undeclared') === 'true') },
+    // GET /api/repos/:repoId
+    { method: 'GET', path: /^\/api\/repos\/(?<repoId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetRepo(ledgerRoot, decodeURIComponent(groups!.repoId!)) },
+    // DELETE /api/repos/:repoId
+    { method: 'DELETE', path: /^\/api\/repos\/(?<repoId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleDeleteRepo(ledgerRoot, decodeURIComponent(groups!.repoId!)) },
+  ];
+}
+
+/**
+ * Knowledge routes (Section A body-parsing and Section B body-free).
+ *
+ * Section A:
+ *   PATCH /api/knowledge/:id
+ *   POST  /api/knowledge/:id/move
+ *
+ * Section B:
+ *   GET    /api/knowledge
+ *   DELETE /api/knowledge/:id
+ *   POST   /api/knowledge/:id/promote
+ */
+function buildKnowledgeRoutes(ledgerRoot: string): Route[] {
+  return [
+    // PATCH /api/knowledge/:id
+    { method: 'PATCH', path: /^\/api\/knowledge\/(?<id>[^/]+)$/,
+      handler: async (body, groups) =>
+        handleUpdateKnowledge(ledgerRoot, decodeURIComponent(groups!.id!), body) },
+    // POST /api/knowledge/:id/move
+    { method: 'POST', path: /^\/api\/knowledge\/(?<id>[^/]+)\/move$/,
+      handler: async (body, groups) =>
+        handleMoveKnowledge(ledgerRoot, decodeURIComponent(groups!.id!), body) },
+    // GET /api/knowledge[?scope&category&tags&repository_name&query&limit&offset]
+    { method: 'GET', path: '/api/knowledge', noBody: true,
+      handler: async (_, _groups, query) => {
+        const params = {
+          scope: query?.get('scope') ?? undefined,
+          category: query?.get('category') ?? undefined,
+          tags: query?.get('tags') ?? undefined,
+          repository_name: query?.get('repository_name') ?? undefined,
+          query: query?.get('query') ?? undefined,
+          limit: query?.get('limit') ?? undefined,
+          offset: query?.get('offset') ?? undefined,
+        };
+        return handleListKnowledge(ledgerRoot, params);
+      } },
+    // DELETE /api/knowledge/:id[?scope&repository_name]
+    { method: 'DELETE', path: /^\/api\/knowledge\/(?<id>[^/]+)$/, noBody: true,
+      handler: async (_, groups, query) =>
+        handleDeleteKnowledge(
+          ledgerRoot,
+          decodeURIComponent(groups!.id!),
+          query?.get('scope') ?? undefined,
+          query?.get('repository_name') ?? undefined,
+        ) },
+    // POST /api/knowledge/:id/promote[?scope&repository_name]
+    { method: 'POST', path: /^\/api\/knowledge\/(?<id>[^/]+)\/promote$/, noBody: true,
+      handler: async (_, groups, query) =>
+        handlePromoteKnowledge(
+          ledgerRoot,
+          decodeURIComponent(groups!.id!),
+          query?.get('scope') ?? undefined,
+          query?.get('repository_name') ?? undefined,
+        ) },
+  ];
+}
+
+/**
+ * Model/assignment/persona routes (Section A body-parsing and Section B body-free).
+ *
+ * Section A:
+ *   PUT  /api/models
+ *   POST /api/models/load-defaults
+ *   PUT  /api/model-assignments
+ *   POST /api/model-assignments/replace
+ *   POST /api/personas/rebuild
+ *
+ * Section B:
+ *   GET  /api/models
+ *   GET  /api/model-assignments
+ *   GET  /api/personas
+ */
+function buildModelRoutes(): Route[] {
+  return [
+    // PUT /api/models
+    { method: 'PUT', path: '/api/models',
+      handler: async (body) => handleSaveModels(body) },
+    // POST /api/models/load-defaults
+    { method: 'POST', path: '/api/models/load-defaults', noBody: true,
+      handler: async () => handleLoadDefaults() },
+    // PUT /api/model-assignments
+    { method: 'PUT', path: '/api/model-assignments',
+      handler: async (body) => handleUpdateAssignments(body) },
+    // POST /api/model-assignments/replace
+    { method: 'POST', path: '/api/model-assignments/replace',
+      handler: async (body) => handleReplaceAssignedModel(body) },
+    // POST /api/personas/rebuild — conditional ApiError on build failure
+    { method: 'POST', path: '/api/personas/rebuild', noBody: true,
+      handler: async () => {
+        const result = await handleRebuildPersonas(WORKSPACE_ROOT);
+        if (!result.success) throw new ApiError('BUILD_FAILED', result.output);
+        return result;
+      } },
+    // GET /api/models
+    { method: 'GET', path: '/api/models', noBody: true,
+      handler: async () => handleGetModels() },
+    // GET /api/model-assignments
+    { method: 'GET', path: '/api/model-assignments', noBody: true,
+      handler: async () => handleGetAssignments() },
+    // GET /api/personas
+    { method: 'GET', path: '/api/personas', noBody: true,
+      handler: async () => handleGetPersonas() },
+  ];
+}
+
+/**
+ * Project routes spanning all three sections.
+ *
+ * Section A — Body-parsing mutations on projects:
+ *   PATCH /api/projects/:repo/:slug  (namespaced)
+ *   PATCH /api/projects/:slug  (deprecated)
+ *   POST  /api/projects/:repo/:slug/reset  (namespaced)
+ *   POST  /api/projects/:slug/reset  (deprecated)
+ *
+ * Section B — Keyword-specific body-free routes (active namespaced + deprecated):
+ *   GET  /api/projects
+ *   GET  /api/projects/:repo/:slug/plan|synthesis|health|run-metadata|work-packages|...
+ *   POST /api/projects/:repo/:slug/archive|unarchive|complete
+ *   ... and deprecated /:slug/keyword analogues
+ *
+ * Section C — Catch-all body-free routes:
+ *   DELETE /api/projects/:repo/:slug  (namespaced)
+ *   GET    /api/projects/:repo/:slug  (namespaced, catch-all)
+ *
+ * ⚠️  ORDERING CONSTRAINT: Section B keyword routes MUST precede Section C
+ *     catch-alls within this sub-builder. The caller (buildRoutes) preserves
+ *     the overall Section A/B/C ordering by spreading sub-builder results in
+ *     the correct order.
+ */
+function buildProjectRoutes(
+  ledgerRoot: string,
+  orchestratorLogsDir: string
+): Route[] {
+  return [
+
+    // =========================================================================
+    // Section A — Body-parsing project mutations
+    // =========================================================================
+
+    // PATCH /api/projects/:repo/:slug (namespaced)
+    { method: 'PATCH', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)$/,
+      handler: async (body, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleRenameProject(ledgerRoot, slug, body, repoName);
+      } },
+    // @deprecated — Use PATCH /api/projects/:repo/:slug instead.
+    // PATCH /api/projects/:slug (retained for backward compat)
+    { method: 'PATCH', path: /^\/api\/projects\/(?<slug>[^/]+)$/,
+      handler: async (body, groups) =>
+        handleRenameProject(ledgerRoot, decodeURIComponent(groups!.slug!), body) },
+    // POST /api/projects/:repo/:slug/reset (namespaced)
+    { method: 'POST', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/reset$/,
+      handler: async (body, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleResetProject(ledgerRoot, slug, body, repoName);
+      } },
+    // @deprecated — Use POST /api/projects/:repo/:slug/reset instead.
+    // POST /api/projects/:slug/reset (retained for backward compat)
+    { method: 'POST', path: /^\/api\/projects\/(?<slug>[^/]+)\/reset$/,
+      handler: async (body, groups) =>
+        handleResetProject(ledgerRoot, decodeURIComponent(groups!.slug!), body) },
+
+    // =========================================================================
+    // Section B — Keyword-specific body-free routes
+    //
+    // ⚠️  These MUST be declared before Section C catch-alls (see ordering note
+    //     in the JSDoc of buildRoutes). Adding a catch-all before these entries
+    //     would silently shadow the deprecated keyword routes and break backward
+    //     compat.
+    // =========================================================================
+
+    // GET /api/projects[?page&limit&status&search&sort&dir&runner]
+    { method: 'GET', path: '/api/projects', noBody: true,
+      handler: async (_, _groups, query) => {
+        const params = {
+          page: query?.get('page') ?? undefined,
+          limit: query?.get('limit') ?? undefined,
+          status: query?.get('status') ?? undefined,
+          search: query?.get('search') ?? undefined,
+          sort: query?.get('sort') ?? undefined,
+          dir: query?.get('dir') ?? undefined,
+          runner: query?.get('runner') ?? undefined,
+        };
+        return handleListProjects(ledgerRoot, params);
+      } },
+
+    // --- Namespaced /:repo/:slug keyword routes (active) ---
+    // Placed in Section B because they have fixed keyword suffixes (e.g. /plan,
+    // /synthesis) that make them more specific than the Section C catch-all.
+
+    // GET /api/projects/:repo/:slug/plan
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/plan$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetPlanDocument(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/synthesis
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/synthesis$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetSynthesisDocument(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/health
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/health$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetProjectHealth(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/run-metadata
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/run-metadata$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetRunMetadata(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/work-packages
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/work-packages$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleListWorkPackages(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/work-packages/overview
+    // Must appear BEFORE /:repo/:slug/work-packages/:wpId — same prefix, more specific suffix.
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/work-packages\/overview$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetWorkPackageOverview(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/work-packages/:wpId
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/work-packages\/(?<wpId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetWorkPackage(ledgerRoot, slug, groups!.wpId!, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/dialogues[?wp=WP-001]
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/dialogues$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleListDialogues(ledgerRoot, slug, query?.get('wp') ?? undefined, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/dialogues/:filename
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/dialogues\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetDialogueFile(ledgerRoot, slug, decodeURIComponent(groups!.filename!), repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/chunks[?wp=WP-001]
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/chunks$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleListChunks(ledgerRoot, slug, query?.get('wp') ?? undefined, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/chunks/:filename/rendered[?format=structured]
+    // Must appear BEFORE /:repo/:slug/chunks/:filename — same prefix, more specific suffix.
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/chunks\/(?<filename>[^/]+)\/rendered$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        const filename = decodeURIComponent(groups!.filename!);
+        if (query?.get('format') === 'structured') {
+          return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
+            blocks: renderChunksToStructured(content),
+          }));
+        }
+        return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
+          content: renderChunksToDialogue(content),
+        }));
+      } },
+
+    // GET /api/projects/:repo/:slug/chunks/:filename
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/chunks\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetChunkFile(ledgerRoot, slug, decodeURIComponent(groups!.filename!), repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug/runs
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/runs$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        // Explicit SAFE_SLUG_REGEX guard before any path construction — makes the
+        // path-traversal defence direct rather than relying on the indirect
+        // resolveRepoName NOT_FOUND guard (defence-in-depth per Security Auditor).
+        if (!SAFE_SLUG_REGEX.test(repo) || !SAFE_SLUG_REGEX.test(slug)) {
+          throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+        }
+        // logsDir uses the URL segments to locate the directory. Unlike other namespaced
+        // routes, we do NOT call resolveRepoName here — log files must be readable for
+        // active runs whose project ledger hasn't been initialised yet (no .meta.json).
+        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        return handleListRunLogs(slug, repo, logsDir, orchestratorLogsDir);
+      } },
+
+    // GET /api/projects/:repo/:slug/runs/:filename[?after=N]
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/runs\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        const filename = decodeURIComponent(groups!.filename!);
+        // Explicit SAFE_SLUG_REGEX guard before any path construction (defence-in-depth).
+        if (!SAFE_SLUG_REGEX.test(repo) || !SAFE_SLUG_REGEX.test(slug)) {
+          throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+        }
+        const afterParam = query?.get('after');
+        const afterParsed = afterParam != null ? parseInt(afterParam, 10) : NaN;
+        const afterLine = !isNaN(afterParsed) ? afterParsed : undefined;
+        // logsDir uses the URL segments — do NOT call resolveRepoName here (see runs list note).
+        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        return handleGetRunLog(slug, repo, filename, logsDir, orchestratorLogsDir, afterLine);
+      } },
+
+    // POST /api/projects/:repo/:slug/archive
+    { method: 'POST', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/archive$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleArchiveProject(ledgerRoot, slug, repoName);
+      } },
+
+    // POST /api/projects/:repo/:slug/unarchive
+    { method: 'POST', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/unarchive$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleUnarchiveProject(ledgerRoot, slug, repoName);
+      } },
+
+    // POST /api/projects/:repo/:slug/complete
+    { method: 'POST', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)\/complete$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleMarkProjectComplete(ledgerRoot, slug, repoName);
+      } },
+
+    // --- Deprecated non-namespaced /:slug keyword routes ---
+    // Retained for backward compatibility. Each is adjacent to its active analogue
+    // above for easy comparison. These MUST remain in Section B (before catch-alls).
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/plan instead.
+    // GET /api/projects/:slug/plan
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/plan$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetPlanDocument(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/synthesis instead.
+    // GET /api/projects/:slug/synthesis
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/synthesis$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetSynthesisDocument(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/health instead.
+    // GET /api/projects/:slug/health
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/health$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetProjectHealth(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/run-metadata instead.
+    // GET /api/projects/:slug/run-metadata
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/run-metadata$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetRunMetadata(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/work-packages instead.
+    // GET /api/projects/:slug/work-packages
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/work-packages$/, noBody: true,
+      handler: async (_, groups) =>
+        handleListWorkPackages(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/overview instead.
+    // GET /api/projects/:slug/work-packages/overview
+    // Must appear BEFORE /:slug/work-packages/:wpId — same prefix, more specific suffix.
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/work-packages\/overview$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetWorkPackageOverview(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/work-packages/:wpId instead.
+    // GET /api/projects/:slug/work-packages/:wpId
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/work-packages\/(?<wpId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetWorkPackage(ledgerRoot, decodeURIComponent(groups!.slug!), groups!.wpId!) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/dialogues instead.
+    // GET /api/projects/:slug/dialogues[?wp=WP-001]
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/dialogues$/, noBody: true,
+      handler: async (_, groups, query) =>
+        handleListDialogues(ledgerRoot, decodeURIComponent(groups!.slug!), query?.get('wp') ?? undefined) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/dialogues/:filename instead.
+    // GET /api/projects/:slug/dialogues/:filename
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/dialogues\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetDialogueFile(ledgerRoot, decodeURIComponent(groups!.slug!), decodeURIComponent(groups!.filename!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/chunks instead.
+    // GET /api/projects/:slug/chunks[?wp=WP-001]
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/chunks$/, noBody: true,
+      handler: async (_, groups, query) =>
+        handleListChunks(ledgerRoot, decodeURIComponent(groups!.slug!), query?.get('wp') ?? undefined) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename/rendered instead.
+    // GET /api/projects/:slug/chunks/:filename/rendered[?format=structured]
+    // Must appear BEFORE /:slug/chunks/:filename — same prefix, more specific suffix.
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/chunks\/(?<filename>[^/]+)\/rendered$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const slug = decodeURIComponent(groups!.slug!);
+        const filename = decodeURIComponent(groups!.filename!);
+        if (query?.get('format') === 'structured') {
+          return handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+            blocks: renderChunksToStructured(content),
+          }));
+        }
+        return handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+          content: renderChunksToDialogue(content),
+        }));
+      } },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/chunks/:filename instead.
+    // GET /api/projects/:slug/chunks/:filename
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/chunks\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleGetChunkFile(ledgerRoot, decodeURIComponent(groups!.slug!), decodeURIComponent(groups!.filename!)) },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/runs instead.
+    // GET /api/projects/:slug/runs
+    // Resolves the canonical namespaced storage directory first to avoid creating
+    // ghost directories under the legacy flat path when archiveCompletedLogs runs.
+    // Falls back to the legacy flat path for truly pre-namespace projects.
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/runs$/, noBody: true,
+      handler: async (_, groups) => {
+        const slug = decodeURIComponent(groups!.slug!);
+        const flatProjectDir = join(ledgerRoot, slug);
+        let projectStorageDir: string;
+        try {
+          projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+        } catch {
+          projectStorageDir = flatProjectDir;
+        }
+        const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+        const isNamespaced = projectStorageDir !== flatProjectDir;
+        const legacyLogsDir = isNamespaced ? join(flatProjectDir, 'orchestrator', 'logs') : flatProjectDir;
+        const legacyLogsDir2 = isNamespaced ? flatProjectDir : undefined;
+        return handleListRunLogs(slug, slug, logsDir, orchestratorLogsDir, legacyLogsDir, legacyLogsDir2);
+      } },
+
+    // @deprecated — Use GET /api/projects/:repo/:slug/runs/:filename instead.
+    // GET /api/projects/:slug/runs/:filename[?after=N]
+    // Resolves the canonical namespaced storage directory first (same as the list
+    // route above) to avoid creating ghost directories under the legacy flat path.
+    { method: 'GET', path: /^\/api\/projects\/(?<slug>[^/]+)\/runs\/(?<filename>[^/]+)$/, noBody: true,
+      handler: async (_, groups, query) => {
+        const slug = decodeURIComponent(groups!.slug!);
+        const filename = decodeURIComponent(groups!.filename!);
+        const afterParam = query?.get('after');
+        const afterParsed = afterParam != null ? parseInt(afterParam, 10) : NaN;
+        const afterLine = !isNaN(afterParsed) ? afterParsed : undefined;
+        const flatProjectDir = join(ledgerRoot, slug);
+        let projectStorageDir: string;
+        try {
+          projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+        } catch {
+          projectStorageDir = flatProjectDir;
+        }
+        const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+        return handleGetRunLog(slug, slug, filename, logsDir, orchestratorLogsDir, afterLine);
+      } },
+
+    // @deprecated — Use DELETE /api/projects/:repo/:slug instead.
+    // DELETE /api/projects/:slug
+    { method: 'DELETE', path: /^\/api\/projects\/(?<slug>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleDeleteProject(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use POST /api/projects/:repo/:slug/archive instead.
+    // POST /api/projects/:slug/archive
+    { method: 'POST', path: /^\/api\/projects\/(?<slug>[^/]+)\/archive$/, noBody: true,
+      handler: async (_, groups) =>
+        handleArchiveProject(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use POST /api/projects/:repo/:slug/unarchive instead.
+    // POST /api/projects/:slug/unarchive
+    { method: 'POST', path: /^\/api\/projects\/(?<slug>[^/]+)\/unarchive$/, noBody: true,
+      handler: async (_, groups) =>
+        handleUnarchiveProject(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // @deprecated — Use POST /api/projects/:repo/:slug/complete instead.
+    // POST /api/projects/:slug/complete
+    { method: 'POST', path: /^\/api\/projects\/(?<slug>[^/]+)\/complete$/, noBody: true,
+      handler: async (_, groups) =>
+        handleMarkProjectComplete(ledgerRoot, decodeURIComponent(groups!.slug!)) },
+
+    // =========================================================================
+    // Section C — Catch-all body-free routes
+    //
+    // ⚠️  These MUST be declared after Section B (see ordering note in JSDoc).
+    //     The namespaced GET /:repo/:slug catch-all would shadow all deprecated
+    //     /:slug/keyword routes at the same segment count if placed before them.
+    // =========================================================================
+
+    // DELETE /api/projects/:repo/:slug (namespaced)
+    { method: 'DELETE', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleDeleteProject(ledgerRoot, slug, repoName);
+      } },
+
+    // GET /api/projects/:repo/:slug (namespaced, catch-all)
+    { method: 'GET', path: /^\/api\/projects\/(?<repo>[^/]+)\/(?<slug>[^/]+)$/, noBody: true,
+      handler: async (_, groups) => {
+        const repo = decodeURIComponent(groups!.repo!);
+        const slug = decodeURIComponent(groups!.slug!);
+        assertSafeSlug(repo);
+        assertSafeSlug(slug);
+        const repoName = await resolveRepoName(ledgerRoot, repo, slug);
+        return handleGetProject(ledgerRoot, slug, repoName);
+      } },
+  ];
+}
+
+/**
+ * Builds the declarative route table consumed by {@link dispatchRoute}.
+ *
+ * All closure variables required by route handlers (`ledgerRoot`, `configPath`,
+ * `orchestratorLogsDir`, `bootVersions`) are captured via the domain sub-builder
+ * functions. Each sub-builder owns a single domain area and accepts only the
+ * closure parameters it needs:
+ *
+ *   - {@link buildConfigRoutes}      — `PUT/GET /api/config`, `GET /api/server-info`
+ *   - {@link buildOrchestratorRoutes} — `/api/orchestrator/*`
+ *   - {@link buildRepoRoutes}         — `/api/repos/*`
+ *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
+ *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
+ *   - {@link buildProjectRoutes}      — `/api/projects/*`
+ *
+ * The composed array preserves the Section A/B/C ordering invariant:
+ *
+ *   Section A — Body-parsing routes (no `noBody` flag). Sub-builders place their
+ *               Section A entries first; buildRoutes spreads them in domain order.
+ *
+ *   Section B — Keyword-specific body-free routes (`noBody: true`). Routes with
+ *               a fixed keyword suffix (e.g. `/plan`, `/archive`) are more specific
+ *               than the Section C catch-alls and MUST precede them.
+ *
+ *   Section C — Catch-all body-free routes. These are placed last by
+ *               {@link buildProjectRoutes} and are spread last.
+ *
+ * ⚠️  ORDERING CONSTRAINT (load-bearing, not cosmetic):
+ *     Section B MUST precede Section C across all sub-builders. The dispatcher
+ *     walks the table in declaration order and returns on the first match. A
+ *     Section C catch-all such as `GET /api/projects/:repo/:slug` would silently
+ *     shadow all deprecated Section B keyword routes (`/:slug/plan`,
+ *     `/:slug/synthesis`, etc.) if they were declared before them, permanently
+ *     breaking backward compatibility with pre-namespace clients.
+ */
+export function buildRoutes(
+  ledgerRoot: string,
+  configPath: string,
+  orchestratorLogsDir: string,
+  bootVersions: WorkspaceVersions | null
+): Route[] {
+  return [
+    ...buildConfigRoutes(configPath, bootVersions),
+    ...buildOrchestratorRoutes(ledgerRoot, orchestratorLogsDir),
+    ...buildRepoRoutes(ledgerRoot),
+    ...buildKnowledgeRoutes(ledgerRoot),
+    ...buildModelRoutes(),
+    ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
+  ];
+}
+
+/**
+ * Returns the full route table using sentinel dummy arguments, without
+ * requiring callers to supply real filesystem paths.
+ *
+ * Intended for structural tests (e.g. `route-table.test.ts`) that inspect the
+ * route table shape — method validity, named-capture-group compliance,
+ * duplicate detection — without executing any handlers.
+ *
+ * Uses `/dev/null` as a safe sentinel for all path arguments and `null` for
+ * `bootVersions`. The handlers captured inside each route are closures over
+ * these sentinels; as long as no handler is actually invoked the sentinels have
+ * no observable effect.
+ *
+ * @returns The full `Route[]` table, identical in structure to what
+ *   {@link handleRequest} uses at runtime.
+ */
+export function getRouteDescriptors(): Route[] {
+  return buildRoutes('/dev/null', '/dev/null', '/dev/null', null);
+}
+
+/**
+ * Iterates the route table, matches the request, conditionally parses the body,
+ * invokes the handler, and writes the response.
+ *
+ * Parses query parameters from the full `url` (including query string) via
+ * {@link parseQueryString} and passes the resulting `URLSearchParams` as the
+ * third argument to the matched handler.
+ *
+ * Returns `true` if a route was matched (caller should return immediately),
+ * or `false` if no route matched (caller should fall through).
+ */
+export async function dispatchRoute(
+  req: IncomingMessage,
+  res: ServerResponse,
+  method: string,
+  url: string,
+  port: number,
+  routes: Route[]
+): Promise<boolean> {
+  const [path] = url.split('?') as [string];
+  const query = parseQueryString(url);
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    let groups: Record<string, string> | undefined;
+    if (typeof route.path === 'string') {
+      if (route.path !== path) continue;
+    } else {
+      const m = route.path.exec(path);
+      if (!m) continue;
+      groups = (m.groups ?? {}) as Record<string, string>;
+    }
+    try {
+      const body = route.noBody ? undefined : await readJsonBody(req);
+      const result = await route.handler(body, groups, query);
+      if (route.statusCode === 204) {
+        res.writeHead(204, { ...corsHeaders(port), ...securityHeaders() });
+        res.end();
+      } else {
+        sendJson(res, route.statusCode ?? 200, result, port);
+      }
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(
+          `[server] Unhandled error in ${method} ${path}: ${String(err)}\n`
+        );
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Main request handler
 // ---------------------------------------------------------------------------
 
@@ -7215,439 +7186,30 @@ export async function handleRequest(
   const segments = path.split('/').filter(Boolean);
   const isApiRequest = segments[0] === 'api';
 
-  // Handle OPTIONS preflight
+  // OPTIONS preflight
   if (method === 'OPTIONS') {
     res.writeHead(200, { ...corsHeaders(port), ...securityHeaders() });
     res.end();
     return;
   }
 
-  // Static file serving
+  // Static files
   if (!isApiRequest) {
     await serveStatic(req, res, port);
     return;
   }
 
-  // PUT /api/config — special case: requires body parsing
-  if (method === 'PUT' && path === '/api/config') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleUpdateConfig(configPath, body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PUT /api/config: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
+  // All API traffic is dispatched via the unified declarative route table.
+  // dispatchRoute() handles both body-parsing and body-free (noBody: true) routes.
+  // If no route matches, fall through to 404.
+  if (await dispatchRoute(
+    req, res, method, url, port,
+    buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions)
+  )) {
     return;
   }
 
-  // GET /api/server-info — special case: needs bootVersions closure from main()
-  if (method === 'GET' && path === '/api/server-info') {
-    try {
-      const boot = bootVersions ?? captureWorkspaceVersions();
-      const disk = captureWorkspaceVersions();
-      const stale =
-        boot.mcpServer !== disk.mcpServer ||
-        boot.personas !== disk.personas ||
-        boot.orchestrator !== disk.orchestrator;
-      sendJson(res, 200, { stale, bootVersions: boot, diskVersions: disk }, port);
-    } catch (err) {
-      process.stderr.write(`[server] Unhandled error in GET /api/server-info: ${String(err)}\n`);
-      sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-    }
-    return;
-  }
-
-  // GET /api/config — special case: needs configPath
-  if (method === 'GET' && path === '/api/config') {
-    try {
-      const result = await handleGetConfig(configPath);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in GET /api/config: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // PATCH /api/projects/:slug — special case: requires body parsing
-  if (method === 'PATCH' && /^\/api\/projects\/.+$/.test(path)) {
-    const rawPath = path.slice('/api/projects/'.length);
-    const patchSegs = rawPath.split('/').filter(Boolean);
-    try {
-      const body = await readJsonBody(req);
-      let result: unknown;
-      if (patchSegs.length === 2) {
-        // Namespaced: PATCH /api/projects/:repo/:slug
-        const repoUrlParam = decodeURIComponent(patchSegs[0]!);
-        const slug = decodeURIComponent(patchSegs[1]!);
-        if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-          sendError(res, 404, 'NOT_FOUND', 'Invalid repo or slug parameter.', port);
-          return;
-        }
-        const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-        result = await handleRenameProject(ledgerRoot, slug, body, repoName);
-      } else {
-        // @deprecated — Use PATCH /api/projects/:repo/:slug instead.
-        // This non-namespaced route is retained for backward compatibility and will be
-        // removed in the next major version.
-        // Flat: PATCH /api/projects/:slug
-        const slug = decodeURIComponent(rawPath);
-        result = await handleRenameProject(ledgerRoot, slug, body);
-      }
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PATCH /api/projects/...: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/projects/:slug/reset — special case: requires body parsing
-  if (method === 'POST') {
-    const postSegments = path.split('/').filter(Boolean);
-    // @deprecated — Use POST /api/projects/:repo/:slug/reset instead.
-    // This non-namespaced route is retained for backward compatibility and will be
-    // removed in the next major version.
-    // Flat: POST /api/projects/:slug/reset — postSegments.length === 4
-    if (
-      postSegments.length === 4 &&
-      postSegments[0] === 'api' &&
-      postSegments[1] === 'projects' &&
-      postSegments[3] === 'reset'
-    ) {
-      const slug = decodeURIComponent(postSegments[2]!);
-      try {
-        const body = await readJsonBody(req);
-        const result = await handleResetProject(ledgerRoot, slug, body);
-        sendJson(res, 200, result, port);
-      } catch (err) {
-        if (err instanceof PayloadTooLargeError) {
-          sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-        } else if (err instanceof ApiError) {
-          sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-        } else {
-          process.stderr.write(`[server] Unhandled error in POST /api/projects/:slug/reset: ${String(err)}\n`);
-          sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-        }
-      }
-      return;
-    }
-    // Namespaced: POST /api/projects/:repo/:slug/reset — postSegments.length === 5
-    if (
-      postSegments.length === 5 &&
-      postSegments[0] === 'api' &&
-      postSegments[1] === 'projects' &&
-      postSegments[4] === 'reset'
-    ) {
-      const repoUrlParam = decodeURIComponent(postSegments[2]!);
-      const slug = decodeURIComponent(postSegments[3]!);
-      try {
-        if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
-          sendError(res, 404, 'NOT_FOUND', 'Invalid repo or slug parameter.', port);
-          return;
-        }
-        const body = await readJsonBody(req);
-        const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
-        const result = await handleResetProject(ledgerRoot, slug, body, repoName);
-        sendJson(res, 200, result, port);
-      } catch (err) {
-        if (err instanceof PayloadTooLargeError) {
-          sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-        } else if (err instanceof ApiError) {
-          sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-        } else {
-          process.stderr.write(`[server] Unhandled error in POST /api/projects/:repo/:slug/reset: ${String(err)}\n`);
-          sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-        }
-      }
-      return;
-    }
-  }
-
-  // POST /api/orchestrator/start — body parsing required
-  if (method === 'POST' && path === '/api/orchestrator/start') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleOrchestratorStart(WORKSPACE_ROOT, body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/start: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/orchestrator/kill/:id
-  if (method === 'POST' && path.startsWith('/api/orchestrator/kill/')) {
-    const id = decodeURIComponent(path.slice('/api/orchestrator/kill/'.length));
-    try {
-      const result = await handleOrchestratorKill(id, orchestratorLogsDir, ledgerRoot);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/kill/:id: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/orchestrator/dismiss/:id — responds with 204 No Content
-  if (method === 'POST' && path.startsWith('/api/orchestrator/dismiss/')) {
-    const id = decodeURIComponent(path.slice('/api/orchestrator/dismiss/'.length));
-    try {
-      await handleOrchestratorDismiss(id, orchestratorLogsDir, ledgerRoot);
-      res.writeHead(204, { ...corsHeaders(port), ...securityHeaders() });
-      res.end();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/orchestrator/delete/:id — admin force-remove; responds with 204 No Content
-  if (method === 'POST' && path.startsWith('/api/orchestrator/delete/')) {
-    const id = decodeURIComponent(path.slice('/api/orchestrator/delete/'.length));
-    try {
-      await handleOrchestratorDelete(id, orchestratorLogsDir);
-      res.writeHead(204, { ...corsHeaders(port), ...securityHeaders() });
-      res.end();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/delete/:id: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/repos — special case: requires body parsing
-  if (method === 'POST' && path === '/api/repos') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleCreateRepo(ledgerRoot, body);
-      sendJson(res, 201, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/repos: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // PUT /api/repos/:repoId — special case: requires body parsing
-  const repoPutMatch = /^\/api\/repos\/([^/]+)$/.exec(path);
-  if (method === 'PUT' && repoPutMatch) {
-    const repoId = decodeURIComponent(repoPutMatch[1]!);
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleUpdateRepo(ledgerRoot, repoId, body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PUT /api/repos/:repoId: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // PATCH /api/knowledge/:id — special case: requires body parsing
-  // Regex match on path to extract the numeric ID segment.
-  const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
-  if (method === 'PATCH' && knowledgePatchMatch) {
-    const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleUpdateKnowledge(ledgerRoot, rawId, body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PATCH /api/knowledge/:id: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/knowledge/:id/move — special case: requires body parsing
-  // Regex match on path to extract the numeric ID segment.
-  const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
-  if (method === 'POST' && knowledgeMoveMatch) {
-    const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleMoveKnowledge(ledgerRoot, rawId, body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/knowledge/:id/move: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // PUT /api/models — body-parsing required
-  if (method === 'PUT' && path === '/api/models') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleSaveModels(body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PUT /api/models: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/models/load-defaults — body-parsing required (empty body accepted)
-  if (method === 'POST' && path === '/api/models/load-defaults') {
-    try {
-      const result = await handleLoadDefaults();
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/models/load-defaults: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // PUT /api/model-assignments — body-parsing required
-  if (method === 'PUT' && path === '/api/model-assignments') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleUpdateAssignments(body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in PUT /api/model-assignments: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/model-assignments/replace — body-parsing required
-  if (method === 'POST' && path === '/api/model-assignments/replace') {
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleReplaceAssignedModel(body);
-      sendJson(res, 200, result, port);
-    } catch (err) {
-      if (err instanceof PayloadTooLargeError) {
-        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
-      } else if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/model-assignments/replace: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // POST /api/personas/rebuild — body-parsing not required but fits handleRequest() pattern
-  if (method === 'POST' && path === '/api/personas/rebuild') {
-    try {
-      const result = await handleRebuildPersonas(WORKSPACE_ROOT);
-      if (result.success) {
-        sendJson(res, 200, result, port);
-      } else {
-        sendError(res, 500, 'BUILD_FAILED', result.output, port);
-      }
-    } catch (err) {
-      if (err instanceof ApiError) {
-        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-      } else {
-        process.stderr.write(`[server] Unhandled error in POST /api/personas/rebuild: ${String(err)}\n`);
-        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-      }
-    }
-    return;
-  }
-
-  // General API route matching
-  const handler = matchRoute(method, url, ledgerRoot, orchestratorLogsDir);
-  if (!handler) {
-    sendError(res, 404, 'NOT_FOUND', 'Route not found.', port);
-    return;
-  }
-
-  try {
-    const result = await handler();
-    sendJson(res, 200, result, port);
-  } catch (err) {
-    if (err instanceof ApiError) {
-      sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
-    } else {
-      process.stderr.write(`[server] Unhandled error: ${String(err)}\n`);
-      sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
-    }
-  }
+  sendError(res, 404, 'NOT_FOUND', 'Route not found.', port);
 }
 
 // ---------------------------------------------------------------------------

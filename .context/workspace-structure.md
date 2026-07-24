@@ -19,6 +19,8 @@ _SOURCE: Top-level directory tree_
     ├── _layouts/
     │   ├── default.html
     ├── agents/
+    │   ├── audits/
+    │   │   ├── 2026-07-24-ai-insights-test-audit.md
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
@@ -36,6 +38,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-07-15-deepagents-browser-tool.md
     │   │   └── 2026-07-17-browser-mcp-service.md
     │   │   └── 2026-07-17-multi-root-orchestrator.md
+    │   │   └── 2026-07-21-litellm-provider.md
     ├── discussions/
     │   ├── 2026-02-26-ui-agentic-techniques.md
     │   ├── 2026-03-01-future-without-libraries.md
@@ -129,6 +132,7 @@ _SOURCE: Top-level directory tree_
     │   ├── sorter.js
     ├── gui/
     │   ├── api-knowledge.ts
+    │   ├── api-models.ts
     │   ├── api-repos.ts
     │   ├── api.ts
     │   ├── chunk-accumulator.ts
@@ -159,6 +163,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── config.ts
     │   │   ├── errors.ts
     │   │   ├── log-resolver.ts
+    │   │   ├── model-registry.ts
     │   ├── index.ts
     │   ├── schema/
     │   │   ├── enums.ts
@@ -216,9 +221,11 @@ _SOURCE: Top-level directory tree_
     │   ├── gui-server.test.ts
     │   ├── gui/
     │   │   ├── README.md
+    │   │   ├── api-chunk-text.test.ts
     │   │   ├── api-client.test.ts
     │   │   ├── api-dialogue-parse.test.ts
     │   │   ├── api-knowledge.test.ts
+    │   │   ├── api-models.test.ts
     │   │   ├── api-orchestrator.test.ts
     │   │   ├── api-repos.test.ts
     │   │   ├── api-reset.test.ts
@@ -226,15 +233,19 @@ _SOURCE: Top-level directory tree_
     │   │   ├── api-wp-overview.test.ts
     │   │   ├── api.test.ts
     │   │   ├── auto-archive.test.ts
+    │   │   ├── chunk-renderer-text.test.ts
     │   │   ├── chunk-renderer.test.ts
     │   │   ├── client-rendering.test.ts
+    │   │   ├── config-helpers.test.ts
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
+    │   │   ├── dispatch-route.test.ts
     │   │   ├── handoff-config-integration.test.ts
     │   │   ├── insights-knowledge-links.test.ts
     │   │   ├── knowledge-api.test.ts
     │   │   ├── knowledge-repository-scope.test.ts
     │   │   ├── log-resolver.test.ts
+    │   │   ├── model-registry.test.ts
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
     │   │   ├── orchestrator-widgets.test.ts
@@ -251,6 +262,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
     │   │   ├── route-structured-format.test.ts
+    │   │   ├── route-table.test.ts
     │   │   ├── router-utils.test.ts
     │   │   ├── run-log-handlers.test.ts
     │   │   ├── run-log-server.test.ts
@@ -415,6 +427,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_nodes.py
     │   └── test_path_middleware.py
     │   └── test_persona_models.py
+    │   └── test_persona_models_assignments.py
     │   └── test_plan_parser.py
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
@@ -447,6 +460,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-doctor.md
     │   │   ├── ledger-knowledge-archiver.md
     │   │   ├── ledger-knowledge-curator.md
+    │   │   ├── ledger-orchestrator-archaeologist.md
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
     │   │   ├── ledger-wp-decomposer.md
@@ -458,6 +472,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-doctor.md
     │   │   ├── ledger-knowledge-archiver.md
     │   │   ├── ledger-knowledge-curator.md
+    │   │   ├── ledger-orchestrator-archaeologist.md
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
     │   │   ├── ledger-wp-decomposer.md
@@ -469,6 +484,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── ledger-doctor.agent.md
     │   │   └── ledger-knowledge-archiver.agent.md
     │   │   └── ledger-knowledge-curator.agent.md
+    │   │   └── ledger-orchestrator-archaeologist.agent.md
     │   │   └── ledger-orchestrator-runner.agent.md
     │   │   └── ledger-pipeline-configurator.agent.md
     │   │   └── ledger-wp-decomposer.agent.md
@@ -505,6 +521,11 @@ _SOURCE: Top-level directory tree_
     │   │   └── 7-release-engineer.agent.md
     │   │   └── 8-docs.agent.md
     │   │   └── 9-synthesis.agent.md
+    ├── model-registry/
+    │   ├── README.md
+    │   ├── assignments.json
+    │   ├── default.json
+    │   ├── local.json
     ├── module-context.yaml
     ├── name-mapping.json
     ├── package-lock.json
@@ -563,6 +584,7 @@ _SOURCE: Top-level directory tree_
     │       ├── recipe-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
+    │       ├── web-gui-specialist.md
     │       ├── whatsnew-curator.md
     │       ├── workspace-architect.md
     │   └── deep-agents/
@@ -585,6 +607,7 @@ _SOURCE: Top-level directory tree_
     │       ├── recipe-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
+    │       ├── web-gui-specialist.md
     │       ├── whatsnew-curator.md
     │       ├── workspace-architect.md
     │   └── vs-code/
@@ -607,6 +630,7 @@ _SOURCE: Top-level directory tree_
     │       └── recipe-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
+    │       └── web-gui-specialist.agent.md
     │       └── whatsnew-curator.agent.md
     │       └── workspace-architect.agent.md
 └── scripts/
@@ -617,12 +641,14 @@ _SOURCE: Top-level directory tree_
     ├── check-version-sync.js
     ├── cli.js
     ├── extract-changelog-entry.js
+    ├── extract-dialogue.js
     ├── import-standalone.js
     ├── install-hooks.js
     ├── install-mcp-global.js
     ├── kill-orchestrator.js
     ├── lib/
     │   ├── health-checks.js
+    │   ├── persona-model-resolution.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js
@@ -636,6 +662,7 @@ _SOURCE: Top-level directory tree_
     ├── sync-personas.js
     ├── tests/
     │   ├── README.md
+    │   ├── build-personas-model-resolution.test.js
     │   ├── health-checks.test.js
     │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
