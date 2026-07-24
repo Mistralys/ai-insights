@@ -682,7 +682,6 @@ function buildModelRoutes(): Route[] {
  *   POST  /api/projects/:slug/reset  (deprecated)
  *
  * Section B — Keyword-specific body-free routes (active namespaced + deprecated):
- *   GET  /api/insights
  *   GET  /api/projects
  *   GET  /api/projects/:repo/:slug/plan|synthesis|health|run-metadata|work-packages|...
  *   POST /api/projects/:repo/:slug/archive|unarchive|complete
@@ -746,10 +745,6 @@ function buildProjectRoutes(
     //     would silently shadow the deprecated keyword routes and break backward
     //     compat.
     // =========================================================================
-
-    // GET /api/insights
-    { method: 'GET', path: '/api/insights', noBody: true,
-      handler: async () => handleGetInsights(ledgerRoot) },
 
     // GET /api/projects[?page&limit&status&search&sort&dir&runner]
     { method: 'GET', path: '/api/projects', noBody: true,
@@ -1182,7 +1177,7 @@ function buildProjectRoutes(
  *   - {@link buildRepoRoutes}         — `/api/repos/*`
  *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
  *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
- *   - {@link buildProjectRoutes}      — `/api/projects/*`, `/api/insights`
+ *   - {@link buildProjectRoutes}      — `/api/projects/*`
  *
  * The composed array preserves the Section A/B/C ordering invariant:
  *

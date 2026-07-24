@@ -39,6 +39,7 @@ import { makeProject } from './make-project.js';
  * | `orchestratorGetQueue` | `() => Promise.resolve([])` |
  * | `getRunMetadata` | `() => Promise.reject(new Error('not stubbed'))` |
  * | `orchestratorStart` | `() => Promise.reject(new Error('not stubbed'))` |
+ * | `getRepo` | `() => Promise.resolve(null)` |
  */
 export interface ProjectDetailApiStubs {
   /** Returns the project detail payload. Default: `makeProject()`. */
@@ -57,6 +58,8 @@ export interface ProjectDetailApiStubs {
   getRunMetadata: () => Promise<unknown>;
   /** Starts an orchestrator run. Default: rejects with `new Error('not stubbed')`. */
   orchestratorStart: () => Promise<unknown>;
+  /** Returns the repository entry. Default: resolves with `null`. */
+  getRepo: () => Promise<unknown>;
 }
 
 /**
@@ -92,6 +95,7 @@ export function createApiStubs(overrides: Partial<ProjectDetailApiStubs> = {}): 
     orchestratorGetQueue:   () => Promise.resolve([]),
     getRunMetadata:         () => Promise.reject(new Error('not stubbed')),
     orchestratorStart:      () => Promise.reject(new Error('not stubbed')),
+    getRepo:                () => Promise.resolve(null),
     ...overrides,
   };
 }

@@ -166,6 +166,7 @@ async function renderAndSettle(
     getRunMetadata:         apiStubs.getRunMetadata        ?? vi.fn().mockRejectedValue(new Error('no meta')),
     orchestratorStart:      apiStubs.orchestratorStart     ?? vi.fn().mockRejectedValue(new Error('not stubbed')),
     analyzeProjectReset:    apiStubs.analyzeProjectReset   ?? vi.fn().mockRejectedValue(new Error('not stubbed')),
+    getRepo:                vi.fn().mockResolvedValue(null),
   };
 
   globalThis.renderProjectDetail(app, repo, slug);
