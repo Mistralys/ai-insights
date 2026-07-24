@@ -41,7 +41,15 @@ This document tracks implementation decisions that were deliberately deferred �
 
 ## MCP Server
 
-No deferred topics.
+### Revisit: 2026-07-24 extract-dialogue Synthesis
+
+| Field | Detail |
+|-------|--------|
+| **Topic** | Review and action the deferred items from the extract-dialogue project synthesis |
+| **Current State** | Synthesis marked COMPLETE but several medium/low-priority items were intentionally left unactioned. See the synthesis for the full list. |
+| **Target State** | Work through the deferred items — especially the two missing frontend unit tests (WP-005: `API.getChunkText()` in `api-client.test.ts` and the tab-bar interaction in `project-detail-dialogues.test.ts`), the `CHUNK_FILENAME_RE` max-length guard, and the log-injection sanitization in `handleGetChunkText`. |
+| **Trigger / Timeline** | Next available development cycle. No urgency — all items are medium/low priority and the feature is working. |
+| **Reference** | `docs/agents/implementation-history/2026-07/2026-07-24-extract-dialogue/synthesis.md` — Deferred & Follow-Up Items table + Strategic Recommendations section. |
 
 ---
 

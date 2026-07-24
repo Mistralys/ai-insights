@@ -371,13 +371,16 @@ function renderRunLog(app, repo, slug, filename) {
   // Whether polling should continue
   var pollingActive = true;
 
+  // Repo display label — updated once getRepo resolves; read by buildPageShell
+  var repoLabel = repo;
+
   /**
    * Builds the page skeleton (breadcrumb + progress bar + timeline container).
    * Called once on initial load; subsequent updates only touch inner elements.
    */
   function buildPageShell() {
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Run Log').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +
@@ -470,8 +473,15 @@ function renderRunLog(app, repo, slug, filename) {
     });
   }
 
-  // Initial load — fetch all entries
-  API.getRunLogEntries(repo, slug, filename).then(function (result) {
+  // Initial load — fetch all entries; getRepo runs in parallel to populate repoLabel
+  Promise.all([
+    API.getRunLogEntries(repo, slug, filename),
+    API.getRepo(repo).catch(function () { return null; }),
+  ]).then(function (results) {
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
+
     if (!result) {
       showError(app, 'Failed to load run log: empty response');
       return;
@@ -508,3 +518,4 @@ function renderRunLog(app, repo, slug, filename) {
     showError(app, 'Failed to load run log: ' + ((err && err.message) || String(err)));
   });
 }
+

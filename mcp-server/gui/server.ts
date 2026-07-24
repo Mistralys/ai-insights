@@ -47,6 +47,7 @@ import {
   handleGetDialogueFile,
   handleListChunks,
   handleGetChunkFile,
+  handleGetChunkText,
   handleOrchestratorStart,
   handleGetOrchestratorQueue,
   handleOrchestratorKill,
@@ -977,6 +978,28 @@ export function matchRoute(
       return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
         content: renderChunksToDialogue(content),
       }));
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/chunks/:filename/text
+  // rest.length === 6, rest[3] === 'chunks', rest[5] === 'text'
+  if (
+    method === 'GET' &&
+    rest.length === 6 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'chunks' &&
+    rest[5] === 'text' &&
+    rest[2] !== 'chunks'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetChunkText(ledgerRoot, slug, filename, repoName);
     };
   }
 

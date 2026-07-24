@@ -540,6 +540,11 @@ function cmdReadLog(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdExtractDialogue(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'extract-dialogue.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdImportStandalone(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'import-standalone.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -753,6 +758,21 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdReadLog,
+  },
+  {
+    id:           'extract-dialogue',
+    key:          null,
+    label:        'Extract chunk dialogue',
+    category:     'Orchestrator',
+    description:  'Extract prose text from chunk .jsonl files into .md files',
+    helpVariants: [
+      ['extract-dialogue <chunk-file>',      'Extract a single .jsonl file'],
+      ['extract-dialogue <directory>',        'Extract all .jsonl files in a directory'],
+      ['extract-dialogue <target> --force',   'Overwrite existing .md files'],
+      ['extract-dialogue <target> --dry-run', 'Preview output paths without writing'],
+    ],
+    helpHidden:   true,
+    run:          cmdExtractDialogue,
   },
   {
     id:           'kill-orchestrator',

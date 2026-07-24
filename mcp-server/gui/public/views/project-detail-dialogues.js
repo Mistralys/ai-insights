@@ -211,6 +211,14 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
   var existing = document.getElementById('dialogue-modal-overlay');
   if (existing) existing.remove();
 
+  // Build tab bar HTML only when using the structured chunks path.
+  var tabBarHtml = useChunks
+    ? '<div class="dialogue-modal-tabs" id="dialogue-modal-tabs">' +
+        '<button class="dialogue-tab active" id="dialogue-tab-detailed" data-tab="detailed">Detailed</button>' +
+        '<button class="dialogue-tab" id="dialogue-tab-textonly" data-tab="textonly">Text Only</button>' +
+      '</div>'
+    : '';
+
   var modalHtml =
     '<div class="dialogue-modal-overlay" id="dialogue-modal-overlay">' +
       '<div class="dialogue-modal" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '">' +
@@ -218,6 +226,7 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
           '<span class="dialogue-modal-title">' + escapeHtml(title) + '</span>' +
           '<button class="dialogue-modal-close" id="dialogue-modal-close" aria-label="Close">\u00d7</button>' +
         '</div>' +
+        tabBarHtml +
         '<div class="dialogue-modal-body" id="dialogue-modal-body">' +
           '<p class="text-muted">Loading\u2026</p>' +
         '</div>' +
@@ -242,6 +251,67 @@ function _openDialogueModal(title, repo, slug, filename, useChunks) {
   });
 
   if (useChunks) {
+    // Cache variable for the lazily-fetched Text Only content.
+    var cachedTextHtml = null;
+
+    // Detailed content panel — rendered into bodyEl after the structured fetch.
+    var detailedPanel = bodyEl;
+
+    // Text Only content panel — created lazily on first tab switch.
+    var textOnlyPanel = document.createElement('div');
+    textOnlyPanel.id = 'dialogue-panel-textonly';
+    textOnlyPanel.setAttribute('hidden', '');
+    textOnlyPanel.className = 'dialogue-modal-body';
+    textOnlyPanel.style.cssText = detailedPanel.style.cssText;
+    // Insert the Text Only panel immediately after bodyEl inside the modal.
+    bodyEl.parentNode.insertBefore(textOnlyPanel, bodyEl.nextSibling);
+
+    // Delegated tab-switch click handler on the tab bar.
+    var tabBar = document.getElementById('dialogue-modal-tabs');
+    if (tabBar) {
+      tabBar.addEventListener('click', function (e) {
+        var btn = e.target.closest('.dialogue-tab');
+        if (!btn) return;
+        var tab = btn.getAttribute('data-tab');
+        if (!tab) return;
+
+        // Update active class on tab buttons.
+        var tabs = tabBar.querySelectorAll('.dialogue-tab');
+        for (var i = 0; i < tabs.length; i++) {
+          if (tabs[i].getAttribute('data-tab') === tab) {
+            tabs[i].className = 'dialogue-tab active';
+          } else {
+            tabs[i].className = 'dialogue-tab';
+          }
+        }
+
+        if (tab === 'detailed') {
+          detailedPanel.removeAttribute('hidden');
+          textOnlyPanel.setAttribute('hidden', '');
+        } else if (tab === 'textonly') {
+          detailedPanel.setAttribute('hidden', '');
+          textOnlyPanel.removeAttribute('hidden');
+
+          // Lazy-load: only fetch on first click; use cache on subsequent clicks.
+          if (cachedTextHtml !== null) {
+            textOnlyPanel.innerHTML = cachedTextHtml;
+          } else {
+            textOnlyPanel.innerHTML = '<p class="text-muted">Loading\u2026</p>';
+            API.getChunkText(repo, slug, filename).then(function (text) {
+              var rendered = (typeof marked !== 'undefined' && marked.parse)
+                ? marked.parse(text)
+                : '<pre>' + escapeHtml(text) + '</pre>';
+              cachedTextHtml = '<div class="dialogue-markdown">' + rendered + '</div>';
+              textOnlyPanel.innerHTML = cachedTextHtml;
+            }).catch(function (err) {
+              textOnlyPanel.innerHTML = '<p class="text-danger">Error loading text: ' +
+                escapeHtml(err.message || String(err)) + '</p>';
+            });
+          }
+        }
+      });
+    }
+
     // Structured path: fetch DialogueBlock[] and render with buildDialogueHTML().
     API.getChunkStructured(repo, slug, filename).then(function (blocks) {
       if (!bodyEl) return;

@@ -144,17 +144,24 @@ function _enhanceMarkdownTables(root, opts) {
    ---------------------------------------------------------- */
 async function renderPlan(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
+  var repoLabel = repo;
   try {
-    var result = await API.getPlanDocument(repo, slug);
+    var results = await Promise.all([
+      API.getPlanDocument(repo, slug),
+      API.getRepo(repo).catch(function () { return null; }),
+    ]);
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
     _enhanceMarkdownTables(app.querySelector('.plan-content'));
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(repo, slug).leaf('Plan').html() +
+        breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
       app.innerHTML = UI.banner('error', 'Failed to load plan document.');
@@ -167,17 +174,24 @@ async function renderPlan(app, repo, slug) {
    ---------------------------------------------------------- */
 async function renderSynthesis(app, repo, slug) {
   app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
+  var repoLabel = repo;
   try {
-    var result = await API.getSynthesisDocument(repo, slug);
+    var results = await Promise.all([
+      API.getSynthesisDocument(repo, slug),
+      API.getRepo(repo).catch(function () { return null; }),
+    ]);
+    var result = results[0];
+    var repoData = results[1];
+    repoLabel = repoData ? repoData.label : repo;
     var html = marked.parse(result.content);
     app.innerHTML =
-      breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
+      breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
     _enhanceMarkdownTables(app.querySelector('.synthesis-content'), { isSynthesis: true });
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        breadcrumb().projects().project(repo, slug).leaf('Synthesis').html() +
+        breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
       app.innerHTML = UI.banner('error', 'Failed to load synthesis document.');
@@ -584,10 +598,13 @@ function renderProjectDetail(app, repo, slug) {
     API.getProject(repo, slug),
     API.getPlanDocument(repo, slug).catch(function () { return null; }),
     API.getWorkPackageOverview(repo, slug).catch(function () { return null; }),
+    API.getRepo(repo).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
     var overviewResult = results[2]; // null if request failed (graceful degradation)
+    var repoData = results[3]; // null if repo not registered in strategy registry
+    var repoLabel = repoData ? repoData.label : repo;
     var meta = project.meta || {};
     var wps = project.work_packages || [];
 
@@ -646,7 +663,7 @@ function renderProjectDetail(app, repo, slug) {
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
     ProjectNameCache.set(makeProjectCacheKey(repo, slug), displayTitle);
     app.innerHTML =
-      breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
+      breadcrumb().projects().repo(repo, repoLabel).leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
         '<div class="info-banner" id="archive-banner">' +
           'This project is archived and hidden from the active list. ' +
@@ -665,6 +682,9 @@ function renderProjectDetail(app, repo, slug) {
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
+          '<strong>Repository:</strong> ' + (repoData
+            ? '<a href="#/strategy/' + encodeURIComponent(repo) + '">' + escapeHtml(repoLabel) + '</a>'
+            : escapeHtml(repoLabel)) + '<br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +

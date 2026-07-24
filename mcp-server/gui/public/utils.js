@@ -126,6 +126,10 @@ function breadcrumb() {
       segments.push({ label: ProjectNameCache.get(makeProjectCacheKey(repo, slug)), href: '#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) });
       return api;
     },
+    repo: function (repoId, repoLabel) {
+      segments.push({ label: repoLabel || repoId, href: '#/strategy/' + encodeURIComponent(repoId) });
+      return api;
+    },
     leaf: function (label) {
       segments.push({ label: label });
       return api;

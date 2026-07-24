@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.30.0 - **WIP UNRELEASED**
+- LedgerSupport: Added Orchestrator Archaeologist persona for forensic analysis of stored orchestrator run artifacts.
 - Standalone: Added Web GUI Specialist persona for engaging, visually optimized web app and tool interfaces.
 - Shared: New `ax-feedback` partial — structured Agent Experience (AX) self-reporting before handoff.
 - Ledger: Developer and Synthesis gain AX Feedback pre-handoff workflow step.
