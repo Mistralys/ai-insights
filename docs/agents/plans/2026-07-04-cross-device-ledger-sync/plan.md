@@ -1,7 +1,7 @@
 # Plan: Multi-Store Ledger Architecture
 
 ## Plan Audit Cycles
-- Audits: none — Plan Auditor v1.5.0
+- Audits: 3 — Plan Auditor v1.7.0
 - Architectural Reviews: 1 — Plan Architect Reviewer v1.6.0
 
 ## Prior Project Context
@@ -197,7 +197,7 @@ The per-store registry model solves the cross-device problem that a central regi
 | Write routing | Per-store registries with store-order priority | (A) Central registry with `store_id` field per entry; (B) Separate `repo_assignments` map in `stores.json`; (C) New `store_id` parameter on tools; (D) Pattern matching (glob rules) | Per-store registries make stores fully self-contained and portable — repo metadata travels with the store during sync. A central registry forces manual re-registration on every new device. A `store_id` field is functionally equivalent to per-store registries but adds schema complexity and breaks portability. Tool parameters would burden every agent invocation. |
 | Repository registry location | Per-store (each store owns its `.repositories.json`) | (A) Central `~/.ai-insights/.repositories.json` with `store_id` field; (B) Central registry with auto-migration from legacy path; (C) Dedicated info-only store for repo definitions | Per-store registries are the simplest model: a repo belongs to whichever store defines it. No schema changes needed. Central registry creates cross-device friction (repo metadata doesn't travel with the store). Info-only stores require complex write-routing exceptions (`writable: false` flags or `write_target` fields) for minimal gain. |
 | Knowledge cross-store behavior | Per-store knowledge, cross-store search on reads | Single merged knowledge store; no cross-store search | Per-store keeps company insights out of personal sync remotes. Cross-store read search is safe (all data is local) and maximizes knowledge utility. |
-| Module decomposition | StoreRegistry + StoreRouter + MultiStoreManager (3 modules) | (A) Single `MultiStoreManager` combining registry I/O, routing, and collation; (B) 4 modules with a separate `store-context.ts` singleton accessor | The 3-module shape cleanly separates by concern: Registry = I/O, Router = single-store resolution, Manager = cross-store collation. A single module conflates I/O with business logic. A 4th singleton module introduces a startup-ordering contract (`initStoreContext` must be called before `getStoreRouter`) that the existing codebase avoids — `resolveLedgerRoot()` is pure and stateless. |
+| Module decomposition | StoreRegistry + StoreRouter + MultiStoreManager + StoreContext (4 modules) | (A) Single `MultiStoreManager` combining registry I/O, routing, and collation; (B) 3 modules without a shared accessor (rejected — see below) | The 4-module shape cleanly separates by concern: Registry = I/O, Router = single-store resolution, Manager = cross-store collation, Context = shared singleton accessor. The startup-ordering contract (`setStoreContext()` called before `getStoreRouter()`) is the same pattern already established by `client-info.ts` (`setMcpServer()` → `getClientInfo()`). A 3-module shape without `store-context.ts` was rejected because `src/index.ts` (MCP STDIO server) and `gui/server.ts` (HTTP GUI server) are separate OS processes — module-level state exported from `index.ts` is inaccessible to `gui/server.ts`, and tool files importing from `index.ts` create circular imports. |
 | GUI restructuring scope | Deferred to follow-up plan; minimal store integration in existing pages | Bundled with storage plan (new Storage page, Strategy refactor, modal vision editor, new nav/routes) | The GUI restructuring is ~40% of the plan's file-change surface and is not gated on multi-store backend functionality. Shipping backend + CLI first produces a testable, usable multi-store capability without the GUI blast radius. |
 | Mandatory vs. optional registration in multi-store mode | Mandatory — unregistered repos produce a hard error | (A) Soft default — unregistered repos route to the default store silently; (B) Prompt-based — ask the user to choose a store on first project creation | Hard-error maximizes predictability at the cost of one-time registration friction. Silent default-store routing risks "where did my project go?" confusion when users forget to register before creating projects. |
 | GUI config scope | Single server-wide `gui-config.json` | Per-store `gui-config.json` in each store directory | Current `gui-config.json` fields (`auto_handoff_enabled`, `auto_archive_days`, etc.) are all server-wide behavioral settings — none is store-scoped. Duplicating per store creates ambiguity about which store's config governs server behavior. |
@@ -215,7 +215,7 @@ The per-store registry model solves the cross-device problem that a central regi
 - **`--ledger-dir` CLI flag**: Reused as the default store path override. No departure.
 - **Single funnel point (`resolveLedgerRoot`)**: Departure — `resolveLedgerRoot()` remains for backward compatibility, but a new `resolveStoreConfig()` is added as the multi-store-aware entry point. The departure is justified because the single-funnel assumption is the core limitation this plan addresses.
 - **Optional repository registration**: Departure in multi-store mode — registration becomes mandatory for project creation when `stores.json` exists. In single-store mode (no `stores.json`), registration remains optional. The departure is justified because multi-store routing requires knowing which store to target, and the repository is the natural routing key. The alternative (silently routing unregistered repos to the default store) was rejected to avoid "where did my project go?" confusion — see Rationale item 7 and Considered Alternatives table.
-- **Module-level state in `index.ts`**: `StoreRouter` and `MultiStoreManager` are stored as module-level `let` variables in `index.ts` with exported accessors, following the same pattern as `resolveLedgerRoot()`. A separate `store-context.ts` singleton module was considered and rejected — it would introduce a startup-ordering contract (`initStoreContext` must precede `getStoreRouter`) that the existing codebase avoids. No departure.
+- **Shared singleton accessor (`store-context.ts`)**: `StoreRouter` and `MultiStoreManager` are stored as module-level `let` variables in a dedicated `mcp-server/src/storage/store-context.ts` module, with `setStoreContext()` called once per process startup (in both `index.ts` and `gui/server.ts`) and `getStoreRouter()` / `getMultiStoreManager()` callable by any consumer. This follows the established pattern of `client-info.ts` (`setMcpServer()` / `getClientInfo()`). No departure.
 - **Server-wide `gui-config.json`**: Kept as a single server-wide file. Per-store `gui-config.json` was considered and rejected — current fields (`auto_handoff_enabled`, `auto_archive_days`, etc.) are all server-wide behavioral settings with no store-scoped semantics. No departure.
 
 ## Detailed Steps
@@ -239,24 +239,28 @@ StoresConfigSchema: {
 
 **Step 2.** Create `mcp-server/src/storage/store-registry.ts` — Store registry I/O module:
 - `resolveStoresConfigPath()` → `~/.ai-insights/stores.json` (cross-platform home dir via `os.homedir()`).
-- `loadStoresConfig(configPath?)` → reads and validates `stores.json`. Returns `null` when file is absent (single-store mode). Throws on malformed JSON or schema validation failure.
+- `loadStoresConfig(configPath?)` → reads and validates `stores.json`. Returns `null` when file is absent (single-store mode). Returns `null` on malformed JSON or schema validation failure (logs a warning to `stderr` with the validation error). This error-returning behavior is consistent with `loadRegistry()` returning `{ repositories: [] }` on failure, and enables the graceful fallback to single-store mode specified in AC-11.
 - `saveStoresConfig(config, configPath?)` → validates via `StoresConfigSchema`, writes atomically under `withLock`.
 - `expandStorePath(pathStr)` → resolves `~` to `os.homedir()`, normalizes with `path.resolve()`.
+- `resolveGuiConfigPath(storeConfig: StoresConfig | null, ledgerRoot: string): string` → when `storeConfig` is non-null (multi-store mode), returns `join(os.homedir(), '.ai-insights', 'gui-config.json')`; otherwise returns `join(ledgerRoot, 'gui-config.json')`. Used by both `index.ts` and `gui/server.ts` to resolve the gui-config path consistently across processes.
 
 **Step 3.** Create `mcp-server/src/storage/store-router.ts` — Write routing logic:
 - `StoreRouter` class:
   - Constructor takes `StoresConfig | null` (null = legacy mode).
-  - `resolveStoreForWrite(repoName: string): string` — In legacy mode (null config): delegates to `resolveLedgerRoot()`. In multi-store mode: iterates stores in `stores.json` order, loads each store's `.repositories.json` via `loadRegistry(storePath)`, calls `findByFolderName(registry, repoName)`. Returns the path of the **first store** whose registry claims the repo. If no store claims the repo → throws an error: `"Repository '${repoName}' is not registered in any store. Register it via the GUI or CLI before creating projects."`
+  - `resolveStoreForWrite(repoName: string): Promise<string>` — In legacy mode (null config): delegates to `resolveLedgerRoot()`. In multi-store mode: iterates stores in `stores.json` order, loads each store's `.repositories.json` via `loadRegistry(storePath)` (async), calls `findByFolderName(registry, repoName)`. Returns the path of the **first store** whose registry claims the repo. If no store claims the repo → throws an error: `"Repository '${repoName}' is not registered in any store. Register it via the GUI or CLI before creating projects."`
   - `resolveDefaultStore(): string` — returns the default store path (for operations not tied to a specific repo, like global knowledge writes).
   - `getAllStorePaths(): StoreEntry[]` — returns all registered stores (or a single-entry array wrapping `resolveLedgerRoot()` in legacy mode).
   - `isMultiStoreMode(): boolean` — returns `true` when `stores.json` is loaded.
-  - `resolveStoreForRepo(repoName: string): { storePath: string, storeId: string } | null` — returns the store that claims the repo, or null if none. Used by `resolveStoreForWrite()` internally and by other components that need to know which store owns a repo without throwing.
+  - `resolveStoreForRepo(repoName: string): Promise<{ storePath: string, storeId: string } | null>` — returns the store that claims the repo, or null if none. Used by `resolveStoreForWrite()` internally and by other components that need to know which store owns a repo without throwing.
+
+  > **Note:** `resolveStoreForWrite()` and `resolveStoreForRepo()` are async because they call `loadRegistry()` which is async (`repository-registry.ts` L40). All callers must `await` these methods.
 
 **Step 4.** Create `mcp-server/src/storage/multi-store-manager.ts` — Cross-store read operations:
 - `MultiStoreManager` class:
   - Constructor takes `StoreRouter`.
-  - `listAllProjects(status?)` → iterates all store paths, calls `LedgerStore.listAllProjects(storePath)` for each, tags each `ProjectMeta` with `store_id` and `store_label`, merges into unified list.
+  - `listAllProjects(status?)` → iterates all store paths, calls `LedgerStore.listAllProjects(storePath)` for each, tags each `ProjectMeta` with `store_id`, `store_label`, and `store_path` (the absolute path to the store root — required by GUI `handleListProjects` slow path to construct `LedgerStore` with the correct per-project `ledgerRoot`), merges into unified list.
   - `detectProjectByCwd(cwdPath)` → iterates all store paths, calls `LedgerStore.detectProjectByCwd(cwdPath, storePath)` for each. Returns the first `FOUND` match. If a single store returns `AMBIGUOUS` (intra-store collision), that result is forwarded as-is. If multiple stores each return `FOUND`, returns a new `MULTI_STORE_AMBIGUOUS` status with candidates tagged by `store_id` — this distinguishes cross-store collisions (a configuration error) from intra-store collisions (a genuine path overlap). If none match, returns `NOT_FOUND`.
+    - **`MULTI_STORE_AMBIGUOUS` type definition:** Declare a `MultiStoreDetectResult` union type (either in `multi-store-manager.ts` or `store-router.ts`) that extends the existing `DetectProjectResult` union with: `{ status: 'MULTI_STORE_AMBIGUOUS'; candidates: Array<{ store_id: string; store_label: string; meta: ProjectMeta }> }`. The existing `DetectProjectResult` in `ledger-store.ts` remains unchanged — the multi-store union is a superset declared in the new module.
   - `getMergedRegistry()` → iterates all stores in order, loads each store's `.repositories.json`, merges entries using store-order priority (first store to claim a repo name wins). Returns a unified registry tagged with `store_id` per entry. Used by GUI, CLI, and repository-context tools.
   - `getRegistryConflicts()` → scans all per-store registries and identifies repositories that appear in more than one store's `.repositories.json`. Returns an array of conflict records, each containing: `repo_name` (the conflicting folder name), `entries[]` (array of `{ store_id, store_label, entry: RepositoryEntry }` for each store that claims it), and `winner_store_id` (the store that wins via store-order priority). This method is the single source of truth for cross-store repository conflicts — consumed by the GUI conflicts tab, `GET /api/stores/conflicts` endpoint, and CLI `store conflicts` command.
   - `searchKnowledge(query, options?)` → iterates all store paths, creates `KnowledgeStoreManager` for each, calls `searchInsights()`, deduplicates by insight `id` (first-seen wins), returns merged results.
@@ -274,20 +278,28 @@ StoresConfigSchema: {
 - Validate that `store_id` references a valid store in `stores.json`.
 - When creating a repo, write the entry to the specified store's `.repositories.json`. When updating, locate the store that currently owns the entry (via `StoreRouter.resolveStoreForRepo()`) and update that store's registry. Moving a repo between stores requires deleting from the old store's registry and adding to the new one.
 - The existing GUI repository management UI gains a "Store" dropdown when multiple stores are configured — the dropdown selects which store to write the repo definition to.
+- `handleListRepos`: delegate to `MultiStoreManager.getMergedRegistry()` in multi-store mode (returning entries tagged with `store_id`), or to `loadRegistry(ledgerRoot)` in legacy mode. Without this change, the Strategy page's repository list would only show repos from the single default `ledgerRoot`, making repos in non-default stores invisible.
 
 ### Phase 3: MCP Server Integration
 
+**Step 6b.** Create `mcp-server/src/storage/store-context.ts` — Shared singleton accessor (analogous to `src/utils/client-info.ts`):
+- Module-level `let` variables for `StoreRouter` and `MultiStoreManager`.
+- `setStoreContext(router: StoreRouter, manager: MultiStoreManager): void` — called once per process startup.
+- `getStoreRouter(): StoreRouter` — returns the initialized router. Throws if called before `setStoreContext()`.
+- `getMultiStoreManager(): MultiStoreManager` — returns the initialized manager. Throws if called before `setStoreContext()`.
+- Both `src/index.ts` (MCP server process) and `gui/server.ts` (GUI server process) call `setStoreContext()` during their respective startup sequences, each independently loading `stores.json` via `loadStoresConfig()`. This avoids circular imports (tool files import from `store-context.ts`, not from `index.ts`) and works across the two-process architecture.
+
 **Step 7.** Modify `mcp-server/src/index.ts` — Multi-store initialization:
-- After `resolveLedgerRoot()`, attempt to load `stores.json` via `loadStoresConfig()`.
-- If `stores.json` exists: create `StoreRouter` from config, ensure all store directories exist (`mkdirSync`), run `migrateToNamespacedLayout()` on each store path.
-- If `stores.json` does not exist: create `StoreRouter` in legacy mode (wrapping the single ledger root).
+- After `resolveLedgerRoot()`, attempt to load `stores.json` via `loadStoresConfig()`. `loadStoresConfig()` returns `null` on absence, malformed JSON, or schema failure (logging a warning) — no try-catch needed at this level for config errors.
+- If `stores.json` loads successfully: create `StoreRouter` from config, ensure all store directories exist (`mkdirSync`), run `migrateToNamespacedLayout()` on each store path.
+- If `stores.json` is absent or invalid (`null` return): create `StoreRouter` in legacy mode (wrapping the single ledger root). Log a message indicating single-store mode.
 - Create `MultiStoreManager` from `StoreRouter`.
-- Store the `StoreRouter` and `MultiStoreManager` as module-level `let` variables in `index.ts` and export accessor functions `getStoreRouter()` and `getMultiStoreManager()` directly from `index.ts`. This follows the existing pattern of `resolveLedgerRoot()` being a module-level function and avoids a separate singleton module with init/get ordering concerns.
-- GUI config remains a single server-wide file (at `~/.ai-insights/gui-config.json` when that directory exists, otherwise at `{ledgerRoot}/gui-config.json`). It is not duplicated per store — `gui-config.json` holds server-wide behavioral settings (`auto_handoff_enabled`, `auto_archive_days`, etc.) that are not store-scoped.
+- Call `setStoreContext(router, manager)` from `store-context.ts` to make them accessible to tool files and other consumers. This follows the established `setMcpServer()` pattern in `client-info.ts`.
+- GUI config path resolution: use `resolveGuiConfigPath(storeConfig, ledgerRoot)` from `store-registry.ts` — checks for `~/.ai-insights/gui-config.json` first when `stores.json` exists, falls back to `join(ledgerRoot, 'gui-config.json')`. GUI config remains a single server-wide file, not duplicated per store.
 
 **Step 8.** Modify `mcp-server/src/tools/project-lifecycle.ts` — Multi-store reads and writes:
 - `listProjects()`: replace `LedgerStore.listAllProjects(_ledgerRoot)` with `getMultiStoreManager().listAllProjects(status)`. Each returned project includes `store_id` and `store_label` fields.
-- `detectProject()`: replace `LedgerStore.detectProjectByCwd(cwd)` with `getMultiStoreManager().detectProjectByCwd(cwd)`.
+- `detectProject()`: replace `LedgerStore.detectProjectByCwd(cwd)` with `getMultiStoreManager().detectProjectByCwd(cwd)`. Add a `MULTI_STORE_AMBIGUOUS` branch to the handler that returns a descriptive error listing the candidate projects and their store IDs, e.g.: `"Error: Project found in multiple stores. Provide an explicit project_path to disambiguate. Candidates: [store_id: personal] slug-a, [store_id: work] slug-b."` This branch is required because the current handler only covers `FOUND`, `AMBIGUOUS`, and `NOT_FOUND` — an unhandled status would silently fall through to the `NOT_FOUND` error message.
 - `initializeProject()`: use `getStoreRouter().resolveStoreForWrite(repoName)` to determine which store to write to. In multi-store mode, this call will throw if no store's registry claims the repository — the error message guides the user to register it first. Then construct `LedgerStore(projectPath, resolvedLedgerRoot)`.
 - `getProjectStatus()`: when resolving via `cwd_path`, the multi-store detect path is already used. When resolving via `project_path`, use `getStoreRouter().resolveStoreForWrite(deriveRepoName(projectPath))`.
 
@@ -311,13 +323,21 @@ StoresConfigSchema: {
 Full GUI restructuring (new Storage page, Strategy-page refactoring to strategy-only focus, store badges on project list, new navigation routes) is deferred to a follow-up plan — it accounts for ~40% of the file-change surface and is not gated on any multi-store backend functionality. This phase adds the minimum API and form changes needed to make multi-store functional via the existing GUI.
 
 **Step 11.** Modify `mcp-server/gui/api.ts` — Store-aware project listing, store info, and conflict detection endpoints:
-- `handleListProjects`: delegate to `MultiStoreManager.listAllProjects()`. Include `store_id` and `store_label` in response.
+- `handleListProjects`: delegate to `MultiStoreManager.listAllProjects()`. Include `store_id`, `store_label`, and `store_path` in the per-project data. The slow path (legacy meta files without cached enrichment) must use `meta.store_path` instead of the single `ledgerRoot` when constructing `new LedgerStore(meta.plan_path, meta.store_path)` — each project may come from a different store.
 - Add `GET /api/stores` endpoint (read-only) — returns the list of registered stores (id, label, path, project count, repository count). Full store CRUD endpoints are deferred to the GUI follow-up plan.
 - Add `GET /api/stores/conflicts` endpoint (read-only) — returns registry conflicts detected by `MultiStoreManager.getRegistryConflicts()`. Each conflict record includes the conflicting repository name, all store entries that claim it (with full `RepositoryEntry` data per store), and which store wins via store-order priority. Returns an empty array when no conflicts exist or in single-store mode.
 
 **Step 12.** Modify existing Strategy page — Add Store dropdown and Conflicts tab:
 - In `mcp-server/gui/public/views/strategy.js`, add a "Store" dropdown to the "Add Repository" form and the repository edit form (populated from `GET /api/stores`). The dropdown selects **which store's `.repositories.json`** receives the new/updated entry. Only appears when multiple stores are configured.
 - Add `getStores()` and `getStoreConflicts()` to `mcp-server/gui/public/api-client.js`.
+
+**Step 12b.** Modify `mcp-server/gui/server.ts` — Multi-store initialization and config path:
+- After `resolveLedgerRoot()`, load `stores.json` via `loadStoresConfig()`. Create `StoreRouter` and `MultiStoreManager`. Call `setStoreContext(router, manager)` — the same initialization as `index.ts` but for the GUI server process.
+- Replace `const configPath = join(ledgerRoot, 'gui-config.json')` with `const configPath = resolveGuiConfigPath(storeConfig, ledgerRoot)` — checks for `~/.ai-insights/gui-config.json` first when `stores.json` exists, falls back to the current path.
+- Update `handleListRepos` call to pass `MultiStoreManager` (or merged registry) instead of single `ledgerRoot` in multi-store mode.
+- Wire new `/api/stores` and `/api/stores/conflicts` routes.
+
+**Step 12c.** Add Conflicts tab to Strategy page:
 - Add a **"Conflicts" tab** to the Strategy page's repository management section (alongside the existing repository list). The tab:
   - Fetches `GET /api/stores/conflicts` on load.
   - Shows a conflict count badge on the tab header (e.g., "Conflicts (2)"). Badge is hidden when count is zero.
@@ -351,7 +371,7 @@ Full GUI restructuring (new Storage page, Strategy-page refactoring to strategy-
 - `mcp-server/docs/agents/project-manifest/api-surface.md` — document new classes, per-store registry model, merged registry view, and tool behavior changes.
 - `mcp-server/docs/agents/project-manifest/data-flows.md` — document multi-store read/write flows, store-order priority routing, merged registry collation.
 - `mcp-server/docs/agents/project-manifest/constraints.md` — add multi-store constraints (mandatory registration, per-store registries, store-order routing).
-- `mcp-server/docs/agents/project-manifest/tech-stack.md` — no new dependencies needed.
+- `mcp-server/docs/agents/project-manifest/tech-stack.md` — No new dependencies. Document the new store module layer (StoreRegistry, StoreRouter, MultiStoreManager, StoreContext), the per-process initialization contract, and the departure from single-funnel `resolveLedgerRoot()`.
 - Root `AGENTS.md` — update cross-system dependencies table with store config location and per-store `.repositories.json`.
 
 ## Dependencies
@@ -364,20 +384,21 @@ Full GUI restructuring (new Storage page, Strategy-page refactoring to strategy-
 
 ### New Files
 - `mcp-server/src/schema/store-config.ts` — Zod schemas for `StoreEntry` and `StoresConfig`
-- `mcp-server/src/storage/store-registry.ts` — `stores.json` I/O (load, save, path resolution)
+- `mcp-server/src/storage/store-registry.ts` — `stores.json` I/O (load, save, path resolution, `resolveGuiConfigPath()`)
 - `mcp-server/src/storage/store-router.ts` — Write routing logic (`StoreRouter` class)
-- `mcp-server/src/storage/multi-store-manager.ts` — Cross-store read operations (`MultiStoreManager` class)
+- `mcp-server/src/storage/multi-store-manager.ts` — Cross-store read operations (`MultiStoreManager` class), `MultiStoreDetectResult` union type
+- `mcp-server/src/storage/store-context.ts` — Shared singleton accessor (`setStoreContext()`, `getStoreRouter()`, `getMultiStoreManager()`), following the `client-info.ts` pattern
 - `docs/references/multi-store-guide.md` — User-facing setup and usage guide
 
 ### Modified Files
 - `mcp-server/src/storage/repository-registry.ts` — Add explicit `storePath` parameter to `loadRegistry()`/`saveRegistry()` for per-store registry access
-- `mcp-server/src/index.ts` — Multi-store startup initialization; export `getStoreRouter()` and `getMultiStoreManager()` accessors
+- `mcp-server/src/index.ts` — Multi-store startup initialization; call `setStoreContext()` from `store-context.ts`
 - `mcp-server/src/tools/project-lifecycle.ts` — Delegate to `MultiStoreManager` for reads, `StoreRouter` for writes; enforce registration in multi-store mode
 - `mcp-server/src/tools/knowledge.ts` — Cross-store knowledge search, per-store knowledge writes
 - `mcp-server/src/tools/repository-context.ts` — Cross-store repository context aggregation; use merged registry
 - `mcp-server/gui/api.ts` — Store-aware project listing, read-only `GET /api/stores` and `GET /api/stores/conflicts` endpoints, orchestrator preflight registration check
-- `mcp-server/gui/api-repos.ts` — Add target `store_id` to create/update request schemas (determines which store's registry to write to); validate against `stores.json`
-- `mcp-server/gui/server.ts` — Wire new `/api/stores` and `/api/stores/conflicts` routes
+- `mcp-server/gui/api-repos.ts` — Add target `store_id` to create/update request schemas (determines which store's registry to write to); validate against `stores.json`; update `handleListRepos` to delegate to `MultiStoreManager.getMergedRegistry()` in multi-store mode
+- `mcp-server/gui/server.ts` — Multi-store initialization (load `stores.json`, call `setStoreContext()`); `gui-config.json` path resolution via `resolveGuiConfigPath()`; update `handleListRepos` for merged registry; wire new `/api/stores` and `/api/stores/conflicts` routes
 - `mcp-server/gui/public/views/strategy.js` — Add Store dropdown to repository Add/Edit forms; add Conflicts tab with conflict list, winner/shadowed indicators, and resolution actions
 - `mcp-server/gui/public/api-client.js` — Add `getStores()` and `getStoreConflicts()` API methods
 - `scripts/cli.js` — New `store` command group
@@ -452,9 +473,9 @@ The critical testing focus is backward compatibility: the entire existing test s
 
 - `mcp-server/tests/schema/store-config.test.ts` — Validates `StoresConfigSchema` accepts valid configs and rejects invalid ones (missing fields, duplicate store IDs, missing default store). Covers AC-11.
 - `mcp-server/tests/storage/store-registry.test.ts` — Tests `loadStoresConfig()` returns null when file is absent; loads and validates valid config; throws on malformed JSON; throws on schema failure. Tests `saveStoresConfig()` round-trip. Tests `expandStorePath()` with `~`, absolute, and relative paths across platforms. Covers AC-1, AC-10, AC-11.
-- `mcp-server/tests/storage/store-router.test.ts` — Tests `resolveStoreForWrite()` in legacy mode (null config → delegates to `resolveLedgerRoot()`); in multi-store mode with repo registered in first store → returns first store; with repo registered in second store → returns second store; with repo registered in multiple stores → first store wins (store-order priority); with unregistered repo → throws clear error. Tests `getAllStorePaths()` in both modes. Covers AC-1, AC-3, AC-4, AC-15.
+- `mcp-server/tests/storage/store-router.test.ts` — Tests `resolveStoreForWrite()` in legacy mode (null config → delegates to `resolveLedgerRoot()`); in multi-store mode with repo registered in first store → returns first store; with repo registered in second store → returns second store; with repo registered in multiple stores → first store wins (store-order priority); with unregistered repo → throws clear error. Tests `getAllStorePaths()` in both modes. Tests that `StoreRouter` creation causes `mkdirSync(storePath, { recursive: true })` for each configured store path that does not yet exist (AC-12). Covers AC-1, AC-3, AC-4, AC-12, AC-15.
 - `mcp-server/tests/storage/multi-store-manager.test.ts` — Tests `listAllProjects()` merges projects from multiple stores with correct tagging; tests `detectProjectByCwd()` finds projects across stores and returns `MULTI_STORE_AMBIGUOUS` for cross-store collisions; tests `getMergedRegistry()` returns entries with correct store-order priority (first store wins for duplicates); tests `searchKnowledge()` deduplicates by insight ID. Uses multiple temporary directories as stores. Covers AC-2, AC-5, AC-6, AC-15.
-- `mcp-server/tests/storage/repository-registry.test.ts` — Tests that `loadRegistry(storePath)` reads per-store registry; tests that `saveRegistry(storePath)` writes per-store registry; validates existing registry files parse without errors with unchanged schema. Covers AC-13.
+- `mcp-server/tests/storage/repository-registry.test.ts` — **Modify existing file** (do not overwrite): add new `describe` blocks for per-store registry scenarios — tests that `loadRegistry(storePath)` reads per-store registry; tests that `saveRegistry(storePath)` writes per-store registry; validates existing registry files parse without errors with unchanged schema. Existing 20+ test cases remain untouched. Covers AC-13.
 - `mcp-server/tests/tools/project-lifecycle-multi-store.test.ts` — Integration tests: `initializeProject` routes to the correct store based on per-store registry lookup; `initializeProject` for unregistered repo returns error; `listProjects` returns tagged results from all stores; `detectProject` searches all stores. Covers AC-2, AC-3, AC-4, AC-5.
 - `mcp-server/tests/tools/knowledge-multi-store.test.ts` — Integration tests: `addInsight` writes to the correct store (the one whose registry claims the repository); `searchInsights` returns cross-store results; `listInsights` merges results. Covers AC-6, AC-7.
 - `mcp-server/tests/gui/api-stores.test.ts` — Tests `GET /api/stores` returns correct store list with project and repository counts. Covers AC-8.
@@ -462,14 +483,17 @@ The critical testing focus is backward compatibility: the entire existing test s
 - `mcp-server/tests/gui/api-store-conflicts.test.ts` — Tests `GET /api/stores/conflicts` returns empty array when no conflicts; returns correct conflict records when same repo is in multiple stores (winner identified by store order); returns empty array in single-store mode. Covers AC-19.
 - `mcp-server/tests/storage/multi-store-conflicts.test.ts` — Tests `getRegistryConflicts()` detects repos registered in multiple stores; correctly identifies winner by store-order priority; returns empty when no overlaps. Covers AC-19, AC-20.
 - `mcp-server/tests/storage/cross-device-portability.test.ts` — Tests that adding a new store (with its own `.repositories.json` and projects) to `stores.json` immediately makes its repositories and projects visible without any additional registration. Covers AC-18.
+- `mcp-server/tests/gui/api-orchestrator.test.ts` — **Modify existing file**: add test cases for the multi-store registration preflight in `handleOrchestratorStart()`: (a) multi-store mode, plan path derives a registered repo → proceeds normally; (b) multi-store mode, plan path derives an unregistered repo → returns preflight failure with specified message. Covers AC-17.
+- `scripts/tests/store-commands.test.js` — Tests the `store` command group in `scripts/cli.js`: `store init` creates `~/.ai-insights/stores.json` pointing at the current ledger root; `store add <id> <path>` registers a new store and creates an empty `.repositories.json` in the new store directory; `store list` returns all registered stores; `store repo add <repo-name> <store-id>` writes a repository entry to the correct store's `.repositories.json`; `store default <id>` updates `default_store` in `stores.json`. Also covers the error case: `store add` with a non-existent path that cannot be created returns a clear error. Covers AC-9.
 - **Existing test suite** — All 100+ existing tests must continue to pass without modification (no `stores.json` = legacy mode). Covers AC-1.
 
 ## Documentation Updates
 
-- `mcp-server/docs/agents/project-manifest/file-tree.md` — Add entries for `store-config.ts`, `store-registry.ts`, `store-router.ts`, `multi-store-manager.ts`
+- `mcp-server/docs/agents/project-manifest/file-tree.md` — Add entries for `store-config.ts`, `store-registry.ts`, `store-router.ts`, `multi-store-manager.ts`, `store-context.ts`
 - `mcp-server/docs/agents/project-manifest/api-surface.md` — Document `StoreRegistry`, `StoreRouter`, `MultiStoreManager` public APIs (including `getRegistryConflicts()`); document per-store registry model and merged registry view; document `store_id`/`store_label` fields on project listing responses; document `MULTI_STORE_AMBIGUOUS` detection status; document read-only `GET /api/stores` and `GET /api/stores/conflicts` endpoints; document mandatory registration behavior in multi-store mode
 - `mcp-server/docs/agents/project-manifest/data-flows.md` — Add "Multi-Store Write Routing" and "Multi-Store Read Collation" flow diagrams; document store-order priority routing chain; document merged registry collation flow
 - `mcp-server/docs/agents/project-manifest/constraints.md` — Add constraints: "stores.json is optional — absent = legacy mode", "Repository registration is mandatory in multi-store mode", "Each store owns its `.repositories.json`", "Store order in `stores.json` determines priority", "Cross-store operations are read-only", "No sync logic in MCP server", "No new tool parameters for store selection", "gui-config.json is server-wide, not per-store"
+- `mcp-server/docs/agents/project-manifest/tech-stack.md` — Document the new three-module store layer (StoreRegistry/StoreRouter/MultiStoreManager) plus the `store-context.ts` singleton accessor, the per-process initialization contract, and the departure from the single-funnel `resolveLedgerRoot()` pattern. Required by AGENTS.md maintenance rules ("change architectural pattern → tech-stack.md").
 - Root `AGENTS.md` — Add `stores.json` and per-store `.repositories.json` to Cross-System Dependencies table; add `~/.ai-insights/` to Navigation Quick Reference
 - Root `README.md` — Add brief multi-store section with link to `docs/references/multi-store-guide.md`
 - `docs/references/multi-store-guide.md` — New file: concept overview, repository registration workflow, setup walkthrough, Git sync recommendations, CLI reference, FAQ
