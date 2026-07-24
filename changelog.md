@@ -1,23 +1,28 @@
 # AI Insights Changelog
 
-## v2.8.0 - Model Settings Rework, Extract-Dialogue, and Plan Refiner Overhaul
+## v2.8.0 - Model Settings & GUI Improvements
 > mcp v2.7.0 · orchestrator v1.3.2 · personas v3.30.0
 
-**The model settings subsystem has been fully reworked with a declarative route table and a
-three-tab config UI.** The extract-dialogue renderer now powers a new Text Only tab in
-work-package panels. The Plan Refiner has been substantially overhauled with research brief
-enrichment, incremental re-audit, and skip-architectural-review support.
+**This release ships the LLM Model Registry with per-persona model assignments, giving users
+fine-grained control over which model powers each agent stage. The GUI receives a broad round of
+improvements: cleaner navigation, better typography, a Text Only tab for work-package panels,
+repository breadcrumbs, and an improved orchestrator dialogue renderer. Two new standalone
+personas — Orchestrator Archaeologist and Web GUI Specialist — join the roster.**
 
-- MCP: Reworked model settings with declarative route table, per-persona assignment, and
-  three-tab config UI.
-- GUI: Added Text Only tab to work-package panels; repository display and breadcrumbs added
-  to the project detail view.
-- GUI: Removed Insights tab; fixed dialogue rendering, model naming, and input validation.
+- MCP: Now supporting per-persona model assignments.
+- GUI: Improved main navigation styling.
+- GUI: Improved typography and readability in project detail screens.
+- GUI: Added Text Only tab to work-package panels.
+- GUI: Repository display and breadcrumbs added to the project detail views.
+- GUI: Improved Orchestrator dialogue rendering.
+- GUI: Added the LLM Model Registry.
+- GUI: Added the possibility to assign models to personas.
+- GUI: Removed the unused Insights tab (Knowledge supersedes it).
 - Orchestrator: Extended persona YAML glob to support agents with two-digit role numbers.
-- Personas: Added Orchestrator Archaeologist and Web GUI Specialist standalone personas.
+- Personas: Added the Orchestrator Archaeologist (Standalone).
+- Personas: Added the Web GUI Specialist (Standalone).
 - Personas: AX Feedback pre-handoff step added across ledger and standalone agents.
-- Personas: Plan Refiner overhauled with brief enrichment, incremental re-audit, and brief
-  size guard; gains skip-architectural-review mode.
+- Personas: Plan Refiner improved with brief enrichment and design review triage.
 - Scripts: Added `extract-dialogue` CLI command for JSONL chunk file text extraction.
 
 ## v2.7.0 - Project Summaries and Persona philosophy
