@@ -1,5 +1,10 @@
 # Orchestrator Changelog
 
+## v1.3.2 - Extended Persona YAML Glob
+
+- Utils: Extended persona YAML glob to support role numbers with two or more digits.
+- Tests: Added coverage for the extended glob pattern.
+
 ## v1.3.1 - MCP Tool Path Rewriting Exemption
 - Nodes: PathNormalizationMiddleware now skips MCP tools that require absolute host paths.
 - Nodes: Skip set derived dynamically from `mcp_tools` list in `create_stage_node()`.

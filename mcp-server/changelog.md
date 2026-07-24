@@ -1,7 +1,23 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.6.1 - **WIP UNRELEASED**
-- GUI: Improved Synthesis summary styling as a card in the project detail page.
+## v2.7.0 - Model Settings Rework and GUI Improvements
+
+**This release reworks the model settings subsystem with a declarative route table and a
+three-tab config UI.** Repository display and breadcrumbs have been added to the project
+detail view, the Insights tab has been removed, and a new Text Only tab surfaces dialogue
+text from work-package panels.
+
+- Model Registry: Implemented declarative route table with domain sub-builders for
+  per-persona model assignment and target routing.
+- GUI: Three-tab model settings UI (General, Persona Models, Model Registry) with full
+  API client integration.
+- GUI: Added repository display and breadcrumbs to the project detail navigation.
+- GUI: Added Text Only tab to work-package dialogue panels via the extract-dialogue renderer.
+- GUI: Removed Insights tab; knowledge browsing moves to dedicated knowledge tools.
+- GUI: Synthesis summary now styled as a card on the project detail page.
+- GUI: Fixed dialogue rendering, plan path case sensitivity, and model naming issues.
+- GUI: Fixed repository settings input validation.
+- Tests: Added unit tests for dispatch-route, route-table, and model config helpers.
 
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 

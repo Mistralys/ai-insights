@@ -1,20 +1,16 @@
 # Personas Changelog
 
-## v3.30.0 - **WIP UNRELEASED**
-- LedgerSupport: Added Orchestrator Archaeologist persona for forensic analysis of stored orchestrator run artifacts.
-- Standalone: Added Web GUI Specialist persona for engaging, visually optimized web app and tool interfaces.
-- Shared: New `ax-feedback` partial — structured Agent Experience (AX) self-reporting before handoff.
-- Ledger: Developer and Synthesis gain AX Feedback pre-handoff workflow step.
-- Standalone: Developer, README Curator, and Changelog Curator gain AX Feedback pre-handoff workflow step.
-- Standalone: Plan Auditor and Plan Architect Reviewer gain Research Brief Protocol — self-manage brief usage, contribute-back, and size guard.
-- Standalone: Plan Refiner simplified — dispatch prompts stripped of brief hand-holding; Sub-Agent Brief Enrichment section and brief size guard constraint removed.
-- Standalone: Plan Refiner Operating Philosophy rewritten — replaced constraint-like prohibitions with positive value statements; removed items duplicated in Strict Constraints.
-- Standalone: Plan Refiner gains brief enrichment phase — supplements the Planner's research brief with targeted codebase facts before dispatching sub-agents.
-- Standalone: Plan Refiner dispatch prompts now reference the research brief with audience tags (`[arch]`/`[verify]`), scope sketch, and independence clause.
-- Standalone: Plan Refiner gains incremental re-audit — differential context for audit cycles 2+.
-- Standalone: Plan Refiner gains sub-agent brief enrichment — downstream agents can contribute verified references back to the brief with provenance markers.
-- Standalone: Plan Refiner gains brief size guard (~5K token ceiling) to prevent unbounded brief growth.
-- Standalone: Planner research brief template renames "Patterns & Conventions" to "Established Patterns" for factual-only clarity.
+## v3.30.0 - New Personas and AX Feedback
+
+- LedgerSupport: Added Orchestrator Archaeologist persona for forensic run artifact analysis.
+- Standalone: Added Web GUI Specialist persona for engaging, visually optimized web interfaces.
+- Ledger/Standalone: All key agents gain an AX Feedback pre-handoff step for structured
+  self-reporting; extracted into a reusable shared partial.
+- Standalone: Plan Refiner overhauled with research brief enrichment, incremental re-audit,
+  sub-agent contribution, and a brief size guard; gains skip-architectural-review mode.
+- Standalone: Plan Auditor and Plan Architect Reviewer gain Research Brief Protocol for
+  self-managed brief usage and contribution.
+- Standalone: Planner now includes a workflow recommendation section in plan output.
 
 ## v3.29.0 - Operating Philosophy and Project Summary Protocols
 

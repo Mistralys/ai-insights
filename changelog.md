@@ -1,7 +1,24 @@
 # AI Insights Changelog
 
-## v2.7.1 - **WIP UNRELEASED**
-- Personas: Plan Refiner performance improvements in context usage.
+## v2.8.0 - Model Settings Rework, Extract-Dialogue, and Plan Refiner Overhaul
+> mcp v2.7.0 · orchestrator v1.3.2 · personas v3.30.0
+
+**The model settings subsystem has been fully reworked with a declarative route table and a
+three-tab config UI.** The extract-dialogue renderer now powers a new Text Only tab in
+work-package panels. The Plan Refiner has been substantially overhauled with research brief
+enrichment, incremental re-audit, and skip-architectural-review support.
+
+- MCP: Reworked model settings with declarative route table, per-persona assignment, and
+  three-tab config UI.
+- GUI: Added Text Only tab to work-package panels; repository display and breadcrumbs added
+  to the project detail view.
+- GUI: Removed Insights tab; fixed dialogue rendering, model naming, and input validation.
+- Orchestrator: Extended persona YAML glob to support agents with two-digit role numbers.
+- Personas: Added Orchestrator Archaeologist and Web GUI Specialist standalone personas.
+- Personas: AX Feedback pre-handoff step added across ledger and standalone agents.
+- Personas: Plan Refiner overhauled with brief enrichment, incremental re-audit, and brief
+  size guard; gains skip-architectural-review mode.
+- Scripts: Added `extract-dialogue` CLI command for JSONL chunk file text extraction.
 
 ## v2.7.0 - Project Summaries and Persona philosophy
 > mcp v2.6.0 · personas v3.29.0
