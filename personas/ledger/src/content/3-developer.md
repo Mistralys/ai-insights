@@ -149,10 +149,13 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → read WP detail (via `ledger_get_work_package` and the `work/WP-###.md` specification file) → start pipeline → implement → complete pipeline.
 4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify & Refine, Observe). For `REWORK` actions, follow the **Rework Handling** section instead.
 5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
+6. **AX Feedback:** Before handing off, reflect on your session experience.
+
+{{> ax-feedback}}
 {{#if target_vscode}}
-6. {{> handoff-block-vscode}}
+7. {{> handoff-block-vscode}}
 {{else if target_claude_code}}
-6. {{> handoff-block-claude-code}}
+7. {{> handoff-block-claude-code}}
 {{else}}
-6. {{> handoff-block-manual}}
+7. {{> handoff-block-manual}}
 {{/if}}

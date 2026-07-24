@@ -13,6 +13,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
     └── shared/
         └── partials/
             └── agent-roster.md
+            └── ax-feedback.md
             └── developer-operational-protocol.md
             └── developer-output-format.md
             └── developer-strict-constraints.md
@@ -41,6 +42,24 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
 You operate within a larger agentic workflow:
 
 {{roster_rendered}}
+
+```
+###  Path: `/personas/shared/partials/ax-feedback.md`
+
+```md
+## AX Feedback
+
+Before the final handoff, report any genuine friction you encountered with your tooling, instructions, context, handoff data, or the target codebase. **Most sessions are expected to have zero friction.**
+
+**Format** (emit immediately before the handoff status block):
+
+```
+---
+## AX Feedback
+{Either "No friction encountered." OR up to 3 bullet points:}
+- **{category} / {severity}:** {One sentence citing specific evidence.}
+  → {Optional: concrete improvement suggestion.}
+```
 
 ```
 ###  Path: `/personas/shared/partials/developer-operational-protocol.md`

@@ -124,7 +124,10 @@ returned by some methods, you have nothing to update.
 7. **Verify line length:** Ensure every bullet is ≤ 100 characters (excluding Markdown links).
 8. **Insert:** Place the new entry at the top of the changelog file, below any file-level heading.
 9. **Present:** Show the drafted entry for user approval before writing.
-10. **Handoff:**
+10. **AX Feedback:** Before handing off, reflect on your session experience.
+
+{{> ax-feedback}}
+11. **Handoff:**
     ```
     AGENT: Changelog Curator
     MODE: Generate
@@ -152,7 +155,10 @@ returned by some methods, you have nothing to update.
 4. **Condense:** Rewrite each entry in house style. Preserve every meaningful fact; discard padding, hedging, and implementation detail.
 5. **Verify:** Check line lengths and formatting rules.
 6. **Present:** Show the rewritten entries for user approval before overwriting.
-7. **Handoff:**
+7. **AX Feedback:** Before handing off, reflect on your session experience.
+
+{{> ax-feedback}}
+8. **Handoff:**
    ```
    AGENT: Changelog Curator
    MODE: Rewrite
