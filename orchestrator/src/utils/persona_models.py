@@ -215,9 +215,9 @@ def find_ledger_yaml_for_stage(
 
     Notes
     -----
-    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
-    numeric prefix (i.e. role numbers 1–9).  If a tenth role is ever added with
-    a two-digit prefix it will be silently skipped.
+    The glob pattern ``[0-9]*-*.yaml`` matches files with any numeric prefix
+    (e.g. ``1-name.yaml``, ``10-name.yaml``), supporting persona role numbers
+    beyond single digits.
     """
     workspace_root = Path(workspace_root)
     meta_dir = workspace_root / _META_DIR_RELATIVE
@@ -232,7 +232,9 @@ def find_ledger_yaml_for_stage(
     if target_number is None:
         return None
 
-    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
+    # Pattern [0-9]*-*.yaml matches any numeric prefix; "number" field inside
+    # each file confirms the match (glob() has no tighter alternative).
+    for yaml_file in sorted(meta_dir.glob("[0-9]*-*.yaml")):
         text = yaml_file.read_text(encoding="utf-8")
         number_str = _extract_yaml_scalar(text, "number")
         if number_str is None:
@@ -295,11 +297,10 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
     ``assignments.json`` or ``local.json`` are absent, see the **module
     docstring** at the top of ``persona_models.py``.
 
-    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
-    numeric prefix (i.e. role numbers 1–9). If a tenth role is ever added with a
-    two-digit prefix (e.g. ``10-new-role.yaml``), it will be **silently skipped**
-    by this function. Update the pattern in ``_META_DIR_RELATIVE`` glob call if
-    the total number of roles exceeds 9.
+    The glob pattern ``[0-9]*-*.yaml`` matches files with any numeric prefix
+    (e.g. ``1-name.yaml``, ``10-name.yaml``), supporting persona role numbers
+    beyond single digits. This delegates to ``find_ledger_yaml_for_stage()``,
+    which owns the actual glob call.
     """
     workspace_root = Path(workspace_root)
     meta_dir = workspace_root / _META_DIR_RELATIVE

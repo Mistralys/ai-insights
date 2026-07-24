@@ -243,6 +243,32 @@ class TestFindLedgerYamlForStage:
         result = find_ledger_yaml_for_stage("nonexistent_stage_xyz", _WORKSPACE_ROOT)
         assert result is None
 
+    def test_two_digit_prefix_file_is_found(self, tmp_path):
+        """Glob pattern must match files with two-digit numeric prefixes (e.g. 10-test.yaml)."""
+        meta_dir = tmp_path / "personas" / "ledger" / "src" / "meta"
+        meta_dir.mkdir(parents=True)
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+
+        (meta_dir / "10-test.yaml").write_text(
+            "number: 10\nrole: Test Role\nmodel_slug: gpt-4o\n",
+            encoding="utf-8",
+        )
+        manifest = {
+            "roles": [
+                {"id": "test-role", "number": 10, "name": "Test Role"},
+            ]
+        }
+        (shared_dir / "workflow-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
+        result = find_ledger_yaml_for_stage("test-role", tmp_path)
+        assert result is not None
+        path, text = result
+        assert path.name == "10-test.yaml"
+        assert "gpt-4o" in text
+
 
 # ---------------------------------------------------------------------------
 # Unit tests — _strip_inline_comment (unchanged)
