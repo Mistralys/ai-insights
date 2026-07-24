@@ -74,15 +74,19 @@ function pmDirtyDot(isDirty) {
 }
 
 /** Build <option> elements for a model dropdown.
- *  If includeDefault is true, prepends a "Default" option with value ''. */
+ *  If includeDefault is true, prepends a "Default" option with value ''.
+ *  Options are sorted alphabetically by label. */
 function pmBuildModelOptions(selectedUuid, includeDefault) {
   var opts = '';
   if (includeDefault) {
     opts += '<option value=""' + (!selectedUuid ? ' selected' : '') + '>Default</option>';
   }
   if (pmModels) {
-    for (var i = 0; i < pmModels.length; i++) {
-      var m = pmModels[i];
+    var sorted = pmModels.slice().sort(function (a, b) {
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
+    for (var i = 0; i < sorted.length; i++) {
+      var m = sorted[i];
       var sel = (m.id === selectedUuid) ? ' selected' : '';
       opts += '<option value="' + escapeHtml(m.id) + '"' + sel + '>' + escapeHtml(m.name) + '</option>';
     }

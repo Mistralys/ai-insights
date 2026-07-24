@@ -16,25 +16,23 @@ var mrOriginal  = null;
 var mrEditingId = null;
 
 /* Slug validation regex — mirrors the server-side rule. */
-var MR_SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+var MR_SLUG_REGEX = /^[A-Za-z0-9][A-Za-z0-9 .()\-]*$/;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
 /** Derive a slug from a human-readable name. */
 function mrDeriveSlug(name) {
   return (name || '')
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^A-Za-z0-9 .()\-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Validate a slug string.  Returns an error message or '' if valid. */
 function mrValidateSlug(slug) {
   if (!slug || !slug.trim()) return 'Slug is required.';
   if (slug === 'inherit') return 'The slug "inherit" is reserved.';
-  if (!MR_SLUG_REGEX.test(slug)) return 'Slug must be lowercase alphanumeric with hyphens (e.g. my-model).';
+  if (!MR_SLUG_REGEX.test(slug)) return 'Slug must start with a letter or digit and may contain letters, digits, spaces, dots, hyphens, and parentheses (e.g. Claude Opus 4.6 (anthropic)).';
   return '';
 }
 
@@ -91,10 +89,12 @@ function mrRenderRow(model) {
       '</span>' +
     '</td>' +
     '<td class="mr-row-actions">' +
-      (isDeleted
-        ? '<button class="btn btn-sm btn-secondary mr-restore-btn" data-id="' + escapeHtml(model.id) + '">Restore</button>'
-        : '<button class="btn btn-sm btn-secondary mr-edit-btn"    data-id="' + escapeHtml(model.id) + '">Edit</button>' +
-          '<button class="btn btn-sm btn-danger  mr-delete-btn"   data-id="' + escapeHtml(model.id) + '">Delete</button>'
+      (model.slug === 'inherit'
+        ? '<span class="badge badge-secondary" title="This is a built-in system entry and cannot be edited or deleted.">Built-in</span>'
+        : isDeleted
+          ? '<button class="btn btn-sm btn-secondary mr-restore-btn" data-id="' + escapeHtml(model.id) + '">Restore</button>'
+          : '<button class="btn btn-sm btn-secondary mr-edit-btn"    data-id="' + escapeHtml(model.id) + '">Edit</button>' +
+            '<button class="btn btn-sm btn-danger  mr-delete-btn"   data-id="' + escapeHtml(model.id) + '">Delete</button>'
       ) +
     '</td>' +
   '</tr>';
@@ -117,7 +117,7 @@ function mrRenderEditRow(model) {
     '</td>' +
     '<td>' +
       mrDirtyDot(slugDirty || isNew) +
-      '<input type="text" class="form-control mr-field-slug' + (slugError ? ' mr-field-error' : '') + '" value="' + escapeHtml(model.slug) + '" placeholder="model-slug" data-id="' + escapeHtml(model.id) + '">' +
+      '<input type="text" class="form-control mr-field-slug' + (slugError ? ' mr-field-error' : '') + '" value="' + escapeHtml(model.slug) + '" placeholder="e.g. Claude Opus 4.6 (anthropic)" data-id="' + escapeHtml(model.id) + '">'+
       (slugError ? '<p class="form-note mr-error-text">' + escapeHtml(slugError) + '</p>' : '') +
     '</td>' +
     '<td>' +
@@ -164,12 +164,15 @@ function mrBuildTabHtml() {
     ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
     : false;
 
-  /* Table rows */
+  /* Table rows — sorted alphabetically by label for display (mrModels order unchanged). */
   var rows = '';
   if (!mrModels || mrModels.length === 0) {
     rows = '<tr><td colspan="4" style="text-align:center;color:var(--color-text-muted);padding:24px;">No models registered. Add one below or click "Load Defaults".</td></tr>';
   } else {
-    rows = mrModels.map(function (m) {
+    var displayModels = mrModels.slice().sort(function (a, b) {
+      return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
+    rows = displayModels.map(function (m) {
       return (mrEditingId === m.id) ? mrRenderEditRow(m) : mrRenderRow(m);
     }).join('');
   }
@@ -178,9 +181,9 @@ function mrBuildTabHtml() {
     '<div class="table-wrapper" style="margin-bottom:20px;">' +
       '<table id="mr-table">' +
         '<thead><tr>' +
-          '<th>Name</th>' +
-          '<th>Slug</th>' +
-          '<th>cc_model</th>' +
+          '<th>Label</th>' +
+          '<th>VS Code</th>' +
+          '<th>Claude Code</th>' +
           '<th style="width:140px;"></th>' +
         '</tr></thead>' +
         '<tbody id="mr-tbody">' +
@@ -195,16 +198,16 @@ function mrBuildTabHtml() {
       '<h3 class="mr-section-title">Add Model</h3>' +
       '<div class="mr-add-row">' +
         '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-name">Name</label>' +
+          '<label class="form-label" for="mr-add-name">Label</label>' +
           '<input type="text" id="mr-add-name" class="form-control" placeholder="e.g. Claude Opus 4">' +
         '</div>' +
         '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-slug">Slug</label>' +
-          '<input type="text" id="mr-add-slug" class="form-control" placeholder="claude-opus-4">' +
+          '<label class="form-label" for="mr-add-slug">VS Code</label>' +
+          '<input type="text" id="mr-add-slug" class="form-control" placeholder="e.g. Claude Opus 4.6 (anthropic)">' +
           '<p id="mr-add-slug-error" class="form-note mr-error-text" style="display:none;"></p>' +
         '</div>' +
         '<div class="form-group mr-add-field">' +
-          '<label class="form-label" for="mr-add-cc">cc_model</label>' +
+          '<label class="form-label" for="mr-add-cc">Claude Code</label>' +
           '<input type="text" id="mr-add-cc" class="form-control" value="inherit" placeholder="inherit">' +
           '<p class="form-note">Claude Code model override. Use <code>inherit</code> to defer to your Claude Code model setting.</p>' +
         '</div>' +
@@ -292,6 +295,7 @@ function mrWireEvents() {
       if (deleteBtn) {
         var delId = deleteBtn.getAttribute('data-id');
         var delModel = mrModels.find(function (m) { return m.id === delId; });
+        if (delModel && delModel.slug === 'inherit') return; // sentinel is read-only
         if (delModel) delModel._deleted = true;
         if (mrEditingId === delId) mrEditingId = null;
         mrRefreshTab();

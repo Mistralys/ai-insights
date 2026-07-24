@@ -142,7 +142,7 @@ const SaveModelsBodySchema = z.array(
   z.object({
     id: z.string().uuid().optional(),
     name: z.string().min(1),
-    slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/),
+    slug: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 .()\-]*$/),
     cc_model: z.string().min(1).default('inherit'),
   })
 );

@@ -162,8 +162,12 @@ describe('model-registry.ts', () => {
       expect(result.success).toBe(false);
     });
 
-    it('accepts slug matching /^[a-z0-9]+(-[a-z0-9]+)*$/', () => {
-      const validSlugs = ['mymodel', 'my-model', 'claude-opus-4-6', 'abc123', 'a1b2-c3d4'];
+    it('accepts slug matching /^[A-Za-z0-9][A-Za-z0-9 .()-]*$/', () => {
+      const validSlugs = [
+        'mymodel', 'my-model', 'claude-opus-4-6', 'abc123', 'a1b2-c3d4',
+        'Claude Opus 4.6 (anthropic)', 'Claude Sonnet 4.6 (copilot)',
+        'Gemini 3.6 Flash (Preview) (copilot)', 'My-Model', 'my model',
+      ];
       for (const slug of validSlugs) {
         const result = ModelEntrySchema.safeParse({
           id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
@@ -176,7 +180,7 @@ describe('model-registry.ts', () => {
     });
 
     it('rejects invalid slugs', () => {
-      const invalidSlugs = ['My-Model', 'my_model', '-my-model', 'my-model-', 'my--model', 'my model'];
+      const invalidSlugs = ['my_model', '-my-model', ' my-model', 'my/model', '../escape'];
       for (const slug of invalidSlugs) {
         const result = ModelEntrySchema.safeParse({
           id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
