@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v2.8.1 - **WIP UNRELEASED**
+- MCP: Added the new `ledger_ping` tool as a lightweight health check.
+- Personas: PM uses the ping tool instead of calling help.
+
 ## v2.8.0 - Model Settings & GUI Improvements
 > mcp v2.7.0 · orchestrator v1.3.2 · personas v3.30.0
 
