@@ -457,6 +457,8 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 | MCP Tool | 1-Plan | 2-PM | 3-Dev | 4-QA | 5-SecAudit | 6-Rev | 7-RelEng | 8-Doc | 9-Syn |
 |---|---|---|---|---|---|---|---|---|---|
+| `ledger_get_repository_context` | **✓** | — | — | — | — | — | — | — | — |
+| `ledger_search_insights` | **✓** | — | **✓** | **✓** | **✓** | **✓** | — | — | — |
 | `ledger_initialize_project` | — | **✓** | — | — | — | — | — | — | — |
 | `ledger_create_work_package` | — | **✓** | — | — | — | — | — | — | — |
 | `ledger_get_next_action` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
@@ -475,7 +477,7 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 ### Rationale
 
-**1 — Planner:** Has no MCP tools. The Planner produces a plan document before any ledger exists. It operates entirely on the filesystem and has no ledger to interact with.
+**1 — Planner:** Uses `ledger_get_repository_context` to retrieve the repository's strategic vision and prior project history, and `ledger_search_insights` to query the knowledge base for relevant patterns. These are read-only, pre-planning tools — the Planner does not write to the ledger.
 
 **2 — Project Manager:** Initializes the ledger (`ledger_initialize_project`) and creates all work packages (`ledger_create_work_package`). Uses `ledger_get_project_status` to verify the ledger after creation. Uses `ledger_get_handoff_status` to compute the handoff block — required because PM does not use `ledger_get_next_action` (it has no pipeline loop) and therefore cannot rely on the embedded `handoff_status` in WAIT responses.
 
