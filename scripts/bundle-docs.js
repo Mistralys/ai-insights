@@ -21,8 +21,9 @@
 import fs from 'fs';
 import path from 'path';
 
-const ROOT      = path.resolve(import.meta.dirname, '..');
-const BUILD_DIR = path.join(ROOT, 'build');
+const ROOT        = path.resolve(import.meta.dirname, '..');
+const BUILD_DIR   = path.join(ROOT, 'build');
+const TEMPLATES   = path.join(ROOT, 'scripts', 'templates');
 
 // NotebookLM sources
 const MCP_README            = path.join(ROOT, 'mcp-server', 'README.md');
@@ -130,20 +131,17 @@ function buildNotebookLM() {
 
   const parts = [];
 
-  // Preamble
-  parts.push([
-    '# AI Insights \u2014 Combined Reference for NotebookLM',
-    '',
-    `> **Generated:** ${new Date().toISOString().slice(0, 10)}`,
-    '> ',
-    '> This document bundles the core documentation from two sub-projects in the',
-    '> **AI Insights** workspace so that NotebookLM can reason about them in a',
-    '> single source.',
-    '>',
-    '> **Contents:**',
-    '> 1. Project Ledger MCP Server \u2014 README + Project Manifest',
-    '> 2. Ledger Personas Build System \u2014 README + Project Manifest',
-  ].join('\n'));
+  // Preamble — static content from template; date injected after heading
+  const headerTpl = fs.readFileSync(path.join(TEMPLATES, 'notebooklm-bundle-header.md'), 'utf-8');
+  const now       = new Date().toISOString().slice(0, 10);
+  parts.push(
+    headerTpl
+      .replace(
+        /^(# AI Insights — Combined Reference for NotebookLM)\n/,
+        `$1\n\n> **Generated:** ${now}\n> \n`,
+      )
+      .trimEnd(),
+  );
 
   // MCP Server README
   console.log(`    ${c.cyan}+${c.reset} MCP Server README`);
