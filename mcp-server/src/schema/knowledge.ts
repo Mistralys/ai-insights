@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SLUG_REGEX as _SLUG_REGEX } from './common.js';
 
 /**
  * Insight scope enum.
@@ -13,18 +14,11 @@ export const InsightScope = z.enum(['global', 'repository']);
 export type InsightScope = z.infer<typeof InsightScope>;
 
 /**
- * Regex pattern for valid slugs (repository names, plan slugs, etc.).
+ * Re-exported from `schema/common.ts` for backward compatibility.
  *
- * Accepts slugs that start with an alphanumeric character and contain only
- * letters, digits, underscores, and hyphens. Rejects anything with `/`, `\`,
- * `.`, spaces, or other characters that could escape the `.knowledge/` directory.
- *
- * This pattern is the single source of truth — used by the Zod schema
- * (InsightSchema.repository_name, InsightSchema.origin_plan) and the
- * storage-layer guard (_validateSlug).
- * Update this constant to change the slug policy in both places at once.
+ * @deprecated Import directly from `../schema/common.js` in new code.
  */
-export const SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+export const SLUG_REGEX = _SLUG_REGEX;
 
 /**
  * Insight schema — a single reusable knowledge record stored in the knowledge base.

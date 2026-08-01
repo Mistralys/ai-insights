@@ -549,7 +549,7 @@ var API = (function () {
     /**
      * Create a new repository entry in the registry.
      *
-     * @param {object} data - Repository fields: id, label, folder_names, vision.
+     * @param {object} data - Repository fields: id, label, folder_names, vision, store_id.
      * @returns {Promise<object>} Created repository from `POST /api/repos`.
      * @throws {{ code: string, message: string }} On HTTP error responses.
      */
@@ -579,6 +579,36 @@ var API = (function () {
      */
     deleteRepo: function (repoId) {
       return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    // -- Stores --------------------------------------------------------
+
+    /**
+     * Fetch the list of configured stores with project and repository counts.
+     *
+     * In single-store (legacy) mode the server returns a single entry
+     * representing the default ledger root.
+     *
+     * @returns {Promise<object[]>} Store entries from `GET /api/stores`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getStores: function () {
+      return request('GET', '/stores');
+    },
+
+    /**
+     * Fetch cross-store repository registry conflicts.
+     *
+     * Returns repositories registered in more than one store, with per-store
+     * entries and a winner indicator. The winner is determined by store-order
+     * priority (first configured store wins). Returns an empty array in
+     * single-store mode.
+     *
+     * @returns {Promise<object[]>} Conflict records from `GET /api/stores/conflicts`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getStoreConflicts: function () {
+      return request('GET', '/stores/conflicts');
     },
 
     // -- Orchestrator --------------------------------------------------

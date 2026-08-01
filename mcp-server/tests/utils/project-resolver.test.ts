@@ -1,5 +1,13 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { setStoreContext } from '../../src/storage/store-context.js';
+import { StoreRouter } from '../../src/storage/store-router.js';
+import { MultiStoreManager } from '../../src/storage/multi-store-manager.js';
+import { now } from '../../src/utils/timestamp.js';
+import type { StoresConfig } from '../../src/schema/store-config.js';
 import {
   resolveProjectPath,
   formatCandidateList,
@@ -144,5 +152,164 @@ describe('formatCandidateList', () => {
     // The unlikely line should be a plain "  - path (slug)" with no time label
     const unlikelyLine = result.split('\n').find(l => l.includes('2026-01-01-old'))!;
     expect(unlikelyLine).not.toContain('last active');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-003: resolveProjectPath — multi-store mode
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeStoreConfig(stores: Array<{ id: string; path: string; label: string }>): StoresConfig {
+  return {
+    stores: stores.map((s) => ({ id: s.id, path: s.path, label: s.label })),
+    default_store: stores[0]!.id,
+  };
+}
+
+/** Write a minimal .meta.json under {storePath}/{repoName}/{slug}/ */
+async function writeMetaForResolver(
+  storePath: string,
+  repoName: string,
+  slug: string,
+  planPath: string,
+  status = 'IN_PROGRESS'
+): Promise<void> {
+  const projectDir = join(storePath, repoName, slug);
+  await mkdir(projectDir, { recursive: true });
+  const meta = {
+    slug,
+    plan_path: planPath,
+    status,
+    date_created: now(),
+    last_updated: now(),
+  };
+  await writeFile(join(projectDir, '.meta.json'), JSON.stringify(meta));
+}
+
+function restoreLegacyContext(): void {
+  const legacyRouter = new StoreRouter(null);
+  setStoreContext(legacyRouter, new MultiStoreManager(legacyRouter));
+}
+
+describe('resolveProjectPath — multi-store mode', () => {
+  let tempDir: string;
+  let storeAPath: string;
+  let storeBPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'resolver-multi-store-'));
+    storeAPath = join(tempDir, 'store-a');
+    storeBPath = join(tempDir, 'store-b');
+    await mkdir(storeAPath, { recursive: true });
+    await mkdir(storeBPath, { recursive: true });
+  });
+
+  afterEach(async () => {
+    restoreLegacyContext();
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function initTwoStoreContext(): void {
+    const config = makeStoreConfig([
+      { id: 'store-a', path: storeAPath, label: 'Store A' },
+      { id: 'store-b', path: storeBPath, label: 'Store B' },
+    ]);
+    const router = new StoreRouter(config);
+    setStoreContext(router, new MultiStoreManager(router));
+  }
+
+  it('detects a project in a non-default store when multi-store mode is active', async () => {
+    // Project exists only in store-b (not the default store-a)
+    const repoRoot = join(tempDir, 'repo-b');
+    const planPath = join(repoRoot, 'docs', 'agents', 'plans', '2026-05-01-proj-b');
+    await writeMetaForResolver(storeBPath, 'repo-b', '2026-05-01-proj-b', planPath);
+
+    initTwoStoreContext();
+
+    const result = await resolveProjectPath({ cwd_path: repoRoot });
+    expect(result).toBe(planPath);
+  });
+
+  it('detects a project in the default store when multi-store mode is active', async () => {
+    // Project exists in store-a (the default store)
+    const repoRoot = join(tempDir, 'repo-a');
+    const planPath = join(repoRoot, 'docs', 'agents', 'plans', '2026-05-02-proj-a');
+    await writeMetaForResolver(storeAPath, 'repo-a', '2026-05-02-proj-a', planPath);
+
+    initTwoStoreContext();
+
+    const result = await resolveProjectPath({ cwd_path: repoRoot });
+    expect(result).toBe(planPath);
+  });
+
+  it('throws with MULTI_STORE_AMBIGUOUS when cwd_path matches projects in multiple stores', async () => {
+    const sharedRoot = join(tempDir, 'shared-repo');
+    const planPathA = join(sharedRoot, 'docs', 'agents', 'plans', '2026-06-01-in-a');
+    const planPathB = join(sharedRoot, 'docs', 'agents', 'plans', '2026-06-02-in-b');
+
+    await writeMetaForResolver(storeAPath, 'shared-repo', '2026-06-01-in-a', planPathA);
+    await writeMetaForResolver(storeBPath, 'shared-repo', '2026-06-02-in-b', planPathB);
+
+    initTwoStoreContext();
+
+    await expect(
+      resolveProjectPath({ cwd_path: sharedRoot })
+    ).rejects.toThrow('Project found in multiple stores');
+  });
+
+  it('MULTI_STORE_AMBIGUOUS error includes store IDs of all matching candidates', async () => {
+    const sharedRoot = join(tempDir, 'ambiguous-repo');
+    const planPathA = join(sharedRoot, 'docs', 'agents', 'plans', '2026-07-01-in-a');
+    const planPathB = join(sharedRoot, 'docs', 'agents', 'plans', '2026-07-02-in-b');
+
+    await writeMetaForResolver(storeAPath, 'ambiguous-repo', '2026-07-01-in-a', planPathA);
+    await writeMetaForResolver(storeBPath, 'ambiguous-repo', '2026-07-02-in-b', planPathB);
+
+    initTwoStoreContext();
+
+    let thrownError: Error | undefined;
+    try {
+      await resolveProjectPath({ cwd_path: sharedRoot });
+    } catch (err) {
+      thrownError = err as Error;
+    }
+
+    expect(thrownError).toBeDefined();
+    expect(thrownError!.message).toContain('store-a');
+    expect(thrownError!.message).toContain('store-b');
+    expect(thrownError!.message).toContain('project_path');
+  });
+
+  it('throws NOT_FOUND error when cwd_path matches no store in multi-store mode', async () => {
+    initTwoStoreContext();
+
+    await expect(
+      resolveProjectPath({ cwd_path: join(tempDir, 'non-existent-repo') })
+    ).rejects.toThrow('No project found for cwd_path');
+  });
+
+  it('uses LedgerStore.detectProjectByCwd directly (single-store fallback) when store context is not initialized', async () => {
+    // restoreLegacyContext() sets StoreRouter(null), making isMultiStoreMode() false.
+    // The combined guard (isStoreContextInitialized() && isMultiStoreMode()) evaluates to
+    // false, so resolveProjectPath() falls through to the single-store LedgerStore path.
+    const spy = vi.spyOn(LedgerStore, 'detectProjectByCwd').mockResolvedValueOnce({
+      status: 'FOUND',
+      meta: {
+        plan_path: '/legacy/docs/agents/plans/2026-01-01-legacy',
+        slug: '2026-01-01-legacy',
+        status: 'IN_PROGRESS',
+        date_created: '2026-01-01T00:00:00Z',
+        last_updated: '2026-01-01T00:00:00Z',
+      },
+    } as any);
+
+    // Restore legacy context so isMultiStoreMode() = false → single-store path is taken
+    restoreLegacyContext();
+
+    const result = await resolveProjectPath({ cwd_path: '/legacy' });
+    expect(result).toBe('/legacy/docs/agents/plans/2026-01-01-legacy');
+    // Should be called with just cwdPath (single-store path, no store prefix)
+    expect(spy).toHaveBeenCalledWith('/legacy');
   });
 });

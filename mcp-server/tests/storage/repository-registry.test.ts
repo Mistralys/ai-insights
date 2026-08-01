@@ -315,4 +315,94 @@ describe('repository-registry storage module', () => {
       expect(entry.folder_names).toEqual(['original']);
     });
   });
+
+  // ─── Multi-store isolation (WP-002) ───────────────────────────────────
+  //
+  // Each store root owns its own .repositories.json. The functions use
+  // the provided storePath to derive the registry file path, so two
+  // independent stores never share registry data.
+
+  describe('per-store registry isolation', () => {
+    let storePathA: string;
+    let storePathB: string;
+
+    beforeEach(async () => {
+      storePathA = await mkdtemp(join(tmpdir(), 'store-a-'));
+      storePathB = await mkdtemp(join(tmpdir(), 'store-b-'));
+    });
+
+    afterEach(async () => {
+      await rm(storePathA, { recursive: true, force: true });
+      await rm(storePathB, { recursive: true, force: true });
+    });
+
+    it('loadRegistry reads from the provided storePath, not from a sibling directory', async () => {
+      const entryA = makeEntry({ id: 'repo-in-store-a', folder_names: ['store-a-folder'] });
+      await saveRegistry(storePathA, { repositories: [entryA] });
+
+      const resultA = await loadRegistry(storePathA);
+      const resultB = await loadRegistry(storePathB);
+
+      expect(resultA.repositories).toHaveLength(1);
+      expect(resultA.repositories[0].id).toBe('repo-in-store-a');
+      // Store B has no registry — returns empty
+      expect(resultB.repositories).toHaveLength(0);
+    });
+
+    it('saveRegistry writes only to the specified storePath without affecting another storePath', async () => {
+      const entryA = makeEntry({ id: 'repo-a', folder_names: ['a'] });
+      const entryB = makeEntry({ id: 'repo-b', folder_names: ['b'] });
+
+      await saveRegistry(storePathA, { repositories: [entryA] });
+      await saveRegistry(storePathB, { repositories: [entryB] });
+
+      const loadedA = await loadRegistry(storePathA);
+      const loadedB = await loadRegistry(storePathB);
+
+      // Each store has only its own entry
+      expect(loadedA.repositories).toHaveLength(1);
+      expect(loadedA.repositories[0].id).toBe('repo-a');
+      expect(loadedB.repositories).toHaveLength(1);
+      expect(loadedB.repositories[0].id).toBe('repo-b');
+    });
+
+    it('writing to storePathA does not overwrite or corrupt storePathB registry', async () => {
+      const entryB = makeEntry({ id: 'stable-b', folder_names: ['b'] });
+      await saveRegistry(storePathB, { repositories: [entryB] });
+
+      // Multiple writes to store A
+      for (let i = 0; i < 3; i++) {
+        const entry = makeEntry({ id: `repo-a-v${i}`, folder_names: [`a-v${i}`] });
+        await saveRegistry(storePathA, { repositories: [entry] });
+      }
+
+      // Store B must be untouched
+      const loadedB = await loadRegistry(storePathB);
+      expect(loadedB.repositories).toHaveLength(1);
+      expect(loadedB.repositories[0].id).toBe('stable-b');
+    });
+
+    it('both stores can hold separate registries that round-trip independently', async () => {
+      const configA: RepositoryRegistry = {
+        repositories: [
+          makeEntry({ id: 'home-repo-1', folder_names: ['home1'] }),
+          makeEntry({ id: 'home-repo-2', folder_names: ['home2'] }),
+        ],
+      };
+      const configB: RepositoryRegistry = {
+        repositories: [
+          makeEntry({ id: 'work-repo-1', folder_names: ['work1'] }),
+        ],
+      };
+
+      await saveRegistry(storePathA, configA);
+      await saveRegistry(storePathB, configB);
+
+      const loadedA = await loadRegistry(storePathA);
+      const loadedB = await loadRegistry(storePathB);
+
+      expect(loadedA.repositories.map((r) => r.id)).toEqual(['home-repo-1', 'home-repo-2']);
+      expect(loadedB.repositories.map((r) => r.id)).toEqual(['work-repo-1']);
+    });
+  });
 });

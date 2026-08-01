@@ -5,12 +5,18 @@ import { resolveLedgerRoot } from '../utils/ledger-root.js';
 import { InsightScope, SLUG_REGEX } from '../schema/knowledge.js';
 import { now } from '../utils/timestamp.js';
 import type { Insight } from '../schema/knowledge.js';
+import {
+  getStoreRouter,
+  isStoreContextInitialized,
+} from '../storage/store-context.js';
 
 /**
  * Formats a numeric insight ID as a human-readable KN-NNNN string.
+ * In multi-store mode, a store prefix is prepended: {storeId}:KN-NNNN.
  */
-function formatInsightId(id: number): string {
-  return `KN-${String(id).padStart(4, '0')}`;
+function formatInsightId(id: number, storeId?: string): string {
+  const base = `KN-${String(id).padStart(4, '0')}`;
+  return storeId !== undefined ? `${storeId}:${base}` : base;
 }
 
 // ─── Tool: ledger_add_insight ─────────────────────────────────────────────
@@ -54,9 +60,31 @@ const AddInsightSchema = z.object({
 });
 
 async function addInsight(args: z.infer<typeof AddInsightSchema>) {
-  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
-
+  // Resolve target store and write inside a single try block so routing
+  // errors (e.g., unregistered repo) are surfaced as isError responses.
   try {
+    let storePath: string;
+    let storeId: string | undefined;
+    if (isStoreContextInitialized()) {
+      if (args.scope === 'global') {
+        // Global insights go to the first (default) store; fall back to ledger root on empty config
+        const stores = getStoreRouter().getAllStores();
+        storePath = stores[0]?.path ?? resolveLedgerRoot();
+        storeId = stores[0]?.id;
+      } else {
+        const resolved = await getStoreRouter().resolveStoreForRepo(args.repository_name!);
+        if (resolved === null) {
+          throw new Error(`Repository "${args.repository_name}" is not registered in any store`);
+        }
+        storePath = resolved.storePath;
+        storeId = resolved.storeId;
+      }
+    } else {
+      storePath = resolveLedgerRoot();
+    }
+
+    const manager = new KnowledgeStoreManager(storePath);
+
     const insight = await manager.addInsight({
       scope: args.scope,
       repository_name: args.repository_name,
@@ -74,7 +102,7 @@ async function addInsight(args: z.infer<typeof AddInsightSchema>) {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id) }, null, 2),
+          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id, storeId) }, null, 2),
         },
       ],
     };
@@ -119,14 +147,44 @@ const SearchInsightsSchema = z.object({
 });
 
 async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
-  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
-
   try {
-    let results = await manager.searchInsights(args.query, {
-      scope: args.scope,
-      category: args.category,
-      repository_name: args.repository_name,
-    });
+    let results: Insight[];
+    let storeIdByInsightId: Map<number, string> | undefined;
+
+    if (isStoreContextInitialized()) {
+      // Multi-store: iterate stores directly to capture the owning store per insight
+      const stores = getStoreRouter().getAllStores();
+      const seen = new Set<number>();
+      const storeMap = new Map<number, string>();
+      results = [];
+
+      for (const store of stores) {
+        const manager = new KnowledgeStoreManager(store.path);
+        const storeResults = await manager.searchInsights(args.query, {
+          scope: args.scope,
+          category: args.category,
+          repository_name: args.repository_name,
+        });
+        for (const insight of storeResults) {
+          // Tiebreak: first-store-wins when the same numeric id exists in multiple stores.
+          // Store order in StoresConfig is deterministic (config array order).
+          if (seen.has(insight.id)) continue;
+          seen.add(insight.id);
+          storeMap.set(insight.id, store.id);
+          results.push(insight);
+        }
+      }
+
+      storeIdByInsightId = storeMap;
+    } else {
+      // Legacy: single store
+      const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+      results = await manager.searchInsights(args.query, {
+        scope: args.scope,
+        category: args.category,
+        repository_name: args.repository_name,
+      });
+    }
 
     // Apply tags filter post-search (searchInsights supports scope/category/repository_name only)
     if (args.tags && args.tags.length > 0) {
@@ -142,7 +200,7 @@ async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
 
     const formatted = results.map((insight) => ({
       ...insight,
-      formatted_id: formatInsightId(insight.id),
+      formatted_id: formatInsightId(insight.id, storeIdByInsightId?.get(insight.id)),
     }));
 
     return {
@@ -195,21 +253,57 @@ const ListInsightsSchema = z.object({
 });
 
 async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
-  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
-
   try {
-    const results = await manager.listInsights({
-      scope: args.scope,
-      category: args.category,
-      tags: args.tags,
-      repository_name: args.repository_name,
-      limit: args.limit,
-      offset: args.offset,
-    });
+    let results: Insight[];
+    let storeIdByInsightId: Map<number, string> | undefined;
+
+    if (isStoreContextInitialized()) {
+      // Multi-store: iterate stores directly to capture the owning store per insight
+      const stores = getStoreRouter().getAllStores();
+      const seen = new Set<number>();
+      const storeMap = new Map<number, string>();
+      results = [];
+
+      for (const store of stores) {
+        const manager = new KnowledgeStoreManager(store.path);
+        const storeResults = await manager.listInsights({
+          scope: args.scope,
+          category: args.category,
+          tags: args.tags,
+          repository_name: args.repository_name,
+        });
+        for (const insight of storeResults) {
+          // Tiebreak: first-store-wins when the same numeric id exists in multiple stores.
+          if (seen.has(insight.id)) continue;
+          seen.add(insight.id);
+          storeMap.set(insight.id, store.id);
+          results.push(insight);
+        }
+      }
+
+      // Apply pagination globally after merge (canonical pattern from WP-009).
+      const start = args.offset ?? 0;
+      results = args.limit !== undefined
+        ? results.slice(start, start + args.limit)
+        : results.slice(start);
+
+      storeIdByInsightId = storeMap;
+    } else {
+      // Legacy: single store
+      const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+      results = await manager.listInsights({
+        scope: args.scope,
+        category: args.category,
+        tags: args.tags,
+        repository_name: args.repository_name,
+        limit: args.limit,
+        offset: args.offset,
+      });
+    }
 
     const formatted = results.map((insight) => ({
       ...insight,
-      formatted_id: formatInsightId(insight.id),
+      formatted_id: formatInsightId(insight.id, storeIdByInsightId?.get(insight.id)),
     }));
 
     return {
@@ -270,8 +364,6 @@ const UpdateInsightSchema = z.object({
 });
 
 async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
-  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
-
   const updates: Partial<
     Pick<
       Insight,
@@ -287,16 +379,47 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
   if (args.superseded_by !== undefined) updates.superseded_by = args.superseded_by;
 
   try {
-    const insight = await manager.updateInsight(args.id, updates, {
-      scope: args.scope,
-      repository_name: args.repository_name,
-    });
+    let insight: Insight | undefined;
+    let insightStoreId: string | undefined;
+
+    if (isStoreContextInitialized()) {
+      // Multi-store: iterate stores in order and apply to the first store that has the insight
+      const stores = getStoreRouter().getAllStores();
+
+      for (const store of stores) {
+        const manager = new KnowledgeStoreManager(store.path);
+        try {
+          insight = await manager.updateInsight(args.id, updates, {
+            scope: args.scope,
+            repository_name: args.repository_name,
+          });
+          insightStoreId = store.id;
+          break;
+        } catch (err) {
+          if ((err as Error).message.includes('not found')) {
+            continue;
+          }
+          throw err; // Re-throw non-"not found" errors immediately
+        }
+      }
+
+      if (insight === undefined) {
+        throw new Error(`Insight with id ${args.id} not found`);
+      }
+    } else {
+      // Legacy: single store
+      const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+      insight = await manager.updateInsight(args.id, updates, {
+        scope: args.scope,
+        repository_name: args.repository_name,
+      });
+    }
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id) }, null, 2),
+          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id, insightStoreId) }, null, 2),
         },
       ],
     };
@@ -339,20 +462,50 @@ const DeleteInsightSchema = z.object({
 });
 
 async function deleteInsight(args: z.infer<typeof DeleteInsightSchema>) {
-  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
-
   try {
-    await manager.deleteInsight(args.id, {
-      scope: args.scope,
-      repository_name: args.repository_name,
-    });
+    let deletedStoreId: string | undefined;
+
+    if (isStoreContextInitialized()) {
+      // Multi-store: iterate stores in order and delete from the first store that has the insight
+      const stores = getStoreRouter().getAllStores();
+      let found = false;
+
+      for (const store of stores) {
+        const manager = new KnowledgeStoreManager(store.path);
+        try {
+          await manager.deleteInsight(args.id, {
+            scope: args.scope,
+            repository_name: args.repository_name,
+          });
+          deletedStoreId = store.id;
+          found = true;
+          break;
+        } catch (err) {
+          if ((err as Error).message.includes('not found')) {
+            continue;
+          }
+          throw err; // Re-throw non-"not found" errors immediately
+        }
+      }
+
+      if (!found) {
+        throw new Error(`Insight with id ${args.id} not found`);
+      }
+    } else {
+      // Legacy: single store
+      const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+      await manager.deleteInsight(args.id, {
+        scope: args.scope,
+        repository_name: args.repository_name,
+      });
+    }
 
     return {
       content: [
         {
           type: 'text' as const,
           text: JSON.stringify(
-            { id: args.id, formatted_id: formatInsightId(args.id), deleted: true },
+            { id: args.id, formatted_id: formatInsightId(args.id, deletedStoreId), deleted: true },
             null,
             2
           ),

@@ -17,6 +17,10 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
+import { StoreRouter } from '../src/storage/store-router.js';
+import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
+import { setStoreContext } from '../src/storage/store-context.js';
 import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
@@ -55,6 +59,8 @@ import {
   handleOrchestratorDelete,
   handleGetRunStatus,
   handleGetRunMetadata,
+  handleGetStores,
+  handleGetStoreConflicts,
   ApiError,
 } from './api.js';
 import {
@@ -70,6 +76,7 @@ import {
   handleCreateRepo,
   handleUpdateRepo,
   handleDeleteRepo,
+  type RepoListItem,
 } from './api-repos.js';
 import {
   handleGetModels,
@@ -543,6 +550,7 @@ function buildOrchestratorRoutes(
  *   GET    /api/repos/:repoId
  *   DELETE /api/repos/:repoId
  */
+
 function buildRepoRoutes(ledgerRoot: string): Route[] {
   return [
     // POST /api/repos — 201 Created
@@ -552,7 +560,8 @@ function buildRepoRoutes(ledgerRoot: string): Route[] {
     { method: 'PUT', path: /^\/api\/repos\/(?<repoId>[^/]+)$/,
       handler: async (body, groups) =>
         handleUpdateRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
-    // GET /api/repos
+    // GET /api/repos — always delegates to handleListRepos() which handles
+    //   both multi-store (tagged results) and single-store modes.
     { method: 'GET', path: '/api/repos', noBody: true,
       handler: async (_, _groups, query) =>
         handleListRepos(ledgerRoot, query?.get('include_undeclared') === 'true') },
@@ -669,6 +678,28 @@ function buildModelRoutes(): Route[] {
     // GET /api/personas
     { method: 'GET', path: '/api/personas', noBody: true,
       handler: async () => handleGetPersonas() },
+  ];
+}
+
+/**
+ * Store routes (Section B body-free only — both routes are read-only).
+ *
+ * Section B:
+ *   GET /api/stores
+ *   GET /api/stores/conflicts
+ *
+ * Both routes are parameterless: `handleGetStores` accepts the `ledgerRoot`
+ * for legacy single-store fallback; `handleGetStoreConflicts` delegates
+ * entirely to `MultiStoreManager` when the store context is initialised.
+ */
+function buildStoreRoutes(ledgerRoot: string): Route[] {
+  return [
+    // GET /api/stores/conflicts — must precede the /api/stores catch-all
+    { method: 'GET', path: '/api/stores/conflicts', noBody: true,
+      handler: async () => handleGetStoreConflicts() },
+    // GET /api/stores
+    { method: 'GET', path: '/api/stores', noBody: true,
+      handler: async () => handleGetStores(ledgerRoot) },
   ];
 }
 
@@ -1177,6 +1208,7 @@ function buildProjectRoutes(
  *   - {@link buildRepoRoutes}         — `/api/repos/*`
  *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
  *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
+ *   - {@link buildStoreRoutes}        — `/api/stores`, `/api/stores/conflicts`
  *   - {@link buildProjectRoutes}      — `/api/projects/*`
  *
  * The composed array preserves the Section A/B/C ordering invariant:
@@ -1211,6 +1243,7 @@ export function buildRoutes(
     ...buildRepoRoutes(ledgerRoot),
     ...buildKnowledgeRoutes(ledgerRoot),
     ...buildModelRoutes(),
+    ...buildStoreRoutes(ledgerRoot),
     ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
   ];
 }
@@ -1344,7 +1377,25 @@ export async function handleRequest(
 async function main(): Promise<void> {
   const port = getPort();
   const ledgerRoot = resolveLedgerRoot();
-  const configPath = join(ledgerRoot, 'gui-config.json');
+
+  // Load multi-store configuration (returns null in single-store / legacy mode).
+  // Mirror the same initialization sequence as index.ts.
+  const storeConfig = await loadStoresConfig();
+  const storeRouter = new StoreRouter(storeConfig);
+  const multiStoreManager = new MultiStoreManager(storeRouter);
+  setStoreContext(storeRouter, multiStoreManager);
+
+  if (storeConfig !== null) {
+    process.stdout.write(
+      `[gui-server] Multi-store mode: ${storeConfig.stores.length} store(s) configured.\n`
+    );
+  } else {
+    process.stdout.write('[gui-server] Single-store mode (no stores.json found).\n');
+  }
+
+  // Resolve gui-config.json: ~/.ai-insights/gui-config.json in multi-store mode,
+  // join(ledgerRoot, 'gui-config.json') in single-store mode.
+  const configPath = resolveGuiConfigPath(storeConfig, ledgerRoot);
 
   // Populate config cache from disk (defaults used if file missing)
   await readConfigFromDisk(configPath);
