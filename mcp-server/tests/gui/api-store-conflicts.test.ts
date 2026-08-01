@@ -24,7 +24,7 @@ vi.mock('../../src/storage/store-context.js', () => ({
   getMultiStoreManager: vi.fn(),
 }));
 
-import { handleGetStoreConflicts } from '../../gui/api.js';
+import { handleGetStoreConflicts } from '../../gui/api-stores.js';
 import {
   isStoreContextInitialized,
   getMultiStoreManager,

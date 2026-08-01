@@ -34,13 +34,21 @@ interface StoreRef {
  *
  * On construction, every configured store path that does not yet exist on
  * disk is created via `mkdirSync` with `{ recursive: true }`. Paths that
- * already exist are left untouched.
+ * already exist are left untouched. Pass `{ skipDirCreate: true }` to
+ * suppress this behaviour — useful during hot-reload scenarios where a store
+ * path may be temporarily unavailable (e.g. an unmounted external drive).
  */
 export class StoreRouter {
   private readonly config: StoresConfig | null;
   private readonly stores: StoreRef[];
 
-  constructor(config: StoresConfig | null) {
+  /**
+   * @param config - Parsed `stores.json` config, or `null` for legacy single-store mode.
+   * @param options.skipDirCreate - When `true`, skips the `mkdirSync` loop that
+   *   auto-creates missing store directories. Defaults to `false` (directories
+   *   are created on every normal construction).
+   */
+  constructor(config: StoresConfig | null, options?: { skipDirCreate?: boolean }) {
     this.config = config;
 
     if (config !== null) {
@@ -53,8 +61,12 @@ export class StoreRouter {
       // Auto-create each store directory that does not yet exist.
       // mkdirSync with recursive:true is a no-op for directories that
       // already exist, so this is always safe to call unconditionally.
-      for (const store of this.stores) {
-        mkdirSync(store.path, { recursive: true });
+      // skipDirCreate skips this loop during hot-reload to avoid throwing
+      // when a store path is temporarily unavailable (unmounted drive, etc.).
+      if (!options?.skipDirCreate) {
+        for (const store of this.stores) {
+          mkdirSync(store.path, { recursive: true });
+        }
       }
     } else {
       this.stores = [];

@@ -152,6 +152,67 @@ describe('StoreRouter', () => {
     });
   });
 
+  // ─── skipDirCreate option ─────────────────────────────────────────────
+
+  describe('skipDirCreate option', () => {
+    it('does not call mkdirSync for store paths when skipDirCreate is true', () => {
+      const newStore1 = join(tempDir, 'skip-create-1');
+      const newStore2 = join(tempDir, 'skip-create-2');
+
+      expect(existsSync(newStore1)).toBe(false);
+      expect(existsSync(newStore2)).toBe(false);
+
+      const config: StoresConfig = {
+        stores: [
+          { id: 'skip-1', path: newStore1 },
+          { id: 'skip-2', path: newStore2 },
+        ],
+        default_store: 'skip-1',
+      };
+
+      new StoreRouter(config, { skipDirCreate: true });
+
+      expect(existsSync(newStore1)).toBe(false);
+      expect(existsSync(newStore2)).toBe(false);
+    });
+
+    it('creates directories when skipDirCreate is omitted (default behavior)', () => {
+      const newStore1 = join(tempDir, 'default-create-1');
+      const newStore2 = join(tempDir, 'default-create-2');
+
+      expect(existsSync(newStore1)).toBe(false);
+      expect(existsSync(newStore2)).toBe(false);
+
+      const config: StoresConfig = {
+        stores: [
+          { id: 'dc-1', path: newStore1 },
+          { id: 'dc-2', path: newStore2 },
+        ],
+        default_store: 'dc-1',
+      };
+
+      new StoreRouter(config);
+
+      expect(existsSync(newStore1)).toBe(true);
+      expect(existsSync(newStore2)).toBe(true);
+    });
+
+    it('creates directories when skipDirCreate is explicitly false', () => {
+      const newStore = join(tempDir, 'explicit-false');
+
+      expect(existsSync(newStore)).toBe(false);
+
+      const config: StoresConfig = {
+        stores: [{ id: 'ef-1', path: newStore }],
+        default_store: 'ef-1',
+      };
+
+      new StoreRouter(config, { skipDirCreate: false });
+
+      expect(existsSync(newStore)).toBe(true);
+    });
+  });
+
   // ─── resolveStoreForRepo ─────────────────────────────────────────────
 
   describe('resolveStoreForRepo()', () => {

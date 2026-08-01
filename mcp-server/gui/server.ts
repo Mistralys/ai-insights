@@ -59,10 +59,18 @@ import {
   handleOrchestratorDelete,
   handleGetRunStatus,
   handleGetRunMetadata,
-  handleGetStores,
-  handleGetStoreConflicts,
   ApiError,
 } from './api.js';
+import {
+  handleGetStoresEnriched,
+  handleGetStoreConflicts,
+  handleAddStore,
+  handleImportStore,
+  handleUpdateStore,
+  handleRemoveStore,
+  handleSetDefaultStore,
+  handleReorderStores,
+} from './api-stores.js';
 import {
   handleListKnowledge,
   handleUpdateKnowledge,
@@ -682,24 +690,62 @@ function buildModelRoutes(): Route[] {
 }
 
 /**
- * Store routes (Section B body-free only — both routes are read-only).
+ * Store routes (Section A body-parsing and Section B body-free).
  *
- * Section B:
- *   GET /api/stores
- *   GET /api/stores/conflicts
+ * Section A — Body-parsing write routes:
+ *   POST   /api/stores              — add a new store (creates directory)
+ *   POST   /api/stores/import       — import existing directory as a store
+ *   PUT    /api/stores/order         — reorder stores
+ *   PUT    /api/stores/:storeId     — update store label
  *
- * Both routes are parameterless: `handleGetStores` accepts the `ledgerRoot`
- * for legacy single-store fallback; `handleGetStoreConflicts` delegates
- * entirely to `MultiStoreManager` when the store context is initialised.
+ * Section B — Body-free routes:
+ *   DELETE /api/stores/:storeId     — remove store (deregisters only)
+ *   POST   /api/stores/:storeId/default — set the default store
+ *   GET    /api/stores/conflicts    — cross-store conflicts (literal path)
+ *   GET    /api/stores              — enriched store list (catch-all)
+ *
+ * ⚠️  ORDERING CONSTRAINT: Literal-path routes (/import, /order, /conflicts)
+ *     MUST precede parameterised :storeId routes to avoid shadowing.
+ *     GET /api/stores/conflicts MUST precede the GET /api/stores catch-all.
  */
 function buildStoreRoutes(ledgerRoot: string): Route[] {
   return [
+    // =========================================================================
+    // Section A — Body-parsing store write routes
+    // =========================================================================
+
+    // POST /api/stores — add new store (201 Created)
+    { method: 'POST', path: '/api/stores', statusCode: 201,
+      handler: async (body) => handleAddStore(body) },
+    // POST /api/stores/import — literal path must precede :storeId routes (201 Created)
+    { method: 'POST', path: '/api/stores/import', statusCode: 201,
+      handler: async (body) => handleImportStore(body) },
+    // PUT /api/stores/order — literal path must precede :storeId routes
+    { method: 'PUT', path: '/api/stores/order',
+      handler: async (body) => handleReorderStores(body) },
+    // PUT /api/stores/:storeId — update store label
+    { method: 'PUT', path: /^\/api\/stores\/(?<storeId>[^/]+)$/,
+      handler: async (body, groups) =>
+        handleUpdateStore(decodeURIComponent(groups!.storeId!), body) },
+
+    // =========================================================================
+    // Section B — Body-free store routes
+    // =========================================================================
+
+    // DELETE /api/stores/:storeId — remove store (no directory deletion)
+    { method: 'DELETE', path: /^\/api\/stores\/(?<storeId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleRemoveStore(decodeURIComponent(groups!.storeId!)) },
+    // POST /api/stores/:storeId/default — set default store
+    { method: 'POST', path: /^\/api\/stores\/(?<storeId>[^/]+)\/default$/, noBody: true,
+      handler: async (_, groups) =>
+        handleSetDefaultStore(decodeURIComponent(groups!.storeId!)) },
     // GET /api/stores/conflicts — must precede the /api/stores catch-all
     { method: 'GET', path: '/api/stores/conflicts', noBody: true,
       handler: async () => handleGetStoreConflicts() },
-    // GET /api/stores
+    // GET /api/stores — enriched store list (catch-all, must be last)
     { method: 'GET', path: '/api/stores', noBody: true,
-      handler: async () => handleGetStores(ledgerRoot) },
+      handler: async () => handleGetStoresEnriched(ledgerRoot) },
   ];
 }
 
@@ -1208,7 +1254,7 @@ function buildProjectRoutes(
  *   - {@link buildRepoRoutes}         — `/api/repos/*`
  *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
  *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
- *   - {@link buildStoreRoutes}        — `/api/stores`, `/api/stores/conflicts`
+ *   - {@link buildStoreRoutes}        — `/api/stores/*`
  *   - {@link buildProjectRoutes}      — `/api/projects/*`
  *
  * The composed array preserves the Section A/B/C ordering invariant:

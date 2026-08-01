@@ -611,6 +611,83 @@ var API = (function () {
       return request('GET', '/stores/conflicts');
     },
 
+    /**
+     * Add a new store (creates the directory and registers it in stores.json).
+     *
+     * @param {{ id: string, path: string, label?: string }} data - Store config.
+     * @returns {Promise<object[]>} Updated enriched store list from `POST /api/stores`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    addStore: function (data) {
+      return request('POST', '/stores', data);
+    },
+
+    /**
+     * Import an existing directory as a store.
+     *
+     * The directory must already exist. Any existing `.repositories.json` is
+     * preserved. Returns a wrapped response with an optional `warning` when
+     * the existing registry file fails schema validation.
+     *
+     * @param {{ id: string, path: string, label?: string }} data - Store config.
+     * @returns {Promise<{ stores: object[], warning?: string }>} Response from `POST /api/stores/import`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    importStore: function (data) {
+      return request('POST', '/stores/import', data);
+    },
+
+    /**
+     * Update a store's label.
+     *
+     * @param {string}          storeId - Store ID to update.
+     * @param {{ label: string }} data  - New label (trimmed; whitespace-only rejected).
+     * @returns {Promise<object[]>} Updated enriched store list from `PUT /api/stores/:storeId`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    updateStore: function (storeId, data) {
+      return request('PUT', '/stores/' + encodeURIComponent(storeId), data);
+    },
+
+    /**
+     * Remove a store (deregisters from stores.json; does not delete the directory).
+     *
+     * Returns a wrapped response: `{ stores, warned }` where `warned` is true
+     * when the store had registered repositories at the time of removal.
+     *
+     * @param {string} storeId - Store ID to remove.
+     * @returns {Promise<{ stores: object[], warned: boolean }>} Response from `DELETE /api/stores/:storeId`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    removeStore: function (storeId) {
+      return request('DELETE', '/stores/' + encodeURIComponent(storeId));
+    },
+
+    /**
+     * Set the default store.
+     *
+     * @param {string} storeId - Store ID to make the default.
+     * @returns {Promise<object[]>} Updated enriched store list from `POST /api/stores/:storeId/default`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    setDefaultStore: function (storeId) {
+      return request('POST', '/stores/' + encodeURIComponent(storeId) + '/default');
+    },
+
+    /**
+     * Reorder stores by providing the full array of store IDs in the desired order.
+     *
+     * Store order determines conflict-resolution priority: the first store wins
+     * when the same repository is registered in multiple stores.
+     *
+     * @param {string[]} order - Complete array of store IDs in desired order.
+     * @returns {Promise<object[]>} Updated enriched store list from `PUT /api/stores/order`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    reorderStores: function (order) {
+      return request('PUT', '/stores/order', { order: order });
+    },
+
     // -- Orchestrator --------------------------------------------------
 
     /**

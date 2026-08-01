@@ -23,7 +23,8 @@ var configActiveTab = 'general';
 var configDirty = {
   general: false,
   personaModels: false,
-  modelRegistry: false
+  modelRegistry: false,
+  stores: false
 };
 
 /* ── Entry point ─────────────────────────────────────────── */
@@ -35,9 +36,10 @@ function renderConfig(app) {
     API.getConfig(),
     API.getModels ? API.getModels() : Promise.resolve([]),
     API.getPersonas ? API.getPersonas() : Promise.resolve([]),
-    API.getAssignments ? API.getAssignments() : Promise.resolve([])
+    API.getAssignments ? API.getAssignments() : Promise.resolve([]),
+    API.getStores ? API.getStores() : Promise.resolve([])
   ]).then(function (results) {
-    renderConfigPage(app, results[0], results[1], results[2], results[3]);
+    renderConfigPage(app, results[0], results[1], results[2], results[3], results[4]);
   }).catch(function (err) {
     showError(app, 'Failed to load configuration: ' + (err.message || String(err)));
   });
@@ -45,23 +47,28 @@ function renderConfig(app) {
 
 /* ── Page scaffold ───────────────────────────────────────── */
 
-function renderConfigPage(app, config, models, personas, assignments) {
+function renderConfigPage(app, config, models, personas, assignments, stores) {
   /* Reset dirty flags and all tab module state — fresh server data loaded. */
-  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = false;
+  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = configDirty.stores = false;
   mrModels = mrOriginal = mrEditingId = null;
   pmModels = pmPersonas = pmAssignments = pmOriginal = null;
   pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
+  csStores = csOriginal = null; csReorderMode = false;
+  csModalMode = csModalStoreId = null; csModalCreateDir = true;
+  csClickHandler = null;
+  if (typeof csCloseModal === 'function') csCloseModal();
 
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
     '<div class="config-tabs" id="config-tab-bar">' +
+      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
       '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
       '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
     '</div>' +
     '<div id="config-tab-content"></div>';
 
-  renderConfigTabContent(config, models, personas, assignments);
+  renderConfigTabContent(config, models, personas, assignments, stores);
 
   var tabBar = document.getElementById('config-tab-bar');
   if (tabBar) {
@@ -84,22 +91,35 @@ function renderConfigPage(app, config, models, personas, assignments) {
         }
       }
 
+      /* Stores tab cleanup runs unconditionally (no dirty tracking). */
+      if (configActiveTab === 'stores') {
+        csStores = csOriginal = null; csReorderMode = false;
+        csModalMode = csModalStoreId = null; csModalCreateDir = true;
+        var _csEl = document.getElementById('config-tab-content');
+        if (_csEl && csClickHandler) _csEl.removeEventListener('click', csClickHandler);
+        csClickHandler = null;
+        if (typeof csCloseModal === 'function') csCloseModal();
+      }
+
       configActiveTab = tab;
       tabBar.querySelectorAll('.config-tab').forEach(function (b) {
         b.classList.toggle('active', b.getAttribute('data-tab') === tab);
       });
-      renderConfigTabContent(config, models, personas, assignments);
+      renderConfigTabContent(config, models, personas, assignments, stores);
     });
   }
 }
 
 /* ── Tab content dispatcher ──────────────────────────────── */
 
-function renderConfigTabContent(config, models, personas, assignments) {
+function renderConfigTabContent(config, models, personas, assignments, stores) {
   var contentEl = document.getElementById('config-tab-content');
   if (!contentEl) return;
 
-  if (configActiveTab === 'general') {
+  if (configActiveTab === 'stores') {
+    contentEl.innerHTML = renderStoresTab(stores || []);
+    csWireEvents();
+  } else if (configActiveTab === 'general') {
     contentEl.innerHTML = renderGeneralTab(config);
     wireGeneralTabEvents();
   } else if (configActiveTab === 'personaModels') {

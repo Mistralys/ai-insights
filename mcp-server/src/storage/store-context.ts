@@ -1,9 +1,12 @@
-import type { StoreRouter } from './store-router.js';
-import type { MultiStoreManager } from './multi-store-manager.js';
+import { StoreRouter } from './store-router.js';
+import { MultiStoreManager } from './multi-store-manager.js';
+import { loadStoresConfig } from './store-registry.js';
+import type { StoresConfig } from '../schema/store-config.js';
 
 /**
  * Module-level store context state.
- * Set once per process startup via setStoreContext().
+ * Initialised at startup via setStoreContext(); can be hot-reloaded at any
+ * time via reloadStoreContext() without a server restart.
  *
  * Analogous to the _mcpServer reference in src/utils/client-info.ts — both
  * src/index.ts (MCP STDIO server) and gui/server.ts (HTTP GUI server) call
@@ -13,13 +16,16 @@ import type { MultiStoreManager } from './multi-store-manager.js';
  */
 let _storeRouter: StoreRouter | undefined;
 let _multiStoreManager: MultiStoreManager | undefined;
+/** Inflight guard: coalesces concurrent reloadStoreContext() calls into one. */
+let _pendingReload: Promise<StoresConfig | null> | null = null;
 
 /**
  * Stores the initialized StoreRouter and MultiStoreManager instances.
  *
- * Must be called exactly once per process startup, before any tool file
- * calls getStoreRouter() or getMultiStoreManager(). Subsequent calls
- * overwrite the stored references (idempotent re-initialization for tests).
+ * Called once at process startup and again by reloadStoreContext() whenever
+ * stores.json changes at runtime. Overwrites the stored references on each
+ * call — callers must not invoke getStoreRouter() or getMultiStoreManager()
+ * before the first call completes.
  */
 export function setStoreContext(
   router: StoreRouter,
@@ -77,4 +83,39 @@ export function getMultiStoreManager(): MultiStoreManager {
  */
 export function isStoreContextInitialized(): boolean {
   return _storeRouter !== undefined;
+}
+
+/**
+ * Re-reads `stores.json`, constructs a fresh StoreRouter (with
+ * `skipDirCreate: true`) and MultiStoreManager, then calls setStoreContext().
+ *
+ * Returns the parsed StoresConfig on success, or null when `stores.json` is
+ * absent, malformed, or schema-invalid (legacy single-store mode is restored).
+ *
+ * Concurrent calls are coalesced: if a reload is already in-flight, the same
+ * Promise is returned to all callers so setStoreContext() runs exactly once per
+ * batch. This function must NOT be declared `async` — doing so would wrap
+ * _pendingReload in a new Promise per call, breaking reference equality.
+ *
+ * @param configPath - Optional override for the `stores.json` path (used in
+ *   tests to inject a temporary config file instead of the default location).
+ *   Internal test hook — must not be forwarded from HTTP handlers or public
+ *   API surfaces.
+ */
+export function reloadStoreContext(
+  configPath?: string
+): Promise<StoresConfig | null> {
+  if (_pendingReload !== null) return _pendingReload;
+  _pendingReload = (async () => {
+    try {
+      const config = await loadStoresConfig(configPath);
+      const router = new StoreRouter(config, { skipDirCreate: true });
+      const manager = new MultiStoreManager(router);
+      setStoreContext(router, manager);
+      return config;
+    } finally {
+      _pendingReload = null;
+    }
+  })();
+  return _pendingReload;
 }
