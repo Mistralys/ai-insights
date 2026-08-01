@@ -58,6 +58,13 @@ import type {
   MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
 import { ApiError } from '../src/gui/errors.js';
+import {
+  getMultiStoreManager,
+  getStoreRouter,
+  isStoreContextInitialized,
+} from '../src/storage/store-context.js';
+import { loadRegistry } from '../src/storage/repository-registry.js';
+import type { TaggedProjectMeta, RegistryConflict } from '../src/storage/multi-store-manager.js';
 export { ApiError };
 import {
   getQueue,
@@ -67,7 +74,7 @@ import {
   startOrchestrator,
   getRunStatus,
 } from './orchestrator-manager.js';
-import type { QueueEntry, KillResult, StartResult, RunStatus } from './orchestrator-manager.js';
+import type { QueueEntry, KillResult, StartResult, RunStatus, PreflightResult } from './orchestrator-manager.js';
 import { renderChunksToText } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -320,7 +327,15 @@ export async function handleListProjects(
   // so that unrecognized runners return an empty set rather than a 500 error.
   const runnerFilter: string | undefined = rawParams.runner;
 
-  const allProjects = await LedgerStore.listAllProjects(ledgerRoot);
+  const allProjects: ProjectMeta[] = isStoreContextInitialized()
+    ? await getMultiStoreManager().listAllProjects()
+    : await LedgerStore.listAllProjects(ledgerRoot);
+
+  // In multi-store mode each project carries its source store_path; in legacy
+  // mode the single ledger root is used for all projects.
+  function getStorePath(meta: ProjectMeta): string {
+    return (meta as TaggedProjectMeta).store_path ?? ledgerRoot;
+  }
 
   // --- Enrich all projects ---
   const enrichedAll = await Promise.all(
@@ -362,7 +377,7 @@ export async function handleListProjects(
           project_name = meta.project_name;
         }
       } else {
-        const store = new LedgerStore(meta.plan_path, ledgerRoot);
+        const store = new LedgerStore(meta.plan_path, getStorePath(meta));
 
         await Promise.all([
           (async () => {
@@ -1655,11 +1670,21 @@ export async function handleGetChunkText(
 // POST /api/orchestrator/start
 // ---------------------------------------------------------------------------
 
+/** UUID v4 format accepted by `body.resumeThreadId` in {@link handleOrchestratorStart}. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Validates `body.planPath`, then runs preflight checks and (when `dryRun`
  * is `false` and all checks pass) spawns a detached orchestrator process.
  *
  * Throws VALIDATION_ERROR when `body.planPath` is absent or not a string.
+ *
+ * In multi-store mode, runs a registration preflight before the standard checks:
+ * if the repository folder inferred from `planPath` is not registered in any store,
+ * returns a `store-registration` fail check immediately without calling
+ * `startOrchestrator()`. When `inferProjectRootFromPlanPath` returns `null`
+ * (i.e. `planPath` does not contain the `/docs/agents/` segment), the registration
+ * check is skipped and `startOrchestrator()` proceeds normally.
  *
  * @param workspaceRoot - Absolute path to the workspace root directory.
  * @param body          - Parsed request body (any shape — validated here).
@@ -1679,13 +1704,33 @@ export async function handleOrchestratorStart(
   const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
 
   // Optional resume thread ID — must be UUID v4 when supplied.
-  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   let resumeThreadId: string | undefined;
   if ('resumeThreadId' in b) {
     if (typeof b['resumeThreadId'] !== 'string' || !UUID_V4.test(b['resumeThreadId'])) {
       validationError('body.resumeThreadId must be a valid UUID v4 string.');
     }
     resumeThreadId = b['resumeThreadId'];
+  }
+
+  // Multi-store registration preflight (runs before all other checks).
+  // In single-store / legacy mode this is a no-op — registration is optional.
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(planPath);
+    const folderName = projectRoot
+      ? projectRoot.split(/[\/\\]/).filter(Boolean).pop() ?? null
+      : null;
+    if (folderName !== null) {
+      const storeResult = await getStoreRouter().resolveStoreForRepo(folderName);
+      if (storeResult === null) {
+        const check: PreflightResult = {
+          name:   'store-registration',
+          pass:   false,
+          detail: `Repository '${folderName}' is not registered in any store`,
+          fix:    `Register '${folderName}' using the Repos tab or: node scripts/cli.js store repos add`,
+        };
+        return { checks: [check], started: false };
+      }
+    }
   }
 
   return startOrchestrator(planPath, workspaceRoot, dryRun, resumeThreadId);
@@ -1848,4 +1893,90 @@ export async function handleGetRunMetadata(
   } catch {
     notFound(`Run metadata not found for project '${slug}'.`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/stores
+// ---------------------------------------------------------------------------
+
+export type { StoreListItem } from '../src/schema/store-config.js';
+import type { StoreListItem } from '../src/schema/store-config.js';
+
+/**
+ * Returns the list of configured stores, each annotated with the count of
+ * projects and registered repositories it contains.
+ *
+ * Behaviour by mode:
+ * - **Multi-store mode** (`isStoreContextInitialized()` and
+ *   `getStoreRouter().isMultiStoreMode()`): iterates all configured stores
+ *   via `getStoreRouter().getAllStores()` and loads per-store counts from disk.
+ * - **Single-store / legacy mode**: returns a single entry for the provided
+ *   `ledgerRoot` with `id: 'default'` and `label: 'Default Store'`.
+ *
+ * @param ledgerRoot - Absolute path to the single-store ledger root.
+ *   Used only when the store context is not initialized (legacy mode).
+ */
+export async function handleGetStores(ledgerRoot: string): Promise<StoreListItem[]> {
+  // Intentional: uses only isStoreContextInitialized() without the secondary
+  // isMultiStoreMode() guard used by handleListRepos, handleOrchestratorStart, etc.
+  // This endpoint must return all configured stores even when only one store is
+  // present — restricting to multi-store mode would produce an empty result in
+  // single-store configurations.
+  if (isStoreContextInitialized()) {
+    const stores = getStoreRouter().getAllStores();
+    return Promise.all(
+      stores.map(async (store) => {
+        const [projects, registry] = await Promise.all([
+          LedgerStore.listAllProjects(store.path),
+          loadRegistry(store.path),
+        ]);
+        return {
+          id: store.id,
+          label: store.label,
+          path: store.path,
+          project_count: projects.length,
+          repository_count: registry.repositories.length,
+        };
+      })
+    );
+  }
+
+  // Legacy / single-store mode: single default entry.
+  const [projects, registry] = await Promise.all([
+    LedgerStore.listAllProjects(ledgerRoot),
+    loadRegistry(ledgerRoot),
+  ]);
+  return [
+    {
+      id: 'default',
+      label: 'Default Store',
+      path: ledgerRoot,
+      project_count: projects.length,
+      repository_count: registry.repositories.length,
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/stores/conflicts
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the list of repositories registered in more than one store.
+ *
+ * Delegates to `MultiStoreManager.getRegistryConflicts()`. In single-store
+ * / legacy mode (store context not initialized, or only one store configured)
+ * the result is always an empty array — cross-store conflicts cannot exist
+ * when there is only one store.
+ *
+ * Each conflict record contains:
+ * - `repo_name`      — the shared repository id.
+ * - `entries`        — per-store entries in config order.
+ * - `winner_store_id` — id of the first-priority store that claims the repo.
+ */
+export async function handleGetStoreConflicts(): Promise<RegistryConflict[]> {
+  if (!isStoreContextInitialized()) {
+    return [];
+  }
+  return getMultiStoreManager().getRegistryConflicts();
 }

@@ -1,16 +1,20 @@
 /**
- * Tests for orchestrator API route handlers in gui/api.ts — WP-008
+ * Tests for orchestrator API route handlers in gui/api.ts — WP-008 + WP-012
  *
  * All acceptance criteria tested:
- *   AC-1: handleOrchestratorStart validates body.planPath is present and a string.
- *   AC-2: handleOrchestratorStart forwards dryRun flag correctly.
- *   AC-3: handleGetOrchestratorQueue returns an array of enriched entries.
- *   AC-4: handleOrchestratorKill returns { killed: boolean }.
- *   AC-5: handleOrchestratorDismiss returns 204 on success (void from handler).
- *   AC-6: All handlers follow the existing error handling patterns in api.ts.
+ *   WP-008 AC-1: handleOrchestratorStart validates body.planPath is present and a string.
+ *   WP-008 AC-2: handleOrchestratorStart forwards dryRun flag correctly.
+ *   WP-008 AC-3: handleGetOrchestratorQueue returns an array of enriched entries.
+ *   WP-008 AC-4: handleOrchestratorKill returns { killed: boolean }.
+ *   WP-008 AC-5: handleOrchestratorDismiss returns 204 on success (void from handler).
+ *   WP-008 AC-6: All handlers follow the existing error handling patterns in api.ts.
+ *   WP-012 AC-3: In multi-store mode, the orchestrator preflight rejects repos not
+ *                registered in any store with a clear error before running other checks.
+ *   WP-012 AC-4: In single-store mode, the orchestrator preflight does not check
+ *                registration (registration is optional).
  *
- * Uses vi.mock() to stub orchestrator-manager functions — the manager's own
- * behaviour is covered by orchestrator-manager.test.ts.
+ * Uses vi.mock() to stub orchestrator-manager and store-context — the managers'
+ * own behaviour is covered by their respective unit tests.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -21,6 +25,13 @@ vi.mock('../../gui/orchestrator-manager.js', () => ({
   killQueueEntry: vi.fn(),
   dismissQueueEntry: vi.fn(),
   startOrchestrator: vi.fn(),
+}));
+
+// Mock store-context; default: single-store mode (context not initialized).
+vi.mock('../../src/storage/store-context.js', () => ({
+  isStoreContextInitialized: vi.fn<[], boolean>().mockReturnValue(false),
+  getStoreRouter: vi.fn(),
+  getMultiStoreManager: vi.fn(),
 }));
 
 import {
@@ -36,14 +47,22 @@ import {
   dismissQueueEntry,
   startOrchestrator,
 } from '../../gui/orchestrator-manager.js';
+import {
+  isStoreContextInitialized,
+  getStoreRouter,
+} from '../../src/storage/store-context.js';
 
-const mockGetQueue        = vi.mocked(getQueue);
-const mockKillQueueEntry  = vi.mocked(killQueueEntry);
-const mockDismiss         = vi.mocked(dismissQueueEntry);
+const mockGetQueue          = vi.mocked(getQueue);
+const mockKillQueueEntry    = vi.mocked(killQueueEntry);
+const mockDismiss           = vi.mocked(dismissQueueEntry);
 const mockStartOrchestrator = vi.mocked(startOrchestrator);
+const mockIsStoreCtxInit    = vi.mocked(isStoreContextInitialized);
+const mockGetStoreRouter    = vi.mocked(getStoreRouter);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Restore default single-store mode after each test so existing tests are unaffected.
+  mockIsStoreCtxInit.mockReturnValue(false);
 });
 
 // ---------------------------------------------------------------------------
@@ -459,5 +478,116 @@ describe('assertSafeQueueId allowlist edge cases', () => {
     await expect(
       handleOrchestratorDismiss('..', '/logs', '/ledger')
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleOrchestratorStart — multi-store registration preflight (WP-012 AC-3, AC-4)
+// ---------------------------------------------------------------------------
+
+describe('handleOrchestratorStart — multi-store preflight (WP-012 AC-3, AC-4)', () => {
+  // PLAN_PATH must contain '/docs/agents/' so inferProjectRootFromPlanPath() returns
+  // a non-null root. The folder name extracted from '/workspace' is 'workspace'.
+  const WORKSPACE  = '/workspace';
+  const PLAN_PATH  = '/workspace/docs/agents/plans/2026-05-05-feat/plan.md';
+  const REPO_FOLDER = 'workspace'; // basename of the inferred project root
+
+  it('AC-3: returns store-registration fail when repo is not registered in multi-store mode', async () => {
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => true,
+      resolveStoreForRepo: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(result.started).toBe(false);
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0]).toMatchObject({ name: 'store-registration', pass: false });
+    expect(mockStartOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: store-registration detail message names the unregistered repository folder', async () => {
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => true,
+      resolveStoreForRepo: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(result.checks[0]!.detail).toContain(REPO_FOLDER);
+  });
+
+  it('AC-3: store-registration check includes a non-empty fix hint', async () => {
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => true,
+      resolveStoreForRepo: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(result.checks[0]!.fix).toBeTruthy();
+  });
+
+  it('AC-3: registered repo in multi-store mode proceeds to startOrchestrator', async () => {
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => true,
+      resolveStoreForRepo: vi.fn().mockResolvedValue({ storePath: '/store', storeId: 'main' }),
+    });
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 42 });
+
+    const result = await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledOnce();
+    expect(result.started).toBe(true);
+  });
+
+  it('AC-4: context not initialized → proceeds to startOrchestrator without registration check', async () => {
+    // mockIsStoreCtxInit already returns false (restored in global beforeEach)
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 1 });
+
+    await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledOnce();
+    expect(mockGetStoreRouter).not.toHaveBeenCalled();
+  });
+
+  it('AC-4: isMultiStoreMode()=false → proceeds to startOrchestrator without registration check', async () => {
+    const mockResolve = vi.fn();
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => false,
+      resolveStoreForRepo: mockResolve,
+    });
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 2 });
+
+    await handleOrchestratorStart(WORKSPACE, { planPath: PLAN_PATH });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledOnce();
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+
+  // WP-005: codifies behavior when inferProjectRootFromPlanPath() returns null
+  it('WP-005: inferProjectRootFromPlanPath()=null (path without /docs/agents/) → skips registration check and proceeds', async () => {
+    // A plan path that contains no '/docs/agents/' segment — inferProjectRootFromPlanPath returns null.
+    const pathWithoutDocsAgents = '/some/path/plan.md';
+    const mockResolve = vi.fn();
+    mockIsStoreCtxInit.mockReturnValue(true);
+    mockGetStoreRouter.mockReturnValue({
+      isMultiStoreMode:    () => true,
+      resolveStoreForRepo: mockResolve,
+    });
+    mockStartOrchestrator.mockResolvedValueOnce({ checks: [], started: true, pid: 99 });
+
+    const result = await handleOrchestratorStart(WORKSPACE, { planPath: pathWithoutDocsAgents });
+
+    // Registration check must be skipped — folderName is null when project root cannot be inferred
+    expect(mockResolve).not.toHaveBeenCalled();
+    // startOrchestrator must still be called (function proceeds normally)
+    expect(mockStartOrchestrator).toHaveBeenCalledOnce();
+    expect(result.started).toBe(true);
   });
 });

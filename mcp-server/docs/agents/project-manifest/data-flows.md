@@ -1898,3 +1898,99 @@ project-detail.js polls run queue every 3 s
 **Result:** The orchestrator process resumes the existing LangGraph thread identified by
 `resumeThreadId`, continuing from the last checkpoint. The GUI polls the queue until the
 new run entry appears, then re-renders the project detail view to reflect the active run.
+
+---
+
+## Flow P: Multi-Store Write Routing
+
+**Entry Point:** Any write operation that requires a store path — e.g. `ledger_initialize_project`, `ledger_create_work_package`, `ledger_claim_work_package`, GUI `POST /api/repos`.
+
+**Precondition:** `stores.json` is present (`setStoreContext()` produced a non-null `StoreRouter`).
+
+```
+Caller requests a write for repoName (derived from projectPath via deriveRepoName())
+  ↓
+StoreRouter.resolveStoreForWrite(repoName)
+  ↓
+  getStoreContext() → StoreConfig (from store-context.ts singleton)
+  If null (legacy mode):
+    → resolveLedgerRoot() → single store path
+    → DONE
+  ↓
+  Iterate stores in stores.json order:
+    for each StoreEntry { id, label, path }:
+      loadRegistry(storePath)           ← async, reads {storePath}/.repositories.json
+        → RepositoryRegistry (validated by RepositoryEntrySchema[])
+      findByFolderName(registry, repoName)
+        match?
+          YES → return storePath        ← first match wins (store-order priority)
+          NO  → continue to next store
+  ↓
+  No store claims the repo?
+    → throw Error("Repository 'X' is not registered in any store.
+                   Register it via the GUI or CLI before creating projects.")
+  ↓
+Caller uses returned storePath as the ledger root for the write operation
+  ↓
+LedgerStore(projectPath, storePath) → normal single-store write flow
+```
+
+**Key invariant:** Writes never span multiple stores. Each write lands in exactly one store (the first one in `stores.json` order whose registry claims the repo). `MultiStoreManager` is not consulted for writes.
+
+**Error case:** If `resolveStoreForWrite()` throws, the MCP tool returns a `VALIDATION_ERROR` and no write occurs. The user must register the repository before retrying.
+
+---
+
+## Flow Q: Multi-Store Read Collation
+
+**Entry Point:** Any read that must aggregate across all stores — e.g. `ledger_list_projects`, `ledger_detect_project`, `GET /api/repos`, `GET /api/stores/conflicts`.
+
+**Precondition:** `stores.json` is present (`setStoreContext()` produced a non-null `MultiStoreManager`).
+
+```
+Caller requests a cross-store read (e.g. list all repos)
+  ↓
+MultiStoreManager.getMergedRegistry()
+  ↓
+  getStoreContext() → StoreConfig (from store-context.ts singleton)
+  If null (legacy mode):
+    → loadRegistry(resolveLedgerRoot()) → single registry → DONE
+  ↓
+  seenRepoNames = new Set<string>()
+  mergedEntries = []
+  ↓
+  Iterate stores in stores.json order:
+    for each StoreEntry { id, label, path }:
+      loadRegistry(storePath)           ← async
+        → RegistryEntries[]
+      for each entry in RegistryEntries:
+        if seenRepoNames.has(entry.folder_name):
+          skip (store-order priority: first store wins)
+        else:
+          seenRepoNames.add(entry.folder_name)
+          mergedEntries.push({ ...entry, store_id: id })
+  ↓
+  return mergedEntries (tagged with store_id; deduplicated by store-order priority)
+
+Conflict detection (separate call: getRegistryConflicts()):
+  Same iteration as above, but KEEPS duplicates:
+    for each entry:
+      seen? → record conflict { repo_name, entries: [{ store_id, store_label, entry }], winner_store_id }
+    return ConflictEntry[]        ← consumed by GET /api/stores/conflicts
+
+For detectProjectByCwd(cwdPath):
+  Iterate stores in order:
+    LedgerStore.detectProjectByCwd(cwdPath, storePath)
+      FOUND?    → return { status: 'FOUND', meta, store_id }  (first match)
+      AMBIGUOUS?→ forward as-is (intra-store collision)
+      NOT_FOUND → continue to next store
+  If multiple stores each return FOUND:
+    → return { status: 'MULTI_STORE_AMBIGUOUS', candidates: [...] }
+  If none match:
+    → return { status: 'NOT_FOUND' }
+```
+
+**Key invariants:**
+- Store-order priority applies to both `getMergedRegistry()` and conflict detection: the first store in `stores.json` order is always `winner_store_id`.
+- All collation is read-only — no write occurs during a read collation pass.
+- `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).

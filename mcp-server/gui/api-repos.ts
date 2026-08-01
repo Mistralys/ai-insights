@@ -48,8 +48,13 @@ import {
   StrategicVisionSchema,
   type RepositoryEntry,
 } from '../src/schema/repository-registry.js';
-import { SLUG_REGEX } from '../src/schema/knowledge.js';
+import { SLUG_REGEX } from '../src/schema/common.js';
 import { LedgerStore } from '../src/storage/ledger-store.js';
+import {
+  isStoreContextInitialized,
+  getStoreRouter,
+  getMultiStoreManager,
+} from '../src/storage/store-context.js';
 
 // Re-export ApiError so consumers can catch typed errors without importing
 // from a separate path.
@@ -98,6 +103,42 @@ function assertNoFolderNameConflicts(
   }
 }
 
+/**
+ * Searches all configured stores for a repository entry with the given ID.
+ *
+ * - Multi-store mode: iterates stores in **config order** and returns the path of
+ *   the **first** store whose registry contains the repo, along with the entry.
+ * - Single-store / legacy mode: loads the single registry at `ledgerRoot`.
+ *
+ * Returns `null` when no matching entry is found in any store.
+ *
+ * **First-match semantics:** Iteration stops at the first store that contains the
+ * given `repoId`. If the same ID is present in multiple stores (cross-store
+ * uniqueness is not enforced on creation — see `handleCreateRepo`), all read,
+ * update, and delete operations will silently target only the first-matched store
+ * in config order. The second occurrence remains unaffected and unreachable via
+ * these routes. Use `GET /api/stores/conflicts` to detect and resolve duplicate
+ * IDs across stores.
+ */
+async function findEntryInStores(
+  ledgerRoot: string,
+  repoId: string
+): Promise<{ storePath: string; entry: RepositoryEntry } | null> {
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const stores = getStoreRouter().getAllStores();
+    for (const store of stores) {
+      const registry = await loadRegistry(store.path);
+      const entry = registry.repositories.find((e) => e.id === repoId);
+      if (entry) return { storePath: store.path, entry };
+    }
+    return null;
+  }
+
+  const registry = await loadRegistry(ledgerRoot);
+  const entry = registry.repositories.find((e) => e.id === repoId);
+  return entry ? { storePath: ledgerRoot, entry } : null;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas for request bodies
 // ---------------------------------------------------------------------------
@@ -122,6 +163,8 @@ export const RepoCreateBodySchema = z
       .array(z.string().min(1))
       .min(1, { message: 'folder_names must contain at least one entry.' }),
     vision: StrategicVisionSchema.optional(),
+    /** Target store ID — optional; when omitted the default store (or legacy ledgerRoot) is used. */
+    store_id: z.string().optional(),
   })
   .strict();
 
@@ -142,6 +185,8 @@ export const RepoUpdateBodySchema = z
       .min(1, { message: 'folder_names must contain at least one entry.' })
       .optional(),
     vision: StrategicVisionSchema.optional(),
+    /** Accepted but ignored — the owning store is located automatically via the registry. */
+    store_id: z.string().optional(),
   })
   .strict();
 
@@ -187,9 +232,14 @@ export interface RepoListItem {
    * (returned only when `?include_undeclared=true` is specified).
    */
   declared: boolean;
+  /**
+   * ID of the store this repository belongs to.
+   * Present only in multi-store mode — absent in single-store / legacy mode.
+   */
+  store_id?: string;
 }
 
-function toListItem(entry: RepositoryEntry): RepoListItem {
+function toListItem(entry: RepositoryEntry, storeId?: string): RepoListItem {
   const { vision } = entry;
   const has_vision =
     vision.short_term !== null ||
@@ -208,6 +258,7 @@ function toListItem(entry: RepositoryEntry): RepoListItem {
     created_at: entry.created_at,
     last_modified: entry.last_modified,
     declared: true,
+    ...(storeId !== undefined ? { store_id: storeId } : {}),
   };
 }
 
@@ -234,8 +285,17 @@ export async function handleListRepos(
   ledgerRoot: string,
   includeUndeclared = false
 ): Promise<RepoListItem[]> {
+  // Multi-store mode: return a merged view from all stores, each entry tagged with store_id.
+  // `includeUndeclared` is not supported in multi-store mode (would require scanning every
+  // store's filesystem — left as a future enhancement; returns declared entries only).
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const tagged = await getMultiStoreManager().getMergedRegistry();
+    return tagged.map((entry) => toListItem(entry, entry.store_id));
+  }
+
+  // Single-store / legacy mode: existing behavior
   const registry = await loadRegistry(ledgerRoot);
-  const declared = registry.repositories.map(toListItem);
+  const declared = registry.repositories.map((e) => toListItem(e));
 
   if (!includeUndeclared) {
     return declared;
@@ -303,12 +363,11 @@ export async function handleGetRepo(
   ledgerRoot: string,
   repoId: string
 ): Promise<RepositoryEntry> {
-  const registry = await loadRegistry(ledgerRoot);
-  const entry = registry.repositories.find((e) => e.id === repoId);
-  if (!entry) {
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-  return entry;
+  return found.entry;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,8 +400,33 @@ export async function handleCreateRepo(
     );
   }
 
-  const { id, label, folder_names, vision } = parsed.data;
-  const registry = await loadRegistry(ledgerRoot);
+  const { id, label, folder_names, vision, store_id } = parsed.data;
+
+  // Resolve the target store path.
+  // In multi-store mode: use the requested store_id (validating it), or fall back to the
+  //   configured default store when store_id is omitted.
+  // In single-store / legacy mode: always write to ledgerRoot.
+  let targetStorePath: string;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    if (store_id !== undefined) {
+      const stores = getStoreRouter().getAllStores();
+      const target = stores.find((s) => s.id === store_id);
+      if (!target) {
+        const validIds = stores.map((s) => s.id).join(', ');
+        validationError(
+          `Invalid store_id '${store_id}'. Valid store IDs are: ${validIds}.`
+        );
+      }
+      targetStorePath = target.path;
+    } else {
+      // No store_id specified — use the default store
+      targetStorePath = getStoreRouter().resolveDefaultStore();
+    }
+  } else {
+    targetStorePath = ledgerRoot;
+  }
+
+  const registry = await loadRegistry(targetStorePath);
 
   // Unique id check
   if (registry.repositories.some((e) => e.id === id)) {
@@ -362,11 +446,9 @@ export async function handleCreateRepo(
     last_modified: now,
   });
 
-  const updatedRegistry = {
+  await saveRegistry(targetStorePath, {
     repositories: [...registry.repositories, newEntry],
-  };
-
-  await saveRegistry(ledgerRoot, updatedRegistry);
+  });
   return newEntry;
 }
 
@@ -397,12 +479,15 @@ export async function handleUpdateRepo(
   repoId: string,
   body: unknown
 ): Promise<RepositoryEntry> {
-  const registry = await loadRegistry(ledgerRoot);
-  const existingIndex = registry.repositories.findIndex((e) => e.id === repoId);
-  if (existingIndex === -1) {
+  // Locate the owning store — in multi-store mode this iterates stores in config order
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-
+  const { storePath } = found;
+  const registry = await loadRegistry(storePath);
+  const existingIndex = registry.repositories.findIndex((e) => e.id === repoId);
+  // existingIndex must be valid since findEntryInStores already found the entry
   const parsed = RepoUpdateBodySchema.safeParse(body);
   if (!parsed.success) {
     validationError(
@@ -431,7 +516,7 @@ export async function handleUpdateRepo(
   const updatedRepositories = [...registry.repositories];
   updatedRepositories[existingIndex] = updated;
 
-  await saveRegistry(ledgerRoot, { repositories: updatedRepositories });
+  await saveRegistry(storePath, { repositories: updatedRepositories });
   return updated;
 }
 
@@ -454,13 +539,13 @@ export async function handleDeleteRepo(
   ledgerRoot: string,
   repoId: string
 ): Promise<{ deleted: true }> {
-  const registry = await loadRegistry(ledgerRoot);
-  const index = registry.repositories.findIndex((e) => e.id === repoId);
-  if (index === -1) {
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-
+  const { storePath } = found;
+  const registry = await loadRegistry(storePath);
   const updatedRepositories = registry.repositories.filter((e) => e.id !== repoId);
-  await saveRegistry(ledgerRoot, { repositories: updatedRepositories });
+  await saveRegistry(storePath, { repositories: updatedRepositories });
   return { deleted: true };
 }

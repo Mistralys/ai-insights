@@ -331,11 +331,20 @@ Full GUI restructuring (new Storage page, Strategy-page refactoring to strategy-
 - In `mcp-server/gui/public/views/strategy.js`, add a "Store" dropdown to the "Add Repository" form and the repository edit form (populated from `GET /api/stores`). The dropdown selects **which store's `.repositories.json`** receives the new/updated entry. Only appears when multiple stores are configured.
 - Add `getStores()` and `getStoreConflicts()` to `mcp-server/gui/public/api-client.js`.
 
-**Step 12b.** Modify `mcp-server/gui/server.ts` — Multi-store initialization and config path:
-- After `resolveLedgerRoot()`, load `stores.json` via `loadStoresConfig()`. Create `StoreRouter` and `MultiStoreManager`. Call `setStoreContext(router, manager)` — the same initialization as `index.ts` but for the GUI server process.
+**Step 12b.** Modify `mcp-server/gui/server.ts` — Multi-store initialization, config path, and store routes:
+- In `main()`, after `resolveLedgerRoot()`, load `stores.json` via `loadStoresConfig()`. Create `StoreRouter` and `MultiStoreManager`. Call `setStoreContext(router, manager)` — the same initialization as `index.ts` but for the GUI server process.
 - Replace `const configPath = join(ledgerRoot, 'gui-config.json')` with `const configPath = resolveGuiConfigPath(storeConfig, ledgerRoot)` — checks for `~/.ai-insights/gui-config.json` first when `stores.json` exists, falls back to the current path.
-- Update `handleListRepos` call to pass `MultiStoreManager` (or merged registry) instead of single `ledgerRoot` in multi-store mode.
-- Wire new `/api/stores` and `/api/stores/conflicts` routes.
+- Update `handleListRepos` call in `buildRepoRoutes()` to use `MultiStoreManager.getMergedRegistry()` in multi-store mode.
+- Add a new non-exported `buildStoreRoutes()` domain sub-builder function following the established pattern (`buildModelRoutes`, `buildRepoRoutes`, etc.). It requires no closure parameters — it calls `getMultiStoreManager()` and `getStoreRouter()` directly from `store-context.ts`. It returns:
+  ```typescript
+  // GET /api/stores — read-only store list
+  { method: 'GET', path: '/api/stores', noBody: true,
+    handler: async () => handleGetStores() },
+  // GET /api/stores/conflicts — cross-store registry conflicts
+  { method: 'GET', path: '/api/stores/conflicts', noBody: true,
+    handler: async () => handleGetStoreConflicts() },
+  ```
+- Spread `...buildStoreRoutes()` in `buildRoutes()` (alongside the existing sub-builder spreads). `getRouteDescriptors()` picks up the new routes automatically since it calls `buildRoutes()`.
 
 **Step 12c.** Add Conflicts tab to Strategy page:
 - Add a **"Conflicts" tab** to the Strategy page's repository management section (alongside the existing repository list). The tab:
@@ -398,7 +407,7 @@ Full GUI restructuring (new Storage page, Strategy-page refactoring to strategy-
 - `mcp-server/src/tools/repository-context.ts` — Cross-store repository context aggregation; use merged registry
 - `mcp-server/gui/api.ts` — Store-aware project listing, read-only `GET /api/stores` and `GET /api/stores/conflicts` endpoints, orchestrator preflight registration check
 - `mcp-server/gui/api-repos.ts` — Add target `store_id` to create/update request schemas (determines which store's registry to write to); validate against `stores.json`; update `handleListRepos` to delegate to `MultiStoreManager.getMergedRegistry()` in multi-store mode
-- `mcp-server/gui/server.ts` — Multi-store initialization (load `stores.json`, call `setStoreContext()`); `gui-config.json` path resolution via `resolveGuiConfigPath()`; update `handleListRepos` for merged registry; wire new `/api/stores` and `/api/stores/conflicts` routes
+- `mcp-server/gui/server.ts` — Multi-store initialization in `main()` (load `stores.json`, call `setStoreContext()`); `gui-config.json` path resolution via `resolveGuiConfigPath()`; update `handleListRepos` in `buildRepoRoutes()` for merged registry; add new `buildStoreRoutes()` domain sub-builder with `GET /api/stores` and `GET /api/stores/conflicts` routes, spread in `buildRoutes()` alongside existing sub-builders
 - `mcp-server/gui/public/views/strategy.js` — Add Store dropdown to repository Add/Edit forms; add Conflicts tab with conflict list, winner/shadowed indicators, and resolution actions
 - `mcp-server/gui/public/api-client.js` — Add `getStores()` and `getStoreConflicts()` API methods
 - `scripts/cli.js` — New `store` command group

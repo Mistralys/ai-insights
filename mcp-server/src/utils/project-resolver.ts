@@ -15,6 +15,7 @@
  */
 
 import { LedgerStore } from '../storage/ledger-store.js';
+import { isStoreContextInitialized, getMultiStoreManager, getStoreRouter } from '../storage/store-context.js';
 import type { ProjectMeta } from '../schema/project-meta.js';
 import { formatRelativeTime } from './timestamp.js';
 import { planFolderBasename } from './path-validator.js';
@@ -45,6 +46,41 @@ export async function resolveProjectPath(args: {
   }
 
   if (args.cwd_path) {
+    // Multi-store mode: use MultiStoreManager to search all configured stores.
+    if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+      const result = await getMultiStoreManager().detectProjectByCwd(args.cwd_path);
+
+      if (result.status === 'FOUND') {
+        return result.meta.plan_path;
+      }
+
+      if (result.status === 'MULTI_STORE_AMBIGUOUS') {
+        const candidateList = result.candidates
+          .map((c) => `[store_id: ${c.store_id}] ${c.slug}`)
+          .join(', ');
+        throw new Error(
+          `Project found in multiple stores. ` +
+          `Provide an explicit project_path to disambiguate. ` +
+          `Candidates: ${candidateList || '(none returned)'}`
+        );
+      }
+
+      if (result.status === 'AMBIGUOUS') {
+        const candidates = formatCandidateList(result.best, result.unlikely);
+        throw new Error(
+          `Multiple projects match the provided cwd_path. Pass explicit project_path to disambiguate.\n\nCandidates:\n${candidates}`
+        );
+      }
+
+      // NOT_FOUND
+      throw new Error(
+        `No project found for cwd_path "${args.cwd_path}". ` +
+        `Ensure the project has been initialized with ledger_initialize_project ` +
+        `and that the provided path is inside the project root.`
+      );
+    }
+
+    // Single-store fallback: store context not initialized — use default LedgerStore.
     const result = await LedgerStore.detectProjectByCwd(args.cwd_path);
 
     if (result.status === 'FOUND') {

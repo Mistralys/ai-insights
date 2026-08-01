@@ -59,11 +59,35 @@ The application is structured as an **MCP (Model Context Protocol) server** that
 - Dual-file synchronization (updates both root index and work package atomically)
 
 Cross-project, cross-repository state (such as the `.repositories.json` registry) is managed by **plain-function storage modules** rather than a class instance. This avoids in-memory state, caching, and lifecycle overhead for data that has no per-call state:
-- `src/storage/repository-registry.ts` — `loadRegistry()`, `saveRegistry()`, `findByFolderName()`, `getAllFolderNames()`; uses the same `atomicWriteJson` / `withLock(ledgerRoot)` helpers as `LedgerStore`
+- `src/storage/repository-registry.ts` — `loadRegistry(storePath)`, `saveRegistry(storePath, data)`, `findByFolderName()`, `getAllFolderNames()`; uses the same `atomicWriteJson` / `withLock` helpers as `LedgerStore`; `storePath` is explicit in all calls since the multi-store plan
 
 **Key Files:**
 - `src/storage/ledger-store.ts`
 - `src/storage/repository-registry.ts`
+
+---
+
+### 2a. **Multi-Store Module Layer**
+
+Sits above `LedgerStore` and the plain-function modules. Adds store-level routing and collation while keeping per-store storage unchanged:
+
+| Module | Responsibility |
+|--------|----------------|
+| `src/storage/store-registry.ts` | Reads/writes `~/.ai-insights/stores.json` via `loadStoresConfig()`, `saveStoresConfig()`. Provides `resolveStoresConfigPath()`, `resolveGuiConfigPath()`. Returns `null` (not an error) when `stores.json` is absent — callers treat `null` as the signal for legacy single-store mode. |
+| `src/storage/store-router.ts` | `resolveStoreForWrite(repoName)` — iterates stores in `stores.json` order, loads each store's `.repositories.json` via `loadRegistry()`, returns the path of the first store that claims the repo. Throws a `VALIDATION_ERROR` string if no store claims the repo (mandatory registration in multi-store mode). In legacy mode (`storeConfig === null`) delegates to `resolveLedgerRoot()`. Also exposes `isMultiStoreMode()` and `resolveStoreForRepo()`. |
+| `src/storage/multi-store-manager.ts` | Read-only cross-store collation: `listAllProjects()`, `getMergedRegistry()`, `detectProjectByCwd()`, `getRegistryConflicts()`, `searchKnowledge()`, `listKnowledge()`. All methods iterate stores in `stores.json` order and apply store-order priority deduplication. Never writes. |
+| `src/storage/store-context.ts` | Shared singleton accessor. Holds module-level `StoreRouter` and `MultiStoreManager` instances. `setStoreContext(config)` is called once per process startup (both `index.ts` and `gui/server.ts` call it independently). `getStoreRouter()` and `getMultiStoreManager()` are called by any consumer. Follows the established `client-info.ts` pattern (`setMcpServer()` / `getClientInfo()`). |
+
+**Startup contract:** Both `src/index.ts` (MCP STDIO server) and `gui/server.ts` (HTTP GUI server) are separate OS processes. Each independently calls `setStoreContext()` during its startup sequence, loading `stores.json` via `loadStoresConfig()`. This avoids circular imports (tool files import from `store-context.ts`, not from `index.ts`) and works across the two-process architecture.
+
+**Departure from single-funnel `resolveLedgerRoot()`:** The original architecture funneled all storage through a single `resolveLedgerRoot()` call. The multi-store plan introduces `resolveStoresConfigPath()` as the new entry point when multi-store configuration is present. `resolveLedgerRoot()` remains for backward compatibility and is still the correct call in legacy single-store mode and for all existing per-project `LedgerStore` construction.
+
+**Key Files:**
+- `src/storage/store-config.ts` — Zod schemas (`StoresConfigSchema`, `StoreEntrySchema`)
+- `src/storage/store-registry.ts`
+- `src/storage/store-router.ts`
+- `src/storage/multi-store-manager.ts`
+- `src/storage/store-context.ts`
 
 ---
 

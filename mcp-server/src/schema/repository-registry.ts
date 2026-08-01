@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SLUG_REGEX } from './knowledge.js';
+import { SLUG_REGEX } from './common.js';
 
 /**
  * Three-horizon strategic vision for a repository.

@@ -22,6 +22,10 @@ import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
 import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
+import { loadStoresConfig, resolveGuiConfigPath } from './storage/store-registry.js';
+import { StoreRouter } from './storage/store-router.js';
+import { MultiStoreManager } from './storage/multi-store-manager.js';
+import { setStoreContext } from './storage/store-context.js';
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -105,22 +109,56 @@ async function main(): Promise<void> {
   mkdirSync(ledgerRoot, { recursive: true });
   process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
 
-  // Run one-time startup migration from flat layout to repo-namespaced layout.
-  try {
-    const migration = await migrateToNamespacedLayout(ledgerRoot);
-    if (!migration.skipped && migration.moved.length > 0) {
-      process.stderr.write(
-        `[migrate-namespaced] Moved ${migration.moved.length} project(s) to namespaced layout.\n`
-      );
-    }
-  } catch (err) {
-    // Log but do not abort startup — partial failures are already reported
-    // inside migrateToNamespacedLayout via stderr.
-    process.stderr.write(`[migrate-namespaced] Migration error: ${(err as Error).message}\n`);
+  // Attempt to load multi-store configuration from ~/.ai-insights/stores.json.
+  // loadStoresConfig() returns null on absence, malformed JSON, or schema
+  // failure (it logs a warning to stderr in the latter two cases) — no
+  // try-catch needed here for config errors.
+  const storeConfig = await loadStoresConfig();
+
+  let storePaths: string[];
+
+  if (storeConfig !== null) {
+    // Multi-store mode: StoreRouter auto-creates each store directory on
+    // construction (mkdirSync with recursive:true).
+    process.stderr.write(
+      `[mcp-server] Multi-store mode: ${storeConfig.stores.length} store(s) configured.\n`
+    );
+    storePaths = storeConfig.stores.map((s) => s.path);
+  } else {
+    // Single-store / legacy mode: use the single ledger root.
+    process.stderr.write('[mcp-server] Single-store mode (no stores.json found).\n');
+    storePaths = [ledgerRoot];
   }
 
-  // Initialise runtime config from gui-config.json
-  const configPath = join(ledgerRoot, 'gui-config.json');
+  // Build the singleton context objects (StoreRouter + MultiStoreManager).
+  // StoreRouter constructor handles directory auto-creation for multi-store.
+  const storeRouter = new StoreRouter(storeConfig);
+  const multiStoreManager = new MultiStoreManager(storeRouter);
+  setStoreContext(storeRouter, multiStoreManager);
+
+  // Run one-time startup migration from flat layout to repo-namespaced layout
+  // on every configured store path.
+  for (const storePath of storePaths) {
+    try {
+      const migration = await migrateToNamespacedLayout(storePath);
+      if (!migration.skipped && migration.moved.length > 0) {
+        process.stderr.write(
+          `[migrate-namespaced] ${storePath}: Moved ${migration.moved.length} project(s) to namespaced layout.\n`
+        );
+      }
+    } catch (err) {
+      // Log but do not abort startup — partial failures are already reported
+      // inside migrateToNamespacedLayout via stderr.
+      process.stderr.write(
+        `[migrate-namespaced] ${storePath}: Migration error: ${(err as Error).message}\n`
+      );
+    }
+  }
+
+  // Initialise runtime config from gui-config.json.
+  // In multi-store mode the config is co-located with the user-level
+  // ~/.ai-insights/ directory; in legacy mode it lives in the ledger root.
+  const configPath = resolveGuiConfigPath(storeConfig, ledgerRoot);
   await readConfigFromDisk(configPath);
   startConfigWatcher(configPath);
   process.stderr.write(`[config] Watching ${configPath}\n`);

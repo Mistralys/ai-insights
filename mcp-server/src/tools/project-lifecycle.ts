@@ -3,7 +3,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SPEC_VERSION, AGENT_ROLES } from '../utils/constants.js';
 import { SERVER_VERSION, readPackageVersion } from '../utils/server-version.js';
-import type { DetectProjectResult } from '../storage/ledger-store.js';
+import { getMultiStoreManager, getStoreRouter, isStoreContextInitialized } from '../storage/store-context.js';
+import type { MultiStoreDetectResult } from '../storage/multi-store-manager.js';
 import { WorkPackageStatus } from '../schema/enums.js';
 import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
@@ -37,10 +38,10 @@ const DetectProjectSchema = z.object({
 });
 
 async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
-  let result: DetectProjectResult;
+  let result: MultiStoreDetectResult;
 
   try {
-    result = await LedgerStore.detectProjectByCwd(args.cwd_path);
+    result = await getMultiStoreManager().detectProjectByCwd(args.cwd_path);
   } catch (error) {
     return {
       content: [{ type: 'text' as const, text: `Error: ${(error as Error).message}` }],
@@ -57,6 +58,24 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
           text: JSON.stringify({ plan_path, slug, title, status }, null, 2),
         },
       ],
+    };
+  }
+
+  if (result.status === 'MULTI_STORE_AMBIGUOUS') {
+    const candidateList = result.candidates
+      .map((c) => `[store_id: ${c.store_id}] ${c.slug}`)
+      .join(', ');
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text:
+            `Error: Project found in multiple stores. ` +
+            `Provide an explicit project_path to disambiguate. ` +
+            `Candidates: ${candidateList}`,
+        },
+      ],
+      isError: true,
     };
   }
 
@@ -322,14 +341,30 @@ async function getProjectStatus(
   _ledgerRoot?: string
 ) {
   let projectPath: string;
+  // When _ledgerRoot is provided (test override), use it directly.
+  let resolvedLedgerRoot: string | undefined = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+
   try {
     projectPath = await resolveProjectPath(args);
   } catch (err) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
-  const store = new LedgerStore(projectPath, ledgerRoot);
+  // In multi-store mode, determine the correct store for this project so the
+  // LedgerStore reads from the right ledger root. Skip this when _ledgerRoot is
+  // already provided (test override) or when the store context is not ready.
+  if (resolvedLedgerRoot === undefined && isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(projectPath);
+    const repoName = deriveRepoName(projectPath, projectRoot);
+    const storeRef = await getStoreRouter().resolveStoreForRepo(repoName);
+    if (storeRef !== null) {
+      resolvedLedgerRoot = storeRef.storePath;
+    }
+    // If null: repo not in any store registry — fall through to default ledger root.
+    // getProjectStatus is a read operation and should not throw for unregistered repos.
+  }
+
+  const store = new LedgerStore(projectPath, resolvedLedgerRoot);
 
   try {
     // Read the root index
@@ -519,7 +554,46 @@ async function initializeProject(
     return { content: [{ type: 'text' as const, text: pathValidation.error }], isError: true };
   }
 
-  const store = new LedgerStore(args.project_path);
+  // Multi-store routing: when in multi-store mode, derive the repository name
+  // and look up which store claims it. Creating a project in an unregistered
+  // repository is rejected — mandatory registration prevents "where did my
+  // project go?" confusion caused by silent default-store fallback.
+  let store: LedgerStore;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(args.project_path);
+    const repoName = deriveRepoName(args.project_path, projectRoot);
+    let targetLedgerRoot: string;
+    try {
+      targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName);
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (!msg.includes('not registered in any store')) {
+        // Unexpected I/O or schema error — surface the real message instead of
+        // the misleading "not registered" user instruction.
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Error: Failed to resolve store for repository "${repoName}": ${msg}`,
+          }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text' as const,
+          text:
+            `Error: Repository "${repoName}" is not registered in any store. ` +
+            `Register it via the store CLI (node scripts/cli.js store repo add) before initializing a project.`,
+        }],
+        isError: true,
+      };
+    }
+    store = new LedgerStore(args.project_path, targetLedgerRoot);
+  } else {
+    // Legacy single-store mode: LedgerStore derives the ledger root internally
+    // via resolveLedgerRoot() (reads from process.argv / env / default path).
+    store = new LedgerStore(args.project_path);
+  }
 
   try {
     // 1. Verify project_path exists
@@ -656,7 +730,13 @@ const ListProjectsSchema = z.object({
 
 async function listProjects(args: z.infer<typeof ListProjectsSchema>, _ledgerRoot?: string) {
   try {
-    const projects = await LedgerStore.listAllProjects(_ledgerRoot);
+    // Multi-store: collect projects from all configured stores, each tagged with
+    // store_id and store_label. Fall back to single-store LedgerStore.listAllProjects()
+    // when the store context has not been initialized (e.g. in legacy test suites).
+    const projects = isStoreContextInitialized()
+      ? await getMultiStoreManager().listAllProjects()
+      : await LedgerStore.listAllProjects(_ledgerRoot);
+
     let filtered = projects;
 
     // Filter by explicit status first (takes precedence over include_archived)
@@ -849,6 +929,7 @@ async function completeSynthesis(
  */
 export const _internal = {
   completeSynthesis,
+  detectProject,
   initializeProject,
   getProjectStatus,
   listProjects,
