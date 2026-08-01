@@ -1180,6 +1180,34 @@ import { handleListRepos } from './api-repos.js';
 
 ---
 
+### 62. `gui/api-stores.ts` Is the Canonical Location for All Store Management Handler Code
+
+**Rule:** All REST handler functions for the `/api/stores/*` endpoints (`handleGetStoresEnriched`, `handleAddStore`, `handleImportStore`, `handleUpdateStore`, `handleRemoveStore`, `handleSetDefaultStore`, `handleReorderStores`, `handleGetStoreConflicts`), their Zod request-body schemas, and the `StoreListItem` interface MUST reside in `gui/api-stores.ts`. No store handler code may be added to or remain in `gui/api.ts`.
+
+**Rationale:** Follows the domain-split pattern established by `gui/api-knowledge.ts` (WP-003) and `gui/api-repos.ts`. Each API domain gets its own handler file imported by `server.ts`, keeping `api.ts` from growing into a maintenance liability.
+
+**Implication for `gui/server.ts`:** The HTTP server imports store handlers from `./api-stores.js` — not `./api.js`. Routes are registered via `buildStoreRoutes()` in the unified `buildRoutes()` table (wired by WP-005). Literal-path routes (`/api/stores/import`, `/api/stores/order`, `/api/stores/conflicts`) MUST be registered before parameterized `:storeId` routes (`/api/stores/:storeId`, `/api/stores/:storeId/default`) to prevent shadowing.
+
+**`handleGetStoresEnriched` replaces `handleGetStores`.** The original `handleGetStores()` has been removed from `api.ts`. `handleGetStoresEnriched(ledgerRoot)` returns `StoreListItem[]` enriched with `is_default`, `is_git`, and optional `ahead`/`behind` fields. Do not re-add a bare `handleGetStores` to `api.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — store handler in api.ts
+export async function handleGetStores(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — store handler in the dedicated module
+// gui/api-stores.ts
+export async function handleGetStoresEnriched(...) { /* ... */ }
+
+// gui/server.ts
+import { handleGetStoresEnriched } from './api-stores.js';
+```
+
+---
+
 ### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
 
 **Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.

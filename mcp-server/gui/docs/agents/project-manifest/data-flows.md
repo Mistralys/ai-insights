@@ -422,3 +422,53 @@ Toggle IIFE (runs after innerHTML is set, targets #plan-synopsis):
 - The `.outcome-synopsis` block has no toggle. Outcome summaries are expected to be concise (1–3 sentences from the Synthesis persona's `outcome_summary` field).
 - The `.outcome-synopsis` block uses `--color-complete` (green `#16a34a`) for its left-border accent, differentiating it from `.plan-synopsis` which uses `--color-ready` (blue `#2563eb`).
 
+---
+
+## 13. Store Management Data Flow
+
+All store write endpoints follow the same pattern: validate → load config → mutate → `saveStoresConfig()` → `reloadStoreContext()` → return updated list. The sequence below shows the full Add Store flow; all other write endpoints follow the same backend skeleton.
+
+```
+User clicks “Add Store” in config-stores.js Stores tab
+  │
+  ├── csWireEvents() captures click on Add Store button
+  │       └── csRenderStoreModal('add', null) → insertAdjacentHTML into document.body
+  │           └── Modal: ID + Path fields, Directory mode radio (Create / Use Existing), Label
+  │
+  ├── User fills form and clicks Save (or presses Enter)
+  │
+  ├── Client-side validation (SLUG_REGEX, absolute path, non-empty label)
+  │   └── On error → inline field error messages; button re-enabled
+  │
+  ├── API call (directory mode determines endpoint):
+  │   ├── “Create new directory” → API.addStore({ id, path, label })
+  │   └── “Use existing directory” → API.importStore({ id, path, label })
+  │
+  └── Backend (handleAddStore / handleImportStore in api-stores.ts):
+      ├── Server-side validation (reserved IDs, duplicate ID, duplicate path, directory exists)
+      │   └── On error → 400 / 409; modal re-enables Save button + shows inline error
+      ├── loadStoresConfig() → StoresConfig | null
+      ├── Mutate config: add new StoreEntry
+      ├── (handleAddStore only) mkdirSync(expandedPath, { recursive: true })
+      ├── (handleAddStore only) Create empty .repositories.json if absent
+      ├── saveStoresConfig(config)   ←── atomic write under file lock
+      └── reloadStoreContext()        ←── hot-reload: re-reads stores.json, constructs fresh
+          │                                    StoreRouter(config, { skipDirCreate: true })
+          │                                    and MultiStoreManager(router),
+          │                                    calls setStoreContext() — module singletons overwritten
+          └── handleGetStoresEnriched()  ←── build enriched response from updated context
+              └── return StoreListItem[]  ←── HTTP 200
+
+Frontend on success:
+  └── csRefreshTab(stores)   ←── re-render table from response
+      └── csCloseModal()
+          └── (importStore only) if response.warning: UI.banner('info', warning)
+```
+
+**Immediate-write pattern — key invariants:**
+- The Stores tab never accumulates pending changes. Every user action (add, import, update label, remove, set default, reorder) is a discrete API write followed by a full re-render from the server response.
+- `configDirty.stores` is always `false`. The `beforeTabSwitch` unsaved-changes guard is never triggered by the Stores tab.
+- Tab-switch cleanup runs **unconditionally** (not inside the `if (configDirty[configActiveTab])` guard) because the Stores tab has no pending state to lose.
+- `reloadStoreContext()` calls `setStoreContext()` with `skipDirCreate: true`. If a store path is temporarily unavailable (unmounted drive, offline NFS), the reload succeeds and the server continues in degraded mode — it does not throw a 500 that would leave the in-memory context stale.
+- `handleRemoveStore` uses `loadStoresConfig()` after `saveStoresConfig()` to rebuild the enriched list from the updated file, not from the stale pre-mutation snapshot.
+

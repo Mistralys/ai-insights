@@ -342,6 +342,52 @@ All classes are prefixed `mr-` to avoid collision with shared component classes.
 |-------|-------------|
 | `.mr-action-bar` | Flex row holding the Save and Load Defaults buttons plus the inline feedback message. Adds top margin and wraps on narrow viewports. |
 
+### 11b. Stores Tab Classes
+
+All classes are prefixed `cs-` to avoid collision with shared component classes. Used exclusively by the Stores tab in `config-stores.js`.
+
+**Table cell classes**
+
+| Class | Description |
+|-------|-------------|
+| `.cs-path-cell` | Path column cell — `word-break: break-all` to prevent long paths overflowing the table on narrow viewports. |
+
+**Badge classes**
+
+| Class | Description |
+|-------|-------------|
+| `.cs-default-star` | Star icon (★) shown in the Default column for the active default store. Uses `--color-in-progress` (amber) for color. |
+| `.cs-type-badge` | Pill badge showing the store type (`git` / `local`). `.cs-type-badge--git` variant uses a blue tint; `.cs-type-badge--local` uses a gray tint. |
+| `.cs-sync-badge` | Pill badge showing the git sync state (e.g., `↑2 ↓1`, `up to date`). Color reflects state: green for up-to-date, amber for ahead/behind, red for error. Not rendered for non-git stores. Keyboard-focusable (`tabindex="0"`) so the sync popover is reachable without a mouse. |
+| `.cs-sync-popover` | Absolute-positioned tooltip card anchored above the badge (`bottom: calc(100% + 6px)`). Hidden by default; shown when `mouseenter` or `focus` adds `.cs-sync-popover-visible`. Includes a **flip-left guard**: after the class is added, `getBoundingClientRect().right` is compared to `window.innerWidth`; if the popover would overflow, `style.left` is set to `'auto'` and `style.right` to `'0'` to anchor it to the right edge of the badge cell. Inline styles are cleared on `mouseleave`/`blur` to restore default positioning for the next show. |
+| `.cs-sync-popover-visible` | Added by `mouseenter`/`focus` handlers to make the popover visible; removed on `mouseleave`/`blur`. |
+
+**Git status classes**
+
+| Class | Description |
+|-------|-------------|
+| `.cs-git-status` | Inline flex container holding the ahead/behind arrows and counts. Child `.cs-git-ahead` and `.cs-git-behind` spans use `--color-complete` (green) and `--color-blocked` (red) respectively. |
+
+**Action classes**
+
+| Class | Description |
+|-------|-------------|
+| `.cs-copy-btn` | Small clipboard copy button next to the path cell. 14 px icon button; inherits `.btn-icon` base. Changes to a checkmark for 1.5 s after a successful copy. |
+
+**Reorder sub-view classes**
+
+| Class | Description |
+|-------|-------------|
+| `.cs-reorder-view` | Outer container for the reorder sub-view (replaces main table content while `csReorderMode` is true). Adds 4 px vertical padding. |
+| `.cs-reorder-info` | Priority explanation banner (`info-banner` style) shown at the top of the reorder view. Margin-bottom 12 px separates it from the row list. |
+| `.cs-reorder-row` | Individual store row in the reorder list. Flex row with space-between layout; bordered card with `var(--color-surface)` background. |
+| `.cs-reorder-label` | Left-side label inside `.cs-reorder-row` showing store label and ID. Truncates with ellipsis on overflow. |
+| `.cs-reorder-btns` | Right-side flex container for the Move Up / Move Down buttons. `flex-shrink: 0` prevents compression. |
+| `.cs-move-up` | Class applied to the Move Up (↑) button. First-row Move Up also receives `.cs-move-disabled`. Used as a selector in `csWireEvents()` and `csMoveStore()`. |
+| `.cs-move-down` | Class applied to the Move Down (↓) button. Last-row Move Down also receives `.cs-move-disabled`. |
+| `.cs-move-disabled` | Visual-only disabled state: `opacity: 0.35`. Applied to boundary buttons (first row's Up, last row's Down). All move buttons receive this class during an API round-trip to prevent race conditions; it is removed when `csRenderReorderView()` re-renders after the API response. |
+| `#cs-reorder-error` | Error target placeholder rendered inside the reorder sub-view by `csRenderReorderView()`. Populated by `csShowTableError()` on API failure. The element is re-created on each re-render, so `csShowTableError()` must be called after the re-render to inject the error message into the newly created target. |
+
 ---
 
 ## 12. Form Classes

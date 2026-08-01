@@ -247,6 +247,86 @@ The `buildInProgress` module-level flag prevents concurrent builds. It is cleare
 
 ---
 
+### 1.8 Stores
+
+All handlers live in `gui/api-stores.ts`. Literal-path routes precede parameterized `:storeId` routes to prevent shadowing. All write handlers call `reloadStoreContext()` after a successful `saveStoresConfig()`.
+
+**Section A — body-parsing routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `POST` | `/api/stores` | `handleAddStore` | Add a new store. Creates directory + empty `.repositories.json`. |
+| `POST` | `/api/stores/import` | `handleImportStore` | Import an existing directory as a store. Preserves any existing `.repositories.json`. |
+| `PUT` | `/api/stores/order` | `handleReorderStores` | Reorder stores. Body: `{ order: string[] }`. |
+| `PUT` | `/api/stores/:storeId` | `handleUpdateStore` | Update store label. Body: `{ label?: string }`. |
+
+**Section B — body-free routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `DELETE` | `/api/stores/:storeId` | `handleRemoveStore` | Remove store from config (does NOT delete directory). |
+| `POST` | `/api/stores/:storeId/default` | `handleSetDefaultStore` | Set default store. |
+| `GET` | `/api/stores/conflicts` | `handleGetStoreConflicts` | Cross-store registry conflicts. Returns `RegistryConflict[]`; `[]` in legacy mode. |
+| `GET` | `/api/stores` | `handleGetStoresEnriched` | Enriched store list. Returns `StoreListItem[]`; synthesized single entry in legacy mode. |
+
+#### `StoreListItem` — Response Shape
+
+Defined in `src/schema/store-config.ts`:
+
+```typescript
+interface StoreListItem {
+  id: string;               // Store identifier
+  label: string;            // Display name (falls back to id when StoreEntry.label is absent)
+  path: string;             // Absolute path to the store's ledger root
+  project_count: number;    // Number of projects in this store
+  repository_count: number; // Number of registered repositories in this store
+  is_default: boolean;      // true when this store is the default_store in stores.json
+  is_git: boolean;          // true when the store path contains a .git directory
+  ahead?: number;           // Local commits ahead of remote (only when is_git && upstream configured)
+  behind?: number;          // Remote commits not yet pulled (only when is_git && upstream configured)
+  sync?: StoreSyncMeta;     // Informational sync metadata; undefined when absent
+}
+```
+
+> **is_git invariant:** When `is_git` is `false`, both `ahead` and `behind` are `undefined`. Git detection per store runs concurrently via `Promise.all` with a 5-second timeout per call. When `git` is not installed (`ENOENT`), all stores get `is_git: false`.
+
+#### `POST /api/stores` Validation Rules
+
+Body: `{ id: string, path: string, label?: string }`
+
+| Rule | Error |
+|------|-------|
+| ID must match `SLUG_REGEX` | 400 |
+| ID must not be `"import"`, `"order"`, or `"conflicts"` (reserved) | 400 |
+| Duplicate ID | 400 |
+| Duplicate expanded path | 409 |
+| `path` must be absolute (`/` or `~/`) — relative paths rejected | 400 |
+| `label`, if provided, must be non-empty after trimming | 400 |
+| Directory creation fails (`EACCES`/`EPERM`) | 500 |
+
+#### `POST /api/stores/import` Validation Rules
+
+Same rules as `POST /api/stores`, plus: the target directory **must already exist** (400 if absent). Never overwrites an existing `.repositories.json`. Returns `warning` in the response when the existing file fails schema validation.
+
+#### `PUT /api/stores/order` Validation Rules
+
+Body: `{ order: string[] }` — must contain exactly the current store IDs, no duplicates, no omissions (length check prevents `['a','a','b']` from passing a set-based comparison against `['a','b']`).
+
+#### Response Shapes
+
+| Handler | Success Response |
+|---------|-----------------|
+| `handleGetStoresEnriched` | `StoreListItem[]` |
+| `handleAddStore` | `StoreListItem[]` |
+| `handleImportStore` | `{ stores: StoreListItem[], warning?: string }` |
+| `handleUpdateStore` | `StoreListItem[]` |
+| `handleRemoveStore` | `{ stores: StoreListItem[], warned: boolean }` — `warned: true` when removed store had registered repositories |
+| `handleSetDefaultStore` | `StoreListItem[]` |
+| `handleReorderStores` | `StoreListItem[]` |
+| `handleGetStoreConflicts` | `RegistryConflict[]` |
+
+---
+
 ## 1.X Server-side TypeScript Modules
 
 ### `chunk-accumulator.ts` — Shared accumulation layer
@@ -497,9 +577,9 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Function | Description |
 |----------|-------------|
-| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, and `API.getAssignments()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist. |
-| `renderConfigPage(app, config, models, personas, assignments)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
-| `renderConfigTabContent(config, models, personas, assignments)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, `API.getAssignments()`, and `API.getStores()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist (`API.getStores` is guarded with a presence ternary for deployment safety). |
+| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
 
 **General tab functions:**
 
@@ -565,8 +645,8 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`). Persists across tab switches within a page visit. |
-| `configDirty` | `{ general, personaModels, modelRegistry: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. |
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
+| `configDirty` | `{ general, personaModels, modelRegistry, stores: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
 | `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
@@ -574,18 +654,19 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with three boolean keys — `general`, `personaModels`, and `modelRegistry`. It is declared and owned by `config.js` but mutated directly by all three tab modules:
+`configDirty` is a shared mutable object with four boolean keys — `general`, `personaModels`, `modelRegistry`, and `stores`. It is declared and owned by `config.js` but mutated directly by all four tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
 | `config.js` (General tab) | `.general` | `change`/`input` → `true`; successful form submit → `false` |
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
+| `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
-2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all three known keys on fresh load.
-3. **Load order** — `config-model-registry.js` and `config-persona-models.js` must load _before_ `config.js` (see `index.html`). Both files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all four known keys on fresh load.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, and `config-stores.js` must load _before_ `config.js` (see `index.html`). All three files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
 
 The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
 
