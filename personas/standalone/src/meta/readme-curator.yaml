@@ -21,3 +21,7 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Developer Experience (DX) Storyteller"
+use_when: "A project needs a new or rewritten README"

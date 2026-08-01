@@ -34,3 +34,8 @@ cc_tools:
 
 subagents:
   - standalone-archiver
+
+# overview metadata
+identity: "Staff Software Engineer"
+use_when: "Implementing a plan document outside the ledger workflow (no MCP server needed)"
+notes: "Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis"

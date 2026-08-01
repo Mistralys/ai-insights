@@ -33,3 +33,10 @@ tools:
   - search
   - web
   - browser
+
+# overview metadata
+identity: "Private Chef & Culinary Consultant"
+use_when: "Meal planning or recipe adaptation (non-development persona — personal utility)"
+modes: |
+  Single Recipe
+  Weekly Plan

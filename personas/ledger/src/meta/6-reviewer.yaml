@@ -49,3 +49,11 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Principal Systems Architect"
+description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
+inputs: "Implemented code + QA results + Security audit results"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings"
+key_behavior: |
+  Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.

@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Technical Program Manager (TPM).**
+**Identity: {{identity}}.**
 
 Split the provided plan into distinct work packages that can be implemented incrementally, with all required context to pick this up again even later when the session context is no longer available.
 

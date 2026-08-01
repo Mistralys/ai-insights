@@ -16,3 +16,9 @@ tools:
   - edit
   - search
   - central_pm/*
+
+# overview metadata
+identity: "Technical Program Manager — Ledger Initialization Operator"
+use_when: "Invoked by the Project Manager (Stage 2) after WP definitions are ready"
+key_behavior: |
+  Creates the project in the ledger, registers all WPs, sets dependencies and pipeline stages, and verifies the final state matches expectations

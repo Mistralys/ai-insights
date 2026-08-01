@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { readFile, access } from 'fs/promises';
+import { readFile, access, stat } from 'fs/promises';
 import { constants } from 'fs';
 import { join } from 'path';
 import { LedgerStore } from '../storage/ledger-store.js';
@@ -69,7 +69,8 @@ const UpdateSynthesisSchema = z.object({
 
 /**
  * Extracts an ISO 8601 UTC date string from a plan folder slug (YYYY-MM-DD-...).
- * Returns `null` when the slug does not start with a recognized date prefix.
+ * Returns the midnight UTC timestamp for the slug date, or `null` when the slug
+ * does not start with a recognized date prefix.
  */
 function extractDateFromSlug(slug: string): string | null {
   const match = /^(\d{4}-\d{2}-\d{2})-/.exec(slug);
@@ -77,6 +78,30 @@ function extractDateFromSlug(slug: string): string | null {
     return null;
   }
   return `${match[1]}T00:00:00Z`;
+}
+
+/**
+ * Derives the best available `date_created` timestamp for a standalone project.
+ *
+ * Resolution order:
+ * 1. `birthtime` of `plan.md` — set by the OS when the file was first created;
+ *    reflects when the Standalone Developer wrote the plan at session start.
+ * 2. `mtime` of `plan.md` — last-modified time; a reliable fallback on filesystems
+ *    that do not preserve birthtime (Linux ext4 without `relatime`).
+ * 3. Midnight UTC of the date extracted from the slug — coarse but always available.
+ * 4. `now()` — last resort for atypically named folders.
+ */
+async function deriveDateCreated(planFilePath: string, slug: string): Promise<string> {
+  try {
+    const s = await stat(planFilePath);
+    // birthtime is the creation time on macOS/Windows; on Linux it may equal mtime.
+    // Both are more accurate than midnight-UTC from the slug.
+    const ts = s.birthtime.getTime() > 0 ? s.birthtime : s.mtime;
+    return ts.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  } catch {
+    // Fall back to slug-date or now() if stat fails (should never happen in practice).
+    return extractDateFromSlug(slug) ?? now();
+  }
 }
 
 // ─── Tool Handler ─────────────────────────────────────────────────────────
@@ -176,9 +201,10 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
 
   const outcomeSummary = parseOutcomeSummary(synthesisContent);
 
-  // Derive dateCreated from the YYYY-MM-DD prefix in the plan folder slug;
-  // fall back to now() for folders with atypical naming.
-  const dateCreated = extractDateFromSlug(slug) ?? now();
+  // Derive dateCreated from plan.md's filesystem birthtime/mtime — more accurate
+  // than the midnight-UTC slug date because it reflects when the Standalone Developer
+  // actually started writing the plan. Falls back to slug-date → now() on stat failure.
+  const dateCreated = await deriveDateCreated(planFilePath, slug);
 
   // Delegate all storage writes to LedgerStore (Constraint 2c).
   // Note: importStandalone does not call withLock directly — LedgerStore.importStandaloneProject()

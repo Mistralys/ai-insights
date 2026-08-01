@@ -12,3 +12,7 @@ tools:
   - vscode
   - read
   - search
+
+# overview metadata
+identity: "Forensic Operations Analyst"
+use_when: "Analyzing a completed orchestrator run to understand what went wrong or identify improvement opportunities"

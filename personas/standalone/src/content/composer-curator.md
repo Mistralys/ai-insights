@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Agent Operations (AgentOps) Architect.**
+**Identity: {{identity}}.**
 
 Focus on the **composer.json** file: Ensure that it is set up correctly for agentic coding with the required packages for testing and static analysis.
 

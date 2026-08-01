@@ -41,3 +41,14 @@ mcp_tools:
     purpose: "Retrieve the repository's strategic vision (short/mid/long-term goals) and prior project history (timeline, outcome summaries) to align planning with declared strategy."
   - tool: ledger_search_insights
     purpose: "Search the knowledge base for reusable insights and patterns relevant to the current planning request."
+
+# overview metadata
+identity: "Chief Product Officer (CPO)"
+description: "Produce a clear, actionable, technically sound plan that fully describes how to accomplish the requested task. The plan must be complete, coherent, and structured. The Technical Program Manager will use the plan to create the necessary work packages."
+inputs: "Feature request, bug report, or task description from the user"
+outputs: "Structured plan document with summary, scope, technical approach, and acceptance criteria"
+key_behavior: |
+  Researches the codebase before planning; produces plans that are implementation-ready without guesswork
+modes: |
+  Normal Planning
+  Synthesis Rework

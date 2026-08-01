@@ -19,3 +19,11 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Agent Operations (AgentOps) Architect"
+use_when: "Setting up a new repository for agent workflows, or auditing an existing AGENTS.md for completeness"
+modes: |
+  Create
+  Update
+  Audit

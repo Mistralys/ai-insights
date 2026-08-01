@@ -20,3 +20,10 @@ tools:
   - search
   - agent
   - todo
+
+# overview metadata
+identity: "Release Communications Editor"
+use_when: "Preparing a release, cleaning up verbose agent-generated changelog entries"
+modes: |
+  Generate (from Git history)
+  Rewrite (clean up existing entries)

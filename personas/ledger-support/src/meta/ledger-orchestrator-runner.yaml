@@ -31,3 +31,9 @@ cc_tools:
   - Task
   - TodoRead
   - TodoWrite
+
+# overview metadata
+identity: "AI Insights Workflow Operator"
+use_when: "Launching an automated orchestrator run from a plan document"
+key_behavior: |
+  Runs preflight checks, starts the orchestrator, monitors for completion

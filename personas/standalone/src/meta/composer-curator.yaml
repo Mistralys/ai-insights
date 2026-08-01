@@ -16,3 +16,7 @@ tools:
   - search
   - agent
   - todo
+
+# overview metadata
+identity: "Agent Operations (AgentOps) Architect"
+use_when: "Setting up a PHP project for agent-assisted development"

@@ -607,8 +607,19 @@ export async function handleGetProject(
       }
     }
     const createdAt = meta.date_created ? new Date(meta.date_created).getTime() : NaN;
-    const updatedAt = meta.last_updated ? new Date(meta.last_updated).getTime() : NaN;
-    const project_elapsed_ms = (!isNaN(createdAt) && !isNaN(updatedAt)) ? updatedAt - createdAt : null;
+    // Prefer synthesis_generated_at as the end-time for completed projects: it is set
+    // once by ledger_complete_synthesis and never bumped by post-run operations, making
+    // it a reliable wall-clock end marker regardless of runner (MCP or orchestrator).
+    // synthesis_generated_at lives on the root index, not on ProjectMeta — use rootIndex.
+    // Fall back to last_updated for in-progress projects that have not yet synthesised.
+    const endTimeStr = rootIndex.synthesis_generated_at ?? meta.last_updated;
+    const endAt = endTimeStr ? new Date(endTimeStr).getTime() : NaN;
+    const rawElapsedMs = (!isNaN(createdAt) && !isNaN(endAt)) ? endAt - createdAt : null;
+    // For standalone projects, date_created and synthesis_generated_at are both written
+    // during archival (same moment), so elapsed = 0. Null it out so the UI can show
+    // "Not measured" rather than "< 1s".
+    const project_elapsed_ms =
+      rawElapsedMs === 0 && rootIndex.runner === 'standalone' ? null : rawElapsedMs;
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
     return { ...rootIndex, meta, project_name, timing };

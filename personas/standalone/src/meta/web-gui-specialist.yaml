@@ -20,3 +20,7 @@ tools:
 
 subagents:
   - standalone-archiver
+
+# overview metadata
+identity: "Senior Web Interface Engineer and UX Systems Designer"
+use_when: "Building or improving a web interface with strong UX, accessibility, and visual polish requirements"

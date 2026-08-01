@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Release Notes Editor.**
+**Identity: {{identity}}.**
 
 Write `WHATSNEW.xml` entries from the developer changelog, filtering to keep only user-relevant changes. The `WHATSNEW.xml` feeds the in-app release notes panel — every entry must be meaningful to end users, never to developers.
 

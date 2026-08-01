@@ -373,7 +373,7 @@ function _patchTimingInfo(timing) {
 
   var durationEl = document.getElementById('timing-duration');
   if (durationEl) {
-    var newDuration = formatDuration(timing.project_elapsed_ms);
+    var newDuration = timing.project_elapsed_ms == null ? 'Not measured' : formatDuration(timing.project_elapsed_ms);
     if (durationEl.textContent !== newDuration) durationEl.textContent = newDuration;
   }
 
@@ -686,11 +686,19 @@ function renderProjectDetail(app, repo, slug) {
             ? '<a href="#/strategy/' + encodeURIComponent(repo) + '">' + escapeHtml(repoLabel) + '</a>'
             : escapeHtml(repoLabel)) + '<br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
+          (meta.runner_client || meta.runner
+            ? '<strong>Runner:</strong> ' + escapeHtml(
+                meta.runner === 'orchestrator' ? 'Orchestrator'
+                : meta.runner_client
+                  ? (meta.runner_version ? meta.runner_client + ' v' + meta.runner_version : meta.runner_client)
+                  : meta.runner
+              ) + '<br>'
+            : '') +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
           '<span id="timing-info">' +
           (project.timing
-            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + escapeHtml(formatDuration(project.timing.project_elapsed_ms)) + '</span>' +
+            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
                 (project.timing.pipeline_runs > 0
                   ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> <span id="timing-active">' + escapeHtml(formatDuration(project.timing.total_active_ms)) + '</span> across <span id="timing-runs">' + project.timing.pipeline_runs + '</span> pipeline runs'
                   : '')

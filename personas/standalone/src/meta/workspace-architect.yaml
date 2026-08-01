@@ -24,3 +24,10 @@ subagents:
   - ctx-architect
   - readme-curator
   - changelog-curator
+
+# overview metadata
+identity: "Workspace Infrastructure Architect"
+use_when: "Setting up a new repository for the AI Insights ecosystem, or upgrading an existing repo's infrastructure"
+modes: |
+  Onboard
+  Upgrade

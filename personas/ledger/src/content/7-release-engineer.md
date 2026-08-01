@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Release Engineer.**
+**Identity: {{identity}}.**
 
 Curate the release for this work package. Version the artifact, update the changelog, validate package manifests, generate release notes, and ensure the deliverable is ready for distribution.
 

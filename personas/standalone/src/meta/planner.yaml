@@ -18,3 +18,10 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Chief Product Officer (CPO)"
+use_when: "Creating a plan outside the ledger workflow, or reworking a plan based on synthesis feedback"
+modes: |
+  Normal Planning
+  Synthesis Rework

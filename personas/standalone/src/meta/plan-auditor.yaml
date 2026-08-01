@@ -24,3 +24,8 @@ tools:
   - browser
   - agent
   - todo
+
+# overview metadata
+identity: "Senior Technical Plan Auditor"
+use_when: "Validating a plan for technical correctness before implementation"
+notes: "Runs in parallel with the Plan Architect Reviewer"

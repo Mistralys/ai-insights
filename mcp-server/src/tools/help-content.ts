@@ -48,6 +48,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 | ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
 | ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for an already-imported standalone project |
+| ledger_ping | None | Health check — verify reachability and detect stale instances (use for preflight instead of ledger_help) |
 
 ## Common Mistakes
 
@@ -1194,6 +1195,49 @@ section is found.
 \`\`\`
 \`\`\`json
 { "cwd_path": "/path/to/docs/agents/plans/2026-06-30-my-feature" }
+\`\`\`
+`,
+
+  // --- Health Check ---
+
+  ledger_ping: `
+# ledger_ping
+
+Lightweight health check — verify MCP server reachability and detect stale instances.
+
+## Parameters
+None.
+
+## Response Fields
+- **status** — Always \`"ok"\` when the server responds.
+- **server_version** — The version of the running MCP server process.
+- **stale** — \`false\` when the running version matches the on-disk \`package.json\` version; \`true\` when a newer build is available but the process has not been restarted; \`null\` when the staleness check itself failed (see \`stale_detail\`).
+- **uptime_seconds** — Integer seconds since the server process started.
+- **stale_detail** — Present only when \`stale\` is \`true\` or \`null\`. Human-readable explanation.
+
+## When to Use
+Use \`ledger_ping\` instead of \`ledger_help\` for all preflight connectivity checks. It returns ~50 tokens vs ~2,000 tokens for \`ledger_help\`.
+
+## Action on Result
+- \`stale: false\` — Server is fresh. Proceed.
+- \`stale: true\` — **Stop immediately.** Ask the user to restart the MCP server, then re-run preflight.
+- \`stale: null\` — Version check inconclusive. Treat as fresh and proceed with caution.
+- Tool call fails — Server is unreachable. Stop immediately.
+
+## Example Response (fresh)
+\`\`\`json
+{ "status": "ok", "server_version": "1.14.0", "stale": false, "uptime_seconds": 142 }
+\`\`\`
+
+## Example Response (stale)
+\`\`\`json
+{
+  "status": "ok",
+  "server_version": "1.14.0",
+  "stale": true,
+  "uptime_seconds": 3601,
+  "stale_detail": "Running v1.14.0 but dist was rebuilt as v1.14.1. Restart the MCP server."
+}
 \`\`\`
 `,
 };

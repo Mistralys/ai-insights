@@ -409,9 +409,9 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
 | Understand the 9-agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
-| Review past discussions | [discussions/](discussions/) |
-| Review error history | [history/error-ledger.md](history/error-ledger.md) |
-| Review key learnings | [history/key-learnings.md](history/key-learnings.md) |
+| Review past discussions | [discussions/](docs/discussions/) |
+| Review error history | [history/error-ledger.md](docs/history/error-ledger.md) |
+| Review key learnings | [history/key-learnings.md](docs/history/key-learnings.md) |
 | Get a full codebase snapshot for LLMs | `.context/` (run `node scripts/cli.js ctx-generate` to regenerate) |
 | Understand changelog workflow | Changelog Convention section (this file) |
 

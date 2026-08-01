@@ -5,6 +5,7 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.7.0 (2026-07-31): Philosophy rewritten with positive framing; constraint-like items moved to Strict Constraints
   1.6.0 (2026-06-09): Renamed to Ledger Knowledge Archiver; slug and name updated
   1.5.0 (2026-06-08): Gained local archiving task marker file support
   1.4.0 (2026-05-30): Fixed agent naming for correct subagent registry references
@@ -19,3 +20,10 @@ tools:
   - edit
   - search
   - central_pm/*
+
+# overview metadata
+identity: "Head of Operations — Retrospective Knowledge Analyst"
+use_when: "After a project completes, to capture lessons learned into the knowledge base"
+modes: |
+  Live (Subagent — invoked by Synthesis)
+  Archive (Retrospective — user-invoked)

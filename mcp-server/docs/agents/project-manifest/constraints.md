@@ -1203,7 +1203,7 @@ import { handleListRepos } from './api-repos.js';
 **Acceptance criteria wording:** When writing AC for test cases that exercise `assertSafeSlug` rejection, use:
 > *"Invalid slug (e.g. path-traversal attempt) returns 404 NOT_FOUND."*
 
-Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection. (See [error-ledger.md](../../../../../history/error-ledger.md) — deviation recorded in 2026-03-04-project-reset-rework-1 synthesis.)
+Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection. (See [error-ledger.md](../../../../docs/history/error-ledger.md) — deviation recorded in 2026-03-04-project-reset-rework-1 synthesis.)
 
 ---
 

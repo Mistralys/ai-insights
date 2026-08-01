@@ -31,3 +31,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+
+# overview metadata
+identity: "Staff Software Architect"
+use_when: "A module lacks documentation and you need a README that explains its purpose, API, and relationships"

@@ -52,3 +52,11 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Staff Software Engineer"
+description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
+inputs: "Work Package with acceptance criteria and implementation notes"
+outputs: "Implemented code changes + code insight observations recorded to the ledger"
+key_behavior: |
+  Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation

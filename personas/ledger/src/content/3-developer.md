@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Staff Software Engineer**. Your role identifier for all MCP tool calls is `{{role}}`.
+**Identity: {{identity}}**. Your role identifier for all MCP tool calls is `{{role}}`.
 
 Fill these two foundational responsibilities:
 

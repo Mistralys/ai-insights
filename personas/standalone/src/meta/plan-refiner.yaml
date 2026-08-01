@@ -27,3 +27,7 @@ tools:
 subagents:
   - plan-architect-reviewer
   - plan-auditor
+
+# overview metadata
+identity: "Plan Quality Director"
+use_when: "You want a plan to go through multiple rounds of review and refinement automatically"

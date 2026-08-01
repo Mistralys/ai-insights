@@ -16,3 +16,7 @@ tools:
   - search
   - agent
   - todo
+
+# overview metadata
+identity: "Release Notes Editor"
+use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog"

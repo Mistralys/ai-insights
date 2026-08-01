@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Technical Knowledge Architect.**
+**Identity: {{identity}}.**
 
 Produce and maintain the **Project Manifest**: a structured set of Markdown documents that serve as the canonical "Source of Truth" for AI agent sessions to understand a codebase without reading every line of code.
 

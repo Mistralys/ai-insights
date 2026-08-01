@@ -23,8 +23,8 @@ import { HEALTH_CHECKS, runChecks } from '../lib/health-checks.js';
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
 describe('HEALTH_CHECKS registry', () => {
-  it('contains exactly 10 entries', () => {
-    expect(HEALTH_CHECKS).toHaveLength(10);
+  it('contains exactly 11 entries', () => {
+    expect(HEALTH_CHECKS).toHaveLength(11);
   });
 
   it('every entry has id, label, cost, and detect fields', () => {
@@ -51,6 +51,7 @@ describe('HEALTH_CHECKS registry', () => {
       'node-version',
       'global-mcp-registered',
       'mcp-dist-fresh',
+      'overview-fresh',
       'personas-deps-fresh',
       'mcp-deps-fresh',
       'orchestrator-deps-fresh',
