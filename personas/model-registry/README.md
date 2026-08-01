@@ -86,4 +86,3 @@ Consumers identify the sentinel by checking `slug === 'inherit'` on the resolved
 ## Further Reading
 
 - [Personas Build System](../README.md) — Overview of the template engine and suite structure
-- [Plan: Model Settings](../../docs/agents/plans/2026-07-21-model-settings/plan.md) — Architecture decisions and rationale for the model registry design

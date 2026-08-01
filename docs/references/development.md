@@ -84,6 +84,6 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 
 ## Changelog Workflow
 
-This workspace uses a **hub-and-spoke changelog model**: each sub-project (`mcp-server/`, `orchestrator/`, `personas/`) has its own `changelog.md`, and the root `changelog.md` summarizes the highlights into versioned, Git-tagged releases. See the Changelog Convention section in [AGENTS.md](../AGENTS.md) for the full rules.
+This workspace uses a **hub-and-spoke changelog model**: each sub-project (`mcp-server/`, `orchestrator/`, `personas/`) has its own `changelog.md`, and the root `changelog.md` summarizes the highlights into versioned, Git-tagged releases. See the Changelog Convention section in [AGENTS.md](../../AGENTS.md) for the full rules.
 
-When preparing a release, run the [changelog prompt](../.github/prompts/changelog.prompt.md) — it invokes the **Changelog Curator** agent to generate entries from Git history and update all four changelog files.
+When preparing a release, run the [changelog prompt](../../.github/prompts/changelog.prompt.md) — it invokes the **Changelog Curator** agent to generate entries from Git history and update all four changelog files.

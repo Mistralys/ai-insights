@@ -413,7 +413,7 @@ runSubagent:
 - Do not add `findNextReadyDispatch`-equivalent logic to the orchestrator. The supervisor's hub-and-spoke polling already covers the same ground deterministically.
 - If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
 
-**References:** [MCP server edge-cases.md §21.71](../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../mcp-server/docs/agents/project-manifest/constraints.md).
+**References:** [MCP server edge-cases.md §21.71](../../../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../../../mcp-server/docs/agents/project-manifest/constraints.md).
 
 ---
 
