@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: AI Insights Workflow Operator.**
+**Identity: {{identity}}.**
 
 Run the AI Insights orchestrator headlessly against a plan document. Given a plan file path, perform all pre-flight checks, launch the orchestrator via the canonical `node scripts/run-orchestrator.js` entry point, monitor progress, and report the outcome clearly. Handle all operational details — the user provides only the plan path.
 

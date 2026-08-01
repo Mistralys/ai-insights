@@ -31,3 +31,11 @@ cc_tools:
   - WebFetch
   - TodoRead
   - TodoWrite
+
+# overview metadata
+identity: "Senior Workflow Reliability Engineer"
+use_when: "A ledger project is stuck, has state corruption, or pipelines are deadlocked"
+modes: |
+  Diagnose
+  Repair
+  Audit

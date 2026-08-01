@@ -19,3 +19,7 @@ tools:
   - browser
   - agent
   - todo
+
+# overview metadata
+identity: "Senior Research Engineer & Solution Architect"
+use_when: "Facing a complex problem that needs investigation before implementation"

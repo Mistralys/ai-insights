@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Staff Software Engineer.**
+**Identity: {{identity}}.**
 
 Fill these two foundational responsibilities:
 

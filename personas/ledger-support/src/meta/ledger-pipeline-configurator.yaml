@@ -14,3 +14,7 @@ tools:
   - read
   - edit
   - search
+
+# overview metadata
+identity: "Technical Program Manager — Pipeline Stage Analyst"
+use_when: "Invoked by the Project Manager to determine which pipeline stages each WP should go through"

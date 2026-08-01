@@ -11,6 +11,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
+import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -116,76 +117,6 @@ if (!CHECK) {
   const registryDir = path.join(ROOT, 'personas', 'model-registry');
   const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir);
 
-  /**
-   * Extracts simple scalar (string/number) fields from a YAML file without
-   * external dependencies. Only top-level key: value lines are parsed; nested
-   * structures and lists are ignored.
-   */
-  function parseYamlScalars(text, fields) {
-
-    const result = {};
-    for (const line of text.split(/\r?\n/)) {
-      const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
-      if (!m) continue;
-      const key = m[1];
-      if (!fields.includes(key)) continue;
-      let val = m[2].trim();
-      // Strip surrounding single or double quotes (handles `"value"` and `'value'`).
-      // Also handles quoted values followed by a trailing inline comment:
-      //   `key: "value"   # comment` → first match the closing quote, strip comment, then unquote.
-      if (val.startsWith('"') || val.startsWith("'")) {
-        const q = val[0];
-        // Find the closing quote; content between quotes may contain any char.
-        const closeIdx = val.indexOf(q, 1);
-        if (closeIdx !== -1) {
-          val = val.slice(1, closeIdx);
-        } else {
-          // Unclosed quote — fall back to comment-strip and trim
-          val = val.replace(/\s+#.*$/, '').trim();
-        }
-      } else {
-        // Unquoted scalar: strip trailing inline YAML comment
-        // e.g. `role: Developer # note` → `Developer`
-        val = val.replace(/\s+#.*$/, '').trim();
-      }
-      result[key] = val;
-    }
-    return result;
-  }
-
-  /**
-   * Extracts the string content of a YAML block scalar (`key: |` or `key: |-`)
-   * from raw YAML text without a full YAML parse.
-   * Returns the block content (newline-joined, trimmed) or undefined when the
-   * key is absent or does not use a block scalar indicator.
-   */
-  function extractYamlBlockScalar(text, key) {
-    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re    = new RegExp(`^${escaped}\\s*:\\s*\\|[-+]?\\s*$`, 'm');
-    const match = re.exec(text);
-    if (!match) return undefined;
-
-    const after   = text.slice(match.index + match[0].length);
-    const lines   = after.split(/\r?\n/);
-    let   indent  = -1;
-    const content = [];
-
-    for (const line of lines) {
-      if (line.trim() === '') {
-        if (indent !== -1) content.push('');
-        continue;
-      }
-      const m          = line.match(/^(\s+)/);
-      const lineIndent = m ? m[1].length : 0;
-      if (lineIndent === 0) break;            // outdented — end of block scalar
-      if (indent === -1) indent = lineIndent; // first content line determines indent
-      if (lineIndent < indent) break;
-      content.push(line.slice(indent));
-    }
-
-    const joined = content.join('\n').trimEnd();
-    return joined || undefined;
-  }
 
   /**
    * Extracts the version string from a `changelog: |` block scalar in raw YAML

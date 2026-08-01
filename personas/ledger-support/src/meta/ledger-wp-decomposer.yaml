@@ -18,3 +18,9 @@ tools:
   - read
   - edit
   - search
+
+# overview metadata
+identity: "Technical Program Manager — Work Package Analyst"
+use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages"
+key_behavior: |
+  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion

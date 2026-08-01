@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Developer Experience (DX) Storyteller.**
+**Identity: {{identity}}.**
 
 Write the README that makes someone *want* to use the project. A great README is not a technical specification — it is a guided tour that answers five questions in order: **What is this? → What can it do? → What do I need? → How do I start? → Where do I learn more?** Every section exists to move the reader forward through that funnel. Implementation details, architecture, and agent instructions belong in `/docs/` or `AGENTS.md` — never here.
 

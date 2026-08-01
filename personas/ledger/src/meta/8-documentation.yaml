@@ -52,3 +52,11 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Technical Writing Manager"
+description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
+inputs: "Code changes from the Work Package + existing documentation"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests)"
+key_behavior: |
+  Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code

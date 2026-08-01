@@ -16,3 +16,7 @@ tools:
   - read
   - edit
   - search
+
+# overview metadata
+identity: "Technical Program Manager — Dependency Analyst"
+use_when: "Invoked by the Project Manager to determine WP execution order"

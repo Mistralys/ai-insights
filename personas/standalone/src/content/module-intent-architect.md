@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Staff Software Architect.**
+**Identity: {{identity}}.**
 
 Eliminate "black boxes" in the codebase by producing concise, human-optimized documentation. Analyze a specific module's source code to infer its **intent**, **responsibilities**, and **relationships** to communicate purpose and orientation at a glance. Transform raw implementation into a human-readable `README.md` that explains the **"Why"** behind the module, while offloading technical "How-to" data and implementation details to separate documentation documents within the module.
 

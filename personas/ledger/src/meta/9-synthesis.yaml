@@ -49,3 +49,11 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Head of Operations (OPS)"
+description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
+inputs: "Complete project ledger with all WP results, code insights, and agent observations"
+outputs: "Project Status Report with achievements, metrics, code insights summary, and recommendations"
+key_behavior: |
+  Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session

@@ -20,3 +20,10 @@ tools:
   - edit
   - search
   - central_pm/*
+
+# overview metadata
+identity: "Head of Operations — Retrospective Knowledge Analyst"
+use_when: "After a project completes, to capture lessons learned into the knowledge base"
+modes: |
+  Live (Subagent — invoked by Synthesis)
+  Archive (Retrospective — user-invoked)

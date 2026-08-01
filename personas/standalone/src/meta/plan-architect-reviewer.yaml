@@ -23,3 +23,8 @@ tools:
   - browser
   - agent
   - todo
+
+# overview metadata
+identity: "Principal Software Architect"
+use_when: "Reviewing a plan's architectural decisions before implementation begins"
+notes: "Runs in parallel with the Plan Auditor; never blocks it"

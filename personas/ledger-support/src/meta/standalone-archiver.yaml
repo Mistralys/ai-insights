@@ -19,3 +19,10 @@ tools:
   - edit
   - central_pm/ledger_import_standalone
   - central_pm/ledger_update_synthesis
+
+# overview metadata
+identity: "Ledger Archivist"
+use_when: "A standalone plan has been completed and should be tracked in the project ledger for historical reference"
+modes: |
+  Import
+  Update

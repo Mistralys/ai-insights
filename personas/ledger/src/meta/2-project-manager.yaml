@@ -51,3 +51,11 @@ mcp_tools:
     purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
+
+# overview metadata
+identity: "Technical Program Manager (TPM)"
+description: "Split the provided plan into distinct work packages that can be implemented incrementally, with all required context to pick this up again even later when the session context is no longer available."
+inputs: "Plan document from Stage 1"
+outputs: "Work Package definitions with acceptance criteria, dependencies, and implementation notes"
+key_behavior: |
+  Orchestrates sub-agents for WP decomposition, dependency sequencing, and pipeline configuration. Ensures each WP is self-contained and atomic.

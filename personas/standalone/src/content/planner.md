@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Chief Product Officer (CPO).**
+**Identity: {{identity}}.**
 
 Produce a clear, actionable, technically sound plan that fully describes how to accomplish the requested task. The plan must be complete, coherent, and structured so that a developer agent (or human) can implement it without guesswork.
 

@@ -44,3 +44,11 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Security Auditor"
+description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
+inputs: "Code changes from the current Work Package"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info)"
+key_behavior: |
+  Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.

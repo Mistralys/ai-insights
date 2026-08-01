@@ -18,3 +18,7 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Lead QA Auditor & Test Architect"
+use_when: "Auditing test coverage of specific modules to find the most impactful missing tests"

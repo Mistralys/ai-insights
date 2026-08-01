@@ -213,6 +213,12 @@ Use these flags in content templates to write platform-conditional blocks:
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
 | `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
+| `identity` | `string` | yes | Short role title matching the `**Identity: {{identity}}.**` mission header. Required in all ledger personas. Used by `scripts/generate-agents-overview.js`. |
+| `description` | `string` | yes | Mission summary sentence(s) displayed under the Identity line in the overview document. Used by `scripts/generate-agents-overview.js`. |
+| `inputs` | `string` | yes | What this persona receives as input. Used by `generate-agents-overview.js`. |
+| `outputs` | `string` | yes | What this persona produces as output. Used by `generate-agents-overview.js`. |
+| `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line rendered in the overview. |
+| `modes` | block scalar | no | Newline-delimited operating modes. Rendered in the overview for personas with distinct modes. |
 
 ---
 
@@ -422,6 +428,11 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
 | `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
 | `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone) persona slugs this persona may invoke as sub-agents. When declared, the builder resolves `{{agent_{slug}}}` (display name) and `{{agent_slug_{slug}}}` (kebab slug) template variables for use in target-conditional dispatch blocks. Each slug must resolve to a YAML file in `personas/ledger-support/src/meta/` (first) or `personas/standalone/src/meta/` (fallback). |
+| `identity` | `string` | yes | Short role title matching the `**Identity: {{identity}}.**` mission header. Required in all personas. Used by `scripts/generate-agents-overview.js` for the overview document. |
+| `use_when` | `string` | no | One-line description of when to invoke this persona. Used by `generate-agents-overview.js`. Applies to standalone and ledger-support personas. |
+| `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line used in the overview. Applies to all suites. |
+| `modes` | block scalar | no | Newline-delimited operating modes. Used in the overview for personas with distinct modes. |
+| `notes` | `string` | no | Optional freeform note rendered as a **Notes:** bullet in the overview. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 

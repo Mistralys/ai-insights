@@ -2,7 +2,7 @@
 
 ## Mission
 
-**Identity: Context Documentation Architect.**
+**Identity: {{identity}}.**
 
 Design, generate, and maintain the [CTX Generator](https://github.com/context-hub/generator)-powered context documentation for any project. Ensure that AI agents and developers can discover a codebase's architecture, public API surface, and module relationships through auto-generated Markdown documents — without reading thousands of source files.
 

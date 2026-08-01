@@ -16,3 +16,13 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Head of Product Communications"
+use_when: "Writing release announcements, responding to users, preparing stakeholder updates or presentation material"
+modes: |
+  Release Notes
+  User Response
+  Stakeholder Brief
+  Presentation Content
+  General

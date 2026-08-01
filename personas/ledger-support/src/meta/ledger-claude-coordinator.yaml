@@ -20,3 +20,10 @@ cc_tools:
   - Task
   - Read
   - Grep
+
+# overview metadata
+identity: "Technical Workflow Director"
+use_when: "Experimental — originally designed to coordinate the ledger pipeline in Claude Code, but currently unused because Claude Code does not reliably follow ledger routing. Retained for future evaluation"
+modes: |
+  Interactive (default)
+  Autonomous

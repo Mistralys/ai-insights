@@ -13,3 +13,10 @@ tools:
   - read
   - search
   - central_pm/*
+
+# overview metadata
+identity: "Knowledge Base Librarian"
+use_when: "The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity"
+modes: |
+  Global Maintenance
+  Project Maintenance

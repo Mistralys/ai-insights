@@ -33,8 +33,31 @@ const ORCHESTRATOR_DIR  = path.join(WORKSPACE_ROOT, 'orchestrator');
 const VENV_DIR          = path.join(ORCHESTRATOR_DIR, '.venv');
 const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
 const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
+const OVERVIEW_FILE     = path.join(WORKSPACE_ROOT, 'docs', 'references', 'agents-overview.md');
+const PERSONA_META_DIRS = [
+  path.join(PERSONAS_DIR, 'ledger',        'src', 'meta'),
+  path.join(PERSONAS_DIR, 'standalone',    'src', 'meta'),
+  path.join(PERSONAS_DIR, 'ledger-support', 'src', 'meta'),
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Find the latest mtime (ms) among the immediate files of a flat directory
+ * (no subdirectory recursion). Returns -Infinity when unreadable or empty.
+ * Use this for known flat dirs (e.g. persona meta/ directories).
+ * @param {string} dir
+ * @returns {number}
+ */
+function latestMtimeFlat(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(e => e.isFile())
+      .reduce((max, e) => Math.max(max, fs.statSync(path.join(dir, e.name)).mtimeMs), -Infinity);
+  } catch {
+    return -Infinity;
+  }
+}
 
 /**
  * Recursively find the latest mtime (ms) among all files in a directory.
@@ -181,6 +204,21 @@ export const HEALTH_CHECKS = [
       return latestMtime(MCP_SRC_DIR) <= distMtime;
     },
     fix: 'cd mcp-server && npm run build',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'overview-fresh',
+    label: 'Agents overview up to date',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      if (!fs.existsSync(OVERVIEW_FILE)) return false;
+      const overviewMtime = fs.statSync(OVERVIEW_FILE).mtimeMs;
+      const latestYaml = Math.max(...PERSONA_META_DIRS.map(d => latestMtimeFlat(d)));
+      return latestYaml <= overviewMtime;
+    },
+    fix: 'node scripts/cli.js generate-overview',
   },
 
   /** @type {SyncCheck} */

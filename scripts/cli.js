@@ -432,6 +432,8 @@ function cmdBuildMaintain(args) {
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
   if (buildCode !== 0) process.exit(buildCode);
+  const overviewCode = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js')], { cwd: WORKSPACE_ROOT });
+  if (overviewCode !== 0) process.exit(overviewCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
   cmdCtxGenerate(args);
@@ -466,6 +468,11 @@ function cmdCheckVersions() {
 
 function cmdBundleDocs(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'bundle-docs.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdGenerateOverview(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
 }
 
@@ -812,6 +819,14 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Generate context documentation (ctx generate)',
     run:         cmdCtxGenerate,
+  },
+  {
+    id:          'generate-overview',
+    key:         null,
+    label:       'Generate agents overview',
+    category:    'Validation & Utilities',
+    description: 'Generate docs/references/agents-overview.md from persona YAML metadata',
+    run:         cmdGenerateOverview,
   },
   {
     id:          'check-versions',

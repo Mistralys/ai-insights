@@ -28,3 +28,7 @@ cc_tools:
   - Read
   - Grep
   - Glob
+
+# overview metadata
+identity: "Configuration Management Engineer"
+use_when: "You have a large batch of uncommitted changes that need to be organized into logical, well-described commits"
