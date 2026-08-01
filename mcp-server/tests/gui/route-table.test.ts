@@ -98,4 +98,16 @@ describe('getRouteDescriptors() — route table structural invariants', () => {
     expect(duplicates).toEqual([]);
   });
 
+  it('PUT /api/stores/order (literal) appears before PUT /api/stores/:storeId (regex) in the route table', () => {
+    // Guards the literal-path-before-parameterized ordering constraint documented
+    // in server.ts `buildStoreRoutes()`. If these are ever swapped, PUT /api/stores/order
+    // would be shadowed by the :storeId regex and treated as a label-update request.
+    const orderIndex   = routes.findIndex((r) => r.method === 'PUT' && r.path === '/api/stores/order');
+    const storeIdIndex = routes.findIndex((r) => r.method === 'PUT' && r.path instanceof RegExp && /storeId/.test(r.path.source));
+
+    expect(orderIndex).toBeGreaterThanOrEqual(0);
+    expect(storeIdIndex).toBeGreaterThanOrEqual(0);
+    expect(orderIndex).toBeLessThan(storeIdIndex);
+  });
+
 });

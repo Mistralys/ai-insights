@@ -64,7 +64,7 @@ import {
   isStoreContextInitialized,
 } from '../src/storage/store-context.js';
 import { loadRegistry } from '../src/storage/repository-registry.js';
-import type { TaggedProjectMeta, RegistryConflict } from '../src/storage/multi-store-manager.js';
+import type { TaggedProjectMeta } from '../src/storage/multi-store-manager.js';
 export { ApiError };
 import {
   getQueue,
@@ -1895,88 +1895,4 @@ export async function handleGetRunMetadata(
   }
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/stores
-// ---------------------------------------------------------------------------
-
-export type { StoreListItem } from '../src/schema/store-config.js';
-import type { StoreListItem } from '../src/schema/store-config.js';
-
-/**
- * Returns the list of configured stores, each annotated with the count of
- * projects and registered repositories it contains.
- *
- * Behaviour by mode:
- * - **Multi-store mode** (`isStoreContextInitialized()` and
- *   `getStoreRouter().isMultiStoreMode()`): iterates all configured stores
- *   via `getStoreRouter().getAllStores()` and loads per-store counts from disk.
- * - **Single-store / legacy mode**: returns a single entry for the provided
- *   `ledgerRoot` with `id: 'default'` and `label: 'Default Store'`.
- *
- * @param ledgerRoot - Absolute path to the single-store ledger root.
- *   Used only when the store context is not initialized (legacy mode).
- */
-export async function handleGetStores(ledgerRoot: string): Promise<StoreListItem[]> {
-  // Intentional: uses only isStoreContextInitialized() without the secondary
-  // isMultiStoreMode() guard used by handleListRepos, handleOrchestratorStart, etc.
-  // This endpoint must return all configured stores even when only one store is
-  // present — restricting to multi-store mode would produce an empty result in
-  // single-store configurations.
-  if (isStoreContextInitialized()) {
-    const stores = getStoreRouter().getAllStores();
-    return Promise.all(
-      stores.map(async (store) => {
-        const [projects, registry] = await Promise.all([
-          LedgerStore.listAllProjects(store.path),
-          loadRegistry(store.path),
-        ]);
-        return {
-          id: store.id,
-          label: store.label,
-          path: store.path,
-          project_count: projects.length,
-          repository_count: registry.repositories.length,
-        };
-      })
-    );
-  }
-
-  // Legacy / single-store mode: single default entry.
-  const [projects, registry] = await Promise.all([
-    LedgerStore.listAllProjects(ledgerRoot),
-    loadRegistry(ledgerRoot),
-  ]);
-  return [
-    {
-      id: 'default',
-      label: 'Default Store',
-      path: ledgerRoot,
-      project_count: projects.length,
-      repository_count: registry.repositories.length,
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// GET /api/stores/conflicts
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the list of repositories registered in more than one store.
- *
- * Delegates to `MultiStoreManager.getRegistryConflicts()`. In single-store
- * / legacy mode (store context not initialized, or only one store configured)
- * the result is always an empty array — cross-store conflicts cannot exist
- * when there is only one store.
- *
- * Each conflict record contains:
- * - `repo_name`      — the shared repository id.
- * - `entries`        — per-store entries in config order.
- * - `winner_store_id` — id of the first-priority store that claims the repo.
- */
-export async function handleGetStoreConflicts(): Promise<RegistryConflict[]> {
-  if (!isStoreContextInitialized()) {
-    return [];
-  }
-  return getMultiStoreManager().getRegistryConflicts();
-}
+// handleGetStores and handleGetStoreConflicts have been moved to api-stores.ts

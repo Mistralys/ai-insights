@@ -29,6 +29,27 @@ All frontend JavaScript uses **ES5-compatible patterns**:
 
 **Rationale:** The codebase was designed for maximum simplicity and zero dependencies. The pattern is intentional — do not "upgrade" to modern syntax without adding a transpilation step.
 
+**Event listener lifecycle on persistent DOM elements:** There are no framework lifecycle hooks. Any module that registers a `click` (or other) listener on a persistent element (e.g., `document.body`, a tab container, a persistent table wrapper) **must** manage the listener reference manually:
+
+```javascript
+var csClickHandler = null;
+
+function csInitListeners() {
+  csClickHandler = function (e) { /* … */ };
+  persistentEl.removeEventListener('click', csClickHandler); // guard against double-init
+  persistentEl.addEventListener('click', csClickHandler);
+}
+
+function csCleanup() {
+  if (csClickHandler) {
+    persistentEl.removeEventListener('click', csClickHandler);
+    csClickHandler = null;
+  }
+}
+```
+
+Skipping the `removeEventListener` guard causes listeners to accumulate silently each time the tab/view is re-rendered, leading to duplicate event handling that is difficult to diagnose. This pattern is established in `config-stores.js` and `config.js`; all future tab modules must follow it from the start.
+
 ---
 
 ## 3. Global Namespace Pattern
@@ -227,11 +248,27 @@ between a plain-text format and a structured JSON format without breaking existi
 
 ---
 
-## 16. Known Limitations
+## 16. Hot-Reload After Store Config Writes
+
+Every write handler in `api-stores.ts` (`handleAddStore`, `handleImportStore`, `handleUpdateStore`, `handleRemoveStore`, `handleSetDefaultStore`, `handleReorderStores`) **must** call `reloadStoreContext()` after a successful `saveStoresConfig()`. This is mandatory — skipping it leaves the in-memory `StoreRouter` and `MultiStoreManager` stale while the on-disk `stores.json` has been updated, causing subsequent read/write operations to use the wrong store routing.
+
+**`reloadStoreContext()` contract:**
+- Calls `loadStoresConfig()` to re-read `stores.json` from disk.
+- Constructs `new StoreRouter(config, { skipDirCreate: true })` — the `skipDirCreate` flag prevents `mkdirSync` from throwing when a store path is temporarily unavailable (unmounted drive, offline NFS). Directory creation is the responsibility of `handleAddStore`, not of the reload.
+- Calls `setStoreContext(router, manager)` to overwrite the module-level singletons.
+- Returns the new `StoresConfig | null` so callers can use it to build the response.
+
+**Failure handling:** If `reloadStoreContext()` throws (unexpected I/O error), the write handler returns a 500. The config file was already saved — the client should retry the read (`GET /api/stores`) to get the current state.
+
+**Test isolation:** Test suites that call `setStoreContext()` directly do not need to call `reloadStoreContext()`. The real-implementation tests for write handlers should verify that the in-memory context reflects the updated config after each mutation.
+
+---
+
+## 17. Known Limitations
 
 | Limitation | Impact |
 |------------|--------|
-| No hot reload | Must manually refresh browser after frontend changes. |
+| No hot reload (frontend) | Must manually refresh browser after frontend JS/CSS changes. |
 | No TypeScript on frontend | No type checking for client-side code. |
 | Single-threaded server | No worker threads; long handler blocking affects all requests. |
 | No WebSocket | Polling-based updates only; no push notifications. |

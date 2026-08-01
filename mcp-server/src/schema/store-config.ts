@@ -84,4 +84,14 @@ export interface StoreListItem {
   path: string;
   project_count: number;
   repository_count: number;
+  /** `true` when this store is the `default_store` in `stores.json`. At most one item has this set to `true`; all items have `false` when `stores.json` is absent or the `default_store` field is empty (single-store / legacy mode). */
+  is_default: boolean;
+  /** `true` when the store path is a Git repository (i.e. contains a `.git` directory). When `false`, `ahead` and `behind` are both `undefined` — they are only populated for Git-tracked stores. */
+  is_git: boolean;
+  /** Number of local commits ahead of the remote tracking branch. Only present when `is_git` is `true` and the store has a configured remote. */
+  ahead?: number;
+  /** Number of remote commits that have not been pulled locally. Only present when `is_git` is `true` and the store has a configured remote. */
+  behind?: number;
+  /** Informational sync metadata from `stores.json`. `undefined` when no `sync` block was provided for this store entry. The server does not act on this data. */
+  sync?: StoreSyncMeta;
 }

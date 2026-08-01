@@ -3774,3 +3774,327 @@ th[data-sort="total_work_packages"] {
   border-top: 1px solid var(--color-border);
   flex-wrap: wrap;
 }
+
+/* ══════════════════════════════════════════════════════════
+   Config Stores tab (cs-*)
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Action bar ──────────────────────────────────────────── */
+.cs-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Default star ────────────────────────────────────────── */
+.cs-default-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0 2px;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.cs-default-star.cs-star-filled {
+  color: #f59e0b;
+  cursor: default;
+}
+
+.cs-default-star.cs-star-outline:hover {
+  color: #f59e0b;
+}
+
+/* ── Type badge ──────────────────────────────────────────── */
+.cs-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.cs-type-git {
+  background: var(--color-badge-complete-bg);
+  color: var(--color-badge-complete-fg);
+}
+
+.cs-type-folder {
+  background: var(--color-badge-neutral-bg);
+  color: var(--color-badge-neutral-fg);
+}
+
+/* ── Git ahead/behind status ─────────────────────────────── */
+.cs-git-status {
+  font-size: 11px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.cs-git-ahead {
+  color: var(--color-complete);
+  font-weight: 600;
+}
+
+.cs-git-behind {
+  color: var(--color-blocked);
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+/* ── Path cell ───────────────────────────────────────────── */
+.cs-path-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+}
+
+.cs-path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.cs-copy-btn {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.cs-copy-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ── Sync badge and popover ──────────────────────────────── */
+.cs-sync-cell {
+  position: relative;
+}
+
+.cs-sync-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--color-badge-info-bg);
+  color: var(--color-badge-info-fg);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.cs-sync-popover {
+  display: none;
+  position: absolute;
+  z-index: 300;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  max-width: 320px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  pointer-events: none;
+}
+
+.cs-sync-popover-visible {
+  display: block;
+}
+
+/* ── Reorder sub-view ────────────────────────────────────── */
+.cs-reorder-view {
+  padding: 4px 0;
+}
+
+.cs-reorder-info {
+  margin-bottom: 12px;
+}
+
+.cs-reorder-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  margin-bottom: 6px;
+  gap: 12px;
+}
+
+.cs-reorder-label {
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-reorder-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cs-move-disabled {
+  opacity: 0.35;
+}
+
+/* ── Notification banner ─────────────────────────────────── */
+.cs-notification-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--color-banner-warn-bg);
+  color: var(--color-banner-warn-fg);
+  border: 1px solid var(--color-banner-warn-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.cs-banner-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--color-banner-warn-fg);
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ── Modal overlay ───────────────────────────────────────── */
+.cs-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.cs-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cs-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.cs-modal-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cs-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--color-text-muted);
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.cs-modal-close:hover {
+  color: var(--color-text);
+}
+
+.cs-modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.cs-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* ── Modal form fields ───────────────────────────────────── */
+.cs-modal-field-group {
+  margin-bottom: 14px;
+}
+
+.cs-modal-field-error {
+  display: block;
+  color: var(--color-blocked);
+  font-size: 12px;
+  margin-top: 4px;
+  min-height: 1em;
+}
+
+.cs-modal-readonly {
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.cs-modal-radio-group .cs-radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.cs-modal-dir-note {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* ── Row actions ─────────────────────────────────────────── */
+.cs-row-actions {
+  white-space: nowrap;
+}

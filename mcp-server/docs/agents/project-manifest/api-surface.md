@@ -1371,16 +1371,29 @@ export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Prom
 
 ## GUI API — Store Endpoints
 
-These handler functions are exported from `gui/api.ts` and called by the HTTP server in `gui/server.ts` via the non-exported `buildStoreRoutes()` sub-builder. They expose the configured store list and cross-store conflict data — primarily consumed by the GUI Stores tab.
+These handler functions are exported from `gui/api-stores.ts` and called by the HTTP server in `gui/server.ts` via the non-exported `buildStoreRoutes()` sub-builder. They expose the configured store list and cross-store conflict data — primarily consumed by the GUI Stores tab.
 
 ### HTTP Route Table
 
-| Method | Path | Return Shape | Status Code | Error Codes |
-|--------|------|--------------|-------------|-------------|
-| `GET` | `/api/stores` | `StoreListItem[]` | 200 | — |
-| `GET` | `/api/stores/conflicts` | `RegistryConflict[]` | 200 | — |
+All store handlers live in `gui/api-stores.ts`. Literal-path routes (`/api/stores/import`, `/api/stores/order`, `/api/stores/conflicts`) are registered before parameterized `:storeId` routes to prevent shadowing.
 
-> **Route ordering note:** `/api/stores/conflicts` is registered **before** `/api/stores` in `buildStoreRoutes()` to prevent the shorter prefix from shadowing the conflicts route.
+**Section A — body-parsing routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `POST` | `/api/stores` | `handleAddStore` | Add a new store. Creates directory + empty `.repositories.json`. Returns `StoreListItem[]`. |
+| `POST` | `/api/stores/import` | `handleImportStore` | Import an existing directory as a store. Preserves any existing `.repositories.json`. Returns `{ stores: StoreListItem[], warning?: string }`. |
+| `PUT` | `/api/stores/order` | `handleReorderStores` | Reorder stores. Body: `{ order: string[] }`. Returns `StoreListItem[]`. |
+| `PUT` | `/api/stores/:storeId` | `handleUpdateStore` | Update store label. Body: `{ label?: string }`. Returns `StoreListItem[]`. |
+
+**Section B — body-free routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `DELETE` | `/api/stores/:storeId` | `handleRemoveStore` | Remove store from config (does NOT delete directory). Returns `{ stores: StoreListItem[], warned: boolean }`. |
+| `POST` | `/api/stores/:storeId/default` | `handleSetDefaultStore` | Set default store. Returns `StoreListItem[]`. |
+| `GET` | `/api/stores/conflicts` | `handleGetStoreConflicts` | Cross-store registry conflicts. Returns `RegistryConflict[]`; `[]` in legacy mode. |
+| `GET` | `/api/stores` | `handleGetStoresEnriched` | Enriched store list. Returns `StoreListItem[]`; synthesized single entry in legacy mode. |
 
 ### `StoreListItem` — Response Shape
 
@@ -1391,24 +1404,79 @@ export interface StoreListItem {
   path: string;             // Absolute path to the store's ledger root
   project_count: number;    // Number of projects in this store
   repository_count: number; // Number of registered repositories in this store
+  is_default: boolean;      // true when this store is the default_store in stores.json
+  is_git: boolean;          // true when the store path is a Git repository
+  ahead?: number;           // Local commits ahead of remote (only when is_git && upstream configured)
+  behind?: number;          // Remote commits not yet pulled (only when is_git && upstream configured)
+  sync?: StoreSyncMeta;     // Informational sync metadata from StoreEntry.sync; undefined when absent
 }
 ```
 
-> **Location:** `StoreListItem` is defined in `src/schema/store-config.ts` (co-located with `StoreEntry` and `StoresConfig`) and re-exported from `gui/api.ts` for backward compatibility. Import directly from `src/schema/store-config.ts` in new TypeScript consumers.
+> **Invariant:** When `is_git` is `false`, both `ahead` and `behind` are `undefined`. The enriched GET returns `is_git: false` for all stores when `git` is not installed. Git detection per store runs concurrently via `Promise.all` with a 5-second timeout per `execFile` call.
 
-### `handleGetStores(ledgerRoot)`
+> **Location:** `StoreListItem` is defined in `src/schema/store-config.ts` (co-located with `StoreEntry` and `StoresConfig`) and exported directly from there. Import from `src/schema/store-config.ts` in all consumers.
+
+### `handleGetStoresEnriched(ledgerRoot)`
 
 ```typescript
-export async function handleGetStores(ledgerRoot: string): Promise<StoreListItem[]>
+export async function handleGetStoresEnriched(ledgerRoot: string): Promise<StoreListItem[]>
 ```
 
-Returns the list of configured stores, each annotated with project and repository counts.
+Returns the enriched list of configured stores. Each entry includes project/repository counts, default-store designation, Git status, and sync metadata.
 
 **Behaviour by mode:**
-- **Multi-store mode** (`isStoreContextInitialized()` is `true`): iterates all configured stores via `getStoreRouter().getAllStores()` and loads per-store project and repository counts from disk in parallel via `Promise.all()`.
-- **Single-store / legacy mode** (store context not initialized): returns a single `StoreListItem` with `id: 'default'` and `label: 'Default Store'` for the provided `ledgerRoot`.
+- **Multi-store mode** (`isStoreContextInitialized()` is `true`): iterates all configured stores via `getStoreRouter().getAllStores()`, loads per-store counts in parallel via `Promise.all()`, and runs Git detection for each store concurrently.
+- **Single-store / legacy mode** (store context not initialized): returns a single `StoreListItem` with `id: 'default'`, `label: 'Default Store'`, `is_default: true`, and Git enrichment applied to `ledgerRoot`.
 
-> **Guard note:** This handler uses only `isStoreContextInitialized()` — it does **not** apply the secondary `isMultiStoreMode()` check used by `handleListRepos`, `handleOrchestratorStart`, and `handleCreateRepo`. This is intentional: the endpoint must surface all configured stores even when only one store is present, so restricting to strict multi-store mode would silently return an empty list in single-store configurations.
+> **Guard note:** Uses only `isStoreContextInitialized()` — does not apply the secondary `isMultiStoreMode()` check, so it surfaces all stores even in single-store configurations.
+
+### `handleAddStore(body)`
+
+```typescript
+export async function handleAddStore(body: unknown): Promise<StoreListItem[]>
+```
+
+Validates `{ id, path, label? }`. Rejects reserved IDs (`"import"`, `"order"`, `"conflicts"`), duplicate IDs, duplicate paths, relative paths, and whitespace-only labels. Creates the store directory and an empty `.repositories.json` (no-op if directory already exists). Saves config via `saveStoresConfig()`, calls `reloadStoreContext()`, returns the updated store list.
+
+### `handleImportStore(body)`
+
+```typescript
+export async function handleImportStore(body: unknown): Promise<{ stores: StoreListItem[], warning?: string }>
+```
+
+Validates `{ id, path, label? }` with the same rules as `handleAddStore`. The target directory **must already exist** (400 if absent). Never overwrites an existing `.repositories.json`. Returns `warning` if the existing `.repositories.json` is present but fails `RepositoryRegistrySchema` validation.
+
+### `handleUpdateStore(storeId, body)`
+
+```typescript
+export async function handleUpdateStore(storeId: string, body: unknown): Promise<StoreListItem[]>
+```
+
+Updates label for an existing store. Trims whitespace; rejects whitespace-only labels with 400. Calls `reloadStoreContext()` after saving.
+
+### `handleRemoveStore(storeId)`
+
+```typescript
+export async function handleRemoveStore(storeId: string): Promise<{ stores: StoreListItem[], warned: boolean }>
+```
+
+Removes the store from config. Does **not** delete the directory. When the removed store was `default_store`, the first remaining store becomes the new default (matches CLI behavior). Returns `warned: true` when the store had registered repositories.
+
+### `handleSetDefaultStore(storeId)`
+
+```typescript
+export async function handleSetDefaultStore(storeId: string): Promise<StoreListItem[]>
+```
+
+Sets `default_store` to `storeId`. Calls `reloadStoreContext()` after saving.
+
+### `handleReorderStores(body)`
+
+```typescript
+export async function handleReorderStores(body: unknown): Promise<StoreListItem[]>
+```
+
+Validates `{ order: string[] }` — must contain exactly the current store IDs, no duplicates, no omissions. Reorders `config.stores` to match. Store order determines conflict-resolution priority.
 
 ### `handleGetStoreConflicts()`
 
@@ -2649,7 +2717,10 @@ function setStoreContext(router: StoreRouter, manager: MultiStoreManager): void;
 function getStoreRouter(): StoreRouter;
 function getMultiStoreManager(): MultiStoreManager;
 function isStoreContextInitialized(): boolean;
+async function reloadStoreContext(configPath?: string): Promise<StoresConfig | null>;
 ```
+
+**`reloadStoreContext(configPath?)`** — Re-reads `stores.json` via `loadStoresConfig()`, constructs fresh `StoreRouter(config, { skipDirCreate: true })` and `MultiStoreManager(router)` instances, and calls `setStoreContext()` to overwrite the module-level singletons. Returns the newly loaded `StoresConfig | null` (null when `stores.json` is absent, malformed, or schema-invalid — the server falls back to legacy single-store mode). Called by every write handler in `api-stores.ts` after a successful `saveStoresConfig()`. The `skipDirCreate: true` flag prevents `mkdirSync` from throwing when a store path is temporarily unavailable during a hot-reload (e.g. an unmounted drive) — directory creation is the responsibility of `handleAddStore`, not of reload. The optional `configPath` parameter is an **internal test hook** — it must not be forwarded from HTTP handlers or public API surfaces; GUI callers must invoke `reloadStoreContext()` with no arguments.
 
 **`isStoreContextInitialized()`** — Returns `true` when `setStoreContext()` has been called and the singleton references are populated; `false` otherwise. Used as a guard in tool handlers (e.g. `project-lifecycle.ts`) to prevent multi-store code paths from activating in test environments that do not call `setStoreContext()`. Introduced by WP-007.
 
@@ -5435,8 +5506,14 @@ The server uses a unified routing architecture: all routes (body-free and body-p
 | POST | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` | `noBody: true`; `id` from named capture group, URL-decoded |
 | POST | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` | `noBody: true`; HTTP 204 No Content |
 | POST | `/api/orchestrator/delete/:id` | `handleOrchestratorDelete` | `noBody: true`; permanently deletes the log entry; HTTP 204 No Content |
-| GET | `/api/stores` | `handleGetStores` | Returns `StoreListItem[]`; single default entry in legacy mode |
+| POST | `/api/stores` | `handleAddStore` | Body-parsing route; returns `StoreListItem[]` |
+| POST | `/api/stores/import` | `handleImportStore` | Body-parsing route; returns `{ stores, warning? }` |
+| PUT | `/api/stores/order` | `handleReorderStores` | Body-parsing route; returns `StoreListItem[]` |
+| PUT | `/api/stores/:storeId` | `handleUpdateStore` | Body-parsing route; returns `StoreListItem[]` |
+| DELETE | `/api/stores/:storeId` | `handleRemoveStore` | `noBody: true`; returns `{ stores, warned }` |
+| POST | `/api/stores/:storeId/default` | `handleSetDefaultStore` | `noBody: true`; returns `StoreListItem[]` |
 | GET | `/api/stores/conflicts` | `handleGetStoreConflicts` | Returns `RegistryConflict[]`; always `[]` in single-store mode |
+| GET | `/api/stores` | `handleGetStoresEnriched` | Returns enriched `StoreListItem[]`; synthesized entry in legacy mode |
 | GET | `/api/knowledge` | `handleListKnowledge` | Optional: `?scope&category&tags&repository_name&query&limit&offset` |
 | DELETE | `/api/knowledge/:id` | `handleDeleteKnowledge` | Optional: `?scope&repository_name` |
 | POST | `/api/knowledge/:id/promote` | `handlePromoteKnowledge` | Optional: `?scope&repository_name` |
@@ -5829,16 +5906,17 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 
 **`views/config.js`:**
 
-The configuration view is a three-tab SPA page: **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
+The configuration view is a four-tab SPA page: **Stores**, **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
 
-**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, and `GET /api/assignments` in parallel, then delegates to `renderConfigPage`.
+**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, `GET /api/assignments`, and `GET /api/stores` in parallel, then delegates to `renderConfigPage`.
 
-**`renderConfigPage(app, config, models, personas, assignments)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
+**`renderConfigPage(app, config, models, personas, assignments, stores)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`, and all `cs*` Stores state vars including `csClickHandler`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
 
 **Tab system:**
 - **Active tab state:** `configActiveTab` (module-level string, default `'general'`) persists across tab switches within a page visit.
-- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset.
-- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments)` — renders into `#config-tab-content` and wires events for the active tab.
+- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry, stores }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset. The Stores tab uses immediate writes and has no dirty state; its cleanup runs unconditionally on tab leave regardless of `configDirty.stores`.
+- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments, stores)` — renders into `#config-tab-content` and wires events for the active tab.
+- **Stores tab cleanup:** When leaving the Stores tab, `config.js` calls `config-tab-content.removeEventListener('click', csClickHandler)` **before** nulling `csClickHandler`. This is required because `config-tab-content` is a persistent DOM element — replacing its `innerHTML` does NOT remove event listeners registered directly on it; only an explicit `removeEventListener` call prevents stale handler accumulation across tab round-trips.
 
 **General tab** (`renderGeneralTab(config)` + `wireGeneralTabEvents()`):
 - Renders a form for `auto_handoff_enabled`, `max_handoff_depth`, `capture_dialogues`, `auto_archive_days`, and `ledger_root` (read-only). Save calls `PUT /api/config` with all four writable fields. Dirty tracking via both `change` and `input` listeners (required to cover checkboxes and text inputs).
@@ -5923,6 +6001,112 @@ Wired interactions:
 | `.btn-link` | Inline link-styled button (used for the Go to Model Registry navigation) |
 | `.pm-model-select` | Common class on all `<select>` elements in the Persona Models tab |
 | `.spinner` | Inline spinner used inside buttons during async operations (rebuild); `display: inline-block`, animated `border` rotation |
+
+---
+
+**`views/config-stores.js`:**
+
+Stores tab companion module for `config.js`. Must be loaded before `config.js` — `renderStoresTab` and `csWireEvents` are called from `renderConfigTabContent`.
+
+**Module-level state** (reset by `renderConfigPage` on each page entry and by the Stores tab cleanup in `config.js` on every tab leave):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `csStores` | `StoreEntry[] \| null` | Working copy of the store list (from server) |
+| `csOriginal` | `StoreEntry[] \| null` | Snapshot at load time (structural parity; no dirty tracking — Stores tab uses immediate writes) |
+| `csReorderMode` | `boolean` | `true` when the reorder sub-view is active |
+| `csModalMode` | `'add' \| 'edit' \| null` | Current modal state; `null` when closed |
+| `csModalStoreId` | `string \| null` | ID of the store being edited; `null` in add mode |
+| `csModalCreateDir` | `boolean` | `true` = create new directory (Add mode); `false` = use existing (Import mode) |
+| `csClickHandler` | `function \| null` | Reference to the active delegated click handler on `config-tab-content`; stored to enable `removeEventListener` before re-wiring |
+
+**Rendering functions:**
+
+- **`renderStoresTab(stores)`** — Sets `csStores` and `csOriginal`. Returns HTML for the full Stores tab: a `.table-wrapper` 9-column table (Default ★, Label, ID, Path, Type, Projects, Repositories, Sync, Actions) when stores are present, or an empty-state block with an Add Store button. Preserves any existing `#cs-notification-banner` by re-inserting its `outerHTML` at the top of the rendered output.
+- **`csRenderReorderView(stores)`** — Returns HTML for the reorder sub-view (replaces the main table while `csReorderMode` is `true`); renders move-up/down buttons with edge-row buttons disabled.
+- **`csRenderStoreModal(mode, store)`** — Inserts the add/edit modal overlay (`#cs-modal-overlay`, `#cs-modal`) into `document.body`. **Add mode:** all fields editable (ID, Path, directory-mode radio toggle, Label). **Edit mode:** ID and Path are read-only; only Label is editable. Auto-focuses the first input. Calls `csWireModalEvents()` after insertion.
+- **`csTypeBadge(store)`** — Returns type badge HTML (`cs-type-git` or `cs-type-folder`); appends `cs-git-status` with ahead/behind arrows when `store.is_git` and counts are available.
+- **`csSyncCell(store)`** — Returns sync badge HTML with an `aria-describedby` popover (provider, remote_path, notes); returns an em dash when no sync metadata is present.
+- **`csPathCell(store)`** — Returns a `.cs-path-cell` with truncated path text and a clipboard copy button (`data-path` holds the full unescaped path).
+- **`csDefaultStar(store)`** — Returns a filled star (disabled) for the default store or an outline star (clickable) for non-default stores.
+
+**Event wiring:**
+
+- **`csWireEvents()`** — Removes stale listener via `contentEl.removeEventListener('click', csClickHandler)`, then assigns a new handler to `csClickHandler` and registers it on `config-tab-content`. Handles: Add Store, Reorder Stores, Done (reorder), Dismiss banner, Set Default star, Edit, Remove (with `confirm()` dialog and `repository_count` warning), Copy path (Clipboard API with `execCommand` fallback), Move Up, Move Down. Also registers individual `mouseenter`/`mouseleave`/`focus`/`blur` handlers on each `.cs-sync-badge` for popover visibility.
+- **`csWireModalEvents(overlay, modal)`** — Wires modal-specific events: overlay-click close, Escape key close, Tab/Shift+Tab focus trap, Close button, Cancel button, dir-mode radio toggle (shows/hides `#cs-modal-dir-note`), Enter-submits save, Save button (`csHandleModalSave`).
+
+**Validation:**
+
+| Function | Rule |
+|----------|------|
+| `csValidateId(id)` | Non-empty; matches `CS_SLUG_REGEX` (`/^[a-zA-Z0-9][a-zA-Z0-9_-]*/`); not in `CS_RESERVED_IDS` (`['import','order','conflicts']`) |
+| `csValidatePath(path)` | Non-empty; starts with `/` or `~/` |
+| `csValidateLabel(label)` | Passes when empty (field is optional); fails when non-empty and whitespace-only |
+| `csValidateModalFields()` | Calls all relevant validators and injects inline errors into `.cs-modal-field-error` spans; returns `true` when all pass |
+
+**Save logic (`csHandleModalSave()`):**
+
+Validates fields, disables Save button with "Saving…" text, then:
+- **Add mode:** calls `API.addStore(data)` or `API.importStore(data)` depending on `csModalCreateDir`; on success calls `csRefreshWithStores(stores, warning)` (warning extracted from import response).
+- **Edit mode:** empty label + store had no existing label → `csCloseModal()` (no-op). Empty label + store had a label → shows inline error on `#cs-modal-label-err`. Otherwise calls `API.updateStore(id, { label })`.
+
+**`csCloseModal()`** — removes `#cs-modal-overlay`, restores focus to the element that triggered the modal (`csTriggerElement`), then resets `csModalMode`/`csModalStoreId` and nulls `csTriggerElement`. Focus restoration is guarded (`typeof .focus === 'function'`) and is a no-op when `csTriggerElement` is `null` or a detached element. The trigger element is captured as `document.activeElement` at the start of `csRenderStoreModal()` before any DOM manipulation.
+
+**Refresh helpers:**
+
+- **`csRefreshTab()`** — Calls `API.getStores()` and re-renders the Stores tab with fresh server data.
+- **`csRefreshWithStores(stores, warning)`** — Re-renders from an already-fetched store list (avoids a round-trip). When `warning` is truthy, prepends a dismissible `.cs-notification-banner` above the table.
+
+**Reorder helpers:**
+
+- **`csFindStore(id)`** — Returns the matching entry from `csStores` or `null`.
+- **`csStoreIndex(id)`** — Returns the index of a store in `csStores` or `-1`.
+- **`csMoveStore(fromIdx, toIdx)`** — Swaps entries in `csStores`, re-renders the reorder view optimistically, then calls `API.reorderStores(order)`. On failure: reverts the optimistic swap, re-renders the reorder view (creating a fresh `#cs-reorder-error` target), then calls `csShowTableError()` — the user stays in reorder mode with the error visible.
+- **`csShowTableError(msg)`** — Injects an error banner into whichever error target is present in the DOM: `#cs-table-error` (main table view) or `#cs-reorder-error` (reorder sub-view). Uses `getElementById('cs-table-error') || getElementById('cs-reorder-error')`; silent no-op if neither element exists.
+
+**`styles.css` — Stores Tab classes (all `.cs-*` prefixed):**
+
+| Class | Role |
+|-------|------|
+| `.cs-default-star` | Icon button for the default-store star; `background:none`, `border:none`, `font-size:18px` |
+| `.cs-default-star.cs-star-filled` | Filled star — amber (`#f59e0b`), `cursor:default`, disabled |
+| `.cs-default-star.cs-star-outline` | Outline star — muted text color; turns amber on hover |
+| `.cs-type-badge` | Base pill for type badges; uppercase, `border-radius: var(--radius-pill)` |
+| `.cs-type-git` | Green-toned Git badge (uses `--color-badge-complete-*` tokens) |
+| `.cs-type-folder` | Neutral-toned Folder badge (uses `--color-badge-neutral-*` tokens) |
+| `.cs-git-status` | Container for ahead/behind arrow labels adjacent to the Git badge |
+| `.cs-git-ahead` | Upward arrow with count; `color: var(--color-complete)`, bold |
+| `.cs-git-behind` | Downward arrow with count; `color: var(--color-blocked)`, bold |
+| `.cs-path-cell` | `display:flex`, `align-items:center`, `max-width:280px` — truncated path + copy button |
+| `.cs-path-text` | Truncated monospace path text; `overflow:hidden`, `text-overflow:ellipsis` |
+| `.cs-copy-btn` | Clipboard copy button; borderless, muted until hover |
+| `.cs-sync-cell` | Table cell with `position:relative` for popover anchoring |
+| `.cs-sync-badge` | Blue-toned info pill; keyboard-focusable (`tabindex="0"`) for popover trigger |
+| `.cs-sync-popover` | Absolute-positioned tooltip card (`bottom: calc(100% + 6px)`); hidden by default |
+| `.cs-sync-popover-visible` | Added by `mouseenter`/`focus` handlers to show the popover |
+| `.cs-reorder-view` | Wrapper for the reorder sub-view |
+| `.cs-reorder-row` | Individual store row in reorder mode; bordered card with flex layout |
+| `.cs-reorder-label` | Truncated label+id display inside each reorder row |
+| `.cs-reorder-btns` | Button group for move-up/down arrows |
+| `.cs-move-disabled` | `opacity:0.35` applied to move buttons at list edges |
+| `.cs-notification-banner` | Warning banner for import result messages; flex layout with dismiss button |
+| `.cs-banner-close` | Dismiss button inside `.cs-notification-banner` |
+| `.cs-modal-overlay` | Fixed full-viewport overlay (`inset:0`, `z-index:1000`, semi-transparent backdrop) |
+| `.cs-modal` | Centered modal card; `max-width:480px`, `max-height:90vh`, flex column |
+| `.cs-modal-header` | Modal header with title and close ×; `border-bottom` separator |
+| `.cs-modal-title` | Modal title text; `font-weight:600` |
+| `.cs-modal-close` | × close button; muted, darkens on hover |
+| `.cs-modal-body` | Scrollable modal body; `overflow-y:auto` |
+| `.cs-modal-footer` | Modal footer with Save / Cancel buttons; `border-top` separator |
+| `.cs-modal-field-group` | Form field wrapper; `margin-bottom:14px` |
+| `.cs-modal-field-error` | Inline field validation error; `color: var(--color-blocked)`, `font-size:12px` |
+| `.cs-modal-readonly` | Styled read-only value block (ID and Path in edit mode) |
+| `.cs-modal-radio-group` | Wrapper for the directory-mode radio button group |
+| `.cs-radio-option` | Individual radio label+input row |
+| `.cs-modal-dir-note` | Info note shown when "Use existing directory" is selected |
+| `.cs-row-actions` | Table cell for action buttons; `white-space:nowrap` |
+
+> **Dark mode:** All `.cs-*` classes use CSS custom property tokens (`--color-*`, `--radius-*`, `--shadow`); no explicit `[data-theme="dark"]` overrides are needed.
 
 
 **`views/knowledge.js`:**
