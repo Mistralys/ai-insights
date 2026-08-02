@@ -622,8 +622,12 @@ function renderProjectDetail(app, repo, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
+      var overviewEntry = overviewMap[wp.work_package_id];
+      var titleLabel = (overviewEntry && overviewEntry.title)
+        ? '<div class="wp-title-label" title="' + escapeHtml(overviewEntry.title) + '">' + escapeHtml(overviewEntry.title) + '</div>'
+        : '';
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '" data-wp-id="' + escapeHtml(wp.work_package_id) + '">' +
-        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a>' + titleLabel + '</td>' +
         '<td class="wp-pipeline-track-cell">' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td class="wp-status-cell">' + statusBadge(wp.status) + '</td>' +

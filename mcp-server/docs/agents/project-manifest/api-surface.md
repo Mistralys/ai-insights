@@ -247,6 +247,8 @@ Lists work package summaries from the root index with optional filters.
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
   work_package_file: string;
+  title: string; // REQUIRED — human-readable WP title; empty string accepted (no .min(1) guard)
+  description?: string; // Optional — full specification body; stored in WP detail only (not in root index summary)
   active_pipeline_stages?: PipelineType[]; // optional — defaults to DEFAULT_PIPELINE_STAGES when omitted
 }) => Promise<MCPResult>
 ```
@@ -2834,16 +2836,22 @@ interface RootIndex {
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
   outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
   project_summary?: string | null;    // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
-  ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
+  ledger_version?: string;            // Workflow spec version (SPEC_VERSION from shared/workflow-manifest.json) at the time this ledger was written; used for forward-compat checks; absent on legacy ledgers
+  server_version?: string;            // MCP server package version (SERVER_VERSION from package.json) at the time this ledger was written
+  runner?: 'vscode' | 'claude-code' | 'orchestrator' | 'standalone' | 'unknown'; // IDE/runtime that invoked the MCP server
+  runner_client?: string;             // Raw clientInfo.name from the MCP connection
+  runner_version?: string;            // Raw clientInfo.version from the MCP connection
 }
 
 interface WorkPackageSummary {
   work_package_id: string; // WP-### format
+  title?: string; // Human-readable WP title; absent on WPs created before this field was added
   status: WorkPackageStatus;
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
   file: string; // Path to detail file
   active_pipeline_stages?: string[] | null; // Cached subset from WP detail; null or absent means use DEFAULT_PIPELINE_STAGES
+  passed_stages?: number; // Count of completed pipeline stages; computed at write time
 }
 
 interface HandoffNote {
@@ -2856,6 +2864,8 @@ interface HandoffNote {
 interface WorkPackageDetail {
   work_package_id: string;
   work_package_file: string;
+  title?: string; // Human-readable WP title; absent on WPs created before this field was added
+  description?: string; // Full specification body (scope, deliverables, rationale, etc.); stored in detail only, not in summary
   status: WorkPackageStatus;
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
@@ -4818,6 +4828,7 @@ export interface WpPipelineStage {
 // Enriched work-package summary returned by handleGetWorkPackageOverview.
 export interface WpOverviewEntry {
   work_package_id: string;
+  title?: string;              // human-readable label; absent on legacy WPs without a title
   status: string;                // WP-level status
   assigned_to: string | null;    // current agent
   dependencies: string[];
@@ -5706,6 +5717,12 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, `.stage-fail` are provided in a `[data-theme="dark"]` block immediately following the light-mode rules.
 
+**`styles.css` — WP table subtitle label class:**
+
+| Class | Role |
+|-------|------|
+| `.wp-title-label` | Subtitle line rendered below the WP ID link within the WP ID cell of the project detail WP table; `font-size: 12px; color: var(--color-text-muted); font-family: inherit; margin-top: 2px`; only rendered when the WP has a `title` field in its overview entry |
+
 **`styles.css` — Project reset modal classes:**
 
 | Class | Role |
@@ -5902,7 +5919,7 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 - **`_openDialogueModal(title, repo, slug, filename, useChunks)`** (private) — opens a full-screen overlay modal. **When `useChunks` is `true`:** calls `API.getChunkStructured()` → `buildDialogueHTML()` and registers a delegated click listener on the modal body for `.dialogue-tool-toggle` expand/collapse. **When `useChunks` is `false`:** calls `API.getDialogueContent()` → `marked.parse()` (legacy Markdown path — unchanged). Close paths: × button, backdrop click (`e.target === overlay`), Escape key.
 
 **`views/work-package.js`:**
-- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`
+- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`; **page heading:** the `<h1>` renders `{WP-ID} — {title}` (em-dash `\u2014`) when `wp.title` is truthy, `{WP-ID}` alone when absent or empty — both values are passed through `escapeHtml()`; **description card:** a `UI.card('Description', ...)` card is rendered immediately after the info card when `wp.description` is present; content is rendered via `marked.parse()` with a `<pre>` block fallback on error (same trust model as plan/synthesis rendering — server-authored content, no additional HTML sanitization); card is omitted entirely when `wp.description` is absent; content is wrapped in a `<div class="dialogue-markdown">` container (reuses dialogue typography — low-priority style coupling noted in implementation; a future cleanup may introduce `.wp-description-markdown`)
 
 **`views/config.js`:**
 

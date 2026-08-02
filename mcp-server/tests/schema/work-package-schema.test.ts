@@ -202,4 +202,51 @@ describe('WorkPackageSummarySchema', () => {
     const result = WorkPackageSummarySchema.safeParse(minimalWpSummary);
     expect(result.success).toBe(true);
   });
+
+  it('accepts optional title string', () => {
+    const result = WorkPackageSummarySchema.safeParse({ ...minimalWpSummary, title: 'My WP' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.title).toBe('My WP');
+  });
+
+  it('accepts object without title (backward compatibility)', () => {
+    const result = WorkPackageSummarySchema.safeParse(minimalWpSummary);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.title).toBeUndefined();
+  });
+});
+
+// ─── WorkPackageDetailSchema — title and description ──────────────────────
+
+describe('WorkPackageDetailSchema — title and description', () => {
+  it('accepts optional title string', () => {
+    const result = WorkPackageDetailSchema.safeParse({ ...minimalWpDetail, title: 'My WP' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.title).toBe('My WP');
+  });
+
+  it('accepts optional description string', () => {
+    const result = WorkPackageDetailSchema.safeParse({
+      ...minimalWpDetail,
+      title: 'My WP',
+      description: 'Full spec body here.',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.description).toBe('Full spec body here.');
+  });
+
+  it('accepts object without title or description (backward compatibility)', () => {
+    const result = WorkPackageDetailSchema.safeParse(minimalWpDetail);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.title).toBeUndefined();
+      expect(result.data.description).toBeUndefined();
+    }
+  });
+
+  it('accepts description without title (both independent optional)', () => {
+    const result = WorkPackageDetailSchema.safeParse({ ...minimalWpDetail, description: 'Spec.' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.description).toBe('Spec.');
+  });
 });

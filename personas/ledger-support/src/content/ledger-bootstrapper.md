@@ -102,10 +102,12 @@ Register each WP in the ledger in dependency order (WPs with no dependencies fir
 
 For each WP, call `ledger_create_work_package` with:
 - `work_package_file`: the intended spec file path (e.g., `"work/WP-001.md"`) — this is stored as metadata; the file does not need to exist yet
+- `title`: the short human-readable label extracted from the WP Decomposer header — the text after ` — ` in `## WP-{NUMBER} — {SHORT_TITLE}` (e.g., `"Implement duration tracking"`); if no ` — ` separator is present, use the WP-ID string itself (e.g., `"WP-001"`) as the title
 - `assigned_to`: the agent role (e.g., `"Developer"`)
 - `dependencies`: array of captured WP IDs this WP depends on (e.g., `[]` for the first WP; for subsequent WPs, use the IDs returned by prior calls — see note below)
 - `acceptance_criteria`: array of criterion strings from the WP definition
 - `active_pipeline_stages`: the stage list from the Pipeline Configurator output
+- `description` *(optional)*: the full WP specification body from the WP Decomposer output — everything from `Plan Context:` through the last populated section (e.g., `Code Observations:` or `Notes:`), **excluding** the `## WP-{NUMBER} — {TITLE}` header line and the `Acceptance Criteria` section (those are stored separately as `acceptance_criteria` array items). Omit `description` if no spec body is available.
 - `project_path`: the absolute path to the plan folder
 
 > **WP ID is auto-generated.** Do not pass `work_package_id` — the tool assigns it automatically and returns the generated ID in the response (e.g., `"work_package_id": "WP-001"`). Capture the returned ID from each response and use those captured IDs when naming spec files in Step 4 and in the `dependencies` arrays for subsequent calls.

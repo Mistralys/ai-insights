@@ -763,6 +763,21 @@ describe('LedgerStore', () => {
       expect(healed.needsWrite).toBe(false);
       expect(healed.corruptionDetected).toBe(false);
     });
+
+    it('sets title: "Standalone implementation" on WP-001 detail', async () => {
+      await store.importStandaloneProject(makeDetail());
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.title).toBe('Standalone implementation');
+    });
+
+    it('sets title: "Standalone implementation" on root index WP-001 summary', async () => {
+      await store.importStandaloneProject(makeDetail());
+
+      const root = await store.readRootIndex();
+      const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001');
+      expect(summary?.title).toBe('Standalone implementation');
+    });
   });
 
   describe('storageDir isolation', () => {

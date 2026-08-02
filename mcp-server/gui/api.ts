@@ -1177,6 +1177,7 @@ export interface WpPipelineStage {
 
 export interface WpOverviewEntry {
   work_package_id: string;
+  title?: string;
   status: WorkPackageStatus;
   assigned_to: string | null;
   dependencies: string[];
@@ -1262,6 +1263,7 @@ export async function handleGetWorkPackageOverview(
         const metCount = wp.acceptance_criteria.filter((ac) => ac.met).length;
         const entry: WpOverviewEntry = {
           work_package_id: wp.work_package_id,
+          ...(wp.title !== undefined && { title: wp.title }),
           status: wp.status,
           assigned_to: wp.assigned_to,
           dependencies: wp.dependencies,

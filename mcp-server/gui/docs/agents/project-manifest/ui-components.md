@@ -424,6 +424,7 @@ All classes are prefixed `cs-` to avoid collision with shared component classes.
 | `.text-muted` | Muted text color. |
 | `.text-danger` | Red text color. |
 | `.breadcrumb` | Breadcrumb navigation styling. |
+| `.rendered-markdown` | Applies markdown typography (headings, code blocks, lists) to server-rendered HTML. Use for non-dialogue markdown content (e.g., WP description). |
 
 ---
 
