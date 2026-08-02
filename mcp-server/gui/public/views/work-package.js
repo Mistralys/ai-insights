@@ -2,7 +2,8 @@
    views/work-package.js — Work Package Detail view
    Section 4c of the MCP Server Dashboard SPA
    Depends on: API, escapeHtml, formatDate, statusBadge,
-               showLoading, showError, STAGE_ABBREV (project-detail-helpers.js)
+               showLoading, showError, STAGE_ABBREV (project-detail-helpers.js),
+               marked
    ============================================================ */
 
 var WP_DEFAULT_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];
@@ -142,15 +143,24 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
     app.innerHTML =
       breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
-        '<h1>' + escapeHtml(wpId) + '</h1>' +
+        '<h1>' + escapeHtml(wpId) + (wp.title ? ' \u2014 ' + escapeHtml(wp.title) : '') + '</h1>' +
         statusBadge(wp.status) +
       '</div>' +
       UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
-          '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '—') + ' &nbsp; ' +
+          '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '\u2014') + ' &nbsp; ' +
           '<strong>Dependencies:</strong> ' + escapeHtml((wp.dependencies || []).join(', ') || 'none') +
         '</div>'
       ) +
+      (wp.description
+        ? UI.card('Description',
+            '<div class="rendered-markdown">' +
+              ((typeof marked !== 'undefined' && marked.parse)
+                ? marked.parse(wp.description)
+                : '<pre>' + escapeHtml(wp.description) + '</pre>') +
+            '</div>'
+          )
+        : '') +
       (acHtml
         ? UI.card('Acceptance Criteria', '<ul class="ac-list">' + acHtml + '</ul>')
         : '') +

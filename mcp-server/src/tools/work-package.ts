@@ -220,6 +220,14 @@ const CreateWorkPackageSchema = z.object({
   work_package_file: z
     .string()
     .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
+  title: z
+    .string()
+    .min(1)
+    .describe('Human-readable title for the work package (e.g., "Add title and description to WP schemas")'),
+  description: z
+    .string()
+    .optional()
+    .describe('Optional full specification body for this work package (scope, deliverables, rationale, etc.)'),
   active_pipeline_stages: z
     .array(z.string())
     .optional()
@@ -359,6 +367,8 @@ async function createWorkPackage(
       const wpDetail: WorkPackageDetail = {
         work_package_id: wpId,
         work_package_file: args.work_package_file,
+        title: args.title,
+        ...(args.description !== undefined ? { description: args.description } : {}),
         status: initialStatus,
         assigned_to: null,
         dependencies: args.dependencies,
@@ -383,6 +393,7 @@ async function createWorkPackage(
       // assigned_to mirrors the detail: null at creation time.
       const wpSummary: WorkPackageSummary = {
         work_package_id: wpId,
+        title: args.title,
         status: initialStatus,
         assigned_to: null,
         dependencies: args.dependencies,
@@ -1599,7 +1610,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_create_work_package',
     {
-      description: 'Create a new work package with auto-generated WP ID. REQUIRED params: assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
+      description: 'Create a new work package with auto-generated WP ID. REQUIRED params: assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file, title. Creates both detail file and root index summary atomically. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CreateWorkPackageSchema,
     },
     (args) => createWorkPackage(args)

@@ -3300,3 +3300,160 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
     expect(summary!.active_pipeline_stages).toEqual(wp.active_pipeline_stages);
   });
 });
+
+// ---------------------------------------------------------------------------
+// createWorkPackage — title and description fields (WP-001 title/description)
+// ---------------------------------------------------------------------------
+
+const TITLE_PLAN_PATH = join(tmpdir(), '2026-08-01-title-desc-test');
+
+describe('createWorkPackage — title and description fields', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'title-desc-test-'));
+    store = new LedgerStore(TITLE_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('stores title and description in WP detail', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: TITLE_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        title: 'My feature WP',
+        description: 'Full spec body.',
+      },
+      tempDir,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.title).toBe('My feature WP');
+    expect(wp.description).toBe('Full spec body.');
+  });
+
+  it('stores title in root index summary', async () => {
+    await createWorkPackage(
+      {
+        project_path: TITLE_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        title: 'Summary title',
+      },
+      tempDir,
+    );
+
+    const root = await store.readRootIndex();
+    const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001');
+    expect(summary?.title).toBe('Summary title');
+  });
+
+  it('description is omitted from root index summary', async () => {
+    await createWorkPackage(
+      {
+        project_path: TITLE_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        title: 'T',
+        description: 'Detailed spec.',
+      },
+      tempDir,
+    );
+
+    const root = await store.readRootIndex();
+    const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001') as any;
+    expect(summary?.description).toBeUndefined();
+  });
+
+  it('rejects missing title (schema replica)', () => {
+    // title is required in CreateWorkPackageSchema — test via schema replica
+    // (Zod validation fires at the MCP SDK layer, not inside createWorkPackage())
+    const MinimalCreateSchema = z.object({
+      assigned_to: z.string(),
+      dependencies: z.array(z.string()),
+      acceptance_criteria: z.array(z.string()).min(1),
+      work_package_file: z.string(),
+      title: z.string().min(1),
+    });
+
+    const result = MinimalCreateSchema.safeParse({
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: ['Works'],
+      work_package_file: 'work/WP-001.md',
+      // title intentionally omitted
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const hasTitleError = result.error.issues.some((i) => i.path.includes('title'));
+      expect(hasTitleError).toBe(true);
+    }
+  });
+
+  it('rejects empty-string title (schema replica)', () => {
+    // .min(1) on title rejects empty strings — test via schema replica
+    // (Zod validation fires at the MCP SDK layer, not inside createWorkPackage())
+    const MinimalCreateSchema = z.object({
+      assigned_to: z.string(),
+      dependencies: z.array(z.string()),
+      acceptance_criteria: z.array(z.string()).min(1),
+      work_package_file: z.string(),
+      title: z.string().min(1),
+    });
+
+    const result = MinimalCreateSchema.safeParse({
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: ['Works'],
+      work_package_file: 'work/WP-001.md',
+      title: '',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const hasTitleError = result.error.issues.some((i) => i.path.includes('title'));
+      expect(hasTitleError).toBe(true);
+    }
+  });
+
+  it('stores WP without description when description is omitted', async () => {
+    await createWorkPackage(
+      {
+        project_path: TITLE_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        title: 'No-desc WP',
+      },
+      tempDir,
+    );
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.title).toBe('No-desc WP');
+    expect(wp.description).toBeUndefined();
+  });
+});

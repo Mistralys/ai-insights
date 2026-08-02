@@ -1837,5 +1837,52 @@ describe('gui/api.ts', () => {
       expect(result).toHaveProperty('marked_complete', true);
     });
   });
+
+  // ─── handleGetWorkPackageOverview — title field (WP-002) ─────────────────
+
+  describe('handleGetWorkPackageOverview — title field', () => {
+    it('includes title in overview entry when WP detail has a title', async () => {
+      const slug = '2026-10-01-overview-title';
+      const store = await createProject(ledgerRoot, slug, {
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [{
+          work_package_id: 'WP-001',
+          status: 'READY',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'work/WP-001.md',
+        }],
+      });
+      await store.writeWorkPackage('WP-001', { ...makeWp('WP-001'), title: 'Add duration tracking' });
+
+      const entries = await handleGetWorkPackageOverview(ledgerRoot, slug);
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].work_package_id).toBe('WP-001');
+      expect(entries[0].title).toBe('Add duration tracking');
+    });
+
+    it('omits title from overview entry when WP detail has no title', async () => {
+      const slug = '2026-10-02-overview-no-title';
+      const store = await createProject(ledgerRoot, slug, {
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [{
+          work_package_id: 'WP-001',
+          status: 'READY',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'work/WP-001.md',
+        }],
+      });
+      await store.writeWorkPackage('WP-001', makeWp('WP-001'));
+
+      const entries = await handleGetWorkPackageOverview(ledgerRoot, slug);
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].title).toBeUndefined();
+    });
+  });
 });
 

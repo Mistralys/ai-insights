@@ -2193,6 +2193,20 @@ th[data-sort="total_work_packages"] {
 }
 
 /* ----------------------------------------------------------
+   WP title subtitle (project detail WP table, inside WP ID cell)
+   ---------------------------------------------------------- */
+.wp-title-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  margin-top: 2px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------
    Run Log Viewer
    ---------------------------------------------------------- */
 
@@ -2438,6 +2452,49 @@ th[data-sort="total_work_packages"] {
 }
 
 .dialogue-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.rendered-markdown > p,
+.rendered-markdown > ul,
+.rendered-markdown > ol,
+.rendered-markdown > h1,
+.rendered-markdown > h2,
+.rendered-markdown > h3 {
+  max-width: 72ch;
+}
+
+.rendered-markdown h1,
+.rendered-markdown h2,
+.rendered-markdown h3 {
+  margin-top: 16px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.rendered-markdown pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rendered-markdown code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-variant-ligatures: none;
+}
+
+.rendered-markdown pre code {
   background: none;
   border: none;
   padding: 0;
