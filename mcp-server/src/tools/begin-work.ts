@@ -15,6 +15,7 @@ import {
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { canStartWorkPackage, isValidStatusTransition } from '../schema/validators.js';
 import { CLAIMABLE_ROLES } from './work-package.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 const BeginWorkSchema = z.object({
   project_path: z
@@ -63,7 +64,8 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   // Captured inside the updater callback and read after the lock releases.
   let claimed = false;

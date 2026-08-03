@@ -11,6 +11,8 @@
 import { LedgerStore } from '../storage/ledger-store.js';
 import { withLock } from '../storage/file-lock.js';
 import { getConfig } from './config.js';
+import { isStoreContextInitialized, getMultiStoreManager, getStoreRouter } from '../storage/store-context.js';
+import type { TaggedProjectMeta } from '../storage/multi-store-manager.js';
 
 // ---------------------------------------------------------------------------
 // Module-level timer state
@@ -40,7 +42,10 @@ export async function runAutoArchive(
     return [];
   }
 
-  const projects = await LedgerStore.listAllProjects(ledgerRoot);
+  // In multi-store mode, scan all stores; fall back to the default store otherwise.
+  const projects = isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()
+    ? await getMultiStoreManager().listAllProjects()
+    : await LedgerStore.listAllProjects(ledgerRoot);
   const archived: string[] = [];
   const now = Date.now();
   const thresholdMs = maxAgeDays * 24 * 60 * 60 * 1000;
@@ -72,7 +77,9 @@ export async function runAutoArchive(
     const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
 
     try {
-      const store = new LedgerStore(meta.plan_path, ledgerRoot);
+      // In multi-store mode, use the per-project store path from the tagged meta.
+      const projectLedgerRoot = (meta as TaggedProjectMeta).store_path ?? ledgerRoot;
+      const store = new LedgerStore(meta.plan_path, projectLedgerRoot);
       await withLock(store.storageDir, async () => {
         const rootIndex = await store.readRootIndex();
         // Auto-archiving is administrative — preserve last_updated so the

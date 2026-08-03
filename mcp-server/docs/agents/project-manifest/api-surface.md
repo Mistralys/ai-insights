@@ -2515,6 +2515,18 @@ Class that routes read/write operations to the correct store by iterating per-st
 ```typescript
 // Exported from src/storage/store-router.ts
 
+/**
+ * Thrown by resolveStoreForWrite() when a repository is not registered in any
+ * configured store. Callers must discriminate via instanceof StoreNotRegisteredError
+ * rather than string-matching the .message property. The .message preserves the
+ * original "not registered in any store" text for backward compatibility with any
+ * existing message-based assertions.
+ */
+export class StoreNotRegisteredError extends Error {
+  readonly repoName: string;
+  constructor(repoName: string);
+}
+
 class StoreRouter {
   constructor(config: StoresConfig | null);
 
@@ -2567,8 +2579,9 @@ class StoreRouter {
    * - Legacy mode: returns resolveLedgerRoot() directly.
    * - Multi-store mode: iterates stores in config order (first match wins),
    *   returns the absolute path of the first store that has the repo registered.
-   * @throws {Error} When the repo is not registered in any store (multi-store
-   *   mode only). Error message contains "not registered in any store".
+   * @throws {StoreNotRegisteredError} When the repo is not registered in any store
+   *   (multi-store mode only). Callers must use instanceof StoreNotRegisteredError
+   *   to discriminate this error from unexpected I/O failures.
    */
   resolveStoreForWrite(repoName: string): Promise<string>;
 }
@@ -2580,7 +2593,7 @@ class StoreRouter {
 
 **Legacy mode:** When `config` is `null` (i.e. `stores.json` does not exist, failed to parse, or failed schema validation), `StoreRouter` operates in legacy mode: `isMultiStoreMode()` returns `false`, all resolution methods delegate to `resolveLedgerRoot()` or return `null`, and no per-store registry I/O is performed.
 
-**Error contract:** `resolveStoreForWrite()` is the throwing variant — use it when a missing registration should be an error. `resolveStoreForRepo()` is the null-returning variant — use it for optional lookups. The error message `"not registered in any store"` is hardcoded and tested verbatim; do not change without updating the test suite.
+**Error contract:** `resolveStoreForWrite()` is the throwing variant — use it when a missing registration should be an error. It throws `StoreNotRegisteredError` (exported from the same module); callers must discriminate via `instanceof StoreNotRegisteredError` rather than string-matching `.message`. The `.message` property preserves `"not registered in any store"` for backward compatibility with existing message-based assertions, but `instanceof` is the canonical discrimination mechanism. `resolveStoreForRepo()` is the null-returning variant — use it for optional lookups.
 
 ---
 
@@ -3906,6 +3919,39 @@ Used by WP-006 (ledger_complete_synthesis enrichment) to populate `outcome_summa
 function parseOutcomeSummary(synthesisContent: string): string | null;
 ```
 
+### Store Resolution — `src/utils/store-resolution.ts`
+
+Shared utility for resolving the correct ledger root in multi-store mode. Extracted by the multi-store-ledger-root-fix plan (WP-001) to eliminate per-handler duplication of store-routing logic across MCP tool handlers and GUI handlers. Imports only `store-context.ts` and `ledger-root.ts` — no circular imports.
+
+```typescript
+// Guards against the MCP SDK injecting a RequestHandlerExtra object as the
+// second positional argument to handler functions (constraint 58).
+// Returns val as-is when it is a string, otherwise undefined.
+// Exported from src/utils/store-resolution.ts.
+function extractLedgerRoot(val: unknown): string | undefined;
+
+// Resolves the correct ledger root for a project in multi-store mode.
+//
+// Resolution order:
+//   1. testOverride is a string → return it directly (test injection; bypasses all store logic,
+//      preserving existing test behaviour).
+//   2. Store context not initialized → return undefined (single-store / test mode; caller falls
+//      through to LedgerStore default).
+//   3. Router not in multi-store mode → return undefined (LedgerStore default is correct).
+//   4. Cannot infer project root from plan path → return undefined (graceful fallback;
+//      avoids throwing for malformed paths).
+//   5. Owning store located via getStoreRouter().resolveStoreForRepo():
+//      - registered repo → return storePath
+//      - unregistered repo → return undefined (backward-compatible fallback to default store).
+//
+// Returning undefined in any fallback case signals "use LedgerStore default" to the caller.
+// Exported from src/utils/store-resolution.ts.
+async function resolveMultiStoreLedgerRoot(
+  projectPath: string,
+  testOverride?: unknown,  // raw value from a handler's _ledgerRoot param; string triggers test bypass
+): Promise<string | undefined>;
+```
+
 ---
 
 ## Internal Testing Utilities
@@ -4725,9 +4771,17 @@ All three guards apply identical rejection criteria: throw `ApiError` with code 
 
 ```typescript
 // Resolves a LedgerStore for URL-parameter-driven handlers.
-// Validates repoName (if provided) via assertSafeSlug, calls resolveProjectDir()
-// to locate the namespaced storageDir, reads .meta.json for plan_path, then
-// constructs LedgerStore(meta.plan_path, ledgerRoot).
+//
+// Multi-store mode (isStoreContextInitialized() && isMultiStoreMode()):
+//   Iterates all store paths from getAllStorePaths() in store-priority order.
+//   For each store path, calls resolveProjectDir() then reads .meta.json:
+//     - ENOENT or AMBIGUOUS → continue to the next store.
+//     - Corrupt JSON        → log to stderr + throw notFound() immediately.
+//   Throws notFound() after exhausting all stores without a match.
+//   Falls back to [ledgerRoot] (single-element array) in single-store mode.
+//
+// Single-store / legacy mode (isStoreContextInitialized() is false, or isMultiStoreMode() is false):
+//   Calls resolveProjectDir() on ledgerRoot directly, reads .meta.json, constructs LedgerStore.
 //
 // Security contract — AMBIGUOUS → NOT_FOUND downgrade:
 //   When resolveProjectDir() throws AMBIGUOUS (slug exists in multiple repos),
@@ -5582,9 +5636,17 @@ Maps an `ApiError` error code to its HTTP status code. Exported for unit testing
 
 #### `resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam): Promise<string>`
 
-Reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json` and returns the stored
-`repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or when
-the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+Reads `.meta.json` for the project identified by `repoUrlParam`/`slugUrlParam` and returns the
+stored `repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or
+when the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+
+**Multi-store mode** (`isStoreContextInitialized() && isMultiStoreMode()`): searches all store
+paths from `getAllStorePaths()` in store-priority order, reading
+`{storePath}/{repoUrlParam}/{slugUrlParam}/.meta.json` for each. Throws `ApiError NOT_FOUND`
+only after exhausting all stores without a match.
+
+**Single-store / legacy mode**: reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json`
+directly — behavior unchanged from the original implementation.
 
 Validates both `repoUrlParam` and `slugUrlParam` via the file-local `assertSafeSlug()` guard
 before any filesystem access. Throws `ApiError NOT_FOUND` for invalid segments and for missing

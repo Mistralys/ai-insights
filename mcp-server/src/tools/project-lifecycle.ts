@@ -18,6 +18,8 @@ import { getPassedStages } from '../utils/project-reset.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
+import { StoreNotRegisteredError } from '../storage/store-router.js';
 import { getClientInfo } from '../utils/client-info.js';
 import { classifyRunner } from '../utils/runner.js';
 
@@ -566,14 +568,13 @@ async function initializeProject(
     try {
       targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName);
     } catch (err) {
-      const msg = (err as Error).message ?? '';
-      if (!msg.includes('not registered in any store')) {
+      if (!(err instanceof StoreNotRegisteredError)) {
         // Unexpected I/O or schema error — surface the real message instead of
         // the misleading "not registered" user instruction.
         return {
           content: [{
             type: 'text' as const,
-            text: `Error: Failed to resolve store for repository "${repoName}": ${msg}`,
+            text: `Error: Failed to resolve store for repository "${repoName}": ${(err as Error).message}`,
           }],
           isError: true,
         };
@@ -808,7 +809,7 @@ async function completeSynthesis(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {

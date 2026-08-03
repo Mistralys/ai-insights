@@ -20,7 +20,7 @@ import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_
 import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
 import { StoreRouter } from '../src/storage/store-router.js';
 import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
-import { setStoreContext } from '../src/storage/store-context.js';
+import { setStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
 import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
@@ -370,22 +370,33 @@ export async function resolveRepoName(
 ): Promise<string> {
   assertSafeSlug(repoUrlParam);
   assertSafeSlug(slugUrlParam);
-  const metaPath = join(ledgerRoot, repoUrlParam, slugUrlParam, '.meta.json');
-  let raw: string;
-  try {
-    raw = await readFile(metaPath, 'utf-8');
-  } catch {
-    throw new ApiError('NOT_FOUND', `Project not found: ${slugUrlParam}`);
+
+  // In multi-store mode, search all configured stores; fall back to default store otherwise.
+  const storePaths =
+    isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()
+      ? getStoreRouter().getAllStorePaths()
+      : [ledgerRoot];
+
+  for (const storePath of storePaths) {
+    const metaPath = join(storePath, repoUrlParam, slugUrlParam, '.meta.json');
+    let raw: string;
+    try {
+      raw = await readFile(metaPath, 'utf-8');
+    } catch {
+      // .meta.json not found in this store — try next
+      continue;
+    }
+    try {
+      const meta = JSON.parse(raw) as { repository_name?: string | null };
+      return meta.repository_name ?? repoUrlParam;
+    } catch {
+      // Malformed .meta.json — log and fall back to URL param
+      process.stderr.write(`[server] Warning: malformed .meta.json at ${metaPath} — falling back to URL param '${repoUrlParam}'\n`);
+      return repoUrlParam;
+    }
   }
-  try {
-    const meta = JSON.parse(raw) as { repository_name?: string | null };
-    return meta.repository_name ?? repoUrlParam;
-  } catch {
-    // Malformed .meta.json — project directory exists, fall back to URL param.
-    // Log to stderr so operators can detect corrupt meta files during troubleshooting.
-    process.stderr.write(`[server] Warning: malformed .meta.json at ${metaPath} — falling back to URL param '${repoUrlParam}'\n`);
-    return repoUrlParam;
-  }
+
+  throw new ApiError('NOT_FOUND', `Project not found: ${slugUrlParam}`);
 }
 
 /**
@@ -998,7 +1009,13 @@ function buildProjectRoutes(
         // logsDir uses the URL segments to locate the directory. Unlike other namespaced
         // routes, we do NOT call resolveRepoName here — log files must be readable for
         // active runs whose project ledger hasn't been initialised yet (no .meta.json).
-        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        // In multi-store mode, resolve the correct store path via the repo registry.
+        let storePathForLogs = ledgerRoot;
+        if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+          const storeRef = await getStoreRouter().resolveStoreForRepo(repo);
+          if (storeRef !== null) storePathForLogs = storeRef.storePath;
+        }
+        const logsDir = join(storePathForLogs, repo, slug, 'orchestrator', 'logs');
         return handleListRunLogs(slug, repo, logsDir, orchestratorLogsDir);
       } },
 
@@ -1016,7 +1033,13 @@ function buildProjectRoutes(
         const afterParsed = afterParam != null ? parseInt(afterParam, 10) : NaN;
         const afterLine = !isNaN(afterParsed) ? afterParsed : undefined;
         // logsDir uses the URL segments — do NOT call resolveRepoName here (see runs list note).
-        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        // In multi-store mode, resolve the correct store path via the repo registry.
+        let storePathForLogs = ledgerRoot;
+        if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+          const storeRef = await getStoreRouter().resolveStoreForRepo(repo);
+          if (storeRef !== null) storePathForLogs = storeRef.storePath;
+        }
+        const logsDir = join(storePathForLogs, repo, slug, 'orchestrator', 'logs');
         return handleGetRunLog(slug, repo, filename, logsDir, orchestratorLogsDir, afterLine);
       } },
 

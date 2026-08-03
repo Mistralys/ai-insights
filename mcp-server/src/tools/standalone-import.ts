@@ -5,10 +5,14 @@ import { constants } from 'fs';
 import { join } from 'path';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { withLock } from '../storage/file-lock.js';
+import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
+import { StoreNotRegisteredError } from '../storage/store-router.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
+import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { parseOutcomeSummary } from '../utils/synthesis-parser.js';
 import { planFolderBasename } from '../utils/path-validator.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -164,10 +168,39 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
-  // Build a LedgerStore to derive repo name, slug, and storage path —
-  // deriveRepoName() is called by the constructor using the upgraded anchor-based
-  // inferProjectRootFromPlanPath() algorithm (WP-001).
-  const store = new LedgerStore(planPath);
+  // Build a LedgerStore routed to the correct store in multi-store mode.
+  // Mirrors initializeProject() — derive repo name, resolve store, reject unregistered repos.
+  let store: LedgerStore;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(planPath);
+    const repoName = deriveRepoName(planPath, projectRoot);
+    let targetLedgerRoot: string;
+    try {
+      targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName);
+    } catch (err) {
+      if (!(err instanceof StoreNotRegisteredError)) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Error: Failed to resolve store for repository "${repoName}": ${(err as Error).message}`,
+          }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text' as const,
+          text:
+            `Error: Repository "${repoName}" is not registered in any store. ` +
+            `Register it via the store CLI (node scripts/cli.js store repo add) before importing a project.`,
+        }],
+        isError: true,
+      };
+    }
+    store = new LedgerStore(planPath, targetLedgerRoot);
+  } else {
+    store = new LedgerStore(planPath);
+  }
 
   // Reject duplicate imports (same slug already exists in the ledger).
   const alreadyExists = await store.ledgerDirExists();
@@ -274,7 +307,8 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     };
   }
 
-  const store = new LedgerStore(planPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(planPath, undefined);
+  const store = new LedgerStore(planPath, ledgerRoot);
 
   // Guard: project must already be imported.
   const exists = await store.ledgerDirExists();

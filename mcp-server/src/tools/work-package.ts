@@ -25,18 +25,10 @@ import {
   validateActiveStages,
 } from '../utils/pipeline-maps.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
-
-/**
- * Extracts the ledger root string from an unknown parameter value.
- * Guards against the MCP SDK injecting a RequestHandlerExtra object as the
- * second positional argument to handler functions (see constraint 58).
- *
- * @param val - The raw value passed as `_ledgerRoot` by the MCP SDK or a test
- * @returns The string value if `val` is a string, otherwise `undefined`
- */
-function extractLedgerRoot(val: unknown): string | undefined {
-  return typeof val === 'string' ? val : undefined;
-}
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
+import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
+import { StoreNotRegisteredError } from '../storage/store-router.js';
+import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 
 /**
  * Build a next-step guidance string after a WP status transition.
@@ -83,6 +75,8 @@ export const _internal = {
   propagateDependencyUnblock,
   propagateDependencyReblock,
   createWorkPackage,
+  getWorkPackage,
+  listWorkPackages,
   updateWorkPackageStatus,
   claimWorkPackage,
   resetReworkCount,
@@ -112,7 +106,8 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     const wp = await store.readWorkPackage(args.work_package_id);
@@ -162,7 +157,8 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     const rootIndex = await store.readRootIndex();
@@ -273,8 +269,38 @@ async function createWorkPackage(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
-  const store = new LedgerStore(projectPath, ledgerRoot);
+  let store: LedgerStore;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(projectPath);
+    const repoName = deriveRepoName(projectPath, projectRoot);
+    let targetLedgerRoot: string;
+    try {
+      targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName);
+    } catch (err) {
+      if (err instanceof StoreNotRegisteredError) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text:
+              `Error: Repository "${repoName}" is not registered in any store. ` +
+              `Register it via the store CLI (node scripts/cli.js store repo add) before creating a work package.`,
+          }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Error: Failed to resolve store for repository "${repoName}": ${(err as Error).message}`,
+        }],
+        isError: true,
+      };
+    }
+    store = new LedgerStore(projectPath, targetLedgerRoot);
+  } else {
+    const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
+    store = new LedgerStore(projectPath, ledgerRoot);
+  }
 
   let createdWpId = '';
   const pipelineStageWarnings: string[] = [];
@@ -491,7 +517,7 @@ async function claimWorkPackage(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
@@ -650,7 +676,7 @@ async function updateWorkPackageStatus(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
@@ -1190,7 +1216,7 @@ async function resetReworkCount(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
@@ -1331,7 +1357,7 @@ async function reopenCancelledWp(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
@@ -1504,7 +1530,7 @@ async function updateAcceptanceCriteria(
     };
   }
 
-  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {

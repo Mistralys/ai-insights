@@ -9,6 +9,7 @@ import {
   getStoreRouter,
   isStoreContextInitialized,
 } from '../storage/store-context.js';
+import { StoreNotRegisteredError } from '../storage/store-router.js';
 
 /**
  * Formats a numeric insight ID as a human-readable KN-NNNN string.
@@ -74,7 +75,7 @@ async function addInsight(args: z.infer<typeof AddInsightSchema>) {
       } else {
         const resolved = await getStoreRouter().resolveStoreForRepo(args.repository_name!);
         if (resolved === null) {
-          throw new Error(`Repository "${args.repository_name}" is not registered in any store`);
+          throw new StoreNotRegisteredError(args.repository_name!);
         }
         storePath = resolved.storePath;
         storeId = resolved.storeId;
