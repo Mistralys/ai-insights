@@ -192,34 +192,51 @@ async function resolveProjectStore(
   }
   const slugOrQualified = repoName !== undefined ? `${repoName}/${slug}` : slug;
 
-  let storageDir: string;
-  try {
-    storageDir = await resolveProjectDir(slugOrQualified, ledgerRoot);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Intentionally downgrade AMBIGUOUS to NOT_FOUND: the caller must not learn
-    // that multiple repos contain this slug (prevents cross-namespace existence leak).
-    if (msg.startsWith('NOT_FOUND') || msg.startsWith('AMBIGUOUS')) {
-      notFound(`Project '${slug}' not found.`);
+  // In multi-store mode, search all configured stores; fall back to default store otherwise.
+  const storePaths =
+    isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()
+      ? getStoreRouter().getAllStorePaths()
+      : [ledgerRoot];
+
+  for (const storePath of storePaths) {
+    let storageDir: string;
+    try {
+      storageDir = await resolveProjectDir(slugOrQualified, storePath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // NOT_FOUND or AMBIGUOUS in this store: try next store. AMBIGUOUS is
+      // downgraded to NOT_FOUND to prevent cross-namespace existence leaks
+      // (security contract — see JSDoc above).
+      if (msg.startsWith('NOT_FOUND') || msg.startsWith('AMBIGUOUS')) {
+        continue;
+      }
+      throw err;
     }
-    throw err;
+
+    try {
+      const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
+      const meta = ProjectMetaSchema.parse(JSON.parse(raw));
+      return new LedgerStore(meta.plan_path, storePath);
+    } catch (err) {
+      // ENOENT means the project doesn't live in this store — try the next one.
+      // This handles the qualified-slug case where resolveProjectDir() constructs
+      // the path without checking existence.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') continue;
+
+      // Corrupt JSON or schema validation failure — log for operator diagnostics
+      // (stderr only) and return 404 to the caller.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
+          (repoName !== undefined ? ` repo="${repoName}"` : '') +
+          `: ${errMsg}\n`
+      );
+      notFound(`Project '${slug}' not found or has no metadata.`);
+    }
   }
 
-  try {
-    const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
-    const meta = ProjectMetaSchema.parse(JSON.parse(raw));
-    return new LedgerStore(meta.plan_path, ledgerRoot);
-  } catch (err) {
-    // .meta.json missing, corrupt JSON, or schema validation failure —
-    // log for operator diagnostics (stderr only) and return 404 to the caller.
-    const errMsg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
-        (repoName !== undefined ? ` repo="${repoName}"` : '') +
-        `: ${errMsg}\n`
-    );
-    notFound(`Project '${slug}' not found or has no metadata.`);
-  }
+  notFound(`Project '${slug}' not found.`);
 }
 
 // ---------------------------------------------------------------------------

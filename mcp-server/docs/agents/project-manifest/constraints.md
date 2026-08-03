@@ -2402,6 +2402,36 @@ These constraints govern the multi-store ledger architecture introduced in the c
 
 ---
 
+### 86. MCP Tool Handlers Must Use `resolveMultiStoreLedgerRoot()` — Not `extractLedgerRoot()`
+
+**Rule:** Every MCP tool handler function that constructs a `LedgerStore` must resolve the correct store root by calling `resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot)` and passing the result to `new LedgerStore(...)`. Handlers that have a `_ledgerRoot` parameter (test-injection bypass) must pass that raw value as the second argument so the string-guard check inside `resolveMultiStoreLedgerRoot` can activate the test override.
+
+The older `extractLedgerRoot(_ledgerRoot)` helper — which strips the RequestHandlerExtra object from the `_ledgerRoot` parameter but performs no store routing — is **not sufficient for multi-store mode** and must not be used when constructing a `LedgerStore` directly.
+
+**Rationale:** `extractLedgerRoot` only guards against the MCP SDK injecting a `RequestHandlerExtra` object; it does not route the project to its owning store. In multi-store mode a handler that calls `new LedgerStore(projectPath)` or `new LedgerStore(extractLedgerRoot(_ledgerRoot))` silently falls through to the default store, causing reads and writes to target the wrong ledger directory for any project registered in a non-default store. `resolveMultiStoreLedgerRoot` subsumes the `extractLedgerRoot` guard (step 1 of its resolution order) and adds full store routing.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — extractLedgerRoot bypasses store routing; projects in non-default stores
+//            will be silently read/written from the default store.
+const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+const store = new LedgerStore(ledgerRoot ?? projectPath);
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — resolveMultiStoreLedgerRoot routes to the owning store and subsumes
+//              the extractLedgerRoot guard (test override is step 1 of resolution order).
+const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);
+const store = new LedgerStore(ledgerRoot ?? projectPath);
+```
+
+**Migration scope:** As of WP-004 (2026-08-02), all 18 affected handler functions in `work-package.ts`, `pipeline.ts`, `begin-work.ts`, `observations.ts`, `workflow-handoff.ts`, `workflow-next-action.ts`, and `project-lifecycle.ts` have been migrated. Any new handler added to these files — or any handler that previously called `extractLedgerRoot(_ledgerRoot)` directly — must apply the same 3-line pattern: import `resolveMultiStoreLedgerRoot`, await it with `(projectPath, _ledgerRoot)`, and pass the result as the first `LedgerStore` constructor argument.
+
+**Write-routing exception:** Handlers that create new ledger state — currently `initializeProject()` (`project-lifecycle.ts`), `importStandalone()` (`standalone-import.ts`), and `createWorkPackage()` (`work-package.ts`) — must use the `resolveStoreForWrite()` pattern instead. This enforces that the target repository is registered in a store, preventing silent phantom directory creation in the default store. See `initializeProject()` in `project-lifecycle.ts` for the reference pattern.
+
+---
+
 ## Known Limitations
 
 ### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
@@ -2451,3 +2481,13 @@ All 97 storage tests pass. The known limitation below is retained for historical
 **Resolution:** All three `assertSafeSlug` implementations now delegate to `assertSafeSegment()` from `src/utils/path-validator.ts`, which encapsulates the `SAFE_SLUG_REGEX` check. The throw-type variants are preserved (`Error` in the storage layer; `ApiError NOT_FOUND` in the GUI layer) — the layer separation is unchanged. `deriveRepoName()` in `src/utils/ledger-root.ts` also delegates to `assertSafeSegment()` directly, completing the consolidation — `src/utils/ledger-root.ts` no longer imports `SAFE_SLUG_REGEX`.
 
 **Ongoing invariant:** When slug-segment validation logic changes, update `assertSafeSegment()` in `path-validator.ts` only — all three `assertSafeSlug` wrappers and `deriveRepoName()` pick up the change automatically.
+
+### KL-4. `auto-archive.ts` Multi-Store Guard Is Less Specific Than `gui/api.ts` and `gui/server.ts`
+
+**Affected component:** `mcp-server/src/gui/auto-archive.ts`
+
+**Divergence:** `auto-archive.ts` activates multi-store scanning with the guard `isStoreContextInitialized()` alone. All other multi-store guards in `gui/api.ts` (`resolveProjectStore`) and `gui/server.ts` (`resolveRepoName`, run-log routes) use the compound form `isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()`.
+
+**Why it is functionally equivalent:** `StoreRouter.getAllStores()` called inside `getMultiStoreManager().listAllProjects()` returns a single-element array containing `resolveLedgerRoot()` when the router is in legacy mode (null config). Auto-archive therefore scans a single store in both single-store and multi-store mode — the behavior difference is invisible to the caller.
+
+**Why it still matters:** Future contributors reading `auto-archive.ts` in isolation may assume that the single-guard form has a different intended semantics and introduce a behavioral divergence. A follow-on cleanup WP should align `auto-archive.ts` to the compound guard form for consistency.

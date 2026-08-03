@@ -62,6 +62,7 @@ orchestrator/
 │       ├── persona_models.py   # Persona model configuration types
 │       ├── plan_parser.py      # Plan document parser
 │       ├── run_queue.py        # register() / unregister() — CLI self-registration in .run-queue.json
+│       ├── store_resolution.py # resolve_store_for_repo() — reads ~/.ai-insights/stores.json and per-store .repositories.json to resolve the correct store path; stdlib-only (pathlib, json); falls back to default workspace_root/mcp-server/storage/ledger on absent/malformed config or unregistered repo
 │       ├── subagents.py        # Deep Agent / subagent creation helpers
 │       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
 │       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
@@ -91,6 +92,7 @@ orchestrator/
     ├── test_state.py                # WorkflowState schema and reducer semantics
     ├── test_stream_retry.py         # Stream retry / exponential backoff
     ├── test_streaming_capture.py    # Streaming dialogue capture
+    ├── test_store_resolution.py     # 7 tests for store_resolution.py (WP-003): registered repo returns correct store, absent stores.json returns default, unregistered repo returns default, malformed stores.json handled gracefully, tilde expansion, derive_slug_dir integration (TestDeriveSlugDirMultiStore), derive_ledger_log_dir integration (TestDeriveLedgerLogDirMultiStore)
     ├── test_subagents.py            # load_subagents / clear_cache
     ├── test_subprocess_encoding.py  # Cross-platform subprocess encoding fix
     ├── test_supervisor.py           # Supervisor routing paths, circuit-breaker, enriched events

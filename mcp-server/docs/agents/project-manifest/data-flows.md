@@ -142,6 +142,20 @@ On NOT_FOUND: Return error with guidance to initialize the project
 ```
 Agent → ledger_create_work_package(project_path, assigned_to, dependencies, ...)
   ↓
+resolveProjectPath() — resolve plan folder
+  ↓
+Store routing:
+  Multi-store mode (isStoreContextInitialized() && isMultiStoreMode()):
+    inferProjectRootFromPlanPath(projectPath) → projectRoot
+    deriveRepoName(projectPath, projectRoot) → repoName
+    getStoreRouter().resolveStoreForWrite(repoName)
+      → targetLedgerRoot   (repo registered) — continue
+      → StoreNotRegisteredError  (repo not registered) — return error response
+  Single-store / legacy mode:
+    resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot) → ledgerRoot
+  ↓
+new LedgerStore(projectPath, targetLedgerRoot | ledgerRoot)
+  ↓
 Pre-lock validation (outside lock scope):
   - Validate dependencies exist
   - Validate active_pipeline_stages if provided:
@@ -1327,6 +1341,80 @@ project.synthesis_generated === true?
 
 ---
 
+## Flow 17: Standalone Project Import (Multi-Store Routing)
+
+**Entry Point:** Agent invokes `ledger_import_standalone` or `ledger_update_synthesis` tool.
+
+### Flow 17a: Import a standalone plan (`importStandalone`)
+
+Write path — mirrors `initializeProject()` for multi-store routing.
+
+```
+Agent → ledger_import_standalone(plan_path, agent_role?, ...)
+  ↓
+importStandalone(args)
+  ↓
+Infer projectRoot = inferProjectRootFromPlanPath(planPath)   ← 4-level dirname walk
+derive repoName = deriveRepoName(planPath, projectRoot)
+  ↓
+Multi-store guard:
+  isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()?
+    YES → targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName)
+            resolveStoreForWrite finds the first store whose .repositories.json claims repoName
+            Unregistered repo (not in any store) → throw; caller returns structured error:
+              "Repository '{name}' is not registered in any store. Register it … before importing."
+            Registered repo → targetLedgerRoot = that store's path
+    NO  → targetLedgerRoot = undefined  (single-store: LedgerStore uses default)
+  ↓
+new LedgerStore(planPath, targetLedgerRoot)
+  → storageDir = path.join(targetLedgerRoot ?? resolveLedgerRoot(), repoName, slug)
+  ↓
+store.importStandaloneProject({ ... })  ← LedgerStore handles locking internally
+  ↓
+Return import result + archived_documents to agent
+```
+
+### Flow 17b: Update synthesis on an existing standalone project (`updateSynthesis`)
+
+Read-then-write path — uses `resolveMultiStoreLedgerRoot` (same as MCP tool handlers).
+
+```
+Agent → ledger_update_synthesis(plan_path, ...)
+  ↓
+updateSynthesis(args)
+  ↓
+ledgerRoot = await resolveMultiStoreLedgerRoot(planPath, undefined)
+  Resolution order (see api-surface.md §Store Resolution):
+    1. Store context not initialized → undefined  (single-store / test mode)
+    2. Router not in multi-store mode → undefined
+    3. Cannot infer project root → undefined  (graceful fallback)
+    4. Owning store located via resolveStoreForRepo() → storePath
+    5. Unregistered repo → undefined  (backward-compatible fallback)
+  ↓
+new LedgerStore(ledgerRoot ?? planPath)  ← resolves storageDir from correct store
+  ↓
+Pre-lock reads (fast-fail guards outside lock scope):
+  store.readRootIndex()   ← guard 1: project must exist in this store
+  Check project status !== COMPLETE or synthesis_generated !== true  ← guard 2
+  ↓
+withLock(store.storageDir, async () => {
+  store.readRootIndex()  ← re-read inside lock (TOCTOU safety)
+  Re-apply guards inside lock
+  store.writeRootIndex({ ...root, synthesis_generated: true, outcome_summary })
+  store.archiveDocuments([synthesis_file])  ← best-effort copy inside lock
+})
+  ↓
+Return update result + archived_documents to agent
+```
+
+**Key properties:**
+- `importStandalone` follows the exact same multi-store routing pattern as `initializeProject` — both call `resolveStoreForWrite(repoName)` for the write target.
+- `updateSynthesis` follows the MCP tool handler pattern — uses `resolveMultiStoreLedgerRoot(planPath, undefined)` (no `_ledgerRoot` parameter in this handler).
+- In single-store mode both handlers fall through to `new LedgerStore(planPath)` / `new LedgerStore(undefined ?? planPath)` — backward-compatible with no behavior change.
+- Unregistered repos in multi-store mode produce a structured, actionable error (not a crash or silent default-store write).
+
+---
+
 ## Flow 12: Auto-Archive Background Service
 
 **Entry Point:** `gui/server.ts` startup (and every 10 minutes thereafter)
@@ -1360,9 +1448,10 @@ auto_archive_days === 0?
   NO  →
     runAutoArchive(ledgerRoot, maxAgeDays)
       ↓
-      LedgerStore.listAllProjects(ledgerRoot)
-        → readdir(storage/ledger/)
-        → parse each .meta.json
+      isStoreContextInitialized()  ← guard activates multi-store scan
+        ? getMultiStoreManager().listAllProjects()  ← scans all configured store paths
+        : LedgerStore.listAllProjects(ledgerRoot)   ← single-store mode fallback
+        → readdir(storage/ledger/) for each active store, parse each .meta.json
       ↓
       For each ProjectMeta:
         status !== 'COMPLETE'? → skip
@@ -1461,7 +1550,10 @@ gui/server.ts
 gui/api.ts — handleListProjects processing pipeline:
 
   Step 1: Enrich all projects
-    LedgerStore.listAllProjects(ledgerRoot)   ← readdir + .meta.json parse
+    isStoreContextInitialized()
+      ? getMultiStoreManager().listAllProjects()  ← multi-store mode: scans all configured stores
+      : LedgerStore.listAllProjects(ledgerRoot)   ← single-store mode fallback
+    → readdir + .meta.json parse for each active store
     For each ProjectMeta (concurrent Promise.all):
       Cache fast-path (WP-006):
         meta.total_work_packages defined AND meta.project_name defined?

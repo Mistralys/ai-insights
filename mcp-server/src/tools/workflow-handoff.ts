@@ -29,6 +29,7 @@ import {
 } from '../utils/workflow-helpers.js';
 import { getConfig } from '../gui/config.js';
 import { isTerminalStatus } from '../schema/validators.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 /** Shared return type for all per-role handoff handlers. */
 type HandoffResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
@@ -92,7 +93,8 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     // Validate agent role
@@ -1397,6 +1399,12 @@ export async function computeHandoffStatus(
 /**
  * Register the ledger_get_handoff_status tool on the MCP server.
  */
+
+/**
+ * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
+ */
+export const _internal = { getHandoffStatus };
+
 export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_handoff_status',

@@ -22,6 +22,7 @@ import {
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -142,7 +143,8 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -385,7 +387,8 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   // Track auto-finalize result to embed in response (set inside updateWorkPackageWithSync callback)
   let autoFinalizeResult: 'finalized' | 'blocked' | null = null;
@@ -681,7 +684,8 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -756,7 +760,8 @@ async function updatePipelineProgress(args: z.infer<typeof UpdatePipelineProgres
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -853,6 +858,7 @@ export const _internal = {
   startPipeline,
   completePipeline,
   cancelPipeline,
+  updatePipelineProgress,
   // Schemas (formerly _schemas — renamed to _internal per §53)
   StartPipelineSchema,
   CompletePipelineSchema,

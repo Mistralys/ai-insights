@@ -33,6 +33,7 @@ import {
   STALE_PIPELINE_HOURS,
 } from '../utils/workflow-helpers.js';
 import { embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector } from './workflow-next-action-batch.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 /** Handler signature for per-role next-action functions. */
 type NextActionHandler = (
@@ -88,7 +89,8 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     // Validate agent role

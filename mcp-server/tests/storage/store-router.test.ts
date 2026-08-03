@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { StoreRouter } from '../../src/storage/store-router.js';
+import { StoreRouter, StoreNotRegisteredError } from '../../src/storage/store-router.js';
 import { saveRegistry } from '../../src/storage/repository-registry.js';
 import { resolveLedgerRoot } from '../../src/utils/ledger-root.js';
 import type { StoresConfig } from '../../src/schema/store-config.js';
@@ -294,5 +294,51 @@ describe('StoreRouter', () => {
       expect(first).not.toBe(second);
       expect(first).toEqual(second);
     });
+  });
+});
+
+// ─── StoreNotRegisteredError ──────────────────────────────────────────────
+
+describe('StoreNotRegisteredError', () => {
+  it('is an instance of Error', () => {
+    const err = new StoreNotRegisteredError('my-repo');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('is an instance of StoreNotRegisteredError', () => {
+    const err = new StoreNotRegisteredError('my-repo');
+    expect(err).toBeInstanceOf(StoreNotRegisteredError);
+  });
+
+  it('exposes the repoName property', () => {
+    const err = new StoreNotRegisteredError('my-repo');
+    expect(err.repoName).toBe('my-repo');
+  });
+
+  it('sets the error name to StoreNotRegisteredError', () => {
+    const err = new StoreNotRegisteredError('my-repo');
+    expect(err.name).toBe('StoreNotRegisteredError');
+  });
+
+  it('message contains the repo name and "not registered in any store"', () => {
+    const err = new StoreNotRegisteredError('test-repo');
+    expect(err.message).toContain('test-repo');
+    expect(err.message).toContain('not registered in any store');
+  });
+
+  it('is thrown by resolveStoreForWrite() for unregistered repos', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'snre-test-'));
+    try {
+      const storePath = join(tempDir, 'store');
+      await mkdir(storePath, { recursive: true });
+      const config: StoresConfig = {
+        stores: [{ id: 'main', path: storePath }],
+        default_store: 'main',
+      };
+      const router = new StoreRouter(config);
+      await expect(router.resolveStoreForWrite('unregistered-repo')).rejects.toBeInstanceOf(StoreNotRegisteredError);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

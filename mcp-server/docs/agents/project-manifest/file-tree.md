@@ -148,6 +148,7 @@ mcp-server/
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
 │       ├── server-version.ts      # Reads MCP server version from package.json
+│       ├── store-resolution.ts    # extractLedgerRoot(), resolveMultiStoreLedgerRoot() — shared multi-store ledger root resolution utility; imports only store-context.ts and ledger-root.ts
 │       ├── synthesis-parser.ts    # parseOutcomeSummary() — extracts ### Outcome Summary from a synthesis Markdown string; falls back to first bullet of ### Implementation Summary; returns null when neither section yields content; pure utility, zero dependencies
 │       ├── timestamp.ts           # Timestamp formatting
 │       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
@@ -174,6 +175,8 @@ mcp-server/
     │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
     │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
     │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── auto-archive-multi-store.test.ts  # 2 integration tests for multi-store auto-archive scanning (WP-002): eligible project in a non-default store is archived; non-default store is not skipped when it is the only store with eligible projects; backdateProject() helper patches last_updated in .meta.json without the store API to isolate threshold logic
+    │   ├── multi-store-api.test.ts  # 5 integration tests for resolveProjectStore and dependent GUI handlers in multi-store mode (WP-002): project found in non-default store, project not found returns 404, no phantom directories created in default store by a read-only handler call on a non-default-store project, run-log route resolves correct store, resolveProjectStore falls back to single-store mode correctly
     │   ├── client-rendering.test.ts
     │   ├── config.test.ts       # Unit tests for src/gui/config.ts
     │   ├── dialogue-qa.test.ts
@@ -280,6 +283,7 @@ mcp-server/
         ├── progress.test.ts
         ├── project-reset.test.ts
         ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
+        ├── store-resolution.test.ts  # 11 unit tests for extractLedgerRoot and resolveMultiStoreLedgerRoot: string input, object input, null input, undefined input, RequestHandlerExtra-shaped object (constraint-58 guard), test override short-circuit, store-context-not-initialized fallback, single-store mode fallback, registered repo resolution, unregistered repo fallback, and null project root
         ├── synthesis-parser.test.ts  # 17 unit tests for parseOutcomeSummary(): present (AC-1), fallback to first Implementation Summary bullet (AC-2), both absent returns null (AC-3), malformed input (AC-4), plus edge cases (empty section, multi-paragraph, whitespace-only body, asterisk bullets, h4 sub-headings, no-newline EOF); uses doc() helper to reduce boilerplate
         ├── timestamp.test.ts
         ├── workflow-helpers.test.ts

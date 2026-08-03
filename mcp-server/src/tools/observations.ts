@@ -7,6 +7,7 @@ import type { PipelineComment, IncidentContext } from '../schema/work-package.js
 import type { ProjectComment } from '../schema/root-index.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
 import { PipelineTypeEnum, describePipelineTypes } from '../utils/pipeline-maps.js';
+import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 /**
  * Tool: add_observation
@@ -39,7 +40,8 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -136,7 +138,8 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, undefined);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await withLock(store.storageDir, async () => {
@@ -204,6 +207,8 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
  * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
  */
 export const _internal = {
+  addObservation,
+  addProjectComment,
   AddObservationSchema,
   AddProjectCommentSchema,
 };

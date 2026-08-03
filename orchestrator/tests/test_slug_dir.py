@@ -31,6 +31,27 @@ WORKSPACE = Path("/workspaces/ai-insights")
 LEDGER_BASE = WORKSPACE / "mcp-server" / "storage" / "ledger"
 
 
+@pytest.fixture(autouse=True)
+def patch_store_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate all tests in this module from the user's ~/.ai-insights/stores.json.
+
+    Both _derive_slug_dir() (src.nodes) and _derive_ledger_log_dir() (src.cli)
+    now call resolve_store_for_repo() to support multi-store mode.  On a
+    developer machine that has stores registered, that function returns a real
+    store path rather than the workspace-based default, which breaks tests that
+    assert on hard-coded LEDGER_BASE paths.
+
+    This fixture patches the two imported names so that every call returns the
+    default single-store path (workspace_root / "mcp-server" / "storage" /
+    "ledger"), equivalent to the behaviour when no stores.json is present.
+    """
+    def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+        return workspace_root / "mcp-server" / "storage" / "ledger"
+
+    monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
+    monkeypatch.setattr("src.cli.resolve_store_for_repo", _default)
+
+
 # ---------------------------------------------------------------------------
 # _derive_slug_dir() — namespaced path
 # ---------------------------------------------------------------------------

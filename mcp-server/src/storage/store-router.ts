@@ -4,6 +4,22 @@ import { loadRegistry, findByFolderName } from './repository-registry.js';
 import { resolveLedgerRoot } from '../utils/ledger-root.js';
 import type { StoresConfig } from '../schema/store-config.js';
 
+// ==================== Typed Errors ====================
+
+/**
+ * Thrown by `resolveStoreForWrite()` when a repository is not registered in
+ * any configured store. Callers should discriminate via `instanceof` rather
+ * than string-matching the `.message` property.
+ */
+export class StoreNotRegisteredError extends Error {
+  public readonly repoName: string;
+  constructor(repoName: string) {
+    super(`Repository "${repoName}" is not registered in any store`);
+    this.name = 'StoreNotRegisteredError';
+    this.repoName = repoName;
+  }
+}
+
 // ==================== Internal Types ====================
 
 interface StoreRef {
@@ -179,8 +195,8 @@ export class StoreRouter {
    *   claims the repo.
    *
    * @param repoName - Repository name (workspace folder name) to route.
-   * @throws {Error} When the repo is not registered in any store (multi-store
-   *   mode only). The error message contains `"not registered in any store"`.
+   * @throws {StoreNotRegisteredError} When the repo is not registered in any
+   *   store (multi-store mode only).
    */
   async resolveStoreForWrite(repoName: string): Promise<string> {
     if (this.config === null) {
@@ -189,9 +205,7 @@ export class StoreRouter {
 
     const result = await this.resolveStoreForRepo(repoName);
     if (result === null) {
-      throw new Error(
-        `Repository "${repoName}" is not registered in any store`
-      );
+      throw new StoreNotRegisteredError(repoName);
     }
 
     return result.storePath;
