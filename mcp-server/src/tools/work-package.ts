@@ -17,6 +17,8 @@ import {
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
+import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
+import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 import {
   DEFAULT_PIPELINE_STAGES,
@@ -29,6 +31,19 @@ import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
 import { StoreNotRegisteredError } from '../storage/store-router.js';
 import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
+
+// Resolve the correct ledger root in multi-store mode (same pattern as getProjectStatus).
+async function resolveMultiStoreLedgerRoot(projectPath: string, testOverride: unknown): Promise<string | undefined> {
+  const overridden = extractLedgerRoot(testOverride);
+  if (overridden !== undefined) return overridden;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(projectPath);
+    const repoName = deriveRepoName(projectPath, projectRoot);
+    const storeRef = await getStoreRouter().resolveStoreForRepo(repoName);
+    if (storeRef !== null) return storeRef.storePath;
+  }
+  return undefined;
+}
 
 /**
  * Build a next-step guidance string after a WP status transition.
