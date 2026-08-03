@@ -34,6 +34,7 @@ from src.utils.chunk_writer import ChunkWriter
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
 from src.utils.path_middleware import PathNormalizationMiddleware
+from src.utils.store_resolution import resolve_store_for_repo
 from src.utils.tool_wrappers import (
     _make_tool_response,
     inject_project_path,
@@ -148,15 +149,23 @@ def _is_cross_wp_error(exc: BaseException) -> bool:
     return isinstance(exc, ValueError) and "cross-WP contamination" in str(exc)
 
 
-def _derive_slug_dir(project_path: str, workspace_root: Path) -> Path | None:
+def _derive_slug_dir(
+    project_path: str,
+    workspace_root: Path,
+    _stores_config_path: Path | None = None,
+) -> Path | None:
     """Return the ledger slug directory for *project_path*, or None on failure.
 
-    Computes ``workspace_root / "mcp-server" / "storage" / "ledger" / <repo_name> / <slug>``
-    where ``<slug>`` is the last path segment of *project_path* and ``<repo_name>``
-    is derived from the 4th-level-up ancestor (``Path(project_path).parents[3].name``).
+    In single-store mode, computes::
 
-    Falls back to ``'unknown'`` for ``repo_name`` when the path is too short
-    (fewer than 4 ancestor levels).
+        workspace_root / "mcp-server" / "storage" / "ledger" / <repo_name> / <slug>
+
+    In multi-store mode, calls :func:`resolve_store_for_repo` to locate the
+    correct store for *repo_name* before appending ``/ <repo_name> / <slug>``.
+
+    ``<slug>`` is the last path segment of *project_path*; ``<repo_name>`` is
+    derived from ``Path(project_path).parents[3].name``.  Falls back to
+    ``'unknown'`` when the path is too short (fewer than 4 ancestor levels).
 
     Returns ``None`` when *project_path* is falsy or any path operation fails,
     so callers can treat ``None`` as "capture disabled" without further guards.
@@ -170,7 +179,10 @@ def _derive_slug_dir(project_path: str, workspace_root: Path) -> Path | None:
             repo_name = p.parents[3].name or "unknown"
         except IndexError:
             repo_name = "unknown"
-        return workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug
+        store_root = resolve_store_for_repo(
+            repo_name, workspace_root, _stores_config_path=_stores_config_path
+        )
+        return store_root / repo_name / slug
     except Exception:  # noqa: BLE001
         return None
 

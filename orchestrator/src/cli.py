@@ -65,6 +65,7 @@ warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", cate
 
 import src.utils.subprocess_encoding  # noqa: E402, F401  # side-effect: safe text-mode defaults on Windows
 from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
+from src.utils.store_resolution import resolve_store_for_repo  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -128,24 +129,32 @@ def _derive_repo_name(plan_dir: Path, fallback: str) -> str:
         return fallback
 
 
-def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
+def _derive_ledger_log_dir(
+    plan_dir: Path,
+    workspace_root: Path,
+    _stores_config_path: Path | None = None,
+) -> Path:
     """Derive the ledger storage log directory for a given plan.
 
-    Constructs::
+    In single-store mode, constructs::
 
         workspace_root / "mcp-server" / "storage" / "ledger"
         / repo_name / slug / "orchestrator" / "logs"
 
-    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is derived via
+    In multi-store mode, calls :func:`resolve_store_for_repo` to find the
+    correct store for *repo_name* before appending the remaining path
+    segments.
+
+    ``slug`` is ``plan_dir.name`` and ``repo_name`` is derived via
     :func:`_derive_repo_name`, falling back to ``"unknown"`` when the path
     has fewer than four ancestor levels or the ancestor name is empty.
     """
     slug = plan_dir.name
     repo_name = _derive_repo_name(plan_dir, "unknown")
-    return (
-        workspace_root / "mcp-server" / "storage" / "ledger"
-        / repo_name / slug / "orchestrator" / "logs"
+    store_root = resolve_store_for_repo(
+        repo_name, workspace_root, _stores_config_path=_stores_config_path
     )
+    return store_root / repo_name / slug / "orchestrator" / "logs"
 
 
 # Matches plan folder names like "2026-07-09-my-plan" and captures the date

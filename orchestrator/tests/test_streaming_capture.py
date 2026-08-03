@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from langchain_core.messages import AIMessageChunk
 
 # ---------------------------------------------------------------------------
@@ -104,6 +105,23 @@ class _TrackingChunkWriter:
 class TestChunkFileCreation:
     """AC1: chunk file created in {slug_dir}/orchestrator/chunks/ with one
     JSON line per stream chunk."""
+
+    @pytest.fixture(autouse=True)
+    def patch_store_resolution(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Isolate tests from the user's ~/.ai-insights/stores.json.
+
+        _derive_slug_dir() now calls resolve_store_for_repo() for multi-store
+        support. On developer machines with stores registered the function
+        returns a real store path, causing chunk files to be written outside
+        tmp_path. This fixture patches src.nodes.resolve_store_for_repo to
+        always return the default workspace-relative path.
+        """
+        from pathlib import Path as _Path
+
+        def _default(repo_name: str, workspace_root: _Path, _stores_config_path: _Path | None = None) -> _Path:
+            return workspace_root / "mcp-server" / "storage" / "ledger"
+
+        monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
 
     async def test_chunk_file_created_after_stage(self, tmp_path: Path) -> None:
         """A JSONL chunk file must exist after the stage completes."""

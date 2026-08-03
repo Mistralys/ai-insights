@@ -4,6 +4,40 @@ Reference guide for contributors writing or maintaining tests in `orchestrator/t
 
 ---
 
+## Store Resolution Isolation
+
+Any test that calls `_derive_slug_dir()` or `_derive_ledger_log_dir()` — or any
+function that transitively calls `resolve_store_for_repo()` — **must** patch the
+resolution function to prevent the developer's real `~/.ai-insights/stores.json` from
+affecting test results.
+
+Use an autouse fixture:
+
+```python
+@pytest.fixture(autouse=True)
+def _isolate_store_resolution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    default = tmp_path / "storage" / "ledger"
+    default.mkdir(parents=True, exist_ok=True)
+    _default = lambda *_a, **_kw: default
+    monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
+    monkeypatch.setattr("src.cli.resolve_store_for_repo", _default)
+```
+
+**Rationale:** The developer's real `stores.json` may register the repository in a
+non-default store. Without the fixture, tests resolve the wrong store path and fail
+with incorrect assertions or unexpected ENOENT errors.
+
+**Existing examples:** `test_slug_dir.py` (patches both `src.nodes.resolve_store_for_repo`
+and `src.cli.resolve_store_for_repo`), `test_streaming_capture.py` (patches
+`src.nodes.resolve_store_for_repo` only).
+
+**Alternative:** When you need to test the actual multi-store resolution logic, pass the
+`_stores_config_path` parameter directly to `_derive_slug_dir()`,
+`_derive_ledger_log_dir()`, or `resolve_store_for_repo()` with a temp-dir config file.
+This is the approach used in `test_store_resolution.py`.
+
+---
+
 ## Test Tiers
 
 The orchestrator test suite is organised into three tiers based on external dependencies:

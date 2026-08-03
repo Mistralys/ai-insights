@@ -313,6 +313,42 @@ the `if entry_id is not None` guard in the `finally` block then suppresses the p
 
 ---
 
+### `src/utils/store_resolution.py`
+
+Stdlib-only utility that resolves the correct store path for a given repository name by
+reading `~/.ai-insights/stores.json` and per-store `.repositories.json` files. Mirrors the
+TypeScript `resolveMultiStoreLedgerRoot()` resolution algorithm. Used by
+`_derive_slug_dir()` in `src/nodes/__init__.py` and `_derive_ledger_log_dir()` in
+`src/cli.py` to replace the previously hardcoded default store path.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `resolve_store_for_repo` | `resolve_store_for_repo(repo_name: str, workspace_root: str \| Path, _stores_config_path: str \| Path \| None = None) -> Path` | Reads `stores.json` (from `_stores_config_path` when provided for test injection, otherwise `~/.ai-insights/stores.json`) and each store's `.repositories.json`. Returns the `store_path` of the first store whose `folder_names` list contains a case-insensitive match for `repo_name`. Falls back to `workspace_root / "mcp-server" / "storage" / "ledger"` when `stores.json` is absent, `repo_name` is unregistered, or the config is malformed. Expands `~` in store paths via `Path.expanduser()`. Broad-exception guard (`except Exception`) swallows all I/O and JSON parse failures. |
+
+**Test-isolation pattern for `resolve_store_for_repo`**
+
+Any test module that calls code paths invoking `resolve_store_for_repo` indirectly (e.g.
+via `_derive_slug_dir` or `_derive_ledger_log_dir`) must guard against the developer's
+real `~/.ai-insights/stores.json` leaking into test assertions. Use an autouse fixture:
+
+```python
+import pytest
+from unittest.mock import patch
+from pathlib import Path
+
+@pytest.fixture(autouse=True)
+def mock_store_resolution(tmp_path):
+    default = tmp_path / "mcp-server" / "storage" / "ledger"
+    with patch("src.nodes.resolve_store_for_repo", return_value=default), \
+         patch("src.cli.resolve_store_for_repo", return_value=default):
+        yield
+```
+
+Patch both import sites (`src.nodes.*` and `src.cli.*`) — each module binds its own
+reference at import time, so patching only one site leaves the other live.
+
+---
+
 Three defensive wrappers applied to every MCP tool in a stage node. **Canonical application order:**
 
 ```
