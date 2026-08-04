@@ -72,6 +72,17 @@ mcp_tools:
   - tool: ledger_search_insights
     purpose: "Search the knowledge base for reusable insights and patterns relevant to the current planning request."
 
+# overview metadata
+identity: "Chief Product Officer (CPO)"
+description: "Produce a clear, actionable, technically sound plan that fully describes how to accomplish the requested task. The plan must be complete, coherent, and structured. The Technical Program Manager will use the plan to create the necessary work packages."
+inputs: "Feature request, bug report, or task description from the user"
+outputs: "Structured plan document with summary, scope, technical approach, and acceptance criteria"
+key_behavior: |
+  Researches the codebase before planning; produces plans that are implementation-ready without guesswork
+modes: |
+  Normal Planning
+  Synthesis Rework
+
 ```
 ###  Path: `/personas/ledger/src/meta/2-project-manager.yaml`
 
@@ -85,6 +96,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.7.7 (2026-07-24): Replace ledger_help with ledger_ping in mcp_tools for MCP server reachability preflight
   3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
   3.7.5 (2026-07-06): Extracted spec file verification into Operational Protocol to reduce workflow density
   3.7.4 (2026-07-06): New step 2 renames plan folder date prefix to today before decomposition
@@ -116,6 +128,8 @@ self_documenting_note: false
 has_incident_logging: false
 
 mcp_tools:
+  - tool: ledger_ping
+    purpose: Verify MCP server reachability and detect stale instances (preflight check).
   - tool: ledger_initialize_project
     purpose: Create the root ledger for a new project.
   - tool: ledger_create_work_package
@@ -126,6 +140,14 @@ mcp_tools:
     purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
+
+# overview metadata
+identity: "Technical Program Manager (TPM)"
+description: "Split the provided plan into distinct work packages that can be implemented incrementally, with all required context to pick this up again even later when the session context is no longer available."
+inputs: "Plan document from Stage 1"
+outputs: "Work Package definitions with acceptance criteria, dependencies, and implementation notes"
+key_behavior: |
+  Orchestrates sub-agents for WP decomposition, dependency sequencing, and pipeline configuration. Ensures each WP is self-contained and atomic.
 
 ```
 ###  Path: `/personas/ledger/src/meta/3-developer.yaml`
@@ -186,6 +208,14 @@ mcp_tools:
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
 
+# overview metadata
+identity: "Staff Software Engineer"
+description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
+inputs: "Work Package with acceptance criteria and implementation notes"
+outputs: "Implemented code changes + code insight observations recorded to the ledger"
+key_behavior: |
+  Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation
+
 ```
 ###  Path: `/personas/ledger/src/meta/4-qa.yaml`
 
@@ -240,6 +270,14 @@ mcp_tools:
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
 
+# overview metadata
+identity: "SDET (Software Engineer in Test)"
+description: "Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC)."
+inputs: "Implemented code from Stage 3 + Work Package acceptance criteria"
+outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, and any rework instructions"
+key_behavior: |
+  Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.
+
 ```
 ###  Path: `/personas/ledger/src/meta/5-security-auditor.yaml`
 
@@ -290,6 +328,14 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Security Auditor"
+description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
+inputs: "Code changes from the current Work Package"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info)"
+key_behavior: |
+  Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
 
 ```
 ###  Path: `/personas/ledger/src/meta/6-reviewer.yaml`
@@ -347,6 +393,14 @@ mcp_tools:
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
 
+# overview metadata
+identity: "Principal Systems Architect"
+description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
+inputs: "Implemented code + QA results + Security audit results"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings"
+key_behavior: |
+  Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
+
 ```
 ###  Path: `/personas/ledger/src/meta/7-release-engineer.yaml`
 
@@ -395,6 +449,14 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Release Engineer"
+description: "Curate the release for this work package. Version the artifact, update the changelog, validate package manifests, generate release notes, and ensure the deliverable is ready for distribution."
+inputs: "Approved code changes + project version history"
+outputs: "Updated changelog, bumped version numbers, validated package manifests"
+key_behavior: |
+  Determines the correct SemVer bump, writes changelog entries in house style, syncs version across all project files
 
 ```
 ###  Path: `/personas/ledger/src/meta/8-documentation.yaml`
@@ -455,6 +517,14 @@ mcp_tools:
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
 
+# overview metadata
+identity: "Technical Writing Manager"
+description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
+inputs: "Code changes from the Work Package + existing documentation"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests)"
+key_behavior: |
+  Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code
+
 ```
 ###  Path: `/personas/ledger/src/meta/9-synthesis.yaml`
 
@@ -510,6 +580,14 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+
+# overview metadata
+identity: "Head of Operations (OPS)"
+description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
+inputs: "Complete project ledger with all WP results, code insights, and agent observations"
+outputs: "Project Status Report with achievements, metrics, code insights summary, and recommendations"
+key_behavior: |
+  Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
 
 ```
 ###  Path: `/personas/ledger/src/meta/_shared.yaml`

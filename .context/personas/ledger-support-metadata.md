@@ -72,6 +72,12 @@ tools:
   - search
   - central_pm/*
 
+# overview metadata
+identity: "Technical Program Manager — Ledger Initialization Operator"
+use_when: "Invoked by the Project Manager (Stage 2) after WP definitions are ready"
+key_behavior: |
+  Creates the project in the ledger, registers all WPs, sets dependencies and pipeline stages, and verifies the final state matches expectations
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-claude-coordinator.yaml`
 
@@ -99,6 +105,13 @@ cc_tools:
   - Read
   - Grep
 
+# overview metadata
+identity: "Technical Workflow Director"
+use_when: "Experimental — originally designed to coordinate the ledger pipeline in Claude Code, but currently unused because Claude Code does not reliably follow ledger routing. Retained for future evaluation"
+modes: |
+  Interactive (default)
+  Autonomous
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-dependency-sequencer.yaml`
 
@@ -121,6 +134,10 @@ tools:
   - read
   - edit
   - search
+
+# overview metadata
+identity: "Technical Program Manager — Dependency Analyst"
+use_when: "Invoked by the Project Manager to determine WP execution order"
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-doctor.yaml`
@@ -160,6 +177,14 @@ cc_tools:
   - TodoRead
   - TodoWrite
 
+# overview metadata
+identity: "Senior Workflow Reliability Engineer"
+use_when: "A ledger project is stuck, has state corruption, or pipelines are deadlocked"
+modes: |
+  Diagnose
+  Repair
+  Audit
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-knowledge-archiver.yaml`
 
@@ -171,6 +196,7 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.7.0 (2026-07-31): Philosophy rewritten with positive framing; constraint-like items moved to Strict Constraints
   1.6.0 (2026-06-09): Renamed to Ledger Knowledge Archiver; slug and name updated
   1.5.0 (2026-06-08): Gained local archiving task marker file support
   1.4.0 (2026-05-30): Fixed agent naming for correct subagent registry references
@@ -185,6 +211,13 @@ tools:
   - edit
   - search
   - central_pm/*
+
+# overview metadata
+identity: "Head of Operations — Retrospective Knowledge Analyst"
+use_when: "After a project completes, to capture lessons learned into the knowledge base"
+modes: |
+  Live (Subagent — invoked by Synthesis)
+  Archive (Retrospective — user-invoked)
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-knowledge-curator.yaml`
@@ -206,6 +239,13 @@ tools:
   - search
   - central_pm/*
 
+# overview metadata
+identity: "Knowledge Base Librarian"
+use_when: "The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity"
+modes: |
+  Global Maintenance
+  Project Maintenance
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-orchestrator-archaeologist.yaml`
 
@@ -224,6 +264,10 @@ tools:
   - vscode
   - read
   - search
+
+# overview metadata
+identity: "Forensic Operations Analyst"
+use_when: "Analyzing a completed orchestrator run to understand what went wrong or identify improvement opportunities"
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-orchestrator-runner.yaml`
@@ -263,6 +307,12 @@ cc_tools:
   - TodoRead
   - TodoWrite
 
+# overview metadata
+identity: "AI Insights Workflow Operator"
+use_when: "Launching an automated orchestrator run from a plan document"
+key_behavior: |
+  Runs preflight checks, starts the orchestrator, monitors for completion
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-pipeline-configurator.yaml`
 
@@ -283,6 +333,10 @@ tools:
   - read
   - edit
   - search
+
+# overview metadata
+identity: "Technical Program Manager — Pipeline Stage Analyst"
+use_when: "Invoked by the Project Manager to determine which pipeline stages each WP should go through"
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-wp-decomposer.yaml`
@@ -309,6 +363,12 @@ tools:
   - edit
   - search
 
+# overview metadata
+identity: "Technical Program Manager — Work Package Analyst"
+use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages"
+key_behavior: |
+  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion
+
 ```
 ###  Path: `/personas/ledger-support/src/meta/standalone-archiver.yaml`
 
@@ -334,5 +394,12 @@ tools:
   - edit
   - central_pm/ledger_import_standalone
   - central_pm/ledger_update_synthesis
+
+# overview metadata
+identity: "Ledger Archivist"
+use_when: "A standalone plan has been completed and should be tracked in the project ledger for historical reference"
+modes: |
+  Import
+  Update
 
 ```

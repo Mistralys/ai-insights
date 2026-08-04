@@ -85,6 +85,14 @@ tools:
   - agent
   - todo
 
+# overview metadata
+identity: "Agent Operations (AgentOps) Architect"
+use_when: "Setting up a new repository for agent workflows, or auditing an existing AGENTS.md for completeness"
+modes: |
+  Create
+  Update
+  Audit
+
 ```
 ###  Path: `/personas/standalone/src/meta/changelog-curator.yaml`
 
@@ -112,6 +120,13 @@ tools:
   - agent
   - todo
 
+# overview metadata
+identity: "Release Communications Editor"
+use_when: "Preparing a release, cleaning up verbose agent-generated changelog entries"
+modes: |
+  Generate (from Git history)
+  Rewrite (clean up existing entries)
+
 ```
 ###  Path: `/personas/standalone/src/meta/comms-curator.yaml`
 
@@ -135,6 +150,16 @@ tools:
   - agent
   - todo
 
+# overview metadata
+identity: "Head of Product Communications"
+use_when: "Writing release announcements, responding to users, preparing stakeholder updates or presentation material"
+modes: |
+  Release Notes
+  User Response
+  Stakeholder Brief
+  Presentation Content
+  General
+
 ```
 ###  Path: `/personas/standalone/src/meta/composer-curator.yaml`
 
@@ -157,6 +182,10 @@ tools:
   - search
   - agent
   - todo
+
+# overview metadata
+identity: "Agent Operations (AgentOps) Architect"
+use_when: "Setting up a PHP project for agent-assisted development"
 
 ```
 ###  Path: `/personas/standalone/src/meta/ctx-architect.yaml`
@@ -194,6 +223,14 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+
+# overview metadata
+identity: "Context Documentation Architect"
+use_when: "Setting up .context/ documentation infrastructure for a project, adding a new module's context config, or updating existing context docs"
+modes: |
+  Bootstrap
+  New Module
+  Update
 
 ```
 ###  Path: `/personas/standalone/src/meta/developer.yaml`
@@ -236,6 +273,11 @@ cc_tools:
 subagents:
   - standalone-archiver
 
+# overview metadata
+identity: "Staff Software Engineer"
+use_when: "Implementing a plan document outside the ledger workflow (no MCP server needed)"
+notes: "Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis"
+
 ```
 ###  Path: `/personas/standalone/src/meta/documentation-curator.yaml`
 
@@ -259,6 +301,14 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Technical Writing Manager"
+use_when: "Documentation is out of sync with code, or a new documentation artifact is needed"
+modes: |
+  Update
+  Audit
+  Create
 
 ```
 ###  Path: `/personas/standalone/src/meta/git-committer.yaml`
@@ -295,6 +345,10 @@ cc_tools:
   - Grep
   - Glob
 
+# overview metadata
+identity: "Configuration Management Engineer"
+use_when: "You have a large batch of uncommitted changes that need to be organized into logical, well-described commits"
+
 ```
 ###  Path: `/personas/standalone/src/meta/manifest-curator.yaml`
 
@@ -320,6 +374,14 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Technical Knowledge Architect"
+use_when: "Setting up a project for agent-assisted development, or keeping manifest docs in sync after codebase changes"
+modes: |
+  Create
+  Update
+  Audit
 
 ```
 ###  Path: `/personas/standalone/src/meta/module-intent-architect.yaml`
@@ -359,6 +421,10 @@ cc_tools:
   - WebFetch
   - WebSearch
 
+# overview metadata
+identity: "Staff Software Architect"
+use_when: "A module lacks documentation and you need a README that explains its purpose, API, and relationships"
+
 ```
 ###  Path: `/personas/standalone/src/meta/persona-curator.yaml`
 
@@ -384,6 +450,14 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Agent Design Architect"
+use_when: "Designing a new agent persona, auditing existing personas for compliance, or applying targeted fixes"
+modes: |
+  Create
+  Audit
+  Maintain
 
 ```
 ###  Path: `/personas/standalone/src/meta/plan-architect-reviewer.yaml`
@@ -415,6 +489,11 @@ tools:
   - agent
   - todo
 
+# overview metadata
+identity: "Principal Software Architect"
+use_when: "Reviewing a plan's architectural decisions before implementation begins"
+notes: "Runs in parallel with the Plan Auditor; never blocks it"
+
 ```
 ###  Path: `/personas/standalone/src/meta/plan-auditor.yaml`
 
@@ -445,6 +524,11 @@ tools:
   - browser
   - agent
   - todo
+
+# overview metadata
+identity: "Senior Technical Plan Auditor"
+use_when: "Validating a plan for technical correctness before implementation"
+notes: "Runs in parallel with the Plan Architect Reviewer"
 
 ```
 ###  Path: `/personas/standalone/src/meta/plan-refiner.yaml`
@@ -480,6 +564,10 @@ subagents:
   - plan-architect-reviewer
   - plan-auditor
 
+# overview metadata
+identity: "Plan Quality Director"
+use_when: "You want a plan to go through multiple rounds of review and refinement automatically"
+
 ```
 ###  Path: `/personas/standalone/src/meta/planner.yaml`
 
@@ -504,6 +592,13 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Chief Product Officer (CPO)"
+use_when: "Creating a plan outside the ledger workflow, or reworking a plan based on synthesis feedback"
+modes: |
+  Normal Planning
+  Synthesis Rework
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`
@@ -532,6 +627,10 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Developer Experience (DX) Storyteller"
+use_when: "A project needs a new or rewritten README"
 
 ```
 ###  Path: `/personas/standalone/src/meta/recipe-curator.yaml`
@@ -573,6 +672,13 @@ tools:
   - web
   - browser
 
+# overview metadata
+identity: "Private Chef & Culinary Consultant"
+use_when: "Meal planning or recipe adaptation (non-development persona — personal utility)"
+modes: |
+  Single Recipe
+  Weekly Plan
+
 ```
 ###  Path: `/personas/standalone/src/meta/researcher.yaml`
 
@@ -599,6 +705,10 @@ tools:
   - agent
   - todo
 
+# overview metadata
+identity: "Senior Research Engineer & Solution Architect"
+use_when: "Facing a complex problem that needs investigation before implementation"
+
 ```
 ###  Path: `/personas/standalone/src/meta/unit-test-auditor.yaml`
 
@@ -623,6 +733,10 @@ tools:
   - web
   - agent
   - todo
+
+# overview metadata
+identity: "Lead QA Auditor & Test Architect"
+use_when: "Auditing test coverage of specific modules to find the most impactful missing tests"
 
 ```
 ###  Path: `/personas/standalone/src/meta/web-gui-specialist.yaml`
@@ -651,6 +765,10 @@ tools:
 subagents:
   - standalone-archiver
 
+# overview metadata
+identity: "Senior Web Interface Engineer and UX Systems Designer"
+use_when: "Building or improving a web interface with strong UX, accessibility, and visual polish requirements"
+
 ```
 ###  Path: `/personas/standalone/src/meta/whatsnew-curator.yaml`
 
@@ -673,6 +791,10 @@ tools:
   - search
   - agent
   - todo
+
+# overview metadata
+identity: "Release Notes Editor"
+use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog"
 
 ```
 ###  Path: `/personas/standalone/src/meta/workspace-architect.yaml`
@@ -704,5 +826,12 @@ subagents:
   - ctx-architect
   - readme-curator
   - changelog-curator
+
+# overview metadata
+identity: "Workspace Infrastructure Architect"
+use_when: "Setting up a new repository for the AI Insights ecosystem, or upgrading an existing repo's infrastructure"
+modes: |
+  Onboard
+  Upgrade
 
 ```

@@ -13,6 +13,7 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
                 ├── orchestrator-widgets.js
             └── libs/
                 ├── marked.min.js
+            └── modal.js
             └── router.js
             └── stale-check.js
             └── theme-init.js
@@ -21,6 +22,7 @@ _SOURCE: GUI static frontend: app shell, views, router, and utilities_
             └── views/
                 └── config-model-registry.js
                 └── config-persona-models.js
+                └── config-stores.js
                 └── config.js
                 └── knowledge.js
                 └── orchestrator.js
@@ -561,9 +563,8 @@ var API = (function () {
      *   - `#new-repo-folders` receives the raw `r.id` (unchanged).
      *
      * `sanitiseSlug` is a local function scoped inside `renderStrategyList` and
-     * is not accessible from `renderStrategyDetail` or other view functions. If
-     * slug sanitisation is ever needed elsewhere, the function must be duplicated
-     * or elevated to module scope. If the backend undeclared entry shape ever
+     * is not accessible from other view functions. If slug sanitisation is ever
+     * needed elsewhere, the function must be duplicated or elevated to module scope. If the backend undeclared entry shape ever
      * changes, the pre-fill logic in `wireRegisterButtons` must be updated
      * accordingly.
      *
@@ -589,7 +590,7 @@ var API = (function () {
     /**
      * Create a new repository entry in the registry.
      *
-     * @param {object} data - Repository fields: id, label, folder_names, vision.
+     * @param {object} data - Repository fields: id, label, folder_names, vision, store_id.
      * @returns {Promise<object>} Created repository from `POST /api/repos`.
      * @throws {{ code: string, message: string }} On HTTP error responses.
      */
@@ -619,6 +620,125 @@ var API = (function () {
      */
     deleteRepo: function (repoId) {
       return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    /**
+     * Move a repository entry to a different store.
+     *
+     * @param {string} repoId        - Repository ID (URI-encoded automatically).
+     * @param {string} targetStoreId - ID of the destination store.
+     * @returns {Promise<object>} Updated repository from `POST /api/repos/{repoId}/move`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    moveRepo: function (repoId, targetStoreId) {
+      return request('POST', '/repos/' + encodeURIComponent(repoId) + '/move', { target_store_id: targetStoreId });
+    },
+
+    // -- Stores --------------------------------------------------------
+
+    /**
+     * Fetch the list of configured stores with project and repository counts.
+     *
+     * In single-store (legacy) mode the server returns a single entry
+     * representing the default ledger root.
+     *
+     * @returns {Promise<object[]>} Store entries from `GET /api/stores`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getStores: function () {
+      return request('GET', '/stores');
+    },
+
+    /**
+     * Fetch cross-store repository registry conflicts.
+     *
+     * Returns repositories registered in more than one store, with per-store
+     * entries and a winner indicator. The winner is determined by store-order
+     * priority (first configured store wins). Returns an empty array in
+     * single-store mode.
+     *
+     * @returns {Promise<object[]>} Conflict records from `GET /api/stores/conflicts`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getStoreConflicts: function () {
+      return request('GET', '/stores/conflicts');
+    },
+
+    /**
+     * Add a new store (creates the directory and registers it in stores.json).
+     *
+     * @param {{ id: string, path: string, label?: string }} data - Store config.
+     * @returns {Promise<object[]>} Updated enriched store list from `POST /api/stores`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    addStore: function (data) {
+      return request('POST', '/stores', data);
+    },
+
+    /**
+     * Import an existing directory as a store.
+     *
+     * The directory must already exist. Any existing `.repositories.json` is
+     * preserved. Returns a wrapped response with an optional `warning` when
+     * the existing registry file fails schema validation.
+     *
+     * @param {{ id: string, path: string, label?: string }} data - Store config.
+     * @returns {Promise<{ stores: object[], warning?: string }>} Response from `POST /api/stores/import`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    importStore: function (data) {
+      return request('POST', '/stores/import', data);
+    },
+
+    /**
+     * Update a store's label.
+     *
+     * @param {string}          storeId - Store ID to update.
+     * @param {{ label: string }} data  - New label (trimmed; whitespace-only rejected).
+     * @returns {Promise<object[]>} Updated enriched store list from `PUT /api/stores/:storeId`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    updateStore: function (storeId, data) {
+      return request('PUT', '/stores/' + encodeURIComponent(storeId), data);
+    },
+
+    /**
+     * Remove a store (deregisters from stores.json; does not delete the directory).
+     *
+     * Returns a wrapped response: `{ stores, warned }` where `warned` is true
+     * when the store had registered repositories at the time of removal.
+     *
+     * @param {string} storeId - Store ID to remove.
+     * @returns {Promise<{ stores: object[], warned: boolean }>} Response from `DELETE /api/stores/:storeId`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    removeStore: function (storeId) {
+      return request('DELETE', '/stores/' + encodeURIComponent(storeId));
+    },
+
+    /**
+     * Set the default store.
+     *
+     * @param {string} storeId - Store ID to make the default.
+     * @returns {Promise<object[]>} Updated enriched store list from `POST /api/stores/:storeId/default`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    setDefaultStore: function (storeId) {
+      return request('POST', '/stores/' + encodeURIComponent(storeId) + '/default');
+    },
+
+    /**
+     * Reorder stores by providing the full array of store IDs in the desired order.
+     *
+     * Store order determines conflict-resolution priority: the first store wins
+     * when the same repository is registered in multiple stores.
+     *
+     * @param {string[]} order - Complete array of store IDs in desired order.
+     * @returns {Promise<object[]>} Updated enriched store list from `PUT /api/stores/order`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    reorderStores: function (order) {
+      return request('PUT', '/stores/order', { order: order });
     },
 
     // -- Orchestrator --------------------------------------------------
@@ -1703,6 +1823,102 @@ Please report this to https://github.com/markedjs/marked.`,e){let s="<p>An error
 if(__exports != exports)module.exports = exports;return module.exports}));
 
 ```
+###  Path: `/mcp-server/gui/public/modal.js`
+
+```js
+/* ============================================================
+   modal.js — Shared modal lifecycle utility
+   Provides: openModal, closeModal, wireModalEvents
+   Used by: views/strategy.js, views/config-stores.js
+   ============================================================ */
+
+/* Trigger element whose focus is restored when the active modal closes. */
+var _modalTriggerElement = null;
+
+/**
+ * Append a modal HTML string to the document body and return the overlay element.
+ * Stores triggerEl for focus restoration when the modal closes.
+ *
+ * @param {string}  html      - Full modal HTML including the outer .cs-modal-overlay wrapper.
+ * @param {Element} triggerEl - Element that held focus before the modal was opened.
+ * @returns {Element} The appended overlay element (document.body.lastElementChild).
+ */
+function openModal(html, triggerEl) {
+  _modalTriggerElement = triggerEl || null;
+  document.body.insertAdjacentHTML('beforeend', html);
+  return document.body.lastElementChild;
+}
+
+/**
+ * Remove the overlay from the DOM and restore focus to the stored trigger element.
+ *
+ * @param {Element} overlay - The overlay element returned by openModal().
+ */
+function closeModal(overlay) {
+  if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  if (_modalTriggerElement && typeof _modalTriggerElement.focus === 'function') {
+    _modalTriggerElement.focus();
+  }
+  _modalTriggerElement = null;
+}
+
+/**
+ * Wire standard keyboard / pointer lifecycle events onto an open modal overlay.
+ *
+ * @param {Element} overlay - The overlay element returned by openModal().
+ * @param {object}  opts
+ * @param {Function} opts.onClose         - Called when the user closes the modal
+ *   (Escape key, overlay click, .cs-modal-close button, or [id$="-cancel-btn"] button).
+ * @param {Function} [opts.onSubmit]       - Called when Enter is pressed on a
+ *   focusable non-BUTTON element inside the modal.
+ * @param {boolean}  [opts.excludeTextarea=false] - When true, Enter on TEXTAREA
+ *   elements is also excluded from triggering onSubmit.
+ */
+function wireModalEvents(overlay, opts) {
+  var modal = overlay.querySelector('.cs-modal');
+
+  /* Close on overlay backdrop click */
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) opts.onClose();
+  });
+
+  /* Escape + Tab focus trap */
+  overlay.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') {
+      opts.onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    var focusable = modal.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable.length) { e.preventDefault(); return; }
+    var first = focusable[0];
+    var last  = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  /* Enter-to-submit */
+  modal.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    if (e.target.tagName === 'BUTTON') return;
+    if (opts.excludeTextarea && e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    if (opts.onSubmit) opts.onSubmit();
+  });
+
+  /* Close buttons: the × header button and any footer Cancel button */
+  var closeBtns = overlay.querySelectorAll('.cs-modal-close, [id$="-cancel-btn"]');
+  for (var i = 0; i < closeBtns.length; i++) {
+    closeBtns[i].addEventListener('click', opts.onClose);
+  }
+}
+
+```
 ###  Path: `/mcp-server/gui/public/router.js`
 
 ```js
@@ -1796,12 +2012,6 @@ var Router = (function () {
 
     if (path === '/strategy') {
       renderStrategyList(app);
-      return;
-    }
-
-    var strategyDetailMatch = path.match(/^\/strategy\/([^/]+)$/);
-    if (strategyDetailMatch) {
-      renderStrategyDetail(app, decodeURIComponent(strategyDetailMatch[1]));
       return;
     }
 
@@ -2144,7 +2354,7 @@ function breadcrumb() {
       return api;
     },
     repo: function (repoId, repoLabel) {
-      segments.push({ label: repoLabel || repoId, href: '#/strategy/' + encodeURIComponent(repoId) });
+      segments.push({ label: repoLabel || repoId, href: '#/strategy' });
       return api;
     },
     leaf: function (label) {
@@ -3442,6 +3652,714 @@ function renderPersonaModelsTab(models, personas, assignments) {
 }
 
 ```
+###  Path: `/mcp-server/gui/public/views/config-stores.js`
+
+```js
+/* ============================================================
+   views/config-stores.js — Stores tab module
+   Section 4d-cs of the MCP Server Dashboard SPA
+   Depends on: API (api-client.js), UI (components.js), escapeHtml (utils.js),
+               configDirty (config.js)
+   Must be loaded BEFORE config.js.
+   ============================================================ */
+
+/* ── Module-level state ──────────────────────────────────── */
+
+/* csStores:       working copy of store list (from server).
+   csOriginal:     snapshot at load time (stores tab uses immediate writes;
+                   no dirty tracking — included for structural parity).
+   csReorderMode:  true when the reorder sub-view is active. While true,
+                   csShowTableError() targets #cs-reorder-error (present in
+                   the reorder view). On API failure, csMoveStore() reverts
+                   the optimistic swap and re-renders the reorder view before
+                   calling csShowTableError() — csRefreshTab() is not called.
+   csModalMode:    null (closed), 'add', or 'edit'.
+   csModalStoreId: ID of the store being edited (null in add mode).
+   csModalCreateDir: true = create new directory (Add), false = use existing
+                   directory (Import). Defaults to true when opening add mode. */
+var csStores        = null;
+var csOriginal      = null;
+var csReorderMode   = false;
+var csModalMode     = null;
+var csModalStoreId  = null;
+var csModalCreateDir = true;
+var csClickHandler  = null;
+
+/* Store ID validation regex — mirrors SLUG_REGEX from src/schema/common.ts. */
+var CS_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+
+/* Reserved store IDs that collide with literal API path suffixes. */
+var CS_RESERVED_IDS = ['import', 'order', 'conflicts'];
+
+/* ── Helpers ─────────────────────────────────────────────── */
+
+/** Validate a store ID. Returns an error message or '' if valid. */
+function csValidateId(id) {
+  if (!id || !id.trim()) return 'Store ID is required.';
+  if (!CS_SLUG_REGEX.test(id)) return 'Store ID must start with a letter or digit and may only contain letters, digits, hyphens, and underscores.';
+  for (var i = 0; i < CS_RESERVED_IDS.length; i++) {
+    if (id === CS_RESERVED_IDS[i]) return 'Store ID "' + id + '" is reserved. Choose a different identifier.';
+  }
+  return '';
+}
+
+/** Validate a store path.  Returns an error message or '' if valid. */
+function csValidatePath(path) {
+  if (!path || !path.trim()) return 'Path is required.';
+  var p = path.trim();
+  if (p.charAt(0) !== '/' && p.substring(0, 2) !== '~/') return 'Path must be an absolute path (starting with / or ~/).';
+  return '';
+}
+
+/** Validate a label (optional, but whitespace-only is rejected if provided). */
+function csValidateLabel(label) {
+  if (label && label.trim() === '') return 'Label cannot be whitespace only.';
+  return '';
+}
+
+/** Render the type badge for a store entry. */
+function csTypeBadge(store) {
+  if (store.is_git) {
+    var badge = '<span class="badge cs-type-badge cs-type-git">Git</span>';
+    if (store.ahead != null && store.behind != null) {
+      badge += ' <span class="cs-git-status">';
+      if (store.ahead > 0)  badge += '<span class="cs-git-ahead" title="' + store.ahead + ' ahead">\u2191' + store.ahead + '</span>';
+      if (store.behind > 0) badge += '<span class="cs-git-behind" title="' + store.behind + ' behind">\u2193' + store.behind + '</span>';
+      badge += '</span>';
+    }
+    return badge;
+  }
+  return '<span class="badge cs-type-badge cs-type-folder">Folder</span>';
+}
+
+/** Render the sync badge cell for a store entry. */
+function csSyncCell(store) {
+  if (!store.sync || !store.sync.provider) return '\u2014';
+  var provider = escapeHtml(store.sync.provider);
+  var popoverLines = '<strong>' + provider + '</strong>';
+  if (store.sync.remote_path) popoverLines += '<br>' + escapeHtml(store.sync.remote_path);
+  if (store.sync.notes)       popoverLines += '<br><em>' + escapeHtml(store.sync.notes) + '</em>';
+  return '<span class="cs-sync-badge" tabindex="0" aria-describedby="cs-sync-popover-' + escapeHtml(store.id) + '">' + provider + '</span>' +
+    '<span class="cs-sync-popover" id="cs-sync-popover-' + escapeHtml(store.id) + '" role="tooltip">' + popoverLines + '</span>';
+}
+
+/** Render the path cell: truncated text + copy button. */
+function csPathCell(store) {
+  var safePath = escapeHtml(store.path);
+  return '<span class="cs-path-cell" title="">' +
+    '<span class="cs-path-text">' + safePath + '</span>' +
+    '<button class="btn btn-sm cs-copy-btn" data-path="' + safePath + '" aria-label="Copy path" title="Copy full path">\uD83D\uDCCB</button>' +
+  '</span>';
+}
+
+/** Render the default star for a store row. */
+function csDefaultStar(store) {
+  if (store.is_default) {
+    return '<button class="cs-default-star cs-star-filled" data-store-id="' + escapeHtml(store.id) + '" disabled title="Default store">\u2605</button>';
+  }
+  return '<button class="cs-default-star cs-star-outline" data-store-id="' + escapeHtml(store.id) + '" title="Set as default">\u2606</button>';
+}
+
+/* ── Tab rendering ───────────────────────────────────────── */
+
+/** Render the full Stores tab HTML. Sets module-level state. */
+function renderStoresTab(stores) {
+  csStores   = stores ? stores.slice(0) : [];
+  csOriginal = stores ? stores.slice(0) : [];
+
+  var notifHtml = '';
+  var pendingBanner = document.getElementById('cs-notification-banner');
+  if (pendingBanner) {
+    notifHtml = pendingBanner.outerHTML;
+  }
+
+  if (!csStores.length) {
+    return notifHtml +
+      UI.emptyState('No stores configured. Add your first store to get started.') +
+      '<div class="cs-action-bar mt-16">' +
+        '<button class="btn btn-primary" id="cs-add-store-btn">Add Store</button>' +
+      '</div>';
+  }
+
+  var rows = '';
+  for (var i = 0; i < csStores.length; i++) {
+    var s = csStores[i];
+    rows +=
+      '<tr data-store-id="' + escapeHtml(s.id) + '">' +
+        '<td>' + csDefaultStar(s) + '</td>' +
+        '<td>' + escapeHtml(s.label || s.id) + '</td>' +
+        '<td><code>' + escapeHtml(s.id) + '</code></td>' +
+        '<td>' + csPathCell(s) + '</td>' +
+        '<td>' + csTypeBadge(s) + '</td>' +
+        '<td>' + (s.project_count != null ? s.project_count : '\u2014') + '</td>' +
+        '<td>' + (s.repository_count != null ? s.repository_count : '\u2014') + '</td>' +
+        '<td class="cs-sync-cell">' + csSyncCell(s) + '</td>' +
+        '<td class="cs-row-actions">' +
+          '<button class="btn btn-sm btn-secondary cs-edit-btn" data-store-id="' + escapeHtml(s.id) + '">Edit</button> ' +
+          '<button class="btn btn-sm btn-danger cs-remove-btn" data-store-id="' + escapeHtml(s.id) + '">Remove</button>' +
+        '</td>' +
+      '</tr>';
+  }
+
+  return notifHtml +
+    '<div class="table-wrapper">' +
+      '<table>' +
+        '<thead><tr>' +
+          '<th title="Default store">&#9733;</th>' +
+          '<th>Label</th>' +
+          '<th>ID</th>' +
+          '<th>Path</th>' +
+          '<th>Type</th>' +
+          '<th>Projects</th>' +
+          '<th>Repositories</th>' +
+          '<th>Sync</th>' +
+          '<th>Actions</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    '<div class="cs-action-bar mt-16">' +
+      '<button class="btn btn-primary" id="cs-add-store-btn">Add Store</button>' +
+      '<button class="btn btn-secondary" id="cs-reorder-btn">Reorder Stores</button>' +
+    '</div>' +
+    '<div id="cs-table-error"></div>';
+}
+
+/** Render the reorder sub-view (replaces main table while active). */
+function csRenderReorderView(stores) {
+  var rows = '';
+  for (var i = 0; i < stores.length; i++) {
+    var s = stores[i];
+    rows +=
+      '<div class="cs-reorder-row" data-store-id="' + escapeHtml(s.id) + '">' +
+        '<span class="cs-reorder-label">' + escapeHtml(s.label || s.id) + ' <code>' + escapeHtml(s.id) + '</code></span>' +
+        '<span class="cs-reorder-btns">' +
+          '<button class="btn btn-sm btn-secondary cs-move-up' + (i === 0 ? ' cs-move-disabled' : '') + '" ' +
+            (i === 0 ? 'disabled ' : '') +
+            'data-store-id="' + escapeHtml(s.id) + '" aria-label="Move ' + escapeHtml(s.id) + ' up">\u2191</button>' +
+          '<button class="btn btn-sm btn-secondary cs-move-down' + (i === stores.length - 1 ? ' cs-move-disabled' : '') + '" ' +
+            (i === stores.length - 1 ? 'disabled ' : '') +
+            'data-store-id="' + escapeHtml(s.id) + '" aria-label="Move ' + escapeHtml(s.id) + ' down">\u2193</button>' +
+        '</span>' +
+      '</div>';
+  }
+
+  return '<div class="cs-reorder-view">' +
+    '<div class="cs-reorder-info info-banner">Store order determines priority \u2014 when the same repository is registered in multiple stores, the first store wins.</div>' +
+    '<div id="cs-reorder-list">' + rows + '</div>' +
+    '<div id="cs-reorder-error"></div>' +
+    '<div class="cs-action-bar mt-16">' +
+      '<button class="btn btn-secondary" id="cs-reorder-done-btn">Done</button>' +
+    '</div>' +
+  '</div>';
+}
+
+/* ── Modal ───────────────────────────────────────────────── */
+
+/** Render and insert the store add/edit modal. */
+function csRenderStoreModal(mode, store) {
+  var existing = document.getElementById('cs-modal-overlay');
+  if (existing) existing.remove();
+
+  var isAdd  = mode === 'add';
+  var title  = isAdd ? 'Add Store' : 'Edit Store';
+  var saveTxt = isAdd ? 'Add Store' : 'Save';
+
+  var idField = isAdd
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="cs-modal-id">Store ID</label>' +
+        '<input class="form-control" type="text" id="cs-modal-id" autocomplete="off" placeholder="e.g. my-store">' +
+        '<span class="cs-modal-field-error" id="cs-modal-id-err"></span>' +
+      '</div>'
+    : '<div class="cs-modal-field-group">' +
+        '<label class="form-label">Store ID</label>' +
+        '<div class="cs-modal-readonly"><code>' + escapeHtml(store ? store.id : '') + '</code></div>' +
+      '</div>';
+
+  var pathField = isAdd
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="cs-modal-path">Path</label>' +
+        '<input class="form-control" type="text" id="cs-modal-path" autocomplete="off" placeholder="e.g. /home/user/ledger">' +
+        '<span class="cs-modal-field-error" id="cs-modal-path-err"></span>' +
+      '</div>'
+    : '<div class="cs-modal-field-group">' +
+        '<label class="form-label">Path</label>' +
+        '<div class="cs-modal-readonly">' + escapeHtml(store ? store.path : '') + '</div>' +
+      '</div>';
+
+  var dirModeField = isAdd
+    ? '<div class="cs-modal-field-group cs-modal-radio-group">' +
+        '<label class="form-label">Directory</label>' +
+        '<label class="cs-radio-option">' +
+          '<input type="radio" name="cs-dir-mode" value="create" ' + (csModalCreateDir ? 'checked' : '') + '> Create new directory' +
+        '</label>' +
+        '<label class="cs-radio-option">' +
+          '<input type="radio" name="cs-dir-mode" value="existing" ' + (!csModalCreateDir ? 'checked' : '') + '> Use existing directory' +
+        '</label>' +
+        '<div class="cs-modal-dir-note" id="cs-modal-dir-note" style="' + (csModalCreateDir ? 'display:none' : '') + '">' +
+          'The directory must already exist. Any existing <code>.repositories.json</code> will be preserved.' +
+        '</div>' +
+      '</div>'
+    : '';
+
+  var labelVal = store && store.label ? escapeHtml(store.label) : '';
+  /* In edit mode with an existing label the field is effectively required; omit the optional hint. */
+  var labelHint = (isAdd || !(store && store.label))
+    ? ' <span class="text-muted">(optional)</span>'
+    : '';
+  var labelField =
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="cs-modal-label">Label' + labelHint + '</label>' +
+      '<input class="form-control" type="text" id="cs-modal-label" autocomplete="off" value="' + labelVal + '" placeholder="Display name">' +
+      '<span class="cs-modal-field-error" id="cs-modal-label-err"></span>' +
+    '</div>';
+
+  var modalHtml =
+    '<div class="cs-modal-overlay" id="cs-modal-overlay" role="dialog" aria-modal="true" aria-label="' + title + '">' +
+      '<div class="cs-modal" id="cs-modal">' +
+        '<div class="cs-modal-header">' +
+          '<span class="cs-modal-title">' + title + '</span>' +
+          '<button class="cs-modal-close" id="cs-modal-close-btn" aria-label="Close">\u00d7</button>' +
+        '</div>' +
+        '<div class="cs-modal-body">' +
+          idField +
+          pathField +
+          dirModeField +
+          labelField +
+          '<div id="cs-modal-error"></div>' +
+        '</div>' +
+        '<div class="cs-modal-footer">' +
+          '<button class="btn btn-primary" id="cs-modal-save-btn">' + saveTxt + '</button>' +
+          '<button class="btn btn-secondary" id="cs-modal-cancel-btn">Cancel</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  var overlay = openModal(modalHtml, document.activeElement);
+  var modal   = overlay.querySelector('#cs-modal');
+
+  wireModalEvents(overlay, {
+    onSubmit: csHandleModalSave,
+    excludeTextarea: false,
+    onClose: function () {
+      closeModal(overlay);
+      csModalMode = null;
+      csModalStoreId = null;
+    }
+  });
+
+  /* Dir-mode radio toggle (only present in add mode) */
+  var radios = modal.querySelectorAll('input[name="cs-dir-mode"]');
+  for (var i = 0; i < radios.length; i++) {
+    radios[i].addEventListener('change', function () {
+      csModalCreateDir = document.querySelector('input[name="cs-dir-mode"]:checked').value === 'create';
+      var note = document.getElementById('cs-modal-dir-note');
+      if (note) note.style.display = csModalCreateDir ? 'none' : '';
+    });
+  }
+
+  document.getElementById('cs-modal-save-btn').addEventListener('click', csHandleModalSave);
+
+  /* Auto-focus first editable field. */
+  var firstInput = modal.querySelector('input');
+  if (firstInput) firstInput.focus();
+}
+
+/* ── Modal save logic ────────────────────────────────────── */
+
+/** Validate modal fields.  Returns true when all fields pass, false otherwise. */
+function csValidateModalFields() {
+  var valid = true;
+
+  function showErr(id, msg) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = msg;
+    if (msg) valid = false;
+  }
+
+  if (csModalMode === 'add') {
+    var idInput   = document.getElementById('cs-modal-id');
+    var pathInput = document.getElementById('cs-modal-path');
+    if (idInput)   showErr('cs-modal-id-err',   csValidateId(idInput.value));
+    if (pathInput) showErr('cs-modal-path-err',  csValidatePath(pathInput.value));
+  }
+
+  var labelInput = document.getElementById('cs-modal-label');
+  if (labelInput) showErr('cs-modal-label-err', csValidateLabel(labelInput.value));
+
+  return valid;
+}
+
+/** Handle the modal Save/Add button click. */
+function csHandleModalSave() {
+  /* Clear previous errors */
+  var errFields = document.querySelectorAll('.cs-modal-field-error');
+  for (var i = 0; i < errFields.length; i++) errFields[i].textContent = '';
+  var modalErr = document.getElementById('cs-modal-error');
+  if (modalErr) modalErr.innerHTML = '';
+
+  if (!csValidateModalFields()) return;
+
+  var saveBtn = document.getElementById('cs-modal-save-btn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+
+  var labelInput = document.getElementById('cs-modal-label');
+  var label = labelInput ? labelInput.value.trim() : '';
+
+  if (csModalMode === 'edit') {
+    /* Guard: empty label has two outcomes depending on whether the store had one.
+       The API requires label: string, so sending {} would fail with 'Required'. */
+    var existingStore = csFindStore(csModalStoreId);
+    var existingLabel = existingStore ? (existingStore.label || '') : '';
+    if (!label && !existingLabel) {
+      closeModal(document.getElementById('cs-modal-overlay'));
+      csModalMode = null;
+      csModalStoreId = null;
+      return;
+    }
+    if (!label) {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      var labelErrEl = document.getElementById('cs-modal-label-err');
+      if (labelErrEl) labelErrEl.textContent = 'Label is required when editing a labelled store. Provide a new label or leave the current one.';
+      return;
+    }
+    API.updateStore(csModalStoreId, { label: label })
+      .then(function (stores) {
+        closeModal(document.getElementById('cs-modal-overlay'));
+        csModalMode = null;
+        csModalStoreId = null;
+        csRefreshWithStores(stores);
+      })
+      .catch(function (err) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+        if (modalErr) showError(modalErr, 'Save failed: ' + (err.message || String(err)));
+      });
+    return;
+  }
+
+  /* Add mode */
+  var idInput   = document.getElementById('cs-modal-id');
+  var pathInput = document.getElementById('cs-modal-path');
+  var data = {
+    id:   idInput   ? idInput.value.trim()   : '',
+    path: pathInput ? pathInput.value.trim() : ''
+  };
+  if (label) data.label = label;
+
+  var apiCall = csModalCreateDir ? API.addStore(data) : API.importStore(data);
+
+  apiCall.then(function (result) {
+    closeModal(document.getElementById('cs-modal-overlay'));
+    csModalMode = null;
+    csModalStoreId = null;
+    /* importStore returns { stores, warning? }; addStore returns stores[] */
+    var updatedStores = result && result.stores ? result.stores : result;
+    var warning       = result && result.warning ? result.warning : null;
+    csRefreshWithStores(updatedStores, warning);
+  }).catch(function (err) {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = csModalMode === 'add' ? 'Add Store' : 'Save'; }
+    if (modalErr) showError(modalErr, (csModalCreateDir ? 'Add' : 'Import') + ' failed: ' + (err.message || String(err)));
+  });
+}
+
+/* ── Refresh helpers ─────────────────────────────────────── */
+
+/** Re-render the Stores tab with a fresh store list from the server. */
+function csRefreshTab() {
+  var contentEl = document.getElementById('config-tab-content');
+  if (!contentEl) return;
+  API.getStores().then(function (stores) {
+    contentEl.innerHTML = renderStoresTab(stores);
+    csWireEvents();
+  }).catch(function (err) {
+    showError(contentEl, 'Failed to reload stores: ' + (err.message || String(err)));
+  });
+}
+
+/** Re-render the tab from an already-fetched store list (avoids round-trip). */
+function csRefreshWithStores(stores, warning) {
+  var contentEl = document.getElementById('config-tab-content');
+  if (!contentEl) return;
+
+  /* Render the tab first so the banner placeholder is present. */
+  contentEl.innerHTML = renderStoresTab(stores);
+
+  /* Remove any banner renderStoresTab() may have included before injecting a fresh one. */
+  var existingBanner = contentEl.querySelector('#cs-notification-banner');
+  if (existingBanner) existingBanner.remove();
+
+  /* Inject notification banner above the table when a warning is present. */
+  if (warning) {
+    var banner =
+      '<div class="cs-notification-banner" id="cs-notification-banner">' +
+        '<span>' + escapeHtml(warning) + '</span>' +
+        '<button class="cs-banner-close" aria-label="Dismiss">\u00d7</button>' +
+      '</div>';
+    contentEl.insertAdjacentHTML('afterbegin', banner);
+  }
+
+  csWireEvents();
+}
+
+/* ── Event wiring ────────────────────────────────────────── */
+
+/** Wire all event handlers for the Stores tab (delegated from config-tab-content). */
+function csWireEvents() {
+  var contentEl = document.getElementById('config-tab-content');
+  if (!contentEl) return;
+
+  /* Remove stale delegated listener before re-wiring — config-tab-content persists across
+     innerHTML replacements so the element retains directly-registered listeners. */
+  if (csClickHandler) contentEl.removeEventListener('click', csClickHandler);
+  csClickHandler = function (e) {
+    var target = e.target;
+
+    /* Add Store button */
+    if (target.id === 'cs-add-store-btn') {
+      csModalMode      = 'add';
+      csModalStoreId   = null;
+      csModalCreateDir = true;
+      csRenderStoreModal('add', null);
+      return;
+    }
+
+    /* Reorder Stores button */
+    if (target.id === 'cs-reorder-btn') {
+      csReorderMode = true;
+      contentEl.innerHTML = csRenderReorderView(csStores);
+      csWireEvents();
+      return;
+    }
+
+    /* Done (reorder) */
+    if (target.id === 'cs-reorder-done-btn') {
+      csReorderMode = false;
+      csRefreshTab();
+      return;
+    }
+
+    /* Dismiss notification banner */
+    if (target.classList.contains('cs-banner-close')) {
+      var banner = document.getElementById('cs-notification-banner');
+      if (banner) banner.remove();
+      return;
+    }
+
+    /* Default star */
+    if (target.classList.contains('cs-default-star') && target.classList.contains('cs-star-outline')) {
+      var storeId = target.getAttribute('data-store-id');
+      target.disabled = true;
+      API.setDefaultStore(storeId)
+        .then(function (stores) { csRefreshWithStores(stores); })
+        .catch(function (err) {
+          target.disabled = false;
+          csShowTableError('Failed to set default: ' + (err.message || String(err)));
+        });
+      return;
+    }
+
+    /* Edit button */
+    var editBtn = target.closest('.cs-edit-btn');
+    if (editBtn) {
+      var editStoreId = editBtn.getAttribute('data-store-id');
+      var editStore   = csFindStore(editStoreId);
+      csModalMode    = 'edit';
+      csModalStoreId = editStoreId;
+      csRenderStoreModal('edit', editStore);
+      return;
+    }
+
+    /* Remove button */
+    var removeBtn = target.closest('.cs-remove-btn');
+    if (removeBtn) {
+      var removeStoreId = removeBtn.getAttribute('data-store-id');
+      var removeStore   = csFindStore(removeStoreId);
+      var hasRepos = removeStore && removeStore.repository_count > 0;
+      var confirmMsg = hasRepos
+        ? 'Store "' + (removeStore.label || removeStoreId) + '" has ' + removeStore.repository_count + ' registered repositor' + (removeStore.repository_count === 1 ? 'y' : 'ies') + '. Remove it anyway? The directory will not be deleted.'
+        : 'Remove store "' + (removeStore ? removeStore.label || removeStoreId : removeStoreId) + '"? The directory will not be deleted.';
+      if (!confirm(confirmMsg)) return;
+      removeBtn.disabled = true;
+      removeBtn.textContent = 'Removing\u2026';
+      API.removeStore(removeStoreId)
+        .then(function (result) {
+          var updatedStores = result && result.stores ? result.stores : result;
+          csRefreshWithStores(updatedStores);
+        })
+        .catch(function (err) {
+          removeBtn.disabled = false;
+          removeBtn.textContent = 'Remove';
+          csShowTableError('Remove failed: ' + (err.message || String(err)));
+        });
+      return;
+    }
+
+    /* Copy path button */
+    var copyBtn = target.closest('.cs-copy-btn');
+    if (copyBtn) {
+      var fullPath = copyBtn.getAttribute('data-path');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(fullPath).then(function () {
+          copyBtn.textContent = '\u2713';
+          setTimeout(function () { copyBtn.textContent = '\uD83D\uDCCB'; }, 1200);
+        });
+      } else {
+        /* Fallback for environments without clipboard API */
+        var ta = document.createElement('textarea');
+        ta.value = fullPath;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        copyBtn.textContent = '\u2713';
+        setTimeout(function () { copyBtn.textContent = '\uD83D\uDCCB'; }, 1200);
+      }
+      return;
+    }
+
+    /* Move Up (reorder) */
+    var moveUpBtn = target.closest('.cs-move-up');
+    if (moveUpBtn && !moveUpBtn.disabled) {
+      var upId  = moveUpBtn.getAttribute('data-store-id');
+      var upIdx = csStoreIndex(upId);
+      if (upIdx > 0) csMoveStore(upIdx, upIdx - 1);
+      return;
+    }
+
+    /* Move Down (reorder) */
+    var moveDownBtn = target.closest('.cs-move-down');
+    if (moveDownBtn && !moveDownBtn.disabled) {
+      var downId  = moveDownBtn.getAttribute('data-store-id');
+      var downIdx = csStoreIndex(downId);
+      if (downIdx < csStores.length - 1) csMoveStore(downIdx, downIdx + 1);
+      return;
+    }
+  };
+  contentEl.addEventListener('click', csClickHandler);
+
+  /* Hover popover visibility for sync badges (not present in reorder sub-view) */
+  if (csReorderMode) return;
+  var syncBadges = contentEl.querySelectorAll('.cs-sync-badge');
+  for (var i = 0; i < syncBadges.length; i++) {
+    (function (badge) {
+      badge.addEventListener('mouseenter', function () {
+        var popoverId = badge.getAttribute('aria-describedby');
+        var popover   = document.getElementById(popoverId);
+        if (popover) {
+          popover.classList.add('cs-sync-popover-visible');
+          var rect = popover.getBoundingClientRect();
+          if (rect.right > window.innerWidth) {
+            popover.style.left  = 'auto';
+            popover.style.right = '0';
+          }
+        }
+      });
+      badge.addEventListener('mouseleave', function () {
+        var popoverId = badge.getAttribute('aria-describedby');
+        var popover   = document.getElementById(popoverId);
+        if (popover) {
+          popover.classList.remove('cs-sync-popover-visible');
+          popover.style.left  = '';
+          popover.style.right = '';
+        }
+      });
+      badge.addEventListener('focus', function () {
+        var popoverId = badge.getAttribute('aria-describedby');
+        var popover   = document.getElementById(popoverId);
+        if (popover) {
+          popover.classList.add('cs-sync-popover-visible');
+          var rect = popover.getBoundingClientRect();
+          if (rect.right > window.innerWidth) {
+            popover.style.left  = 'auto';
+            popover.style.right = '0';
+          }
+        }
+      });
+      badge.addEventListener('blur', function () {
+        var popoverId = badge.getAttribute('aria-describedby');
+        var popover   = document.getElementById(popoverId);
+        if (popover) {
+          popover.classList.remove('cs-sync-popover-visible');
+          popover.style.left  = '';
+          popover.style.right = '';
+        }
+      });
+    }(syncBadges[i]));
+  }
+}
+
+/* ── Reorder helpers ─────────────────────────────────────── */
+
+/** Find a store in csStores by id. Returns null if not found. */
+function csFindStore(id) {
+  if (!csStores) return null;
+  for (var i = 0; i < csStores.length; i++) {
+    if (csStores[i].id === id) return csStores[i];
+  }
+  return null;
+}
+
+/** Return the index of a store in csStores by id. */
+function csStoreIndex(id) {
+  if (!csStores) return -1;
+  for (var i = 0; i < csStores.length; i++) {
+    if (csStores[i].id === id) return i;
+  }
+  return -1;
+}
+
+/** Swap two entries in csStores and send PUT /api/stores/order. */
+function csMoveStore(fromIdx, toIdx) {
+  var tmp           = csStores[fromIdx];
+  csStores[fromIdx] = csStores[toIdx];
+  csStores[toIdx]   = tmp;
+
+  var order = [];
+  for (var i = 0; i < csStores.length; i++) order.push(csStores[i].id);
+
+  /* Re-render reorder view immediately (optimistic UI) */
+  var contentEl = document.getElementById('config-tab-content');
+  if (contentEl) {
+    contentEl.innerHTML = csRenderReorderView(csStores);
+    csWireEvents();
+    /* Disable all move buttons while the API call is in-flight. */
+    var moveBtns = contentEl.querySelectorAll('.cs-move-up, .cs-move-down');
+    for (var j = 0; j < moveBtns.length; j++) moveBtns[j].disabled = true;
+  }
+
+  API.reorderStores(order)
+    .then(function (stores) {
+      csStores   = stores.slice(0);
+      csOriginal = stores.slice(0);
+      /* Re-render to reflect server-confirmed order */
+      if (contentEl) {
+        contentEl.innerHTML = csRenderReorderView(csStores);
+        csWireEvents();
+      }
+    })
+    .catch(function (err) {
+      /* Revert the optimistic swap before re-rendering. */
+      var tmp2      = csStores[fromIdx];
+      csStores[fromIdx] = csStores[toIdx];
+      csStores[toIdx]   = tmp2;
+      /* Re-render first so #cs-reorder-error exists before csShowTableError() writes to it. */
+      if (contentEl) {
+        contentEl.innerHTML = csRenderReorderView(csStores);
+        csWireEvents();
+      }
+      csShowTableError('Reorder failed: ' + (err.message || String(err)));
+    });
+}
+
+/** Show an inline error below the store table or reorder list. */
+function csShowTableError(msg) {
+  var el = document.getElementById('cs-table-error') || document.getElementById('cs-reorder-error');
+  if (el) showError(el, msg);
+}
+
+```
 ###  Path: `/mcp-server/gui/public/views/config.js`
 
 ```js
@@ -3470,7 +4388,8 @@ var configActiveTab = 'general';
 var configDirty = {
   general: false,
   personaModels: false,
-  modelRegistry: false
+  modelRegistry: false,
+  stores: false
 };
 
 /* ── Entry point ─────────────────────────────────────────── */
@@ -3482,9 +4401,10 @@ function renderConfig(app) {
     API.getConfig(),
     API.getModels ? API.getModels() : Promise.resolve([]),
     API.getPersonas ? API.getPersonas() : Promise.resolve([]),
-    API.getAssignments ? API.getAssignments() : Promise.resolve([])
+    API.getAssignments ? API.getAssignments() : Promise.resolve([]),
+    API.getStores ? API.getStores() : Promise.resolve([])
   ]).then(function (results) {
-    renderConfigPage(app, results[0], results[1], results[2], results[3]);
+    renderConfigPage(app, results[0], results[1], results[2], results[3], results[4]);
   }).catch(function (err) {
     showError(app, 'Failed to load configuration: ' + (err.message || String(err)));
   });
@@ -3492,23 +4412,28 @@ function renderConfig(app) {
 
 /* ── Page scaffold ───────────────────────────────────────── */
 
-function renderConfigPage(app, config, models, personas, assignments) {
+function renderConfigPage(app, config, models, personas, assignments, stores) {
   /* Reset dirty flags and all tab module state — fresh server data loaded. */
-  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = false;
+  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = configDirty.stores = false;
   mrModels = mrOriginal = mrEditingId = null;
   pmModels = pmPersonas = pmAssignments = pmOriginal = null;
   pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
+  csStores = csOriginal = null; csReorderMode = false;
+  csModalMode = csModalStoreId = null; csModalCreateDir = true;
+  csClickHandler = null;
+  if (typeof csCloseModal === 'function') csCloseModal();
 
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
     '<div class="config-tabs" id="config-tab-bar">' +
+      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
       '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
       '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
     '</div>' +
     '<div id="config-tab-content"></div>';
 
-  renderConfigTabContent(config, models, personas, assignments);
+  renderConfigTabContent(config, models, personas, assignments, stores);
 
   var tabBar = document.getElementById('config-tab-bar');
   if (tabBar) {
@@ -3531,22 +4456,35 @@ function renderConfigPage(app, config, models, personas, assignments) {
         }
       }
 
+      /* Stores tab cleanup runs unconditionally (no dirty tracking). */
+      if (configActiveTab === 'stores') {
+        csStores = csOriginal = null; csReorderMode = false;
+        csModalMode = csModalStoreId = null; csModalCreateDir = true;
+        var _csEl = document.getElementById('config-tab-content');
+        if (_csEl && csClickHandler) _csEl.removeEventListener('click', csClickHandler);
+        csClickHandler = null;
+        if (typeof csCloseModal === 'function') csCloseModal();
+      }
+
       configActiveTab = tab;
       tabBar.querySelectorAll('.config-tab').forEach(function (b) {
         b.classList.toggle('active', b.getAttribute('data-tab') === tab);
       });
-      renderConfigTabContent(config, models, personas, assignments);
+      renderConfigTabContent(config, models, personas, assignments, stores);
     });
   }
 }
 
 /* ── Tab content dispatcher ──────────────────────────────── */
 
-function renderConfigTabContent(config, models, personas, assignments) {
+function renderConfigTabContent(config, models, personas, assignments, stores) {
   var contentEl = document.getElementById('config-tab-content');
   if (!contentEl) return;
 
-  if (configActiveTab === 'general') {
+  if (configActiveTab === 'stores') {
+    contentEl.innerHTML = renderStoresTab(stores || []);
+    csWireEvents();
+  } else if (configActiveTab === 'general') {
     contentEl.innerHTML = renderGeneralTab(config);
     wireGeneralTabEvents();
   } else if (configActiveTab === 'personaModels') {
@@ -6493,7 +7431,7 @@ function _patchTimingInfo(timing) {
 
   var durationEl = document.getElementById('timing-duration');
   if (durationEl) {
-    var newDuration = formatDuration(timing.project_elapsed_ms);
+    var newDuration = timing.project_elapsed_ms == null ? 'Not measured' : formatDuration(timing.project_elapsed_ms);
     if (durationEl.textContent !== newDuration) durationEl.textContent = newDuration;
   }
 
@@ -6742,8 +7680,12 @@ function renderProjectDetail(app, repo, slug) {
       var pipelineCell = useOverview
         ? buildPipelineTrack(overviewMap[wp.work_package_id])
         : escapeHtml(wp.work_package_id);
+      var overviewEntry = overviewMap[wp.work_package_id];
+      var titleLabel = (overviewEntry && overviewEntry.title)
+        ? '<div class="wp-title-label" title="' + escapeHtml(overviewEntry.title) + '">' + escapeHtml(overviewEntry.title) + '</div>'
+        : '';
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '" data-wp-id="' + escapeHtml(wp.work_package_id) + '">' +
-        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a>' + titleLabel + '</td>' +
         '<td class="wp-pipeline-track-cell">' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td class="wp-status-cell">' + statusBadge(wp.status) + '</td>' +
@@ -6803,14 +7745,22 @@ function renderProjectDetail(app, repo, slug) {
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
           '<strong>Repository:</strong> ' + (repoData
-            ? '<a href="#/strategy/' + encodeURIComponent(repo) + '">' + escapeHtml(repoLabel) + '</a>'
+            ? '<a href="#/strategy">' + escapeHtml(repoLabel) + '</a>'
             : escapeHtml(repoLabel)) + '<br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
+          (meta.runner_client || meta.runner
+            ? '<strong>Runner:</strong> ' + escapeHtml(
+                meta.runner === 'orchestrator' ? 'Orchestrator'
+                : meta.runner_client
+                  ? (meta.runner_version ? meta.runner_client + ' v' + meta.runner_version : meta.runner_client)
+                  : meta.runner
+              ) + '<br>'
+            : '') +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
           '<span id="timing-info">' +
           (project.timing
-            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + escapeHtml(formatDuration(project.timing.project_elapsed_ms)) + '</span>' +
+            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
                 (project.timing.pipeline_runs > 0
                   ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> <span id="timing-active">' + escapeHtml(formatDuration(project.timing.total_active_ms)) + '</span> across <span id="timing-runs">' + project.timing.pipeline_runs + '</span> pipeline runs'
                   : '')
@@ -7526,7 +8476,7 @@ function renderProjectList(app) {
       var repoEntry = repo ? repoFolderMap[repo] : null;
       var repoCell;
       if (repoEntry) {
-        repoCell = '<td class="repo-col"><a href="#/strategy/' + encodeURIComponent(repoEntry.id) + '" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
+        repoCell = '<td class="repo-col"><a href="#/strategy" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
       } else {
         repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
       }
@@ -8441,36 +9391,65 @@ function renderRunLog(app, repo, slug, filename) {
 
 ```js
 /* ============================================================
-   views/strategy.js — Strategy view (Repository List + Detail/Editor)
+   views/strategy.js — Strategy view (Repository List)
    Section 4g of the MCP Server Dashboard SPA
-   Depends on: API, Router, escapeHtml, showLoading, showError
+   Depends on: API, Router, escapeHtml, showLoading, showError,
+               renderRepoModal
 
    Rendering model (renderStrategyList):
-     The list view uses a partial-render pattern to preserve Add Repository
-     form state across toggle interactions. The DOM is divided into three
+     The list view uses a partial-render pattern. The DOM is divided into
      independent areas:
+       #strategy-tab-repos    — container for the Repositories tab content
        #strategy-toggle-area  — rebuilt on every render pass
        #strategy-table-area   — rebuilt on every render pass
-       #add-repo-form (card)  — written once at initial render; never touched
-                                by refreshTable(), so in-flight field values
-                                and validation messages are preserved when the
-                                user toggles the "Show undeclared repositories"
-                                checkbox.
+       #strategy-tab-conflicts — container for the Conflicts tab content;
+                                 only rendered in multi-store mode; refreshed
+                                 independently by refreshConflicts().
+
+   Interaction model (modal-trigger architecture):
+     All repository creation and editing flows go through renderRepoModal(),
+     which is opened by three entry points in the strategy list:
+       Add Repository button (page header)
+           → renderRepoModal('add', null, stores, refresh)
+       Declared-repo label buttons (data-edit-repo, one per declared row)
+           → API.getRepo(id) → renderRepoModal('edit', repo, stores, refresh)
+       Register buttons (data-register-folder, undeclared rows only)
+           → renderRepoModal('add', null, stores, refresh, sanitisedPrefill)
    ============================================================ */
 
 
 /* ── renderStrategyList ──────────────────────────────────────
    Renders the repository list at #/strategy.
-   Shows: label, folder names, vision status; Add Repository form.
+   Shows: label, folder names, vision status; Add Repository button.
    Includes a "Show undeclared repositories" checkbox that re-fetches
    with ?include_undeclared=true and renders undeclared entries with a
-   muted visual style and a "Register" button that pre-fills the form.
+   muted visual style and a "Register" button.
+   In multi-store mode (stores.length > 1), also renders:
+     - A tab bar ("Repositories" | "Conflicts") above the content
+     - A "Conflicts" tab listing cross-store registry conflicts with
+       winner ("Active") / shadowed indicators and resolution actions.
    ─────────────────────────────────────────────────────────── */
 function renderStrategyList(app) {
   showLoading(app);
 
-  API.listRepos(false).then(function (repos) {
-    renderList(repos, false);
+  var currentStores = [];
+  var storeLabels = {};
+  var isMultiStore = false;
+  var refreshSeq = 0;
+
+  Promise.all([
+    API.listRepos(false),
+    API.getStores()
+  ]).then(function (results) {
+    var repos = results[0];
+    var stores = results[1];
+    if (stores.length <= 1) {
+      renderList(repos, false, stores, []);
+      return;
+    }
+    return API.getStoreConflicts().then(function (conflicts) {
+      renderList(repos, false, stores, conflicts);
+    });
   }).catch(function (err) {
     showError(app, 'Failed to load repositories: ' + (err.message || String(err)));
   });
@@ -8497,12 +9476,12 @@ function renderStrategyList(app) {
     );
   }
 
-  function buildTableHtml(repos) {
+  function buildTableHtml(repos, isMultiStore) {
     if (!repos.length) {
-      return '<p class="text-muted mt-16">No repositories declared yet. Use the form below to add one.</p>';
+      return '<p class="text-muted mt-16">No repositories declared yet. Use the Add Repository button to create one.</p>';
     }
     var rows = repos.map(function (r) {
-      var folderNames = (r.folder_names || []).map(escapeHtml).join(', ') || '<em class="text-muted">—</em>';
+      var storeCell = isMultiStore ? '<td>' + escapeHtml(storeLabels[r.store_id] || r.store_id || '\u2014') + '</td>' : '';
       if (r.declared === false) {
         /* Undeclared (filesystem-discovered) entry — muted row with Register button */
         return (
@@ -8512,7 +9491,7 @@ function renderStrategyList(app) {
               ' <span class="badge badge-archived" style="font-size:10px;vertical-align:middle">Undeclared</span>' +
             '</td>' +
             '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
-            '<td class="text-muted">' + folderNames + '</td>' +
+            storeCell +
             '<td>' +
               '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '">Register</button>' +
             '</td>' +
@@ -8521,9 +9500,9 @@ function renderStrategyList(app) {
       }
       return (
         '<tr>' +
-          '<td><a href="#/strategy/' + encodeURIComponent(r.id) + '">' + escapeHtml(r.label || r.id) + '</a></td>' +
+          '<td><button class="btn-link" data-edit-repo="' + escapeHtml(r.id) + '">' + escapeHtml(r.label || r.id) + '</button></td>' +
           '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
-          '<td>' + folderNames + '</td>' +
+          storeCell +
           '<td>' + visionStatus(r) + '</td>' +
         '</tr>'
       );
@@ -8533,7 +9512,7 @@ function renderStrategyList(app) {
         '<thead><tr>' +
           '<th>Label</th>' +
           '<th>ID</th>' +
-          '<th>Folder Names</th>' +
+          (isMultiStore ? '<th>Store</th>' : '') +
           '<th>Vision</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
@@ -8542,18 +9521,19 @@ function renderStrategyList(app) {
   }
 
   /**
-   * Re-renders only the repo table and toggle, preserving the Add Repository
-   * form and its current field values. Called on checkbox toggle.
+   * Re-renders only the repo table and toggle. Called on checkbox toggle.
    */
   function refreshTable(checked) {
+    var seq = ++refreshSeq;
     var toggleEl = document.getElementById('strategy-toggle-area');
     var tableEl = document.getElementById('strategy-table-area');
     if (toggleEl) toggleEl.innerHTML = buildToggleHtml(checked);
     if (tableEl) tableEl.innerHTML = '<p class="text-muted" style="font-size:13px">Loading\u2026</p>';
 
     API.listRepos(checked).then(function (repos) {
-      if (tableEl) tableEl.innerHTML = buildTableHtml(repos);
-      wireRegisterButtons();
+      if (seq !== refreshSeq) return;
+      if (tableEl) tableEl.innerHTML = buildTableHtml(repos, isMultiStore);
+      wireTableButtons();
       wireToggle();
     }).catch(function (err) {
       if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
@@ -8581,23 +9561,35 @@ function renderStrategyList(app) {
     return slug || 'repo';
   }
 
-  /** Wires the "Register" buttons on undeclared rows to pre-fill the Add form. */
-  function wireRegisterButtons() {
+  /**
+   * Wires click handlers for both interactive button types in the repo table.
+   *   data-register-folder — undeclared rows: opens the add modal with a
+   *     sanitiseSlug()-derived prefill (id, label, folder_names).
+   *   data-edit-repo — declared rows: fetches the repo via API.getRepo() then
+   *     opens the edit modal pre-filled with the repo's current values.
+   * Must be called after every table re-render (renderList and refreshTable).
+   */
+  function wireTableButtons() {
     var tableEl = document.getElementById('strategy-table-area');
     if (!tableEl) return;
     tableEl.querySelectorAll('[data-register-folder]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var folderName = btn.getAttribute('data-register-folder');
-        var idInput = document.getElementById('new-repo-id');
-        var labelInput = document.getElementById('new-repo-label');
-        var foldersInput = document.getElementById('new-repo-folders');
-        if (idInput) idInput.value = sanitiseSlug(folderName);
-        if (labelInput) labelInput.value = folderName;
-        if (foldersInput) foldersInput.value = folderName;
-        /* Scroll the Add Repository form into view */
-        var formCard = document.getElementById('add-repo-form');
-        if (formCard) formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (idInput) idInput.focus();
+        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, {
+          id: sanitiseSlug(folderName),
+          label: folderName,
+          folder_names: [folderName]
+        });
+      });
+    });
+    tableEl.querySelectorAll('[data-edit-repo]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var repoId = btn.getAttribute('data-edit-repo');
+        API.getRepo(repoId).then(function (repo) {
+          renderRepoModal('edit', repo, currentStores, function () { renderStrategyList(app); });
+        }).catch(function (err) {
+          showError(tableEl, 'Failed to load repository: ' + (err.message || String(err)));
+        });
       });
     });
   }
@@ -8611,96 +9603,349 @@ function renderStrategyList(app) {
     });
   }
 
-  function renderList(repos, checked) {
+  /* ── Conflicts tab helpers ────────────────────────────────────────────── */
+
+  /* In-memory conflict index and store snapshot — updated by refreshConflicts. */
+  var conflictsIndex = {};
+  var storesSnapshot = [];
+
+  /**
+   * Returns a short vision summary (first non-null horizon, truncated to 60 chars).
+   */
+  function visionSummary(vision) {
+    if (!vision) return '';
+    var text = vision.short_term || vision.mid_term || vision.long_term || '';
+    if (!text) return '';
+    return text.length > 60 ? text.substring(0, 57 /* 60 chars - 3 for ellipsis */) + '\u2026' : text;
+  }
+
+  /**
+   * Builds the HTML for the Conflicts tab content.
+   * Each conflict renders as a card with a data table of per-store entries,
+   * winner ("Active") / shadowed indicators, and resolution action buttons.
+   */
+  function buildConflictsHtml(conflicts, storeLabels) {
+    if (!conflicts.length) {
+      return '<p class="text-muted mt-16">No conflicts \u2014 each repository is registered in exactly one store.</p>';
+    }
+
+    return conflicts.map(function (conflict) {
+      var rows = conflict.entries.map(function (e) {
+        var isWinner = e.store_id === conflict.winner_store_id;
+        var storeLabel = escapeHtml(storeLabels[e.store_id] || e.store_id);
+        var summary = escapeHtml(visionSummary(e.entry.vision));
+        var modified = escapeHtml((e.entry.last_modified || '').substring(0, 10));
+        var statusBadge = isWinner
+          ? '<span class="badge badge-complete">Active</span>'
+          : '<span class="badge badge-archived">Shadowed</span>';
+        var actions = isWinner ? '' : (
+          '<button type="button" class="btn btn-danger btn-sm" style="margin-right:4px"' +
+            ' data-resolve-remove="' + escapeHtml(conflict.repo_name) + '"' +
+            ' data-resolve-store="' + escapeHtml(e.store_id) + '"' +
+          '>Remove from Store</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm"' +
+            ' data-resolve-move="' + escapeHtml(conflict.repo_name) + '"' +
+            ' data-resolve-store="' + escapeHtml(e.store_id) + '"' +
+          '>Move to Store</button>'
+        );
+        return (
+          '<tr>' +
+            '<td>' + storeLabel + '</td>' +
+            '<td class="text-muted" style="font-size:13px">' + (summary || '<em>\u2014</em>') + '</td>' +
+            '<td class="text-muted" style="font-size:13px">' + (modified || '\u2014') + '</td>' +
+            '<td>' + statusBadge + '</td>' +
+            '<td>' + actions + '</td>' +
+          '</tr>'
+        );
+      }).join('');
+
+      return (
+        '<div class="card mt-16">' +
+          '<h3 style="margin-top:0;margin-bottom:12px">' + escapeHtml(conflict.repo_name) + '</h3>' +
+          '<table class="data-table">' +
+            '<thead><tr>' +
+              '<th>Store</th>' +
+              '<th>Vision</th>' +
+              '<th>Last Modified</th>' +
+              '<th>Status</th>' +
+              '<th>Actions</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+          '</table>' +
+          '<div class="conflict-msg" data-conflict="' + escapeHtml(conflict.repo_name) + '" style="margin-top:8px"></div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  /**
+   * Resolves a conflict by deleting all copies then re-creating in targetStoreId.
+   *
+   * Uses the winner entry's data as the canonical source for re-creation.
+   * Deletion is sequential (backend always removes the current winner first,
+   * so each call promotes the next shadowed copy to winner until all are gone).
+   */
+  function resolveConflict(conflict, targetStoreId, msgEl) {
+    var repoName = conflict.repo_name;
+    var numCopies = conflict.entries.length;
+
+    /* Locate winner entry for canonical field values; fall back to first entry. */
+    var winnerEntry = null;
+    for (var i = 0; i < conflict.entries.length; i++) {
+      if (conflict.entries[i].store_id === conflict.winner_store_id) {
+        winnerEntry = conflict.entries[i];
+        break;
+      }
+    }
+    if (!winnerEntry) winnerEntry = conflict.entries[0];
+    var entryData = winnerEntry.entry;
+
+    if (msgEl) msgEl.innerHTML = '<span class="text-muted" style="font-size:13px">Resolving\u2026</span>';
+
+    function deleteAll(remaining, onDone) {
+      if (remaining <= 0) { onDone(); return; }
+      API.deleteRepo(repoName).then(function () {
+        deleteAll(remaining - 1, onDone);
+      }).catch(function (err) {
+        if (msgEl) showError(msgEl, 'Failed during conflict resolution: ' + (err.message || String(err)));
+      });
+    }
+
+    deleteAll(numCopies, function () {
+      var payload = {
+        id: entryData.id,
+        label: entryData.label,
+        folder_names: entryData.folder_names,
+        store_id: targetStoreId
+      };
+      if (entryData.vision) payload.vision = entryData.vision;
+
+      API.createRepo(payload).then(function () {
+        if (msgEl) msgEl.innerHTML = '';
+        refreshConflicts();
+      }).catch(function (err) {
+        if (msgEl) showError(msgEl, 'Repository was removed from all stores but could not be recreated: ' + (err.message || String(err)));
+      });
+    });
+  }
+
+  /** Re-fetches conflicts and re-renders the conflicts tab content area. */
+  function refreshConflicts() {
+    var tabContent = document.getElementById('strategy-tab-conflicts');
+    if (!tabContent) return;
+    tabContent.innerHTML = '<p class="text-muted" style="font-size:13px">Loading\u2026</p>';
+
+    // Sequential (not Promise.all): only the store count determines whether
+    // getStoreConflicts() is called, so we need stores first to guard the call.
+    API.getStores().then(function (stores) {
+      storesSnapshot = stores;
+      conflictsIndex = {};
+
+      if (stores.length <= 1) {
+        tabContent.innerHTML = buildConflictsHtml([], {});
+        updateConflictBadge(0);
+        return;
+      }
+
+      return API.getStoreConflicts().then(function (conflicts) {
+        conflicts.forEach(function (c) { conflictsIndex[c.repo_name] = c; });
+
+        var storeLabels = {};
+        stores.forEach(function (s) { storeLabels[s.id] = s.label; });
+
+        tabContent.innerHTML = buildConflictsHtml(conflicts, storeLabels);
+        updateConflictBadge(conflicts.length);
+        wireConflictActions(tabContent);
+      });
+    }).catch(function (err) {
+      showError(tabContent, 'Failed to load conflicts: ' + (err.message || String(err)));
+    });
+  }
+
+  /** Updates the conflict count badge on the Conflicts tab button. */
+  function updateConflictBadge(count) {
+    var badge = document.getElementById('strategy-conflict-badge');
+    if (!badge) return;
+    badge.textContent = count > 0 ? String(count) : '';
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+
+  /**
+   * Wires conflict resolution action buttons inside a given container element.
+   * Must be called each time conflict tab HTML is (re)rendered.
+   */
+  function wireConflictActions(container) {
+    /* "Remove from Store" — removes the shadowed copy; keeps winner's copy. */
+    container.querySelectorAll('[data-resolve-remove]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var repoName = btn.getAttribute('data-resolve-remove');
+        var conflict = conflictsIndex[repoName];
+        if (!conflict) return;
+        var msgEl = container.querySelector('.conflict-msg[data-conflict="' + repoName + '"]');
+        resolveConflict(conflict, conflict.winner_store_id, msgEl);
+      });
+    });
+
+    /* "Move to Store" — shows an inline store picker then re-creates in the chosen store. */
+    container.querySelectorAll('[data-resolve-move]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var repoName = btn.getAttribute('data-resolve-move');
+        var currentStoreId = btn.getAttribute('data-resolve-store');
+        var conflict = conflictsIndex[repoName];
+        if (!conflict) return;
+        var msgEl = container.querySelector('.conflict-msg[data-conflict="' + repoName + '"]');
+
+        /* Build the store options — all stores except the current (shadowed) one. */
+        var otherStores = storesSnapshot.filter(function (s) { return s.id !== currentStoreId; });
+        if (!otherStores.length) {
+          if (msgEl) showError(msgEl, 'No other stores available to move to.');
+          return;
+        }
+        var options = otherStores.map(function (s) {
+          return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.label) + '</option>';
+        }).join('');
+
+        /* Replace the action buttons in the same <td> with an inline picker. */
+        var td = btn.parentElement;
+        td.innerHTML = (
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<select class="form-control" style="width:auto;font-size:13px;padding:4px 8px" id="move-store-sel-' + escapeHtml(repoName) + '">' +
+              options +
+            '</select>' +
+            '<button type="button" class="btn btn-primary btn-sm" id="move-store-ok-' + escapeHtml(repoName) + '">Move</button>' +
+            '<button type="button" class="btn btn-secondary btn-sm" id="move-store-cancel-' + escapeHtml(repoName) + '">Cancel</button>' +
+          '</div>'
+        );
+
+        var selectEl = document.getElementById('move-store-sel-' + repoName);
+        var okBtn = document.getElementById('move-store-ok-' + repoName);
+        var cancelBtn = document.getElementById('move-store-cancel-' + repoName);
+
+        if (okBtn) {
+          okBtn.addEventListener('click', function () {
+            var targetStoreId = selectEl ? selectEl.value : otherStores[0].id;
+            resolveConflict(conflict, targetStoreId, msgEl);
+          });
+        }
+        if (cancelBtn) {
+          cancelBtn.addEventListener('click', function () {
+            refreshConflicts();
+          });
+        }
+      });
+    });
+  }
+
+  function renderList(repos, checked, stores, conflicts) {
+    var conflictCount = conflicts.length;
+
+    currentStores = stores;
+    isMultiStore = stores.length > 1;
+
+    /* Build a storeId → label map shared with buildTableHtml and the conflicts renderer. */
+    storeLabels = {};
+    stores.forEach(function (s) { storeLabels[s.id] = s.label; });
+
+    /* Seed the in-memory index used by conflict action handlers. */
+    storesSnapshot = stores;
+    conflictsIndex = {};
+    conflicts.forEach(function (c) { conflictsIndex[c.repo_name] = c; });
+
+    /* Tab bar — only rendered in multi-store mode. */
+    var badgeHtml = conflictCount > 0
+      ? '<span id="strategy-conflict-badge" class="badge badge-blocked" style="margin-left:6px;font-size:11px">' + conflictCount + '</span>'
+      : '<span id="strategy-conflict-badge" class="badge badge-blocked" style="margin-left:6px;font-size:11px;display:none"></span>';
+
+    var tabBar = isMultiStore
+      ? '<div style="display:flex;border-bottom:1px solid var(--color-border);margin-bottom:16px">' +
+          '<button class="dialogue-tab active" data-strategy-tab="repos">Repositories</button>' +
+          '<button class="dialogue-tab" data-strategy-tab="conflicts">Conflicts' + badgeHtml + '</button>' +
+        '</div>'
+      : '';
+
     app.innerHTML =
       '<div class="page-header">' +
         '<h1>Strategy</h1>' +
         '<p class="text-muted">Manage repository declarations and strategic vision.</p>' +
+        '<button type="button" class="btn btn-primary" id="add-repo-btn">Add Repository</button>' +
       '</div>' +
-      '<div id="strategy-toggle-area">' + buildToggleHtml(checked) + '</div>' +
-      '<div id="strategy-table-area">' + buildTableHtml(repos) + '</div>' +
-      '<div class="card mt-24" style="max-width:560px">' +
-        '<h2 style="margin-top:0">Add Repository</h2>' +
-        '<form id="add-repo-form">' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="new-repo-id">ID <span class="text-muted">(slug, e.g. my-project)</span></label>' +
-            '<input type="text" id="new-repo-id" class="form-control" placeholder="my-project" required>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="new-repo-label">Label</label>' +
-            '<input type="text" id="new-repo-label" class="form-control" placeholder="My Project">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="new-repo-folders">Folder Names <span class="text-muted">(comma-separated)</span></label>' +
-            '<input type="text" id="new-repo-folders" class="form-control" placeholder="my-project, my-project-dev">' +
-          '</div>' +
-          '<button type="submit" class="btn btn-primary">Add Repository</button>' +
-          '<div id="add-repo-msg"></div>' +
-        '</form>' +
-      '</div>';
+      tabBar +
+      '<div id="strategy-tab-repos">' +
+        '<div id="strategy-toggle-area">' + buildToggleHtml(checked) + '</div>' +
+        '<div id="strategy-table-area">' + buildTableHtml(repos, isMultiStore) + '</div>' +
+      '</div>' +
+      (isMultiStore
+        ? '<div id="strategy-tab-conflicts" style="display:none">' +
+            buildConflictsHtml(conflicts, storeLabels) +
+          '</div>'
+        : '');
 
-    wireRegisterButtons();
+    wireTableButtons();
     wireToggle();
 
-    var form = document.getElementById('add-repo-form');
-    if (!form) return;
-
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var msgEl = document.getElementById('add-repo-msg');
-      var id = (document.getElementById('new-repo-id').value || '').trim();
-      var label = (document.getElementById('new-repo-label').value || '').trim();
-      var foldersRaw = (document.getElementById('new-repo-folders').value || '').trim();
-      var folderNames = foldersRaw
-        ? foldersRaw.split(',').map(function (f) { return f.trim(); }).filter(Boolean)
-        : [];
-
-      if (!id) {
-        showError(msgEl, 'ID is required.');
-        return;
-      }
-
-      if (!folderNames.length) {
-        showError(msgEl, 'At least one folder name is required.');
-        return;
-      }
-
-      msgEl.innerHTML = '';
-      API.createRepo({ id: id, label: label || id, folder_names: folderNames })
-        .then(function () {
-          Router.navigate('#/strategy/' + encodeURIComponent(id));
-        })
-        .catch(function (err) {
-          showError(msgEl, 'Failed to create repository: ' + (err.message || String(err)));
+    /* Wire tab switching in multi-store mode. */
+    if (isMultiStore) {
+      var tabBtns = app.querySelectorAll('[data-strategy-tab]');
+      tabBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tabBtns.forEach(function (b) { b.classList.remove('active'); });
+          btn.classList.add('active');
+          var tab = btn.getAttribute('data-strategy-tab');
+          var reposTabEl = document.getElementById('strategy-tab-repos');
+          var conflictsTabEl = document.getElementById('strategy-tab-conflicts');
+          if (reposTabEl) reposTabEl.style.display = (tab === 'repos') ? '' : 'none';
+          if (conflictsTabEl) conflictsTabEl.style.display = (tab === 'conflicts') ? '' : 'none';
         });
-    });
+      });
+
+      /* Wire initial conflict action buttons. */
+      var initialConflictsTab = document.getElementById('strategy-tab-conflicts');
+      if (initialConflictsTab) wireConflictActions(initialConflictsTab);
+    }
+
+    var addBtn = document.getElementById('add-repo-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        renderRepoModal('add', null, stores, function () { renderStrategyList(app); });
+      });
+    }
   }
 }
 
-/* ── renderStrategyDetail ────────────────────────────────────
-   Renders the repository detail/editor at #/strategy/:repoId.
-   Shows: editable label, folder names (add/remove), three-field
-          vision editor (short-term, mid-term, long-term),
-          save button, breadcrumb navigation.
+
+/* ── renderRepoModal ─────────────────────────────────────────
+   Opens an add/edit modal dialog for a repository entry.
+   mode:    'add' | 'edit'
+   repo:    { id, label, folder_names, store_id,
+              vision?: { short_term, mid_term, long_term } }
+            Pass null in add mode.
+   stores:  Array of { id, label } from API.getStores().
+            Pass [] in single-store mode (hides the Store dropdown).
+   onSaved: callback invoked after a successful save
+   prefill: (optional) { id, label, folder_names } to pre-populate add mode
    ─────────────────────────────────────────────────────────── */
-function renderStrategyDetail(app, repoId) {
-  showLoading(app);
+function renderRepoModal(mode, repo, stores, onSaved, prefill) {
+  var triggerElement = document.activeElement;
+  var existing = document.getElementById('repo-modal-overlay');
+  if (existing) existing.remove();
 
-  API.getRepo(repoId).then(function (repo) {
-    renderDetail(repo);
-  }).catch(function (err) {
-    if (err.code === 'NOT_FOUND' || (err.message && err.message.indexOf('404') !== -1)) {
-      showError(app, 'Repository not found: ' + escapeHtml(repoId));
-    } else {
-      showError(app, 'Failed to load repository: ' + (err.message || String(err)));
-    }
-  });
+  var isAdd        = mode === 'add';
+  var isMultiStore = stores && stores.length > 1;
+  var title        = isAdd ? 'Add Repository' : 'Edit Repository';
+  var saveTxt      = isAdd ? 'Add Repository' : 'Save';
 
-  function buildFolderListHtml(folderNames) {
-    if (!folderNames || !folderNames.length) {
-      return '<p class="text-muted" id="folder-empty-note">No folder names added yet.</p>';
+  /* Working copy of folder names — mutated by add/remove actions. */
+  var folderNames = isAdd
+    ? (prefill && prefill.folder_names ? prefill.folder_names.slice() : [])
+    : ((repo && repo.folder_names) ? repo.folder_names.slice() : []);
+
+  /* ── Inner helpers ───────────────────────────────────────── */
+
+  function buildModalFolderListHtml(names) {
+    if (!names || !names.length) {
+      return '<p class="text-muted" id="repo-modal-folder-empty">No folder names added yet.</p>';
     }
-    return folderNames.map(function (f, i) {
+    return names.map(function (f, i) {
       return (
         '<div class="folder-entry" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
           '<input type="text" class="form-control folder-name-input" data-folder-idx="' + i + '" value="' + escapeHtml(f) + '" style="flex:1">' +
@@ -8710,158 +9955,262 @@ function renderStrategyDetail(app, repoId) {
     }).join('');
   }
 
-  /* Reads all folder name inputs from the DOM in index order. */
-  function collectFolderNamesFromDOM() {
+  /* ── Field HTML ────────────────────────────────────────────── */
+
+  var idField = isAdd
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="repo-modal-id">ID <span class="text-muted">(slug)</span></label>' +
+        '<input class="form-control" type="text" id="repo-modal-id" autocomplete="off" placeholder="e.g. my-project" value="' + escapeHtml((prefill && prefill.id) || '') + '">' +
+        '<span class="cs-modal-field-error" id="repo-modal-id-err"></span>' +
+      '</div>'
+    : '<div class="cs-modal-field-group">' +
+        '<label class="form-label">ID</label>' +
+        '<div class="cs-modal-readonly"><code>' + escapeHtml(repo ? repo.id : '') + '</code></div>' +
+      '</div>';
+
+  var labelValEscaped = escapeHtml(isAdd ? ((prefill && prefill.label) || '') : (repo ? (repo.label || '') : ''));
+  var labelField =
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-label">Label</label>' +
+      '<input class="form-control" type="text" id="repo-modal-label" autocomplete="off" value="' + labelValEscaped + '" placeholder="Display name">' +
+    '</div>';
+
+  var folderWidget =
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label">Folder Names</label>' +
+      '<div id="repo-modal-folder-list">' + buildModalFolderListHtml(folderNames) + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+        '<input type="text" id="repo-modal-new-folder" class="form-control" placeholder="Add folder name\u2026" style="flex:1">' +
+        '<button type="button" id="repo-modal-add-folder-btn" class="btn btn-secondary btn-sm">Add</button>' +
+      '</div>' +
+      '<span class="cs-modal-field-error" id="repo-modal-folders-err"></span>' +
+    '</div>';
+
+  /* Vision textareas — edit mode only. */
+  var vision = (repo && repo.vision) ? repo.vision : {};
+  var visionFields = isAdd ? '' :
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-short">Short-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-short" rows="3" placeholder="Short-term goals and priorities\u2026">' + escapeHtml(vision.short_term || '') + '</textarea>' +
+    '</div>' +
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-mid">Mid-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-mid" rows="3" placeholder="Mid-term direction and milestones\u2026">' + escapeHtml(vision.mid_term || '') + '</textarea>' +
+    '</div>' +
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-long">Long-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-long" rows="3" placeholder="Long-term aspirations and vision\u2026">' + escapeHtml(vision.long_term || '') + '</textarea>' +
+    '</div>';
+
+  /* Store dropdown — multi-store only. */
+  var storeField = isMultiStore
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="repo-modal-store">Store</label>' +
+        '<select class="form-control" id="repo-modal-store">' +
+          stores.map(function (s) {
+            var selected = (!isAdd && repo && repo.store_id === s.id) ? ' selected' : '';
+            return '<option value="' + escapeHtml(s.id) + '"' + selected + '>' + escapeHtml(s.label || s.id) + '</option>';
+          }).join('') +
+        '</select>' +
+      '</div>'
+    : '';
+
+  /* ── Modal HTML ────────────────────────────────────────────── */
+
+  var modalHtml =
+    '<div class="cs-modal-overlay" id="repo-modal-overlay" role="dialog" aria-modal="true" aria-label="' + title + '">' +
+      '<div class="cs-modal" id="repo-modal">' +
+        '<div class="cs-modal-header">' +
+          '<span class="cs-modal-title">' + title + '</span>' +
+          '<button class="cs-modal-close" id="repo-modal-close-btn" aria-label="Close">\u00d7</button>' +
+        '</div>' +
+        '<div class="cs-modal-body">' +
+          idField +
+          labelField +
+          folderWidget +
+          visionFields +
+          storeField +
+          '<div id="repo-modal-error"></div>' +
+        '</div>' +
+        '<div class="cs-modal-footer">' +
+          '<button class="btn btn-primary" id="repo-modal-save-btn">' + saveTxt + '</button>' +
+          '<button class="btn btn-secondary" id="repo-modal-cancel-btn">Cancel</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  var overlay = openModal(modalHtml, triggerElement);
+  var modal   = overlay.querySelector('#repo-modal');
+
+  /* ── Delegate modal lifecycle to shared utility ───────────── */
+
+  wireModalEvents(overlay, {
+    excludeTextarea: true,
+    onSubmit: handleSave,
+    onClose: function () { closeModal(overlay); }
+  });
+
+  /* ── Folder add/remove widget ─────────────────────────────── */
+
+  function collectModalFolderNames() {
     var result = [];
-    document.querySelectorAll('.folder-name-input').forEach(function (inp) {
+    modal.querySelectorAll('.folder-name-input').forEach(function (inp) {
       var val = inp.value.trim();
       if (val) result.push(val);
     });
     return result;
   }
 
-  function renderDetail(repo) {
-    var vision = repo.vision || {};
-    /* Working copy — mutated by add/remove, then merged with DOM on save. */
-    var folderNames = (repo.folder_names || []).slice();
-
-    function rebuildFolderSection() {
-      var container = document.getElementById('folder-list');
-      if (container) {
-        container.innerHTML = buildFolderListHtml(folderNames);
-        wireRemoveButtons();
-      }
-    }
-
-    function wireRemoveButtons() {
-      var container = document.getElementById('folder-list');
-      if (!container) return;
-      container.querySelectorAll('[data-remove-folder]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          /* Capture any in-flight edits before splicing */
-          folderNames = collectFolderNamesFromDOM();
-          var idx = parseInt(btn.getAttribute('data-remove-folder'), 10);
-          folderNames.splice(idx, 1);
-          rebuildFolderSection();
-        });
-      });
-    }
-
-    app.innerHTML =
-      '<div class="breadcrumb">' +
-        '<a href="#/strategy">Strategy</a>' +
-        ' &rsaquo; ' +
-        escapeHtml(repo.label || repo.id) +
-      '</div>' +
-      '<div class="page-header">' +
-        '<h1>' + escapeHtml(repo.label || repo.id) + '</h1>' +
-        '<p class="text-muted">ID: <code>' + escapeHtml(repo.id) + '</code></p>' +
-      '</div>' +
-      '<div class="card" style="max-width:680px">' +
-        '<form id="detail-form">' +
-          '<h2 style="margin-top:0">Metadata</h2>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="repo-label">Label</label>' +
-            '<input type="text" id="repo-label" class="form-control" value="' + escapeHtml(repo.label || '') + '">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label">Folder Names</label>' +
-            '<div id="folder-list">' + buildFolderListHtml(folderNames) + '</div>' +
-            '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
-              '<input type="text" id="new-folder-input" class="form-control" placeholder="Add folder name\u2026" style="flex:1">' +
-              '<button type="button" id="add-folder-btn" class="btn btn-secondary btn-sm">Add</button>' +
-            '</div>' +
-          '</div>' +
-          '<h2 style="margin-top:24px">Strategic Vision</h2>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-short">Short-term</label>' +
-            '<textarea id="vision-short" class="form-control" rows="4" placeholder="Short-term goals and priorities\u2026">' + escapeHtml(vision.short_term || '') + '</textarea>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-mid">Mid-term</label>' +
-            '<textarea id="vision-mid" class="form-control" rows="4" placeholder="Mid-term direction and milestones\u2026">' + escapeHtml(vision.mid_term || '') + '</textarea>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-long">Long-term</label>' +
-            '<textarea id="vision-long" class="form-control" rows="4" placeholder="Long-term aspirations and vision\u2026">' + escapeHtml(vision.long_term || '') + '</textarea>' +
-          '</div>' +
-          '<div style="display:flex;gap:12px;align-items:center">' +
-            '<button type="submit" class="btn btn-primary">Save Changes</button>' +
-            '<a href="#/strategy" class="btn btn-secondary">Cancel</a>' +
-          '</div>' +
-          '<div id="detail-msg"></div>' +
-        '</form>' +
-      '</div>';
-
-    wireRemoveButtons();
-
-    /* ── Add folder button ─────────────────────────────────── */
-    var addFolderBtn = document.getElementById('add-folder-btn');
-    var newFolderInput = document.getElementById('new-folder-input');
-    if (addFolderBtn && newFolderInput) {
-      function doAddFolder() {
-        var val = newFolderInput.value.trim();
-        if (!val) return;
-        /* Capture any in-flight edits before pushing */
-        folderNames = collectFolderNamesFromDOM();
-        folderNames.push(val);
-        newFolderInput.value = '';
+  function wireRemoveFolderButtons() {
+    var container = document.getElementById('repo-modal-folder-list');
+    if (!container) return;
+    container.querySelectorAll('[data-remove-folder]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        /* Capture user edits to existing inputs before rebuilding the list. */
+        folderNames = collectModalFolderNames();
+        var idx = parseInt(btn.getAttribute('data-remove-folder'), 10);
+        folderNames.splice(idx, 1);
         rebuildFolderSection();
-      }
-
-      addFolderBtn.addEventListener('click', doAddFolder);
-      newFolderInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          doAddFolder();
-        }
       });
-    }
-
-    /* ── Save form ─────────────────────────────────────────── */
-    var form = document.getElementById('detail-form');
-    if (!form) return;
-
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var msgEl = document.getElementById('detail-msg');
-
-      var currentFolderNames = collectFolderNamesFromDOM();
-      if (!currentFolderNames.length) {
-        showError(msgEl, 'At least one folder name is required.');
-        return;
-      }
-
-      var payload = {
-        label:        (document.getElementById('repo-label').value || '').trim() || repo.id,
-        folder_names: currentFolderNames,
-        vision: {
-          short_term: (document.getElementById('vision-short').value || '').trim() || null,
-          mid_term:   (document.getElementById('vision-mid').value   || '').trim() || null,
-          long_term:  (document.getElementById('vision-long').value  || '').trim() || null,
-        },
-      };
-
-      msgEl.innerHTML = '';
-      API.updateRepo(repoId, payload)
-        .then(function (updated) {
-          msgEl.innerHTML = '<p class="success-banner">Changes saved.</p>';
-          /* Refresh page header label if it changed */
-          var h1 = app.querySelector('.page-header h1');
-          if (h1) h1.textContent = updated.label || updated.id;
-          var breadcrumb = app.querySelector('.breadcrumb');
-          if (breadcrumb) {
-            breadcrumb.innerHTML =
-              '<a href="#/strategy">Strategy</a>' +
-              ' &rsaquo; ' +
-              escapeHtml(updated.label || updated.id);
-          }
-        })
-        .catch(function (err) {
-          showError(msgEl, 'Save failed: ' + (err.message || String(err)));
-        });
     });
   }
+
+  function rebuildFolderSection() {
+    var container = document.getElementById('repo-modal-folder-list');
+    if (container) {
+      container.innerHTML = buildModalFolderListHtml(folderNames);
+      wireRemoveFolderButtons();
+    }
+  }
+
+  wireRemoveFolderButtons();
+
+  var addFolderBtn   = document.getElementById('repo-modal-add-folder-btn');
+  var newFolderInput = document.getElementById('repo-modal-new-folder');
+  if (addFolderBtn && newFolderInput) {
+    var doAddFolder = function () {
+      var val = newFolderInput.value.trim();
+      if (!val) return;
+      /* Capture user edits to existing inputs before appending the new entry. */
+      folderNames = collectModalFolderNames();
+      folderNames.push(val);
+      newFolderInput.value = '';
+      rebuildFolderSection();
+    };
+    addFolderBtn.addEventListener('click', doAddFolder);
+    /* Stop propagation so the modal-level Enter handler does not also fire. */
+    newFolderInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        doAddFolder();
+      }
+    });
+  }
+
+  /* ── Save handler ─────────────────────────────────────────── */
+
+  function handleSave() {
+    modal.querySelectorAll('.cs-modal-field-error').forEach(function (el) { el.textContent = ''; });
+    var modalErr = document.getElementById('repo-modal-error');
+    if (modalErr) modalErr.innerHTML = '';
+
+    var valid = true;
+    function showFieldErr(fieldId, msg) {
+      var el = document.getElementById(fieldId);
+      if (el) el.textContent = msg;
+      if (msg) valid = false;
+    }
+
+    var currentFolders = collectModalFolderNames();
+
+    if (isAdd) {
+      var idInputEl = document.getElementById('repo-modal-id');
+      if (!idInputEl || !idInputEl.value.trim()) {
+        showFieldErr('repo-modal-id-err', 'ID is required.');
+      }
+    }
+
+    if (!currentFolders.length) {
+      showFieldErr('repo-modal-folders-err', 'At least one folder name is required.');
+    }
+
+    if (!valid) return;
+
+    var saveBtn = document.getElementById('repo-modal-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+
+    var labelEl    = document.getElementById('repo-modal-label');
+    var storeEl    = document.getElementById('repo-modal-store');
+    var labelValue = labelEl ? labelEl.value.trim() : '';
+
+    if (isAdd) {
+      var newId   = document.getElementById('repo-modal-id').value.trim();
+      var payload = {
+        id:           newId,
+        label:        labelValue || newId,
+        folder_names: currentFolders,
+      };
+      if (storeEl && storeEl.value) payload.store_id = storeEl.value;
+
+      API.createRepo(payload)
+        .then(function () {
+          closeModal(overlay);
+          if (typeof onSaved === 'function') onSaved();
+        })
+        .catch(function (err) {
+          if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveTxt; }
+          if (modalErr) showError(modalErr, 'Failed to create repository: ' + (err.message || String(err)));
+        });
+      return;
+    }
+
+    /* Edit mode: update first, then move if the store changed. */
+    var repoId        = repo ? repo.id : '';
+    var originalStore = repo ? repo.store_id : null;
+    var selectedStore = storeEl ? storeEl.value : null;
+    var storeChanged  = isMultiStore && selectedStore && selectedStore !== originalStore;
+
+    var shortEl = document.getElementById('repo-modal-vision-short');
+    var midEl   = document.getElementById('repo-modal-vision-mid');
+    var longEl  = document.getElementById('repo-modal-vision-long');
+
+    var updatePayload = {
+      label:        labelValue || repoId,
+      folder_names: currentFolders,
+      vision: {
+        short_term: (shortEl ? shortEl.value.trim() : '') || null,
+        mid_term:   (midEl   ? midEl.value.trim()   : '') || null,
+        long_term:  (longEl  ? longEl.value.trim()  : '') || null,
+      },
+    };
+
+    API.updateRepo(repoId, updatePayload)
+      .then(function () {
+        if (!storeChanged) {
+          closeModal(overlay);
+          if (typeof onSaved === 'function') onSaved();
+          return;
+        }
+        return API.moveRepo(repoId, selectedStore)
+          .then(function () {
+            closeModal(overlay);
+            if (typeof onSaved === 'function') onSaved();
+          });
+      })
+      .catch(function (err) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveTxt; }
+        if (modalErr) showError(modalErr, 'Save failed: ' + (err.message || String(err)));
+      });
+  }
+
+  document.getElementById('repo-modal-save-btn').addEventListener('click', handleSave);
+
+  /* Auto-focus first editable field. */
+  var focusTarget = isAdd
+    ? document.getElementById('repo-modal-id')
+    : document.getElementById('repo-modal-label');
+  if (focusTarget) focusTarget.focus();
 }
 
 ```
@@ -8872,7 +10221,8 @@ function renderStrategyDetail(app, repoId) {
    views/work-package.js — Work Package Detail view
    Section 4c of the MCP Server Dashboard SPA
    Depends on: API, escapeHtml, formatDate, statusBadge,
-               showLoading, showError, STAGE_ABBREV (project-detail-helpers.js)
+               showLoading, showError, STAGE_ABBREV (project-detail-helpers.js),
+               marked
    ============================================================ */
 
 var WP_DEFAULT_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];
@@ -9012,15 +10362,24 @@ function renderWorkPackageDetail(app, repo, slug, wpId) {
     app.innerHTML =
       breadcrumb().projects().repo(repo, repoLabel).project(repo, slug).leaf(wpId).html() +
       '<div class="page-header">' +
-        '<h1>' + escapeHtml(wpId) + '</h1>' +
+        '<h1>' + escapeHtml(wpId) + (wp.title ? ' \u2014 ' + escapeHtml(wp.title) : '') + '</h1>' +
         statusBadge(wp.status) +
       '</div>' +
       UI.card(null,
         '<div class="text-muted" style="font-size:13px">' +
-          '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '—') + ' &nbsp; ' +
+          '<strong>Assigned to:</strong> ' + escapeHtml(wp.assigned_to || '\u2014') + ' &nbsp; ' +
           '<strong>Dependencies:</strong> ' + escapeHtml((wp.dependencies || []).join(', ') || 'none') +
         '</div>'
       ) +
+      (wp.description
+        ? UI.card('Description',
+            '<div class="rendered-markdown">' +
+              ((typeof marked !== 'undefined' && marked.parse)
+                ? marked.parse(wp.description)
+                : '<pre>' + escapeHtml(wp.description) + '</pre>') +
+            '</div>'
+          )
+        : '') +
       (acHtml
         ? UI.card('Acceptance Criteria', '<ul class="ac-list">' + acHtml + '</ul>')
         : '') +
