@@ -20,11 +20,15 @@ _SOURCE: Test suite directory structure_
             ├── api-knowledge.test.ts
             ├── api-models.test.ts
             ├── api-orchestrator.test.ts
+            ├── api-repos-store.test.ts
             ├── api-repos.test.ts
             ├── api-reset.test.ts
             ├── api-run-metadata.test.ts
+            ├── api-store-conflicts.test.ts
+            ├── api-stores.test.ts
             ├── api-wp-overview.test.ts
             ├── api.test.ts
+            ├── auto-archive-multi-store.test.ts
             ├── auto-archive.test.ts
             ├── chunk-renderer-text.test.ts
             ├── chunk-renderer.test.ts
@@ -44,6 +48,7 @@ _SOURCE: Test suite directory structure_
             ├── knowledge-repository-scope.test.ts
             ├── log-resolver.test.ts
             ├── model-registry.test.ts
+            ├── multi-store-api.test.ts
             ├── orchestrator-manager.test.ts
             ├── orchestrator-view.test.ts
             ├── orchestrator-widgets.test.ts
@@ -57,6 +62,7 @@ _SOURCE: Test suite directory structure_
             ├── project-detail-runs.test.ts
             ├── project-detail-scroll.test.ts
             ├── project-detail-snapshot.test.ts
+            ├── project-detail-wp-title.test.ts
             ├── project-list.test.ts
             ├── queue-ledger-status.test.ts
             ├── queue/
@@ -79,6 +85,7 @@ _SOURCE: Test suite directory structure_
             ├── server-queue.test.ts
             ├── setup-gui-globals.ts
             ├── stale-check.test.ts
+            ├── work-package-detail.test.ts
         └── helpers/
             ├── create-temp-store.ts
             ├── fixtures.ts
@@ -87,25 +94,34 @@ _SOURCE: Test suite directory structure_
             ├── auto-handoff.test.ts
             ├── full-workflow.test.ts
         └── schema/
+            ├── common.test.ts
             ├── knowledge.test.ts
             ├── project-archiving-schema.test.ts
             ├── project-meta-runner.test.ts
             ├── project-meta.test.ts
             ├── repository-registry.test.ts
             ├── root-index.test.ts
+            ├── store-config.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
         └── startup/
             ├── tool-log-sync.test.ts
         └── storage/
+            ├── cross-device-portability.test.ts
             ├── knowledge-store-exclusion.test.ts
             ├── knowledge-store.test.ts
             ├── ledger-store.test.ts
             ├── list-all-projects.test.ts
             ├── migrate-namespaced.test.ts
+            ├── multi-store-conflicts.test.ts
+            ├── multi-store-manager.test.ts
             ├── project-meta.test.ts
             ├── repository-registry.test.ts
             ├── slug-resolution.test.ts
+            ├── store-context-reload.test.ts
+            ├── store-context.test.ts
+            ├── store-registry.test.ts
+            ├── store-router.test.ts
         └── tools/
             ├── begin-work.test.ts
             ├── cancelled-status.test.ts
@@ -114,18 +130,24 @@ _SOURCE: Test suite directory structure_
             ├── complete-pipeline-guards.test.ts
             ├── enrichment-resilience.test.ts
             ├── knowledge-help.test.ts
+            ├── knowledge-multi-store.test.ts
             ├── knowledge.test.ts
             ├── list-projects.test.ts
             ├── meta-enrichment.test.ts
+            ├── multi-store-tool-resolution.test.ts
             ├── observations.test.ts
+            ├── ping.test.ts
             ├── pipeline-duration.test.ts
             ├── pipeline.test.ts
+            ├── project-lifecycle-multi-store.test.ts
             ├── project-lifecycle.test.ts
             ├── reopen-cancelled-wp.test.ts
+            ├── repository-context-multi-store.test.ts
             ├── repository-context.test.ts
             ├── rework-circuit-breaker.test.ts
             ├── runner-integration.test.ts
             ├── schema-integrity.test.ts
+            ├── standalone-import-multi-store.test.ts
             ├── standalone-import.test.ts
             ├── start-pipeline-guards.test.ts
             ├── synthesis-terminal.test.ts
@@ -146,6 +168,7 @@ _SOURCE: Test suite directory structure_
             └── project-reset.test.ts
             └── project-resolver.test.ts
             └── runner.test.ts
+            └── store-resolution.test.ts
             └── synthesis-parser.test.ts
             └── timestamp.test.ts
             └── workflow-helpers.test.ts

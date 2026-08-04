@@ -1,40 +1,49 @@
 /* ============================================================
-   views/strategy.js — Strategy view (Repository List + Detail/Editor)
+   views/strategy.js — Strategy view (Repository List)
    Section 4g of the MCP Server Dashboard SPA
-   Depends on: API, Router, escapeHtml, showLoading, showError
+   Depends on: API, Router, escapeHtml, showLoading, showError,
+               renderRepoModal
 
    Rendering model (renderStrategyList):
-     The list view uses a partial-render pattern to preserve Add Repository
-     form state across toggle interactions. The DOM is divided into independent
-     areas:
+     The list view uses a partial-render pattern. The DOM is divided into
+     independent areas:
        #strategy-tab-repos    — container for the Repositories tab content
        #strategy-toggle-area  — rebuilt on every render pass
        #strategy-table-area   — rebuilt on every render pass
-       #add-repo-form (form)  — written once at initial render; never touched
-                                by refreshTable(), so in-flight field values
-                                and validation messages are preserved when the
-                                user toggles the "Show undeclared repositories"
-                                checkbox.
        #strategy-tab-conflicts — container for the Conflicts tab content;
                                  only rendered in multi-store mode; refreshed
                                  independently by refreshConflicts().
+
+   Interaction model (modal-trigger architecture):
+     All repository creation and editing flows go through renderRepoModal(),
+     which is opened by three entry points in the strategy list:
+       Add Repository button (page header)
+           → renderRepoModal('add', null, stores, refresh)
+       Declared-repo label buttons (data-edit-repo, one per declared row)
+           → API.getRepo(id) → renderRepoModal('edit', repo, stores, refresh)
+       Register buttons (data-register-folder, undeclared rows only)
+           → renderRepoModal('add', null, stores, refresh, sanitisedPrefill)
    ============================================================ */
 
 
 /* ── renderStrategyList ──────────────────────────────────────
    Renders the repository list at #/strategy.
-   Shows: label, folder names, vision status; Add Repository form.
+   Shows: label, folder names, vision status; Add Repository button.
    Includes a "Show undeclared repositories" checkbox that re-fetches
    with ?include_undeclared=true and renders undeclared entries with a
-   muted visual style and a "Register" button that pre-fills the form.
+   muted visual style and a "Register" button.
    In multi-store mode (stores.length > 1), also renders:
      - A tab bar ("Repositories" | "Conflicts") above the content
-     - A "Store" dropdown on the Add Repository form
      - A "Conflicts" tab listing cross-store registry conflicts with
        winner ("Active") / shadowed indicators and resolution actions.
    ─────────────────────────────────────────────────────────── */
 function renderStrategyList(app) {
   showLoading(app);
+
+  var currentStores = [];
+  var storeLabels = {};
+  var isMultiStore = false;
+  var refreshSeq = 0;
 
   Promise.all([
     API.listRepos(false),
@@ -75,12 +84,12 @@ function renderStrategyList(app) {
     );
   }
 
-  function buildTableHtml(repos) {
+  function buildTableHtml(repos, isMultiStore) {
     if (!repos.length) {
-      return '<p class="text-muted mt-16">No repositories declared yet. Use the form below to add one.</p>';
+      return '<p class="text-muted mt-16">No repositories declared yet. Use the Add Repository button to create one.</p>';
     }
     var rows = repos.map(function (r) {
-      var folderNames = (r.folder_names || []).map(escapeHtml).join(', ') || '<em class="text-muted">\u2014</em>';
+      var storeCell = isMultiStore ? '<td>' + escapeHtml(storeLabels[r.store_id] || r.store_id || '\u2014') + '</td>' : '';
       if (r.declared === false) {
         /* Undeclared (filesystem-discovered) entry — muted row with Register button */
         return (
@@ -90,7 +99,7 @@ function renderStrategyList(app) {
               ' <span class="badge badge-archived" style="font-size:10px;vertical-align:middle">Undeclared</span>' +
             '</td>' +
             '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
-            '<td class="text-muted">' + folderNames + '</td>' +
+            storeCell +
             '<td>' +
               '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '">Register</button>' +
             '</td>' +
@@ -99,9 +108,9 @@ function renderStrategyList(app) {
       }
       return (
         '<tr>' +
-          '<td><a href="#/strategy/' + encodeURIComponent(r.id) + '">' + escapeHtml(r.label || r.id) + '</a></td>' +
+          '<td><button class="btn-link" data-edit-repo="' + escapeHtml(r.id) + '">' + escapeHtml(r.label || r.id) + '</button></td>' +
           '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
-          '<td>' + folderNames + '</td>' +
+          storeCell +
           '<td>' + visionStatus(r) + '</td>' +
         '</tr>'
       );
@@ -111,7 +120,7 @@ function renderStrategyList(app) {
         '<thead><tr>' +
           '<th>Label</th>' +
           '<th>ID</th>' +
-          '<th>Folder Names</th>' +
+          (isMultiStore ? '<th>Store</th>' : '') +
           '<th>Vision</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
@@ -120,18 +129,19 @@ function renderStrategyList(app) {
   }
 
   /**
-   * Re-renders only the repo table and toggle, preserving the Add Repository
-   * form and its current field values. Called on checkbox toggle.
+   * Re-renders only the repo table and toggle. Called on checkbox toggle.
    */
   function refreshTable(checked) {
+    var seq = ++refreshSeq;
     var toggleEl = document.getElementById('strategy-toggle-area');
     var tableEl = document.getElementById('strategy-table-area');
     if (toggleEl) toggleEl.innerHTML = buildToggleHtml(checked);
     if (tableEl) tableEl.innerHTML = '<p class="text-muted" style="font-size:13px">Loading\u2026</p>';
 
     API.listRepos(checked).then(function (repos) {
-      if (tableEl) tableEl.innerHTML = buildTableHtml(repos);
-      wireRegisterButtons();
+      if (seq !== refreshSeq) return;
+      if (tableEl) tableEl.innerHTML = buildTableHtml(repos, isMultiStore);
+      wireTableButtons();
       wireToggle();
     }).catch(function (err) {
       if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
@@ -159,23 +169,35 @@ function renderStrategyList(app) {
     return slug || 'repo';
   }
 
-  /** Wires the "Register" buttons on undeclared rows to pre-fill the Add form. */
-  function wireRegisterButtons() {
+  /**
+   * Wires click handlers for both interactive button types in the repo table.
+   *   data-register-folder — undeclared rows: opens the add modal with a
+   *     sanitiseSlug()-derived prefill (id, label, folder_names).
+   *   data-edit-repo — declared rows: fetches the repo via API.getRepo() then
+   *     opens the edit modal pre-filled with the repo's current values.
+   * Must be called after every table re-render (renderList and refreshTable).
+   */
+  function wireTableButtons() {
     var tableEl = document.getElementById('strategy-table-area');
     if (!tableEl) return;
     tableEl.querySelectorAll('[data-register-folder]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var folderName = btn.getAttribute('data-register-folder');
-        var idInput = document.getElementById('new-repo-id');
-        var labelInput = document.getElementById('new-repo-label');
-        var foldersInput = document.getElementById('new-repo-folders');
-        if (idInput) idInput.value = sanitiseSlug(folderName);
-        if (labelInput) labelInput.value = folderName;
-        if (foldersInput) foldersInput.value = folderName;
-        /* Scroll the Add Repository form into view */
-        var formCard = document.getElementById('add-repo-form');
-        if (formCard) formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (idInput) idInput.focus();
+        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, {
+          id: sanitiseSlug(folderName),
+          label: folderName,
+          folder_names: [folderName]
+        });
+      });
+    });
+    tableEl.querySelectorAll('[data-edit-repo]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var repoId = btn.getAttribute('data-edit-repo');
+        API.getRepo(repoId).then(function (repo) {
+          renderRepoModal('edit', repo, currentStores, function () { renderStrategyList(app); });
+        }).catch(function (err) {
+          showError(tableEl, 'Failed to load repository: ' + (err.message || String(err)));
+        });
       });
     });
   }
@@ -423,29 +445,19 @@ function renderStrategyList(app) {
   }
 
   function renderList(repos, checked, stores, conflicts) {
-    var isMultiStore = stores.length > 1;
     var conflictCount = conflicts.length;
 
-    /* Build a storeId → label map for the conflicts renderer. */
-    var storeLabels = {};
+    currentStores = stores;
+    isMultiStore = stores.length > 1;
+
+    /* Build a storeId → label map shared with buildTableHtml and the conflicts renderer. */
+    storeLabels = {};
     stores.forEach(function (s) { storeLabels[s.id] = s.label; });
 
     /* Seed the in-memory index used by conflict action handlers. */
     storesSnapshot = stores;
     conflictsIndex = {};
     conflicts.forEach(function (c) { conflictsIndex[c.repo_name] = c; });
-
-    /* Store dropdown for the Add Repository form — multi-store mode only. */
-    var storeDropdown = isMultiStore
-      ? '<div class="form-group">' +
-          '<label class="form-label" for="new-repo-store">Store</label>' +
-          '<select id="new-repo-store" class="form-control">' +
-          stores.map(function (s) {
-            return '<option value="' + escapeHtml(s.id) + '">' + escapeHtml(s.label) + '</option>';
-          }).join('') +
-          '</select>' +
-        '</div>'
-      : '';
 
     /* Tab bar — only rendered in multi-store mode. */
     var badgeHtml = conflictCount > 0
@@ -463,31 +475,12 @@ function renderStrategyList(app) {
       '<div class="page-header">' +
         '<h1>Strategy</h1>' +
         '<p class="text-muted">Manage repository declarations and strategic vision.</p>' +
+        '<button type="button" class="btn btn-primary" id="add-repo-btn">Add Repository</button>' +
       '</div>' +
       tabBar +
       '<div id="strategy-tab-repos">' +
         '<div id="strategy-toggle-area">' + buildToggleHtml(checked) + '</div>' +
-        '<div id="strategy-table-area">' + buildTableHtml(repos) + '</div>' +
-        '<div class="card mt-24" style="max-width:560px">' +
-          '<h2 style="margin-top:0">Add Repository</h2>' +
-          '<form id="add-repo-form">' +
-            '<div class="form-group">' +
-              '<label class="form-label" for="new-repo-id">ID <span class="text-muted">(slug, e.g. my-project)</span></label>' +
-              '<input type="text" id="new-repo-id" class="form-control" placeholder="my-project" required>' +
-            '</div>' +
-            '<div class="form-group">' +
-              '<label class="form-label" for="new-repo-label">Label</label>' +
-              '<input type="text" id="new-repo-label" class="form-control" placeholder="My Project">' +
-            '</div>' +
-            '<div class="form-group">' +
-              '<label class="form-label" for="new-repo-folders">Folder Names <span class="text-muted">(comma-separated)</span></label>' +
-              '<input type="text" id="new-repo-folders" class="form-control" placeholder="my-project, my-project-dev">' +
-            '</div>' +
-            storeDropdown +
-            '<button type="submit" class="btn btn-primary">Add Repository</button>' +
-            '<div id="add-repo-msg"></div>' +
-          '</form>' +
-        '</div>' +
+        '<div id="strategy-table-area">' + buildTableHtml(repos, isMultiStore) + '</div>' +
       '</div>' +
       (isMultiStore
         ? '<div id="strategy-tab-conflicts" style="display:none">' +
@@ -495,7 +488,7 @@ function renderStrategyList(app) {
           '</div>'
         : '');
 
-    wireRegisterButtons();
+    wireTableButtons();
     wireToggle();
 
     /* Wire tab switching in multi-store mode. */
@@ -518,71 +511,49 @@ function renderStrategyList(app) {
       if (initialConflictsTab) wireConflictActions(initialConflictsTab);
     }
 
-    /* Add Repository form submit handler. */
-    var form = document.getElementById('add-repo-form');
-    if (!form) return;
-
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var msgEl = document.getElementById('add-repo-msg');
-      var id = (document.getElementById('new-repo-id').value || '').trim();
-      var label = (document.getElementById('new-repo-label').value || '').trim();
-      var foldersRaw = (document.getElementById('new-repo-folders').value || '').trim();
-      var folderNames = foldersRaw
-        ? foldersRaw.split(',').map(function (f) { return f.trim(); }).filter(Boolean)
-        : [];
-      var storeEl = document.getElementById('new-repo-store');
-      var storeId = (storeEl && storeEl.value) ? storeEl.value : undefined;
-
-      if (!id) {
-        showError(msgEl, 'ID is required.');
-        return;
-      }
-
-      if (!folderNames.length) {
-        showError(msgEl, 'At least one folder name is required.');
-        return;
-      }
-
-      msgEl.innerHTML = '';
-      var payload = { id: id, label: label || id, folder_names: folderNames };
-      if (storeId) payload.store_id = storeId;
-      API.createRepo(payload)
-        .then(function () {
-          Router.navigate('#/strategy/' + encodeURIComponent(id));
-        })
-        .catch(function (err) {
-          showError(msgEl, 'Failed to create repository: ' + (err.message || String(err)));
-        });
-    });
+    var addBtn = document.getElementById('add-repo-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        renderRepoModal('add', null, stores, function () { renderStrategyList(app); });
+      });
+    }
   }
 }
 
 
-/* ── renderStrategyDetail ────────────────────────────────────
-   Renders the repository detail/editor at #/strategy/:repoId.
-   Shows: editable label, folder names (add/remove), three-field
-          vision editor (short-term, mid-term, long-term),
-          save button, breadcrumb navigation.
+/* ── renderRepoModal ─────────────────────────────────────────
+   Opens an add/edit modal dialog for a repository entry.
+   mode:    'add' | 'edit'
+   repo:    { id, label, folder_names, store_id,
+              vision?: { short_term, mid_term, long_term } }
+            Pass null in add mode.
+   stores:  Array of { id, label } from API.getStores().
+            Pass [] in single-store mode (hides the Store dropdown).
+   onSaved: callback invoked after a successful save
+   prefill: (optional) { id, label, folder_names } to pre-populate add mode
    ─────────────────────────────────────────────────────────── */
-function renderStrategyDetail(app, repoId) {
-  showLoading(app);
+function renderRepoModal(mode, repo, stores, onSaved, prefill) {
+  var triggerElement = document.activeElement;
+  var existing = document.getElementById('repo-modal-overlay');
+  if (existing) existing.remove();
 
-  API.getRepo(repoId).then(function (repo) {
-    renderDetail(repo);
-  }).catch(function (err) {
-    if (err.code === 'NOT_FOUND' || (err.message && err.message.indexOf('404') !== -1)) {
-      showError(app, 'Repository not found: ' + escapeHtml(repoId));
-    } else {
-      showError(app, 'Failed to load repository: ' + (err.message || String(err)));
-    }
-  });
+  var isAdd        = mode === 'add';
+  var isMultiStore = stores && stores.length > 1;
+  var title        = isAdd ? 'Add Repository' : 'Edit Repository';
+  var saveTxt      = isAdd ? 'Add Repository' : 'Save';
 
-  function buildFolderListHtml(folderNames) {
-    if (!folderNames || !folderNames.length) {
-      return '<p class="text-muted" id="folder-empty-note">No folder names added yet.</p>';
+  /* Working copy of folder names — mutated by add/remove actions. */
+  var folderNames = isAdd
+    ? (prefill && prefill.folder_names ? prefill.folder_names.slice() : [])
+    : ((repo && repo.folder_names) ? repo.folder_names.slice() : []);
+
+  /* ── Inner helpers ───────────────────────────────────────── */
+
+  function buildModalFolderListHtml(names) {
+    if (!names || !names.length) {
+      return '<p class="text-muted" id="repo-modal-folder-empty">No folder names added yet.</p>';
     }
-    return folderNames.map(function (f, i) {
+    return names.map(function (f, i) {
       return (
         '<div class="folder-entry" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
           '<input type="text" class="form-control folder-name-input" data-folder-idx="' + i + '" value="' + escapeHtml(f) + '" style="flex:1">' +
@@ -592,156 +563,260 @@ function renderStrategyDetail(app, repoId) {
     }).join('');
   }
 
-  /* Reads all folder name inputs from the DOM in index order. */
-  function collectFolderNamesFromDOM() {
+  /* ── Field HTML ────────────────────────────────────────────── */
+
+  var idField = isAdd
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="repo-modal-id">ID <span class="text-muted">(slug)</span></label>' +
+        '<input class="form-control" type="text" id="repo-modal-id" autocomplete="off" placeholder="e.g. my-project" value="' + escapeHtml((prefill && prefill.id) || '') + '">' +
+        '<span class="cs-modal-field-error" id="repo-modal-id-err"></span>' +
+      '</div>'
+    : '<div class="cs-modal-field-group">' +
+        '<label class="form-label">ID</label>' +
+        '<div class="cs-modal-readonly"><code>' + escapeHtml(repo ? repo.id : '') + '</code></div>' +
+      '</div>';
+
+  var labelValEscaped = escapeHtml(isAdd ? ((prefill && prefill.label) || '') : (repo ? (repo.label || '') : ''));
+  var labelField =
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-label">Label</label>' +
+      '<input class="form-control" type="text" id="repo-modal-label" autocomplete="off" value="' + labelValEscaped + '" placeholder="Display name">' +
+    '</div>';
+
+  var folderWidget =
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label">Folder Names</label>' +
+      '<div id="repo-modal-folder-list">' + buildModalFolderListHtml(folderNames) + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
+        '<input type="text" id="repo-modal-new-folder" class="form-control" placeholder="Add folder name\u2026" style="flex:1">' +
+        '<button type="button" id="repo-modal-add-folder-btn" class="btn btn-secondary btn-sm">Add</button>' +
+      '</div>' +
+      '<span class="cs-modal-field-error" id="repo-modal-folders-err"></span>' +
+    '</div>';
+
+  /* Vision textareas — edit mode only. */
+  var vision = (repo && repo.vision) ? repo.vision : {};
+  var visionFields = isAdd ? '' :
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-short">Short-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-short" rows="3" placeholder="Short-term goals and priorities\u2026">' + escapeHtml(vision.short_term || '') + '</textarea>' +
+    '</div>' +
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-mid">Mid-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-mid" rows="3" placeholder="Mid-term direction and milestones\u2026">' + escapeHtml(vision.mid_term || '') + '</textarea>' +
+    '</div>' +
+    '<div class="cs-modal-field-group">' +
+      '<label class="form-label" for="repo-modal-vision-long">Long-term vision</label>' +
+      '<textarea class="form-control" id="repo-modal-vision-long" rows="3" placeholder="Long-term aspirations and vision\u2026">' + escapeHtml(vision.long_term || '') + '</textarea>' +
+    '</div>';
+
+  /* Store dropdown — multi-store only. */
+  var storeField = isMultiStore
+    ? '<div class="cs-modal-field-group">' +
+        '<label class="form-label" for="repo-modal-store">Store</label>' +
+        '<select class="form-control" id="repo-modal-store">' +
+          stores.map(function (s) {
+            var selected = (!isAdd && repo && repo.store_id === s.id) ? ' selected' : '';
+            return '<option value="' + escapeHtml(s.id) + '"' + selected + '>' + escapeHtml(s.label || s.id) + '</option>';
+          }).join('') +
+        '</select>' +
+      '</div>'
+    : '';
+
+  /* ── Modal HTML ────────────────────────────────────────────── */
+
+  var modalHtml =
+    '<div class="cs-modal-overlay" id="repo-modal-overlay" role="dialog" aria-modal="true" aria-label="' + title + '">' +
+      '<div class="cs-modal" id="repo-modal">' +
+        '<div class="cs-modal-header">' +
+          '<span class="cs-modal-title">' + title + '</span>' +
+          '<button class="cs-modal-close" id="repo-modal-close-btn" aria-label="Close">\u00d7</button>' +
+        '</div>' +
+        '<div class="cs-modal-body">' +
+          idField +
+          labelField +
+          folderWidget +
+          visionFields +
+          storeField +
+          '<div id="repo-modal-error"></div>' +
+        '</div>' +
+        '<div class="cs-modal-footer">' +
+          '<button class="btn btn-primary" id="repo-modal-save-btn">' + saveTxt + '</button>' +
+          '<button class="btn btn-secondary" id="repo-modal-cancel-btn">Cancel</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  var overlay = openModal(modalHtml, triggerElement);
+  var modal   = overlay.querySelector('#repo-modal');
+
+  /* ── Delegate modal lifecycle to shared utility ───────────── */
+
+  wireModalEvents(overlay, {
+    excludeTextarea: true,
+    onSubmit: handleSave,
+    onClose: function () { closeModal(overlay); }
+  });
+
+  /* ── Folder add/remove widget ─────────────────────────────── */
+
+  function collectModalFolderNames() {
     var result = [];
-    document.querySelectorAll('.folder-name-input').forEach(function (inp) {
+    modal.querySelectorAll('.folder-name-input').forEach(function (inp) {
       var val = inp.value.trim();
       if (val) result.push(val);
     });
     return result;
   }
 
-  function renderDetail(repo) {
-    var vision = repo.vision || {};
-    /* Working copy — mutated by add/remove, then merged with DOM on save. */
-    var folderNames = (repo.folder_names || []).slice();
-
-    function rebuildFolderSection() {
-      var container = document.getElementById('folder-list');
-      if (container) {
-        container.innerHTML = buildFolderListHtml(folderNames);
-        wireRemoveButtons();
-      }
-    }
-
-    function wireRemoveButtons() {
-      var container = document.getElementById('folder-list');
-      if (!container) return;
-      container.querySelectorAll('[data-remove-folder]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          /* Capture any in-flight edits before splicing */
-          folderNames = collectFolderNamesFromDOM();
-          var idx = parseInt(btn.getAttribute('data-remove-folder'), 10);
-          folderNames.splice(idx, 1);
-          rebuildFolderSection();
-        });
-      });
-    }
-
-    app.innerHTML =
-      '<div class="breadcrumb">' +
-        '<a href="#/strategy">Strategy</a>' +
-        ' &rsaquo; ' +
-        escapeHtml(repo.label || repo.id) +
-      '</div>' +
-      '<div class="page-header">' +
-        '<h1>' + escapeHtml(repo.label || repo.id) + '</h1>' +
-        '<p class="text-muted">ID: <code>' + escapeHtml(repo.id) + '</code></p>' +
-      '</div>' +
-      '<div class="card" style="max-width:680px">' +
-        '<form id="detail-form">' +
-          '<h2 style="margin-top:0">Metadata</h2>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="repo-label">Label</label>' +
-            '<input type="text" id="repo-label" class="form-control" value="' + escapeHtml(repo.label || '') + '">' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label">Folder Names</label>' +
-            '<div id="folder-list">' + buildFolderListHtml(folderNames) + '</div>' +
-            '<div style="display:flex;gap:8px;margin-top:8px;align-items:center">' +
-              '<input type="text" id="new-folder-input" class="form-control" placeholder="Add folder name\u2026" style="flex:1">' +
-              '<button type="button" id="add-folder-btn" class="btn btn-secondary btn-sm">Add</button>' +
-            '</div>' +
-          '</div>' +
-          '<h2 style="margin-top:24px">Strategic Vision</h2>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-short">Short-term</label>' +
-            '<textarea id="vision-short" class="form-control" rows="4" placeholder="Short-term goals and priorities\u2026">' + escapeHtml(vision.short_term || '') + '</textarea>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-mid">Mid-term</label>' +
-            '<textarea id="vision-mid" class="form-control" rows="4" placeholder="Mid-term direction and milestones\u2026">' + escapeHtml(vision.mid_term || '') + '</textarea>' +
-          '</div>' +
-          '<div class="form-group">' +
-            '<label class="form-label" for="vision-long">Long-term</label>' +
-            '<textarea id="vision-long" class="form-control" rows="4" placeholder="Long-term aspirations and vision\u2026">' + escapeHtml(vision.long_term || '') + '</textarea>' +
-          '</div>' +
-          '<div style="display:flex;gap:12px;align-items:center">' +
-            '<button type="submit" class="btn btn-primary">Save Changes</button>' +
-            '<a href="#/strategy" class="btn btn-secondary">Cancel</a>' +
-          '</div>' +
-          '<div id="detail-msg"></div>' +
-        '</form>' +
-      '</div>';
-
-    wireRemoveButtons();
-
-    /* ── Add folder button ─────────────────────────────────── */
-    var addFolderBtn = document.getElementById('add-folder-btn');
-    var newFolderInput = document.getElementById('new-folder-input');
-    if (addFolderBtn && newFolderInput) {
-      function doAddFolder() {
-        var val = newFolderInput.value.trim();
-        if (!val) return;
-        /* Capture any in-flight edits before pushing */
-        folderNames = collectFolderNamesFromDOM();
-        folderNames.push(val);
-        newFolderInput.value = '';
+  function wireRemoveFolderButtons() {
+    var container = document.getElementById('repo-modal-folder-list');
+    if (!container) return;
+    container.querySelectorAll('[data-remove-folder]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        /* Capture user edits to existing inputs before rebuilding the list. */
+        folderNames = collectModalFolderNames();
+        var idx = parseInt(btn.getAttribute('data-remove-folder'), 10);
+        folderNames.splice(idx, 1);
         rebuildFolderSection();
-      }
-
-      addFolderBtn.addEventListener('click', doAddFolder);
-      newFolderInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          doAddFolder();
-        }
       });
-    }
-
-    /* ── Save form ─────────────────────────────────────────── */
-    var form = document.getElementById('detail-form');
-    if (!form) return;
-
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var msgEl = document.getElementById('detail-msg');
-
-      var currentFolderNames = collectFolderNamesFromDOM();
-      if (!currentFolderNames.length) {
-        showError(msgEl, 'At least one folder name is required.');
-        return;
-      }
-
-      var payload = {
-        label:        (document.getElementById('repo-label').value || '').trim() || repo.id,
-        folder_names: currentFolderNames,
-        vision: {
-          short_term: (document.getElementById('vision-short').value || '').trim() || null,
-          mid_term:   (document.getElementById('vision-mid').value   || '').trim() || null,
-          long_term:  (document.getElementById('vision-long').value  || '').trim() || null,
-        },
-      };
-
-      msgEl.innerHTML = '';
-      API.updateRepo(repoId, payload)
-        .then(function (updated) {
-          msgEl.innerHTML = '<p class="success-banner">Changes saved.</p>';
-          /* Refresh page header label if it changed */
-          var h1 = app.querySelector('.page-header h1');
-          if (h1) h1.textContent = updated.label || updated.id;
-          var breadcrumb = app.querySelector('.breadcrumb');
-          if (breadcrumb) {
-            breadcrumb.innerHTML =
-              '<a href="#/strategy">Strategy</a>' +
-              ' &rsaquo; ' +
-              escapeHtml(updated.label || updated.id);
-          }
-        })
-        .catch(function (err) {
-          showError(msgEl, 'Save failed: ' + (err.message || String(err)));
-        });
     });
   }
+
+  function rebuildFolderSection() {
+    var container = document.getElementById('repo-modal-folder-list');
+    if (container) {
+      container.innerHTML = buildModalFolderListHtml(folderNames);
+      wireRemoveFolderButtons();
+    }
+  }
+
+  wireRemoveFolderButtons();
+
+  var addFolderBtn   = document.getElementById('repo-modal-add-folder-btn');
+  var newFolderInput = document.getElementById('repo-modal-new-folder');
+  if (addFolderBtn && newFolderInput) {
+    var doAddFolder = function () {
+      var val = newFolderInput.value.trim();
+      if (!val) return;
+      /* Capture user edits to existing inputs before appending the new entry. */
+      folderNames = collectModalFolderNames();
+      folderNames.push(val);
+      newFolderInput.value = '';
+      rebuildFolderSection();
+    };
+    addFolderBtn.addEventListener('click', doAddFolder);
+    /* Stop propagation so the modal-level Enter handler does not also fire. */
+    newFolderInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        doAddFolder();
+      }
+    });
+  }
+
+  /* ── Save handler ─────────────────────────────────────────── */
+
+  function handleSave() {
+    modal.querySelectorAll('.cs-modal-field-error').forEach(function (el) { el.textContent = ''; });
+    var modalErr = document.getElementById('repo-modal-error');
+    if (modalErr) modalErr.innerHTML = '';
+
+    var valid = true;
+    function showFieldErr(fieldId, msg) {
+      var el = document.getElementById(fieldId);
+      if (el) el.textContent = msg;
+      if (msg) valid = false;
+    }
+
+    var currentFolders = collectModalFolderNames();
+
+    if (isAdd) {
+      var idInputEl = document.getElementById('repo-modal-id');
+      if (!idInputEl || !idInputEl.value.trim()) {
+        showFieldErr('repo-modal-id-err', 'ID is required.');
+      }
+    }
+
+    if (!currentFolders.length) {
+      showFieldErr('repo-modal-folders-err', 'At least one folder name is required.');
+    }
+
+    if (!valid) return;
+
+    var saveBtn = document.getElementById('repo-modal-save-btn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving\u2026'; }
+
+    var labelEl    = document.getElementById('repo-modal-label');
+    var storeEl    = document.getElementById('repo-modal-store');
+    var labelValue = labelEl ? labelEl.value.trim() : '';
+
+    if (isAdd) {
+      var newId   = document.getElementById('repo-modal-id').value.trim();
+      var payload = {
+        id:           newId,
+        label:        labelValue || newId,
+        folder_names: currentFolders,
+      };
+      if (storeEl && storeEl.value) payload.store_id = storeEl.value;
+
+      API.createRepo(payload)
+        .then(function () {
+          closeModal(overlay);
+          if (typeof onSaved === 'function') onSaved();
+        })
+        .catch(function (err) {
+          if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveTxt; }
+          if (modalErr) showError(modalErr, 'Failed to create repository: ' + (err.message || String(err)));
+        });
+      return;
+    }
+
+    /* Edit mode: update first, then move if the store changed. */
+    var repoId        = repo ? repo.id : '';
+    var originalStore = repo ? repo.store_id : null;
+    var selectedStore = storeEl ? storeEl.value : null;
+    var storeChanged  = isMultiStore && selectedStore && selectedStore !== originalStore;
+
+    var shortEl = document.getElementById('repo-modal-vision-short');
+    var midEl   = document.getElementById('repo-modal-vision-mid');
+    var longEl  = document.getElementById('repo-modal-vision-long');
+
+    var updatePayload = {
+      label:        labelValue || repoId,
+      folder_names: currentFolders,
+      vision: {
+        short_term: (shortEl ? shortEl.value.trim() : '') || null,
+        mid_term:   (midEl   ? midEl.value.trim()   : '') || null,
+        long_term:  (longEl  ? longEl.value.trim()  : '') || null,
+      },
+    };
+
+    API.updateRepo(repoId, updatePayload)
+      .then(function () {
+        if (!storeChanged) {
+          closeModal(overlay);
+          if (typeof onSaved === 'function') onSaved();
+          return;
+        }
+        return API.moveRepo(repoId, selectedStore)
+          .then(function () {
+            closeModal(overlay);
+            if (typeof onSaved === 'function') onSaved();
+          });
+      })
+      .catch(function (err) {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveTxt; }
+        if (modalErr) showError(modalErr, 'Save failed: ' + (err.message || String(err)));
+      });
+  }
+
+  document.getElementById('repo-modal-save-btn').addEventListener('click', handleSave);
+
+  /* Auto-focus first editable field. */
+  var focusTarget = isAdd
+    ? document.getElementById('repo-modal-id')
+    : document.getElementById('repo-modal-label');
+  if (focusTarget) focusTarget.focus();
 }

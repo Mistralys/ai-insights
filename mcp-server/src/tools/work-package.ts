@@ -17,6 +17,8 @@ import {
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
+import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
+import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 import {
   DEFAULT_PIPELINE_STAGES,
@@ -26,9 +28,7 @@ import {
 } from '../utils/pipeline-maps.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
-import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
 import { StoreNotRegisteredError } from '../storage/store-router.js';
-import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 
 /**
  * Build a next-step guidance string after a WP status transition.

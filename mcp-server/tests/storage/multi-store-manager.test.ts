@@ -328,15 +328,15 @@ describe('MultiStoreManager — cross-store knowledge pagination (WP-009)', () =
    * Writes a knowledge store file directly with pre-assigned non-colliding IDs.
    * `idStart` controls the first ID so stores can use non-overlapping ranges.
    */
-  async function seedInsights(storePath: string, count: number, idStart = 1): Promise<void> {
+  async function seedInsights(storePath: string, count: number, _idStart = 1): Promise<void> {
     const knowledgeDir = join(storePath, '.knowledge');
     await mkdir(knowledgeDir, { recursive: true });
     const ts = now();
     const insights = Array.from({ length: count }, (_, i) => ({
-      id: idStart + i,
+      id: crypto.randomUUID(),
       scope: 'global',
-      title: `Insight ${storePath.split('/').pop()}-${idStart + i}`,
-      content: `Content ${idStart + i}`,
+      title: `Insight ${storePath.split('/').pop()}-${_idStart + i}`,
+      content: `Content ${_idStart + i}`,
       category: 'testing',
       tags: ['test'],
       source: '',
@@ -344,9 +344,8 @@ describe('MultiStoreManager — cross-store knowledge pagination (WP-009)', () =
       created_at: ts,
     }));
     await atomicWriteJson(join(knowledgeDir, 'global-insights.json'), {
-      version: '1.0.0',
+      version: '2.0.0',
       last_updated: ts,
-      next_id: idStart + count,
       insights,
     });
   }

@@ -259,7 +259,8 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body).toBeNull();
     });
 
-    it('returns 400 when scope query param is missing', async () => {
+    it('returns 400 VALIDATION_ERROR when ID is not a UUID', async () => {
+      // UUID validation fires before scope is checked — '999' is not a UUID
       const res = await fetch(`${baseUrl}/api/knowledge/999`, { method: 'DELETE' });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
@@ -267,12 +268,12 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
     });
 
     it('returns 404 when insight does not exist', async () => {
-      const res = await fetch(`${baseUrl}/api/knowledge/9999?scope=global`, { method: 'DELETE' });
+      const res = await fetch(`${baseUrl}/api/knowledge/00000000-0000-0000-0000-000000000000?scope=global`, { method: 'DELETE' });
       expect(res.status).toBe(404);
     });
 
     it('forwards repository_name from query string to handler', async () => {
-      // Without repository_name when scope=repository, should return 400
+      // '1' is not a UUID — UUID validation fires before repository_name is checked
       const res = await fetch(`${baseUrl}/api/knowledge/1?scope=repository`, { method: 'DELETE' });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
@@ -307,7 +308,8 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
       expect(body.error.code).toBe('VALIDATION_ERROR');
     });
 
-    it('returns 400 VALIDATION_ERROR when scope is missing', async () => {
+    it('returns 400 VALIDATION_ERROR when ID is not a UUID', async () => {
+      // UUID validation fires before scope is checked — '1' is not a UUID
       const res = await fetch(`${baseUrl}/api/knowledge/1/promote`, { method: 'POST' });
       expect(res.status).toBe(400);
       const body = await res.json() as { error: { code: string } };
@@ -315,7 +317,7 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
     });
 
     it('forwards scope and repository_name query params to handler', async () => {
-      // scope=repository but missing repository_name → 400
+      // '1' is not a UUID — UUID validation fires before repository_name is checked
       const res = await fetch(
         `${baseUrl}/api/knowledge/1/promote?scope=repository`,
         { method: 'POST' }
@@ -365,7 +367,7 @@ describe('WP-009 — Knowledge route wiring in gui/server.ts', () => {
     });
 
     it('returns 404 when insight does not exist', async () => {
-      const res = await fetch(`${baseUrl}/api/knowledge/9999`, {
+      const res = await fetch(`${baseUrl}/api/knowledge/00000000-0000-0000-0000-000000000000`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope: 'global', title: 'New title' }),

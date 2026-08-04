@@ -57,7 +57,10 @@ node scripts/publish-skills.js         # deploy to .github/skills/ and ~/.claude
 
 The reason agents can pick up where the last one left off. This [MCP server](https://modelcontextprotocol.io/) stores project state — work packages, progress, handoff notes — so every agent in the pipeline sees the full history. A built-in knowledge store captures insights across runs, giving your agents institutional memory that grows over time.
 
-→ [mcp-server/README.md](mcp-server/README.md)
+The ledger supports **multi-store mode**: point the server at multiple independent ledger directories simultaneously — useful for separating work and personal projects, or syncing data across machines via Git or a shared drive.
+
+→ [mcp-server/README.md](mcp-server/README.md)  
+→ [docs/references/multi-store-guide.md](docs/references/multi-store-guide.md) — multi-store setup, CLI reference, and migration walkthrough
 
 ### The Orchestrator
 
@@ -107,6 +110,7 @@ After that, the menu monitors your workspace for stale builds and configuration 
 |----------|-------------|
 | [MCP Server](mcp-server/README.md) | Server architecture, tool reference, GUI, troubleshooting |
 | [Orchestrator](orchestrator/README.md) | Headless runner: setup, configuration, CLI |
+| [Multi-Store Guide](docs/references/multi-store-guide.md) | Multiple ledger directories: setup, CLI reference, migration |
 | [Developer Guide](docs/references/development.md) | Workspace layout, CI, scripts, changelog workflow |
 | [Reference Docs Hub](docs/agents/references/README.md) | Workflow diagrams, CTX config, Deep Agents patterns |
 | [Key Learnings](docs/history/key-learnings.md) | Lessons learned across the project |

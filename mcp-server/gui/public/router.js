@@ -91,12 +91,6 @@ var Router = (function () {
       return;
     }
 
-    var strategyDetailMatch = path.match(/^\/strategy\/([^/]+)$/);
-    if (strategyDetailMatch) {
-      renderStrategyDetail(app, decodeURIComponent(strategyDetailMatch[1]));
-      return;
-    }
-
     app.innerHTML = '<p class="error-banner">Page not found: ' + escapeHtml(path) + '</p>';
   }
 

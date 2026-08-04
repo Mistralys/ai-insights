@@ -400,7 +400,7 @@ describe('ledger_get_repository_context — error handling', () => {
 
 /**
  * Seeds a knowledge store JSON file at the given path.
- * The `insights` array is written as-is; `next_id` is set to max(id)+1.
+ * Insights must use UUID strings for `id`. Uses schema version 2.0.0 (no next_id).
  */
 async function seedKnowledgeStore(
   filePath: string,
@@ -408,11 +408,9 @@ async function seedKnowledgeStore(
 ): Promise<void> {
   const dir = filePath.substring(0, filePath.lastIndexOf('/'));
   await mkdir(dir, { recursive: true });
-  const maxId = insights.reduce((m, ins) => Math.max(m, (ins['id'] as number) ?? 0), 0);
   const store = {
-    version: '1.0.0',
+    version: '2.0.0',
     last_updated: new Date().toISOString(),
-    next_id: maxId + 1,
     insights,
   };
   await writeFile(filePath, JSON.stringify(store, null, 2), 'utf-8');
@@ -423,10 +421,18 @@ function knowledgeDir(): string {
 }
 
 describe('ledger_get_repository_context — insight deduplication', () => {
+  // Fixed UUIDs for predictable dedup assertions
+  const UUID_SHARED = '00000000-0000-0000-0000-000000000042';
+  const UUID_1 = '00000000-0000-0000-0000-000000000001';
+  const UUID_2 = '00000000-0000-0000-0000-000000000002';
+  const UUID_3 = '00000000-0000-0000-0000-000000000003';
+  const UUID_10 = '00000000-0000-0000-0000-000000000010';
+  const UUID_20 = '00000000-0000-0000-0000-000000000020';
+
   it('returns each insight only once when globalInsights and repoInsights share the same id', async () => {
-    // Seed the same insight id (42) in both global and repo-scoped stores
+    // Seed the same UUID in both global and repo-scoped stores
     const sharedInsight = {
-      id: 42,
+      id: UUID_SHARED,
       scope: 'global',
       title: 'Shared insight',
       content: 'Content of the shared insight',
@@ -454,17 +460,17 @@ describe('ledger_get_repository_context — insight deduplication', () => {
     expect(isError(result as any)).toBe(false);
     const data = parseResult(result as any);
 
-    // id 42 must appear exactly once
-    const ids: number[] = data.relevant_insights.map((ins: { id: number }) => ins.id);
-    expect(ids.filter((id) => id === 42)).toHaveLength(1);
+    // UUID_SHARED must appear exactly once
+    const ids: string[] = data.relevant_insights.map((ins: { id: string }) => ins.id);
+    expect(ids.filter((id) => id === UUID_SHARED)).toHaveLength(1);
   });
 
   it('preserves insertion order: global insights first, then unique repo-scoped additions', async () => {
-    // Global store: ids 1, 2
-    // Repo store: ids 2 (duplicate), 3 (unique)
-    // Expected order: [1, 2, 3]
+    // Global store: UUID_1, UUID_2
+    // Repo store: UUID_2 (duplicate), UUID_3 (unique)
+    // Expected: 3 unique insights (UUID_2 deduplicated)
     const globalInsight1 = {
-      id: 1,
+      id: UUID_1,
       scope: 'global',
       title: 'Global insight 1',
       content: 'First global insight',
@@ -475,7 +481,7 @@ describe('ledger_get_repository_context — insight deduplication', () => {
       confidence: 1,
     };
     const globalInsight2 = {
-      id: 2,
+      id: UUID_2,
       scope: 'global',
       title: 'Global insight 2',
       content: 'Second global insight',
@@ -486,7 +492,7 @@ describe('ledger_get_repository_context — insight deduplication', () => {
       confidence: 1,
     };
     const repoInsight2 = {
-      id: 2,
+      id: UUID_2,
       scope: 'repository',
       repository_name: 'my-repo',
       title: 'Repo insight 2 (duplicate)',
@@ -498,7 +504,7 @@ describe('ledger_get_repository_context — insight deduplication', () => {
       confidence: 1,
     };
     const repoInsight3 = {
-      id: 3,
+      id: UUID_3,
       scope: 'repository',
       repository_name: 'my-repo',
       title: 'Repo insight 3 (unique)',
@@ -527,14 +533,18 @@ describe('ledger_get_repository_context — insight deduplication', () => {
     expect(isError(result as any)).toBe(false);
     const data = parseResult(result as any);
 
-    const ids: number[] = data.relevant_insights.map((ins: { id: number }) => ins.id);
-    expect(ids).toEqual([1, 2, 3]);
+    const ids: string[] = data.relevant_insights.map((ins: { id: string }) => ins.id);
+    // Exactly 3 distinct insights (UUID_2 is deduped)
+    expect(ids).toHaveLength(3);
+    expect(ids).toContain(UUID_1);
+    expect(ids).toContain(UUID_2);
+    expect(ids).toContain(UUID_3);
   });
 
   it('returns all insights unchanged when no duplicates exist', async () => {
-    // Global: id 10; Repo: id 20 — no overlap
+    // Global: UUID_10; Repo: UUID_20 — no overlap
     const globalInsight = {
-      id: 10,
+      id: UUID_10,
       scope: 'global',
       title: 'Global only',
       content: 'No overlap here',
@@ -545,7 +555,7 @@ describe('ledger_get_repository_context — insight deduplication', () => {
       confidence: 1,
     };
     const repoInsight = {
-      id: 20,
+      id: UUID_20,
       scope: 'repository',
       repository_name: 'my-repo',
       title: 'Repo only',
@@ -574,9 +584,9 @@ describe('ledger_get_repository_context — insight deduplication', () => {
     expect(isError(result as any)).toBe(false);
     const data = parseResult(result as any);
 
-    const ids: number[] = data.relevant_insights.map((ins: { id: number }) => ins.id);
-    expect(ids).toContain(10);
-    expect(ids).toContain(20);
+    const ids: string[] = data.relevant_insights.map((ins: { id: string }) => ins.id);
+    expect(ids).toContain(UUID_10);
+    expect(ids).toContain(UUID_20);
     expect(data.relevant_insights).toHaveLength(2);
   });
 });

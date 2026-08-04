@@ -19,10 +19,7 @@
    csModalMode:    null (closed), 'add', or 'edit'.
    csModalStoreId: ID of the store being edited (null in add mode).
    csModalCreateDir: true = create new directory (Add), false = use existing
-                   directory (Import). Defaults to true when opening add mode.
-   csTriggerElement: element that held focus when csRenderStoreModal() was
-                   called; restored by csCloseModal() for WCAG 2.1 SC 3.2.2
-                   focus management, then nulled to avoid stale references. */
+                   directory (Import). Defaults to true when opening add mode. */
 var csStores        = null;
 var csOriginal      = null;
 var csReorderMode   = false;
@@ -30,7 +27,6 @@ var csModalMode     = null;
 var csModalStoreId  = null;
 var csModalCreateDir = true;
 var csClickHandler  = null;
-var csTriggerElement = null;
 
 /* Store ID validation regex — mirrors SLUG_REGEX from src/schema/common.ts. */
 var CS_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -205,7 +201,6 @@ function csRenderReorderView(stores) {
 
 /** Render and insert the store add/edit modal. */
 function csRenderStoreModal(mode, store) {
-  csTriggerElement = document.activeElement;
   var existing = document.getElementById('cs-modal-overlay');
   if (existing) existing.remove();
 
@@ -283,60 +278,18 @@ function csRenderStoreModal(mode, store) {
       '</div>' +
     '</div>';
 
-  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  var overlay = openModal(modalHtml, document.activeElement);
+  var modal   = overlay.querySelector('#cs-modal');
 
-  var overlay = document.getElementById('cs-modal-overlay');
-  var modal   = document.getElementById('cs-modal');
-
-  csWireModalEvents(overlay, modal);
-
-  /* Auto-focus first editable field. */
-  var firstInput = modal.querySelector('input');
-  if (firstInput) firstInput.focus();
-}
-
-/** Close and remove the modal. */
-function csCloseModal() {
-  var overlay = document.getElementById('cs-modal-overlay');
-  if (overlay) overlay.remove();
-  if (csTriggerElement && typeof csTriggerElement.focus === 'function') {
-    csTriggerElement.focus();
-  }
-  csTriggerElement = null;
-  csModalMode    = null;
-  csModalStoreId = null;
-}
-
-/** Wire keyboard / overlay-click / focus-trap for the open modal. */
-function csWireModalEvents(overlay, modal) {
-  /* Close on overlay click */
-  overlay.addEventListener('click', function (e) {
-    if (e.target === overlay) csCloseModal();
-  });
-
-  /* Focus trap: redirect Tab/Shift+Tab to stay inside modal */
-  overlay.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-      csCloseModal();
-      return;
-    }
-    if (e.key !== 'Tab') return;
-    var focusable = modal.querySelectorAll(
-      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    if (!focusable.length) { e.preventDefault(); return; }
-    var first = focusable[0];
-    var last  = focusable[focusable.length - 1];
-    if (e.shiftKey) {
-      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-    } else {
-      if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+  wireModalEvents(overlay, {
+    onSubmit: csHandleModalSave,
+    excludeTextarea: false,
+    onClose: function () {
+      closeModal(overlay);
+      csModalMode = null;
+      csModalStoreId = null;
     }
   });
-
-  /* Close button */
-  document.getElementById('cs-modal-close-btn').addEventListener('click', csCloseModal);
-  document.getElementById('cs-modal-cancel-btn').addEventListener('click', csCloseModal);
 
   /* Dir-mode radio toggle (only present in add mode) */
   var radios = modal.querySelectorAll('input[name="cs-dir-mode"]');
@@ -348,19 +301,11 @@ function csWireModalEvents(overlay, modal) {
     });
   }
 
-  /* Enter submits */
-  modal.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') {
-      e.preventDefault();
-      var saveBtn = document.getElementById('cs-modal-save-btn');
-      if (saveBtn && !saveBtn.disabled) saveBtn.click();
-    }
-  });
+  document.getElementById('cs-modal-save-btn').addEventListener('click', csHandleModalSave);
 
-  /* Save button */
-  document.getElementById('cs-modal-save-btn').addEventListener('click', function () {
-    csHandleModalSave();
-  });
+  /* Auto-focus first editable field. */
+  var firstInput = modal.querySelector('input');
+  if (firstInput) firstInput.focus();
 }
 
 /* ── Modal save logic ────────────────────────────────────── */
@@ -409,7 +354,12 @@ function csHandleModalSave() {
        The API requires label: string, so sending {} would fail with 'Required'. */
     var existingStore = csFindStore(csModalStoreId);
     var existingLabel = existingStore ? (existingStore.label || '') : '';
-    if (!label && !existingLabel) { csCloseModal(); return; }
+    if (!label && !existingLabel) {
+      closeModal(document.getElementById('cs-modal-overlay'));
+      csModalMode = null;
+      csModalStoreId = null;
+      return;
+    }
     if (!label) {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
       var labelErrEl = document.getElementById('cs-modal-label-err');
@@ -418,7 +368,9 @@ function csHandleModalSave() {
     }
     API.updateStore(csModalStoreId, { label: label })
       .then(function (stores) {
-        csCloseModal();
+        closeModal(document.getElementById('cs-modal-overlay'));
+        csModalMode = null;
+        csModalStoreId = null;
         csRefreshWithStores(stores);
       })
       .catch(function (err) {
@@ -440,7 +392,9 @@ function csHandleModalSave() {
   var apiCall = csModalCreateDir ? API.addStore(data) : API.importStore(data);
 
   apiCall.then(function (result) {
-    csCloseModal();
+    closeModal(document.getElementById('cs-modal-overlay'));
+    csModalMode = null;
+    csModalStoreId = null;
     /* importStore returns { stores, warning? }; addStore returns stores[] */
     var updatedStores = result && result.stores ? result.stores : result;
     var warning       = result && result.warning ? result.warning : null;

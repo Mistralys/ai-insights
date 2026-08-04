@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
+import { randomUUID } from 'crypto';
 import type { Dirent } from 'fs';
 import {
   KnowledgeStoreSchema,
@@ -153,35 +154,17 @@ export class KnowledgeStoreManager {
     });
   }
 
-  // ==================== ID Generation ====================
-
-  /**
-   * Increments the store's next_id counter and returns the formatted ID string.
-   *
-   * Mutates the store object in-place — the updated store must be written to disk
-   * for the counter to persist across process restarts.
-   *
-   * @param store - The store whose counter should be incremented
-   * @returns Formatted ID string in KN-NNNN format (e.g., "KN-0001" for next_id=1)
-   */
-  nextId(store: KnowledgeStore): string {
-    const id = store.next_id;
-    store.next_id = id + 1;
-    return `KN-${String(id).padStart(4, '0')}`;
-  }
-
   // ==================== CRUD Operations ====================
 
   /**
    * Adds a new insight to the appropriate store (global or repository-scoped).
    *
-   * Assigns the numeric id from the store's next_id counter and persists the
-   * incremented counter. Enforces the repository_name requirement for
-   * repository-scoped insights. The entire read-modify-write sequence runs
-   * under a single lock.
+   * Assigns a UUID v4 as the id via `crypto.randomUUID()`. Enforces the
+   * repository_name requirement for repository-scoped insights. The entire
+   * read-modify-write sequence runs under a single lock.
    *
-   * @param input - Insight data without the id field (auto-assigned from next_id)
-   * @returns The created Insight with the assigned numeric id
+   * @param input - Insight data without the id field (auto-assigned)
+   * @returns The created Insight with the assigned UUID id
    * @throws Error if scope === 'repository' and repository_name is absent
    */
   async addInsight(input: Omit<Insight, 'id'>): Promise<Insight> {
@@ -197,13 +180,7 @@ export class KnowledgeStoreManager {
 
       const store = await this._readStore(storePath);
 
-      // Save the numeric id before nextId increments the counter.
-      // The KN-NNNN return value of nextId() is intentionally discarded here —
-      // display-format IDs are produced by MCP tool layer consumers, not stored.
-      const numericId = store.next_id;
-      this.nextId(store);
-
-      const insight: Insight = InsightSchema.parse({ ...input, id: numericId });
+      const insight: Insight = InsightSchema.parse({ ...input, id: randomUUID() });
       store.insights.push(insight);
       store.last_updated = now();
 
@@ -329,11 +306,11 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Updates an existing insight by numeric ID.
+   * Updates an existing insight by UUID.
    *
    * When `filter.scope` and/or `filter.repository_name` are provided the search is
    * restricted to the matching store(s), preventing accidental global-insight
-   * mutation when the same numeric ID exists in multiple stores. Without a
+   * mutation when the same ID exists in multiple stores. Without a
    * filter, all stores are scanned (original behaviour — preserved for
    * backwards compatibility).
    *
@@ -343,14 +320,14 @@ export class KnowledgeStoreManager {
    * Immutable fields (id, scope, repository_name, created_at) are not accepted
    * in the updates parameter.
    *
-   * @param id - Numeric insight id
+   * @param id - UUID insight id
    * @param updates - Partial insight fields to update
    * @param filter - Optional scope/repository_name filter to restrict which store is searched
    * @returns The updated Insight
    * @throws Error if no insight with the given id exists in the filtered stores
    */
   async updateInsight(
-    id: number,
+    id: string,
     updates: Partial<
       Pick<Insight, 'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'>
     >,
@@ -391,17 +368,17 @@ export class KnowledgeStoreManager {
    * The operation performs these steps inside a single withLock(knowledgeDir) span:
    *   1. Resolve the source store path(s) from sourceFilter.
    *   2. Find the insight by id in the source store — throws if not found.
-   *   3. Construct the moved insight: new id (from the target store's next_id counter),
-   *      corrected scope/repository_name, and a fresh updated_at timestamp.
+   *   3. Construct the moved insight: original UUID preserved, corrected
+   *      scope/repository_name, and a fresh updated_at timestamp.
    *   4. Validate the new insight with InsightSchema.parse(…).
-   *   5. Write the updated target store (with the new insight appended) via atomicWriteJson.
+   *   5. Write the updated target store (with the moved insight appended) via atomicWriteJson.
    *   6. Remove the original insight from the source store and write it via atomicWriteJson.
    *
-   * @param id - Numeric id of the insight to move
+   * @param id - UUID of the insight to move
    * @param sourceFilter - Scope (and optional repository_name) of the store containing the insight
    * @param targetScope - Destination scope ('global' or 'repository')
    * @param targetRepositoryName - Required when targetScope === 'repository'
-   * @returns The moved Insight with new id, corrected scope/repository_name, and updated_at
+   * @returns The moved Insight with preserved UUID, corrected scope/repository_name, and updated_at
    * @throws Error if the insight is not found in the source store(s)
    * @throws Error if targetScope === 'repository' and targetRepositoryName is absent
    * @throws Error if source and target resolve to the same store (identity move)
@@ -409,7 +386,7 @@ export class KnowledgeStoreManager {
    *   This method acquires the lock itself; a nested call would deadlock.
    */
   async moveInsight(
-    id: number,
+    id: string,
     sourceFilter: { scope: InsightScope; repository_name?: string },
     targetScope: InsightScope,
     targetRepositoryName?: string
@@ -464,14 +441,11 @@ export class KnowledgeStoreManager {
 
       const targetStore = await this._readStore(targetStorePath);
 
-      // 4. Construct the moved insight with new id, scope, and updated_at
-      const newNumericId = targetStore.next_id;
-      targetStore.next_id = newNumericId + 1;
-      const movedAt = now(); // capture once — reused for both movedInsight.updated_at and store.last_updated
+      // 4. Construct the moved insight: preserve original UUID, update scope and updated_at
+      const movedAt = now(); // capture once — used for movedInsight.updated_at and targetStore.last_updated
 
       const movedInsight: Insight = InsightSchema.parse({
         ...originalInsight,
-        id: newNumericId,
         scope: targetScope,
         repository_name: targetScope === 'global' ? undefined : targetRepositoryName,
         updated_at: movedAt,
@@ -494,21 +468,21 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Deletes an insight by numeric ID.
+   * Deletes an insight by UUID.
    *
    * When `filter.scope` and/or `filter.repository_name` are provided the search is
    * restricted to the matching store(s), preventing accidental global-insight
-   * deletion when the same numeric ID exists in multiple stores. Without a
+   * deletion when the same ID exists in multiple stores. Without a
    * filter, all stores are scanned (original behaviour — preserved for
    * backwards compatibility).
    *
    * The entire read-modify-write sequence runs under a single lock.
    *
-   * @param id - Numeric insight id
+   * @param id - UUID insight id
    * @param filter - Optional scope/repository_name filter to restrict which store is searched
    * @throws Error if no insight with the given id exists in the filtered stores
    */
-  async deleteInsight(id: number, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void> {
+  async deleteInsight(id: string, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void> {
     await withLock(this.knowledgeDir(), async () => {
       const storePaths = await this._storePathsForFilter(filter);
 
@@ -580,13 +554,12 @@ export class KnowledgeStoreManager {
   }
 
   /**
-   * Creates a valid empty KnowledgeStore with next_id starting at 1.
+   * Creates a valid empty KnowledgeStore at schema version 2.0.0.
    */
   private _emptyStore(): KnowledgeStore {
     return {
-      version: '1.0.0',
+      version: '2.0.0',
       last_updated: now(),
-      next_id: 1,
       insights: [],
     };
   }

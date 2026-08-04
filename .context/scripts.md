@@ -18,6 +18,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── cli.js
     └── extract-changelog-entry.js
     └── extract-dialogue.js
+    └── generate-agents-overview.js
     └── import-standalone.js
     └── install-hooks.js
     └── install-mcp-global.js
@@ -25,6 +26,8 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── lib/
         ├── health-checks.js
         ├── persona-model-resolution.js
+        ├── store-commands.js
+        ├── yaml-utils.js
     └── normalize-ctx-paths.js
     └── package-personas.js
     └── preflight-bootstrap.js
@@ -54,6 +57,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
+import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -159,76 +163,6 @@ if (!CHECK) {
   const registryDir = path.join(ROOT, 'personas', 'model-registry');
   const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir);
 
-  /**
-   * Extracts simple scalar (string/number) fields from a YAML file without
-   * external dependencies. Only top-level key: value lines are parsed; nested
-   * structures and lists are ignored.
-   */
-  function parseYamlScalars(text, fields) {
-
-    const result = {};
-    for (const line of text.split(/\r?\n/)) {
-      const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
-      if (!m) continue;
-      const key = m[1];
-      if (!fields.includes(key)) continue;
-      let val = m[2].trim();
-      // Strip surrounding single or double quotes (handles `"value"` and `'value'`).
-      // Also handles quoted values followed by a trailing inline comment:
-      //   `key: "value"   # comment` → first match the closing quote, strip comment, then unquote.
-      if (val.startsWith('"') || val.startsWith("'")) {
-        const q = val[0];
-        // Find the closing quote; content between quotes may contain any char.
-        const closeIdx = val.indexOf(q, 1);
-        if (closeIdx !== -1) {
-          val = val.slice(1, closeIdx);
-        } else {
-          // Unclosed quote — fall back to comment-strip and trim
-          val = val.replace(/\s+#.*$/, '').trim();
-        }
-      } else {
-        // Unquoted scalar: strip trailing inline YAML comment
-        // e.g. `role: Developer # note` → `Developer`
-        val = val.replace(/\s+#.*$/, '').trim();
-      }
-      result[key] = val;
-    }
-    return result;
-  }
-
-  /**
-   * Extracts the string content of a YAML block scalar (`key: |` or `key: |-`)
-   * from raw YAML text without a full YAML parse.
-   * Returns the block content (newline-joined, trimmed) or undefined when the
-   * key is absent or does not use a block scalar indicator.
-   */
-  function extractYamlBlockScalar(text, key) {
-    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re    = new RegExp(`^${escaped}\\s*:\\s*\\|[-+]?\\s*$`, 'm');
-    const match = re.exec(text);
-    if (!match) return undefined;
-
-    const after   = text.slice(match.index + match[0].length);
-    const lines   = after.split(/\r?\n/);
-    let   indent  = -1;
-    const content = [];
-
-    for (const line of lines) {
-      if (line.trim() === '') {
-        if (indent !== -1) content.push('');
-        continue;
-      }
-      const m          = line.match(/^(\s+)/);
-      const lineIndent = m ? m[1].length : 0;
-      if (lineIndent === 0) break;            // outdented — end of block scalar
-      if (indent === -1) indent = lineIndent; // first content line determines indent
-      if (lineIndent < indent) break;
-      content.push(line.slice(indent));
-    }
-
-    const joined = content.join('\n').trimEnd();
-    return joined || undefined;
-  }
 
   /**
    * Extracts the version string from a `changelog: |` block scalar in raw YAML
@@ -703,8 +637,9 @@ try {
 import fs from 'fs';
 import path from 'path';
 
-const ROOT      = path.resolve(import.meta.dirname, '..');
-const BUILD_DIR = path.join(ROOT, 'build');
+const ROOT        = path.resolve(import.meta.dirname, '..');
+const BUILD_DIR   = path.join(ROOT, 'build');
+const TEMPLATES   = path.join(ROOT, 'scripts', 'templates');
 
 // NotebookLM sources
 const MCP_README            = path.join(ROOT, 'mcp-server', 'README.md');
@@ -812,20 +747,17 @@ function buildNotebookLM() {
 
   const parts = [];
 
-  // Preamble
-  parts.push([
-    '# AI Insights \u2014 Combined Reference for NotebookLM',
-    '',
-    `> **Generated:** ${new Date().toISOString().slice(0, 10)}`,
-    '> ',
-    '> This document bundles the core documentation from two sub-projects in the',
-    '> **AI Insights** workspace so that NotebookLM can reason about them in a',
-    '> single source.',
-    '>',
-    '> **Contents:**',
-    '> 1. Project Ledger MCP Server \u2014 README + Project Manifest',
-    '> 2. Ledger Personas Build System \u2014 README + Project Manifest',
-  ].join('\n'));
+  // Preamble — static content from template; date injected after heading
+  const headerTpl = fs.readFileSync(path.join(TEMPLATES, 'notebooklm-bundle-header.md'), 'utf-8');
+  const now       = new Date().toISOString().slice(0, 10);
+  parts.push(
+    headerTpl
+      .replace(
+        /^(# AI Insights — Combined Reference for NotebookLM)\n/,
+        `$1\n\n> **Generated:** ${now}\n> \n`,
+      )
+      .trimEnd(),
+  );
 
   // MCP Server README
   console.log(`    ${c.cyan}+${c.reset} MCP Server README`);
@@ -1127,6 +1059,18 @@ import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import {
+  storeInit,
+  storeAdd,
+  storeRemove,
+  storeList,
+  storeSetDefault,
+  storeConflicts,
+  storeStatus,
+  storeRepoAdd,
+  storeRepoMove,
+  storeRepoList,
+} from './lib/store-commands.js';
 
 // --- Constants ---
 
@@ -1517,6 +1461,8 @@ function cmdBuildMaintain(args) {
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
   if (buildCode !== 0) process.exit(buildCode);
+  const overviewCode = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js')], { cwd: WORKSPACE_ROOT });
+  if (overviewCode !== 0) process.exit(overviewCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
   cmdCtxGenerate(args);
@@ -1551,6 +1497,11 @@ function cmdCheckVersions() {
 
 function cmdBundleDocs(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'bundle-docs.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdGenerateOverview(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
 }
 
@@ -1639,6 +1590,213 @@ function cmdKillOrchestrator(args) {
 
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'kill-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
+}
+
+// ─── Store command group ──────────────────────────────────────────────────────
+
+/**
+ * Formats and prints a storeList result to the console.
+ * @param {Array} stores
+ * @param {string} defaultStore
+ */
+function printStoreList(stores, defaultStore) {
+  if (stores.length === 0) {
+    log('  No stores configured. Run `store init` to get started.', 'dim');
+    return;
+  }
+  for (const s of stores) {
+    const marker = s.is_default ? C.green('★ default') : C.dim('         ');
+    log(`  ${marker}  ${C.bold(s.id)}  ${C.dim(s.path)}`);
+    log(`           repos: ${s.repo_count}  projects: ${s.project_count}`);
+  }
+}
+
+function cmdStore(args) {
+  const sub  = args[0];
+  const rest = args.slice(1);
+
+  switch (sub) {
+
+    case 'init': {
+      const ledgerRoot = rest[0] ?? undefined;
+      const result = storeInit({ ledgerRoot });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} stores.json created at ${result.configPath}`);
+      log(`    Default store → ${result.config.stores[0].path}`);
+      break;
+    }
+
+    case 'add': {
+      const [id, storePath] = rest;
+      if (!id || !storePath) {
+        log('  Usage: store add <id> <path>', 'red');
+        process.exit(1);
+      }
+      const result = storeAdd({ id, storePath });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} Store '${result.id}' added → ${result.path}`);
+      break;
+    }
+
+    case 'remove': {
+      const [id] = rest;
+      if (!id) { log('  Usage: store remove <id>', 'red'); process.exit(1); }
+      const result = storeRemove({ id });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      if (result.warned) {
+        log(`  ${C.yellow('⚠')} Store '${id}' removed from stores.json.`, 'yellow');
+        log(`    ${C.yellow('Warning:')} The store's .repositories.json contains entries. The directory was NOT deleted.`, 'yellow');
+      } else {
+        log(`  ${C.green('✓')} Store '${id}' removed from stores.json (directory not deleted).`);
+      }
+      break;
+    }
+
+    case 'list': {
+      const result = storeList();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to load stores.json.`, 'red');
+        process.exit(1);
+      }
+      printStoreList(result.stores, result.default_store);
+      break;
+    }
+
+    case 'default': {
+      const [id] = rest;
+      if (!id) { log('  Usage: store default <id>', 'red'); process.exit(1); }
+      const result = storeSetDefault({ id });
+      if (!result.ok) {
+        log(`  ${C.red('✗')} ${result.reason}`, 'red');
+        process.exit(1);
+      }
+      log(`  ${C.green('✓')} Default store set to '${result.default_store}'.`);
+      break;
+    }
+
+    case 'conflicts': {
+      const result = storeConflicts();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to detect conflicts.`, 'red');
+        process.exit(1);
+      }
+      if (result.conflicts.length === 0) {
+        log(`  ${C.green('✓')} No conflicts — each repository is registered in exactly one store.`);
+      } else {
+        log(`  ${C.yellow('⚠')} Found ${result.conflicts.length} conflict(s):`);
+        for (const c of result.conflicts) {
+          log(`\n  ${C.bold(c.repo_name)}`);
+          for (const e of c.entries) {
+            const tag = e.store_id === c.winner_store_id
+              ? C.green('  Active (winner)  ')
+              : C.red('  Shadowed         ');
+            log(`    ${tag}  ${C.dim('store:')} ${e.store_id}`);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'status': {
+      const result = storeStatus();
+      if (!result.ok) {
+        log(`  ${C.red('✗')} Failed to retrieve store status.`, 'red');
+        process.exit(1);
+      }
+      if (result.statuses.length === 0) {
+        log('  No stores configured.', 'dim');
+      } else {
+        for (const s of result.statuses) {
+          if (!s.is_git) {
+            log(`  ${C.dim('—')} ${C.bold(s.id)}  ${C.dim('(not a git repo)')}`);
+          } else if (s.status === 'no upstream') {
+            log(`  ${C.yellow('?')} ${C.bold(s.id)}  ${C.dim('(no upstream configured)')}`);
+          } else {
+            const ahead  = s.ahead  > 0 ? C.yellow(`↑${s.ahead}`)  : '';
+            const behind = s.behind > 0 ? C.yellow(`↓${s.behind}`) : '';
+            const sync   = (s.ahead === 0 && s.behind === 0)
+              ? C.green('in sync')
+              : [ahead, behind].filter(Boolean).join(' ');
+            log(`  ${C.bold(s.id)}  ${sync}  ${C.dim(s.path)}`);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'repo': {
+      const repoSub = rest[0];
+      const repoRest = rest.slice(1);
+
+      switch (repoSub) {
+
+        case 'add': {
+          const [repoName, storeId] = repoRest;
+          if (!repoName || !storeId) {
+            log('  Usage: store repo add <repo-name> <store-id>', 'red');
+            process.exit(1);
+          }
+          const result = storeRepoAdd({ repoName, storeId });
+          if (!result.ok) {
+            log(`  ${C.red('✗')} ${result.reason}`, 'red');
+            process.exit(1);
+          }
+          log(`  ${C.green('✓')} Repository '${result.repoName}' added to store '${result.storeId}'.`);
+          break;
+        }
+
+        case 'move': {
+          const [repoName, targetStoreId] = repoRest;
+          if (!repoName || !targetStoreId) {
+            log('  Usage: store repo move <repo-name> <target-store-id>', 'red');
+            process.exit(1);
+          }
+          const result = storeRepoMove({ repoName, targetStoreId });
+          if (!result.ok) {
+            log(`  ${C.red('✗')} ${result.reason}`, 'red');
+            process.exit(1);
+          }
+          log(`  ${C.green('✓')} Repository '${result.repoName}' moved from '${result.fromStoreId}' → '${result.toStoreId}'.`);
+          break;
+        }
+
+        case 'list': {
+          const result = storeRepoList();
+          if (!result.ok) {
+            log(`  ${C.red('✗')} Failed to load repo list.`, 'red');
+            process.exit(1);
+          }
+          if (result.repos.length === 0) {
+            log('  No repositories registered in any store.', 'dim');
+          } else {
+            for (const r of result.repos) {
+              const shadow = r.is_shadowed ? C.red(' [shadowed]') : '';
+              log(`  ${C.bold(r.folder_names?.join(', ') ?? r.id)}${shadow}  ${C.dim('store:')} ${r.store_id}`);
+            }
+          }
+          break;
+        }
+
+        default:
+          log(`  Unknown repo subcommand '${repoSub ?? ''}'. Use: store repo add|move|list`, 'red');
+          process.exit(1);
+      }
+      break;
+    }
+
+    default:
+      log(`  Unknown store subcommand '${sub ?? ''}'. Use: store init|add|remove|list|default|conflicts|status|repo`, 'red');
+      process.exit(1);
+  }
 }
 
 async function cmdOrchestratorTests(args) {
@@ -1899,6 +2057,14 @@ const COMMANDS = [
     run:         cmdCtxGenerate,
   },
   {
+    id:          'generate-overview',
+    key:         null,
+    label:       'Generate agents overview',
+    category:    'Validation & Utilities',
+    description: 'Generate docs/references/agents-overview.md from persona YAML metadata',
+    run:         cmdGenerateOverview,
+  },
+  {
     id:          'check-versions',
     key:         null,
     label:       'Check version sync',
@@ -1917,6 +2083,27 @@ const COMMANDS = [
       ['orchestrator-tests --live',  'Include live MCP tests (auto-builds, needs API key)'],
     ],
     run:          cmdOrchestratorTests,
+  },
+  {
+    id:           'store',
+    key:          null,
+    label:        'Store management',
+    category:     'MCP Server',
+    description:  'Manage multi-store ledger configuration and repositories',
+    helpVariants: [
+      ['store init [ledger-root]',                    'Create stores.json pointing at ledger root'],
+      ['store add <id> <path>',                       'Register a new store directory'],
+      ['store remove <id>',                           'Remove a store (directory not deleted)'],
+      ['store list',                                  'Show all stores with repo and project counts'],
+      ['store default <id>',                          'Set the default store'],
+      ['store conflicts',                             'Show cross-store repository registry conflicts'],
+      ['store status',                                'Show Git sync status for each store'],
+      ['store repo add <repo-name> <store-id>',       'Add a repository to a store registry'],
+      ['store repo move <repo-name> <target-store-id>', 'Move a repository between stores'],
+      ['store repo list',                             'List all repositories across all stores'],
+    ],
+    helpHidden:   true,
+    run:          cmdStore,
   },
 ];
 
@@ -2573,6 +2760,255 @@ function main() {
 }
 
 main();
+
+```
+###  Path: `/scripts/generate-agents-overview.js`
+
+```js
+#!/usr/bin/env node
+/**
+ * scripts/generate-agents-overview.js
+ *
+ * Generates docs/references/agents-overview.md from persona YAML metadata across all
+ * three suites (ledger, standalone, ledger-support).
+ *
+ * Usage:
+ *   node scripts/generate-agents-overview.js          — generate and write
+ *   node scripts/generate-agents-overview.js --check  — exit 0 if current, 1 if stale
+ *   node scripts/generate-agents-overview.js --dry-run — alias for --check
+ */
+
+import fs   from 'fs';
+import path from 'path';
+import {
+  parseYamlScalars,
+  extractYamlBlockScalar,
+  extractYamlSequence,
+} from './lib/yaml-utils.js';
+
+const ROOT          = path.resolve(import.meta.dirname, '..');
+const OUTPUT_FILE   = path.join(ROOT, 'docs', 'references', 'agents-overview.md');
+const HEADER_FILE   = path.join(ROOT, 'scripts', 'templates', 'agents-overview-header.md');
+
+const LEDGER_META   = path.join(ROOT, 'personas', 'ledger',        'src', 'meta');
+const STANDALONE_META = path.join(ROOT, 'personas', 'standalone',  'src', 'meta');
+const SUPPORT_META  = path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta');
+
+const isCheck = process.argv.includes('--check') || process.argv.includes('--dry-run');
+
+// ─── Version helper ───────────────────────────────────────────────────────────
+
+/**
+ * Extracts version from a `changelog: |` block scalar.
+ */
+function resolveVersionFromChangelog(text) {
+  const content = extractYamlBlockScalar(text, 'changelog');
+  if (!content) return undefined;
+  for (const line of content.split(/\r?\n/)) {
+    const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
+    if (withDate) return withDate[1];
+    const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+    if (withoutDate) return withoutDate[1];
+  }
+  return undefined;
+}
+
+// ─── Persona loading ──────────────────────────────────────────────────────────
+
+const LEDGER_SCALARS     = ['number', 'role', 'identity', 'description', 'inputs', 'outputs', 'notes'];
+const STANDALONE_SCALARS = ['slug', 'name', 'description', 'identity', 'use_when', 'notes'];
+
+/**
+ * Parse one persona YAML file into a normalized persona object.
+ * @param {string} filePath
+ * @param {'ledger'|'standalone'|'support'} suite
+ * @returns {object}
+ */
+function loadPersona(filePath, suite) {
+  const text    = fs.readFileSync(filePath, 'utf8');
+  const fields  = suite === 'ledger' ? LEDGER_SCALARS : STANDALONE_SCALARS;
+  const scalars = parseYamlScalars(text, fields);
+
+  const version     = resolveVersionFromChangelog(text);
+  const key_behavior = extractYamlBlockScalar(text, 'key_behavior');
+  const modes        = extractYamlBlockScalar(text, 'modes');
+  const subagents    = extractYamlSequence(text, 'subagents');
+
+  return { ...scalars, version, key_behavior, modes, subagents, suite };
+}
+
+/**
+ * Load all non-_shared.yaml personas from a meta directory.
+ */
+function loadSuite(dir, suite) {
+  return fs
+    .readdirSync(dir)
+    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
+    .sort()
+    .map(f => loadPersona(path.join(dir, f), suite));
+}
+
+// ─── Slug → name lookup ───────────────────────────────────────────────────────
+
+/**
+ * Build a map of slug → display name from standalone + support personas so
+ * subagent references can be rendered with human-readable names.
+ */
+function buildSlugMap(standalone, support) {
+  const map = {};
+  for (const p of [...standalone, ...support]) {
+    const slug = p.slug || p.name?.toLowerCase().replace(/\s+/g, '-') || '';
+    if (slug) map[slug] = p.name || slug;
+  }
+  return map;
+}
+
+// ─── Name formatting ──────────────────────────────────────────────────────────
+
+/**
+ * Normalize display names: "(Standalone)" → "— Standalone" to avoid
+ * double-parentheses in headings like "### Developer (Standalone) (v1.4.0)".
+ */
+function displayName(name) {
+  return name.replace(/\(Standalone\)/, '— Standalone');
+}
+
+// ─── Markdown rendering ───────────────────────────────────────────────────────
+
+function renderSubagents(slugs, slugMap) {
+  if (!slugs || slugs.length === 0) return '';
+  const names = slugs.map(s => slugMap[s] || s);
+  return `- **Sub-agents:** ${names.join(', ')}\n`;
+}
+
+function renderKeyBehavior(kb) {
+  if (!kb) return '';
+  const firstLine = kb.split(/\r?\n/).find(l => l.trim());
+  return firstLine ? `- **Key Behavior:** ${firstLine}\n` : '';
+}
+
+function renderModes(modes) {
+  if (!modes) return '';
+  const items = modes.split(/\r?\n/).filter(l => l.trim()).join(', ');
+  return items ? `- **Modes:** ${items}\n` : '';
+}
+
+/**
+ * Render a ledger pipeline persona entry.
+ */
+function renderLedgerPersona(p, slugMap) {
+  const name    = p.role || '(unknown)';
+  const version = p.version || '?';
+  const number  = p.number || '?';
+
+  let md = `### Stage ${number} — ${name} (v${version})\n\n`;
+  if (p.identity) md += `**Identity:** ${p.identity}\n\n`;
+  if (p.description) md += `${p.description}\n\n`;
+  if (p.inputs)  md += `- **Inputs:** ${p.inputs}\n`;
+  if (p.outputs) md += `- **Outputs:** ${p.outputs}\n`;
+  md += renderKeyBehavior(p.key_behavior);
+  md += renderSubagents(p.subagents, slugMap);
+  md += '\n---\n\n';
+  return md;
+}
+
+/**
+ * Render a standalone or ledger-support persona entry.
+ */
+function renderStandalonePersona(p, slugMap) {
+  const name    = displayName(p.name || '(unknown)');
+  const version = p.version || '?';
+
+  let md = `### ${name} (v${version})\n\n`;
+  if (p.identity)    md += `**Identity:** ${p.identity}\n\n`;
+  if (p.description) md += `${p.description}\n\n`;
+  md += renderModes(p.modes);
+  if (p.use_when) md += `- **Use When:** ${p.use_when}\n`;
+  md += renderKeyBehavior(p.key_behavior);
+  md += renderSubagents(p.subagents, slugMap);
+  if (p.notes) md += `- **Notes:** ${p.notes}\n`;
+  md += '\n---\n\n';
+  return md;
+}
+
+// ─── Document generation ──────────────────────────────────────────────────────
+
+function generate(ledger, standalone, support, slugMap) {
+  const header     = fs.readFileSync(HEADER_FILE, 'utf8');
+  const now        = new Date().toISOString().slice(0, 10);
+  const total      = ledger.length + standalone.length + support.length;
+
+  let doc = '';
+
+  // Front matter comment and generated-by notice
+  doc += `<!-- Generated by scripts/generate-agents-overview.js — do not edit manually -->\n`;
+  doc += `<!-- To regenerate: node scripts/generate-agents-overview.js -->\n\n`;
+
+  // Replace the first heading in the header with a heading that includes the timestamp
+  const headerWithMeta = header.replace(
+    /^# AI Insights — Agent Persona Overview\n/,
+    `# AI Insights — Agent Persona Overview\n\n` +
+    `> **Generated:** ${now}\n` +
+    `> **Total Personas:** ${total}\n\n` +
+    `This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.\n`
+  );
+  doc += headerWithMeta;
+
+  // Ledger section
+  doc += `## Ledger Pipeline Personas (9-Stage Workflow)\n\n`;
+  for (const p of ledger) doc += renderLedgerPersona(p, slugMap);
+
+  // Standalone section
+  doc += `## Standalone Personas\n\n`;
+  for (const p of standalone) doc += renderStandalonePersona(p, slugMap);
+
+  // Ledger-support section
+  doc += `## Ledger-Support Personas\n\n`;
+  for (const p of support) doc += renderStandalonePersona(p, slugMap);
+
+  // Summary table
+  doc += `## Summary\n\n`;
+  doc += `| Suite | Count | Description |\n`;
+  doc += `|-------|-------|-------------|\n`;
+  doc += `| Ledger Pipeline | ${ledger.length} | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |\n`;
+  doc += `| Standalone | ${standalone.length} | On-demand utility agents for planning, documentation, code review, release management, and more |\n`;
+  doc += `| Ledger-Support | ${support.length} | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |\n`;
+  doc += `| **Total** | **${total}** | |\n`;
+
+  return doc;
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+const ledger     = loadSuite(LEDGER_META,     'ledger');
+const standalone = loadSuite(STANDALONE_META, 'standalone');
+const support    = loadSuite(SUPPORT_META,    'support');
+const slugMap    = buildSlugMap(standalone, support);
+
+const output = generate(ledger, standalone, support, slugMap);
+
+if (isCheck) {
+  if (!fs.existsSync(OUTPUT_FILE)) {
+    console.error(`[STALE] ${OUTPUT_FILE} does not exist. Run without --check to generate.`);
+    process.exit(1);
+  }
+  const existing = fs.readFileSync(OUTPUT_FILE, 'utf8');
+
+  // Strip the generated timestamp before comparing so date changes don't cause
+  // false-positive stale detection.
+  const normalize = s => s.replace(/^> \*\*Generated:\*\* .+$/m, '> **Generated:** (date)');
+  if (normalize(existing) === normalize(output)) {
+    console.log('docs/references/agents-overview.md is up to date.');
+    process.exit(0);
+  } else {
+    console.error('[STALE] docs/references/agents-overview.md is out of date. Run node scripts/generate-agents-overview.js to regenerate.');
+    process.exit(1);
+  }
+} else {
+  fs.writeFileSync(OUTPUT_FILE, output, 'utf8');
+  const total = ledger.length + standalone.length + support.length;
+  console.log(`Generated docs/references/agents-overview.md (${total} personas).`);
+}
 
 ```
 ###  Path: `/scripts/import-standalone.js`
@@ -3858,8 +4294,31 @@ const ORCHESTRATOR_DIR  = path.join(WORKSPACE_ROOT, 'orchestrator');
 const VENV_DIR          = path.join(ORCHESTRATOR_DIR, '.venv');
 const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
 const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
+const OVERVIEW_FILE     = path.join(WORKSPACE_ROOT, 'docs', 'references', 'agents-overview.md');
+const PERSONA_META_DIRS = [
+  path.join(PERSONAS_DIR, 'ledger',        'src', 'meta'),
+  path.join(PERSONAS_DIR, 'standalone',    'src', 'meta'),
+  path.join(PERSONAS_DIR, 'ledger-support', 'src', 'meta'),
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Find the latest mtime (ms) among the immediate files of a flat directory
+ * (no subdirectory recursion). Returns -Infinity when unreadable or empty.
+ * Use this for known flat dirs (e.g. persona meta/ directories).
+ * @param {string} dir
+ * @returns {number}
+ */
+function latestMtimeFlat(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(e => e.isFile())
+      .reduce((max, e) => Math.max(max, fs.statSync(path.join(dir, e.name)).mtimeMs), -Infinity);
+  } catch {
+    return -Infinity;
+  }
+}
 
 /**
  * Recursively find the latest mtime (ms) among all files in a directory.
@@ -4006,6 +4465,21 @@ export const HEALTH_CHECKS = [
       return latestMtime(MCP_SRC_DIR) <= distMtime;
     },
     fix: 'cd mcp-server && npm run build',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'overview-fresh',
+    label: 'Agents overview up to date',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      if (!fs.existsSync(OVERVIEW_FILE)) return false;
+      const overviewMtime = fs.statSync(OVERVIEW_FILE).mtimeMs;
+      const latestYaml = Math.max(...PERSONA_META_DIRS.map(d => latestMtimeFlat(d)));
+      return latestYaml <= overviewMtime;
+    },
+    fix: 'node scripts/cli.js generate-overview',
   },
 
   /** @type {SyncCheck} */
@@ -4314,6 +4788,710 @@ export function resolveModel(
 
   // 5. Ultimate fallback — inherit sentinel
   return { model: 'Inherit / Auto', model_slug: 'inherit', cc_model: 'inherit' };
+}
+
+```
+###  Path: `/scripts/lib/store-commands.js`
+
+```js
+/**
+ * scripts/lib/store-commands.js
+ *
+ * Pure-JavaScript implementation of the `store` command group.
+ *
+ * All exported functions accept an optional `_configPath` parameter for test
+ * isolation — when provided, it overrides the default `~/.ai-insights/stores.json`
+ * location so tests can work with temporary directories without touching real
+ * user-level config.
+ *
+ * File formats are compatible with the TypeScript storage modules:
+ *   - stores.json      → StoresConfigSchema
+ *   - .repositories.json → RepositoryRegistrySchema
+ *
+ * ## Public command API (consumed by scripts/cli.js → cmdStore())
+ *
+ *   storeInit, storeAdd, storeRemove, storeList, storeSetDefault,
+ *   storeConflicts, storeStatus, storeRepoAdd, storeRepoMove, storeRepoList
+ *
+ * ## Exported for test isolation only (not part of the public CLI API)
+ *
+ *   resolveConfigPath, expandPath, registryPath,
+ *   loadConfig, saveConfig, loadRegistry, saveRegistry
+ *
+ *   These helpers are exported so tests can pre-seed config and registry files
+ *   in temporary directories and inject override paths. They are not intended
+ *   to be called by scripts other than the test suite.
+ */
+
+import { homedir } from 'os';
+import { join, resolve } from 'path';
+import { spawnSync } from 'child_process';
+import fs from 'fs';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const AI_INSIGHTS_DIR   = '.ai-insights';
+const STORES_FILENAME   = 'stores.json';
+const REGISTRY_FILENAME = '.repositories.json';
+
+// ─── Path Utilities ───────────────────────────────────────────────────────────
+
+/**
+ * Returns the default path to `~/.ai-insights/stores.json`.
+ */
+export function resolveConfigPath() {
+  return join(homedir(), AI_INSIGHTS_DIR, STORES_FILENAME);
+}
+
+/**
+ * Expands a `~`-prefixed path to an absolute path, then normalizes with
+ * `path.resolve()`. Mirrors the TypeScript `expandStorePath()` in store-registry.ts.
+ *
+ * @param {string} p
+ * @returns {string}
+ */
+export function expandPath(p) {
+  if (p.startsWith('~/') || p === '~') {
+    return resolve(join(homedir(), p.slice(2)));
+  }
+  return resolve(p);
+}
+
+/**
+ * Returns the absolute path of the `.repositories.json` for a store.
+ *
+ * @param {string} storePath - Absolute path to the store root directory
+ * @returns {string}
+ */
+export function registryPath(storePath) {
+  return join(storePath, REGISTRY_FILENAME);
+}
+
+// ─── JSON I/O ────────────────────────────────────────────────────────────────
+
+/**
+ * Reads and parses a JSON file synchronously.
+ * Returns `null` on any error (missing file, malformed JSON, permissions).
+ *
+ * @param {string} filePath
+ * @returns {unknown | null}
+ */
+function readJsonSync(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Writes `data` as formatted JSON to `filePath` synchronously.
+ * Creates parent directories as needed.
+ *
+ * @param {string} filePath
+ * @param {unknown} data
+ */
+function writeJsonSync(filePath, data) {
+  fs.mkdirSync(join(filePath, '..'), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
+
+// ─── Config I/O ──────────────────────────────────────────────────────────────
+
+/**
+ * Loads the stores.json config from the given path (or the default path).
+ * Returns `null` if the file doesn't exist or cannot be parsed.
+ *
+ * @param {string | undefined} configPath
+ * @returns {{ stores: Array, default_store: string } | null}
+ */
+export function loadConfig(configPath) {
+  const data = readJsonSync(configPath ?? resolveConfigPath());
+  if (!data || !Array.isArray(data.stores)) return null;
+  return data;
+}
+
+/**
+ * Writes the stores.json config atomically (JSON.stringify + writeFileSync).
+ *
+ * @param {{ stores: Array, default_store: string }} config
+ * @param {string | undefined} configPath
+ * @param {string | undefined} _storesDirOverride - When provided, used instead of
+ *   `~/.ai-insights/` for the parent-directory mkdirSync call. Intended for test
+ *   isolation so tests never touch the real user-level config directory.
+ */
+export function saveConfig(config, configPath, _storesDirOverride) {
+  const p = configPath ?? resolveConfigPath();
+  const storesDir = _storesDirOverride ?? join(homedir(), AI_INSIGHTS_DIR);
+  fs.mkdirSync(storesDir, { recursive: true });
+  writeJsonSync(p, config);
+}
+
+// ─── Registry I/O ────────────────────────────────────────────────────────────
+
+/**
+ * Loads the `.repositories.json` for a store. Returns `{ repositories: [] }`
+ * if the file doesn't exist or is invalid — same behaviour as the TypeScript
+ * `loadRegistry()` in repository-registry.ts.
+ *
+ * @param {string} storePath - Absolute path to the store root directory
+ * @returns {{ repositories: Array }}
+ */
+export function loadRegistry(storePath) {
+  const data = readJsonSync(registryPath(storePath));
+  if (!data || !Array.isArray(data.repositories)) {
+    return { repositories: [] };
+  }
+  return data;
+}
+
+/**
+ * Writes the repository registry for a store.
+ *
+ * @param {string} storePath - Absolute path to the store root directory
+ * @param {{ repositories: Array }} registry
+ */
+export function saveRegistry(storePath, registry) {
+  writeJsonSync(registryPath(storePath), registry);
+}
+
+// ─── store init ───────────────────────────────────────────────────────────────
+
+/**
+ * Creates `~/.ai-insights/stores.json` with a single default store pointing
+ * at the provided `ledgerRoot` (or the default `mcp-server/storage/ledger/`).
+ *
+ * Also creates `~/.ai-insights/stores/` as the recommended stores directory.
+ *
+ * @param {{ configPath?: string, ledgerRoot?: string, _storesDirOverride?: string }} [opts]
+ * @returns {{ ok: boolean, config?: object, configPath?: string, reason?: string }}
+ */
+export function storeInit({ configPath, ledgerRoot, _storesDirOverride } = {}) {
+  const cp = configPath ?? resolveConfigPath();
+
+  if (fs.existsSync(cp)) {
+    return { ok: false, reason: `stores.json already exists at ${cp}` };
+  }
+
+  // Create the recommended stores directory.
+  const baseDir = _storesDirOverride ?? join(homedir(), AI_INSIGHTS_DIR);
+  const storesDir = join(baseDir, 'stores');
+  fs.mkdirSync(storesDir, { recursive: true });
+
+  const root = ledgerRoot ?? join(process.cwd(), 'mcp-server', 'storage', 'ledger');
+  const absRoot = expandPath(root);
+
+  const config = {
+    stores: [{ id: 'default', label: 'Default', path: absRoot }],
+    default_store: 'default',
+  };
+
+  saveConfig(config, cp, _storesDirOverride);
+  return { ok: true, config, configPath: cp };
+}
+
+// ─── store add ────────────────────────────────────────────────────────────────
+
+/**
+ * Registers a new store in `stores.json`, creates the store directory, and
+ * initializes an empty `.repositories.json` if one doesn't exist.
+ *
+ * @param {{ id: string, storePath: string, label?: string, configPath?: string }} opts
+ * @returns {{ ok: boolean, id?: string, path?: string, reason?: string }}
+ */
+export function storeAdd({ id, storePath, label, configPath } = {}) {
+  if (!id)        return { ok: false, reason: 'Store ID is required.' };
+  if (!storePath) return { ok: false, reason: 'Store path is required.' };
+
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp) ?? { stores: [], default_store: id };
+  const absPath = expandPath(storePath);
+
+  if (config.stores.some(s => s.id === id)) {
+    return { ok: false, reason: `Store '${id}' already exists in stores.json.` };
+  }
+
+  try {
+    fs.mkdirSync(absPath, { recursive: true });
+  } catch (err) {
+    return { ok: false, reason: `Cannot create store directory '${absPath}': ${err.message}` };
+  }
+
+  // Initialize an empty registry if the store doesn't have one.
+  const regPath = registryPath(absPath);
+  if (!fs.existsSync(regPath)) {
+    saveRegistry(absPath, { repositories: [] });
+  }
+
+  config.stores.push({ id, label: label ?? id, path: absPath });
+  saveConfig(config, cp);
+
+  return { ok: true, id, path: absPath };
+}
+
+// ─── store remove ─────────────────────────────────────────────────────────────
+
+/**
+ * Removes a store entry from `stores.json`. Does NOT delete the directory.
+ * Returns `warned: true` when the store's `.repositories.json` has entries —
+ * the caller should display a warning.
+ *
+ * @param {{ id: string, configPath?: string }} opts
+ * @returns {{ ok: boolean, id?: string, hasRepos?: boolean, warned?: boolean, reason?: string }}
+ */
+export function storeRemove({ id, configPath } = {}) {
+  if (!id) return { ok: false, reason: 'Store ID is required.' };
+
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: false, reason: 'No stores.json found.' };
+
+  const idx = config.stores.findIndex(s => s.id === id);
+  if (idx === -1) return { ok: false, reason: `Store '${id}' not found in stores.json.` };
+
+  const store   = config.stores[idx];
+  const absPath = expandPath(store.path);
+  const registry = loadRegistry(absPath);
+  const hasRepos = registry.repositories.length > 0;
+
+  config.stores.splice(idx, 1);
+
+  // Reassign default_store if it pointed at the removed store.
+  if (config.stores.length === 0) {
+    config.default_store = null;
+  } else if (config.default_store === id) {
+    config.default_store = config.stores[0].id;
+  }
+
+  saveConfig(config, cp);
+  return { ok: true, id, hasRepos, warned: hasRepos };
+}
+
+// ─── store list ───────────────────────────────────────────────────────────────
+
+/**
+ * Returns a summary of all registered stores with repo and project counts.
+ *
+ * @param {{ configPath?: string }} [opts]
+ * @returns {{ ok: boolean, stores: Array, default_store?: string }}
+ */
+export function storeList({ configPath } = {}) {
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: true, stores: [] };
+
+  const stores = config.stores.map(s => {
+    const absPath  = expandPath(s.path);
+    const registry = loadRegistry(absPath);
+    const repoCount = registry.repositories.length;
+
+    // Two-level scan: {storePath}/{repoName}/{slug}/
+    let projectCount = 0;
+    try {
+      for (const repoEntry of fs.readdirSync(absPath, { withFileTypes: true })) {
+        if (!repoEntry.isDirectory() || repoEntry.name.startsWith('.')) continue;
+        const repoDir = join(absPath, repoEntry.name);
+        for (const slugEntry of fs.readdirSync(repoDir, { withFileTypes: true })) {
+          if (slugEntry.isDirectory()) projectCount++;
+        }
+      }
+    } catch { /* store path may not exist yet — skip silently */ }
+
+    return {
+      id:            s.id,
+      label:         s.label ?? s.id,
+      path:          absPath,
+      is_default:    s.id === config.default_store,
+      repo_count:    repoCount,
+      project_count: projectCount,
+    };
+  });
+
+  return { ok: true, stores, default_store: config.default_store };
+}
+
+// ─── store default ────────────────────────────────────────────────────────────
+
+/**
+ * Sets the `default_store` field in `stores.json`.
+ *
+ * @param {{ id: string, configPath?: string }} opts
+ * @returns {{ ok: boolean, default_store?: string, reason?: string }}
+ */
+export function storeSetDefault({ id, configPath } = {}) {
+  if (!id) return { ok: false, reason: 'Store ID is required.' };
+
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: false, reason: 'No stores.json found.' };
+
+  if (!config.stores.some(s => s.id === id)) {
+    return { ok: false, reason: `Store '${id}' not found in stores.json.` };
+  }
+
+  config.default_store = id;
+  saveConfig(config, cp);
+  return { ok: true, default_store: id };
+}
+
+// ─── store conflicts ──────────────────────────────────────────────────────────
+
+/**
+ * Returns a list of repositories registered in more than one store's
+ * `.repositories.json`. Store-order priority (first store in `stores.json`
+ * order) determines the winner — consistent with `MultiStoreManager.getRegistryConflicts()`.
+ *
+ * @param {{ configPath?: string }} [opts]
+ * @returns {{ ok: boolean, conflicts: Array }}
+ */
+export function storeConflicts({ configPath } = {}) {
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: true, conflicts: [] };
+
+  /** @type {Map<string, { store_id: string, entry: object }>} */
+  const seen      = new Map(); // folder_name → first-seen { store_id, entry }
+  const conflicts = []; // Array<{ repo_name, entries[], winner_store_id }>
+
+  for (const s of config.stores) {
+    const absPath  = expandPath(s.path);
+    const registry = loadRegistry(absPath);
+
+    for (const entry of registry.repositories) {
+      for (const folderName of (Array.isArray(entry.folder_names) ? entry.folder_names : [])) {
+        if (seen.has(folderName)) {
+          // Conflict detected — locate or create conflict record.
+          const winner = seen.get(folderName);
+          let conflict = conflicts.find(c => c.repo_name === folderName);
+          if (!conflict) {
+            conflict = {
+              repo_name:       folderName,
+              entries:         [{ store_id: winner.store_id, entry: winner.entry }],
+              winner_store_id: winner.store_id,
+            };
+            conflicts.push(conflict);
+          }
+          conflict.entries.push({ store_id: s.id, entry });
+        } else {
+          seen.set(folderName, { store_id: s.id, entry });
+        }
+      }
+    }
+  }
+
+  return { ok: true, conflicts };
+}
+
+// ─── store status ─────────────────────────────────────────────────────────────
+
+/**
+ * For each registered store that is also a Git repository, shows the
+ * ahead/behind count relative to `@{upstream}`. Stores that are not Git repos
+ * are shown with status "not a git repo".
+ *
+ * @param {{ configPath?: string }} [opts]
+ * @returns {{ ok: boolean, statuses: Array }}
+ */
+export function storeStatus({ configPath } = {}) {
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: true, statuses: [] };
+
+  const statuses = config.stores.map(s => {
+    const absPath = expandPath(s.path);
+
+    // Check if the path is a Git repo.
+    const revParse = spawnSync('git', ['-C', absPath, 'rev-parse', '--git-dir'], {
+      encoding: 'utf8',
+      shell:    false,
+    });
+    if (revParse.status !== 0) {
+      return { id: s.id, path: absPath, is_git: false };
+    }
+
+    // Get ahead/behind counts.
+    const revList = spawnSync(
+      'git',
+      ['-C', absPath, 'rev-list', '--left-right', '--count', 'HEAD...@{upstream}'],
+      { encoding: 'utf8', shell: false }
+    );
+
+    if (revList.status !== 0) {
+      return { id: s.id, path: absPath, is_git: true, status: 'no upstream' };
+    }
+
+    const [ahead = '0', behind = '0'] = revList.stdout.trim().split(/\s+/);
+    return {
+      id:     s.id,
+      path:   absPath,
+      is_git: true,
+      ahead:  parseInt(ahead, 10),
+      behind: parseInt(behind, 10),
+    };
+  });
+
+  return { ok: true, statuses };
+}
+
+// ─── store repo add ───────────────────────────────────────────────────────────
+
+/**
+ * Adds a repository entry to the specified store's `.repositories.json`.
+ * Creates a minimal entry compatible with `RepositoryEntrySchema`.
+ *
+ * @param {{ repoName: string, storeId: string, label?: string, configPath?: string }} opts
+ * @returns {{ ok: boolean, repoName?: string, storeId?: string, reason?: string }}
+ */
+export function storeRepoAdd({ repoName, storeId, label, configPath } = {}) {
+  if (!repoName) return { ok: false, reason: 'Repository name is required.' };
+  if (!storeId)  return { ok: false, reason: 'Store ID is required.' };
+
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: false, reason: 'No stores.json found. Run `store init` first.' };
+
+  const storeEntry = config.stores.find(s => s.id === storeId);
+  if (!storeEntry) return { ok: false, reason: `Store '${storeId}' not found in stores.json.` };
+
+  const absPath  = expandPath(storeEntry.path);
+  const registry = loadRegistry(absPath);
+
+  // Check for duplicate folder_name.
+  const duplicate = registry.repositories.find(r =>
+    Array.isArray(r.folder_names) && r.folder_names.includes(repoName)
+  );
+  if (duplicate) {
+    return { ok: false, reason: `Repository '${repoName}' is already registered in store '${storeId}'.` };
+  }
+
+  const now = new Date().toISOString();
+  const entry = {
+    id:           crypto.randomUUID(),
+    label:        label ?? repoName,
+    folder_names: [repoName],
+    vision:       { short_term: null, mid_term: null, long_term: null },
+    created_at:   now,
+    last_modified: now,
+  };
+
+  registry.repositories.push(entry);
+  saveRegistry(absPath, registry);
+
+  return { ok: true, repoName, storeId, entry };
+}
+
+// ─── store repo move ──────────────────────────────────────────────────────────
+
+/**
+ * Moves a repository entry from its current store's `.repositories.json` to
+ * the target store's registry. Uses `folder_names` to locate the source entry.
+ *
+ * @param {{ repoName: string, targetStoreId: string, configPath?: string }} opts
+ * @returns {{ ok: boolean, repoName?: string, fromStoreId?: string, toStoreId?: string, reason?: string }}
+ */
+export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
+  if (!repoName)      return { ok: false, reason: 'Repository name is required.' };
+  if (!targetStoreId) return { ok: false, reason: 'Target store ID is required.' };
+
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: false, reason: 'No stores.json found.' };
+
+  if (!config.stores.some(s => s.id === targetStoreId)) {
+    return { ok: false, reason: `Target store '${targetStoreId}' not found in stores.json.` };
+  }
+
+  // Pre-load the target registry and check for duplicates BEFORE modifying
+  // the source. This prevents a partial-mutation failure where the repo is
+  // removed from source but we return ok:false because the target has a copy.
+  const targetEntry = config.stores.find(s => s.id === targetStoreId);
+  const targetPath  = expandPath(targetEntry.path);
+  const targetReg   = loadRegistry(targetPath);
+
+  if (targetReg.repositories.some(r =>
+    Array.isArray(r.folder_names) && r.folder_names.includes(repoName)
+  )) {
+    return { ok: false, reason: `Repository '${repoName}' is already registered in target store '${targetStoreId}'.` };
+  }
+
+  // Find the source store and entry. The target store is excluded from the
+  // search so that an intra-target lookup never mutates source state.
+  let fromStoreId = null;
+  let entryToMove = null;
+
+  for (const s of config.stores) {
+    if (s.id === targetStoreId) continue;
+    const absPath  = expandPath(s.path);
+    const registry = loadRegistry(absPath);
+    const idx = registry.repositories.findIndex(r =>
+      Array.isArray(r.folder_names) && r.folder_names.includes(repoName)
+    );
+    if (idx !== -1) {
+      fromStoreId = s.id;
+      entryToMove = registry.repositories[idx];
+      // Remove from source only now that we know the target is clear.
+      registry.repositories.splice(idx, 1);
+      saveRegistry(absPath, registry);
+      break;
+    }
+  }
+
+  if (!fromStoreId || !entryToMove) {
+    return { ok: false, reason: `Repository '${repoName}' not found in any store (except possibly '${targetStoreId}').` };
+  }
+
+  // Add to target.
+  const now = new Date().toISOString();
+  entryToMove.last_modified = now;
+  targetReg.repositories.push(entryToMove);
+  saveRegistry(targetPath, targetReg);
+
+  return { ok: true, repoName, fromStoreId, toStoreId: targetStoreId };
+}
+
+// ─── store repo list ──────────────────────────────────────────────────────────
+
+/**
+ * Returns a merged view of all repositories from all stores, with store-order
+ * priority (first store that claims a folder_name wins).
+ *
+ * @param {{ configPath?: string }} [opts]
+ * @returns {{ ok: boolean, repos: Array }}
+ */
+export function storeRepoList({ configPath } = {}) {
+  const cp = configPath ?? resolveConfigPath();
+  const config = loadConfig(cp);
+  if (!config) return { ok: true, repos: [] };
+
+  const seen = new Set(); // folder_names already claimed
+  const repos = [];
+
+  for (const s of config.stores) {
+    const absPath  = expandPath(s.path);
+    const registry = loadRegistry(absPath);
+
+    for (const entry of registry.repositories) {
+      const folderNames = Array.isArray(entry.folder_names) ? entry.folder_names : [];
+      // Determine if this entry is shadowed (any folder_name already claimed).
+      const isShadowed = folderNames.some(fn => seen.has(fn));
+
+      repos.push({
+        store_id:   s.id,
+        store_label: s.label ?? s.id,
+        is_shadowed: isShadowed,
+        ...entry,
+      });
+
+      // Mark folder_names as claimed only if this is the winner.
+      if (!isShadowed) {
+        for (const fn of folderNames) seen.add(fn);
+      }
+    }
+  }
+
+  return { ok: true, repos };
+}
+
+```
+###  Path: `/scripts/lib/yaml-utils.js`
+
+```js
+/**
+ * scripts/lib/yaml-utils.js
+ *
+ * Lightweight YAML utilities for parsing persona YAML files without external
+ * dependencies. Used by build-personas.js and generate-agents-overview.js.
+ */
+
+/**
+ * Extracts simple scalar (string/number) fields from a YAML file without
+ * external dependencies. Only top-level key: value lines are parsed; nested
+ * structures and lists are ignored.
+ */
+export function parseYamlScalars(text, fields) {
+  const result = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
+    if (!m) continue;
+    const key = m[1];
+    if (!fields.includes(key)) continue;
+    let val = m[2].trim();
+    if (val.startsWith('"') || val.startsWith("'")) {
+      const q = val[0];
+      const closeIdx = val.indexOf(q, 1);
+      if (closeIdx !== -1) {
+        val = val.slice(1, closeIdx);
+      } else {
+        val = val.replace(/\s+#.*$/, '').trim();
+      }
+    } else {
+      val = val.replace(/\s+#.*$/, '').trim();
+    }
+    result[key] = val;
+  }
+  return result;
+}
+
+/**
+ * Extracts the string content of a YAML block scalar (`key: |` or `key: |-`).
+ * Returns the block content (newline-joined, trimmed) or undefined when the
+ * key is absent or does not use a block scalar indicator.
+ */
+export function extractYamlBlockScalar(text, key) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re    = new RegExp(`^${escaped}\\s*:\\s*\\|[-+]?\\s*$`, 'm');
+  const match = re.exec(text);
+  if (!match) return undefined;
+
+  const after   = text.slice(match.index + match[0].length);
+  const lines   = after.split(/\r?\n/);
+  let   indent  = -1;
+  const content = [];
+
+  for (const line of lines) {
+    if (line.trim() === '') {
+      if (indent !== -1) content.push('');
+      continue;
+    }
+    const m          = line.match(/^(\s+)/);
+    const lineIndent = m ? m[1].length : 0;
+    if (lineIndent === 0) break;
+    if (indent === -1) indent = lineIndent;
+    if (lineIndent < indent) break;
+    content.push(line.slice(indent));
+  }
+
+  const joined = content.join('\n').trimEnd();
+  return joined || undefined;
+}
+
+/**
+ * Extracts a YAML sequence (list) value.
+ * e.g.:
+ *   subagents:
+ *     - ledger-wp-decomposer
+ *     - ledger-dependency-sequencer
+ */
+export function extractYamlSequence(text, key) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escaped}\\s*:\\s*$`, 'm');
+  const match = re.exec(text);
+  if (!match) return undefined;
+
+  const after = text.slice(match.index + match[0].length);
+  const lines = after.split(/\r?\n/);
+  const items = [];
+
+  for (const line of lines) {
+    const itemMatch = line.match(/^\s+-\s+(\S.*)$/);
+    if (!itemMatch) {
+      if (line.trim() !== '') break;
+      continue;
+    }
+    items.push(itemMatch[1].trim());
+  }
+
+  return items.length > 0 ? items : undefined;
 }
 
 ```

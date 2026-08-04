@@ -43,8 +43,8 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_add_insight | scope, title, content, category, tags | Add a reusable insight to the knowledge base |
 | ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, repository_name, limit) |
 | ledger_list_insights | None required | List insights with optional filters and pagination |
-| ledger_update_insight | id | Update an existing insight by numeric ID |
-| ledger_delete_insight | id | Permanently delete an insight by numeric ID |
+| ledger_update_insight | id | Update an existing insight by UUID |
+| ledger_delete_insight | id | Permanently delete an insight by UUID |
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 | ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
 | ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for an already-imported standalone project |
@@ -784,7 +784,7 @@ Add a reusable insight to the global or repository-scoped knowledge base.
 - **confidence** (number): Confidence score 0–1 indicating reliability. Defaults to 1.
 
 ## Response
-The created insight object, including the auto-assigned numeric **id** and a **formatted_id** (KN-NNNN).
+The created insight object, including the auto-assigned **id** (UUID v4 string).
 
 ## Examples
 \`\`\`json
@@ -802,8 +802,8 @@ The created insight object, including the auto-assigned numeric **id** and a **f
 {
   "scope": "repository",
   "repository_name": "hcp-editor",
-  "title": "Knowledge store uses numeric IDs internally",
-  "content": "The KN-NNNN display format is produced at the tool layer; only the numeric id is stored.",
+  "title": "Insight IDs are UUID v4 strings",
+  "content": "Insight IDs are globally unique UUID v4 strings — stable across stores, moves, and copies.",
   "category": "architecture",
   "tags": ["storage", "ids"],
   "source": "WP-003",
@@ -831,7 +831,7 @@ Returns an empty array when no insights match.
 - **limit** (number): Maximum number of results to return.
 
 ## Response
-Array of matching insight objects, each including **formatted_id** (KN-NNNN).
+Array of matching insight objects.
 
 ## Example
 \`\`\`json
@@ -860,7 +860,7 @@ All parameters are optional — calling with no parameters returns all insights 
 - **offset** (number): Number of results to skip (for pagination). Defaults to 0.
 
 ## Response
-Array of insight objects (filtered and paginated), each including **formatted_id** (KN-NNNN).
+Array of insight objects (filtered and paginated).
 
 ## Examples
 \`\`\`json
@@ -877,21 +877,20 @@ Array of insight objects (filtered and paginated), each including **formatted_id
   ledger_update_insight: `
 # ledger_update_insight
 
-Update an existing insight by its numeric ID.
+Update an existing insight by its UUID.
 
 Accepts any combination of updatable fields — only the specified fields are changed.
 The \`updated_at\` timestamp is set automatically.
 
 Immutable fields (id, scope, repository_name, created_at) cannot be changed.
 
-> **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
-> in both the global store and a repository store. Use \`scope\` and/or \`repository_name\` to make
-> your intent unambiguous and prevent accidental global-insight mutation.
+> **Tip:** UUIDs are globally unique and stable across stores and moves. Use \`scope\` and/or
+> \`repository_name\` as optional guards to restrict which store is searched.
 
 ## Required Parameters
-- **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
+- **id** (string): UUID of the insight (as returned in the \`id\` field of a previous response).
 
-## Optional Scope Parameters (recommended when IDs may overlap)
+## Optional Scope Parameters
 - **scope** ("global" | "repository"): Restrict the search to stores of this scope.
   Use \`"global"\` to ensure only the global store is searched; use \`"repository"\` combined
   with \`repository_name\` to target a specific repository store exclusively.
@@ -905,44 +904,43 @@ Immutable fields (id, scope, repository_name, created_at) cannot be changed.
 - **tags** (array): Replacement tags array.
 - **source** (string): New source reference.
 - **confidence** (number): New confidence score (0–1).
-- **superseded_by** (number): Numeric ID of the insight that supersedes this one.
+- **superseded_by** (string): UUID of the insight that supersedes this one.
   Use this to mark an insight as outdated when a newer insight replaces it.
 
 ## Response
-The updated insight object, including **formatted_id** (KN-NNNN) and the new **updated_at** timestamp.
+The updated insight object with the new **updated_at** timestamp.
 
 ## Examples
 \`\`\`json
-{ "id": 1, "confidence": 0.8, "content": "Updated content after further testing." }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "confidence": 0.8, "content": "Updated content after further testing." }
 \`\`\`
 \`\`\`json
-{ "id": 1, "scope": "global", "confidence": 0.8 }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "scope": "global", "confidence": 0.8 }
 \`\`\`
 \`\`\`json
-{ "id": 1, "scope": "repository", "repository_name": "my-repo", "title": "Revised title" }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "scope": "repository", "repository_name": "my-repo", "title": "Revised title" }
 \`\`\`
 \`\`\`json
-{ "id": 1, "superseded_by": 5 }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "superseded_by": "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
 \`\`\`
 `,
 
   ledger_delete_insight: `
 # ledger_delete_insight
 
-Permanently delete an insight from the knowledge base by its numeric ID.
+Permanently delete an insight from the knowledge base by its UUID.
 
 This is a hard-delete — the insight is removed from the store and cannot be recovered.
 For non-destructive deprecation (marking an insight as outdated without removal), use
 \`ledger_update_insight\` with \`confidence: 0\` and \`superseded_by\`.
 
-> **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
-> in both the global store and a repository store. Use \`scope\` and/or \`repository_name\` to make
-> your intent unambiguous and prevent accidental cross-store deletion.
+> **Tip:** UUIDs are globally unique and stable across stores and moves. Use \`scope\` and/or
+> \`repository_name\` as optional guards to restrict which store is searched.
 
 ## Required Parameters
-- **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
+- **id** (string): UUID of the insight (as returned in the \`id\` field of a previous response).
 
-## Optional Scope Parameters (recommended when IDs may overlap)
+## Optional Scope Parameters
 - **scope** ("global" | "repository"): Restrict the search to stores of this scope.
   Use \`"global"\` to ensure only the global store is searched; use \`"repository"\` combined
   with \`repository_name\` to target a specific repository store exclusively.
@@ -950,17 +948,17 @@ For non-destructive deprecation (marking an insight as outdated without removal)
   Accepts only alphanumeric names with hyphens and underscores.
 
 ## Response
-A confirmation object with the deleted **id** and **formatted_id** (KN-NNNN), plus \`deleted: true\`.
+A confirmation object with the deleted **id**, plus \`deleted: true\`.
 
 ## Examples
 \`\`\`json
-{ "id": 1 }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890" }
 \`\`\`
 \`\`\`json
-{ "id": 1, "scope": "global" }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "scope": "global" }
 \`\`\`
 \`\`\`json
-{ "id": 1, "scope": "repository", "repository_name": "my-repo" }
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "scope": "repository", "repository_name": "my-repo" }
 \`\`\`
 `,
 
@@ -1095,7 +1093,7 @@ into a single sorted list. This ensures projects stored across aliased repositor
 
 - Either \`cwd_path\` or \`repository_name\` must be provided — the tool returns an error if both are omitted.
 - \`outcome_summary\` values are written by the Synthesis agent using \`ledger_complete_synthesis\` (the \`outcome_summary\` parameter). Projects without a completed synthesis will have \`null\` here.
-- The \`relevant_insights[]\` array combines both global insights (cross-repository principles) and repository-scoped insights (patterns specific to this codebase). Results are deduplicated by numeric \`id\` — when the same insight appears in both stores, the global copy is kept and the duplicate is dropped.
+- The \`relevant_insights[]\` array combines both global insights (cross-repository principles) and repository-scoped insights (patterns specific to this codebase). Results are deduplicated by \`id\` — when the same insight appears in both stores, the global copy is kept and the duplicate is dropped.
 - \`strategic_vision\` is \`null\` unless the repository has been registered and given a vision block via the repository registry (managed by the Project Manager or Planner).
 `,
 

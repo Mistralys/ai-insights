@@ -40,6 +40,7 @@ _SOURCE: Test suite directory structure_
         └── test_run_queue.py
         └── test_slug_dir.py
         └── test_state.py
+        └── test_store_resolution.py
         └── test_stream_retry.py
         └── test_streaming_capture.py
         └── test_subagents.py

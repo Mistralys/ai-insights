@@ -195,14 +195,16 @@ describe('repository-registry storage module', () => {
       };
       await saveRegistry(tempLedgerRoot, updated);
 
-      // After the second save, the file must be a valid, complete registry
+      // After the second save, the file must be a valid, complete registry.
+      // Entries are sorted by id, so 'added-later' < 'initial' alphabetically.
       const content = await readFile(
         join(tempLedgerRoot, '.repositories.json'),
         'utf-8'
       );
       const parsed: RepositoryRegistry = JSON.parse(content);
       expect(parsed.repositories).toHaveLength(2);
-      expect(parsed.repositories[1].id).toBe('added-later');
+      expect(parsed.repositories[0].id).toBe('added-later');
+      expect(parsed.repositories[1].id).toBe('initial');
     });
 
     it('creates the ledgerRoot directory if it does not exist', async () => {

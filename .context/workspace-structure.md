@@ -19,8 +19,6 @@ _SOURCE: Top-level directory tree_
     ├── _layouts/
     │   ├── default.html
     ├── agents/
-    │   ├── audits/
-    │   │   ├── 2026-07-24-ai-insights-test-audit.md
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
@@ -103,13 +101,16 @@ _SOURCE: Top-level directory tree_
     │   ├── tools/
     │   │   └── build.js
     ├── references/
+    │   └── agents-overview.md
     │   └── development.md
     │   └── menu-guide.md
+    │   └── multi-store-guide.md
     │   └── orchestrator-user-guide.md
     │   └── persona-quickstart-ide.md
     │   └── persona-quickstart-web.md
     │   └── persona-quickstart.md
     │   └── project-overview.md
+    │   └── workflow-and-ledger.md
 └── mcp-server/
     ├── AGENTS.md
     ├── README.md
@@ -134,6 +135,7 @@ _SOURCE: Top-level directory tree_
     │   ├── api-knowledge.ts
     │   ├── api-models.ts
     │   ├── api-repos.ts
+    │   ├── api-stores.ts
     │   ├── api.ts
     │   ├── chunk-accumulator.ts
     │   ├── chunk-renderer.ts
@@ -143,6 +145,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── app.js
     │   │   ├── components.js
     │   │   ├── index.html
+    │   │   ├── modal.js
     │   │   ├── router.js
     │   │   ├── stale-check.js
     │   │   ├── styles.css
@@ -166,11 +169,13 @@ _SOURCE: Top-level directory tree_
     │   │   ├── model-registry.ts
     │   ├── index.ts
     │   ├── schema/
+    │   │   ├── common.ts
     │   │   ├── enums.ts
     │   │   ├── knowledge.ts
     │   │   ├── project-meta.ts
     │   │   ├── repository-registry.ts
     │   │   ├── root-index.ts
+    │   │   ├── store-config.ts
     │   │   ├── validators.ts
     │   │   ├── work-package.ts
     │   │   ├── workflow-manifest-schema.ts
@@ -180,13 +185,18 @@ _SOURCE: Top-level directory tree_
     │   │   ├── knowledge-store.ts
     │   │   ├── ledger-store.ts
     │   │   ├── migrate-namespaced.ts
+    │   │   ├── multi-store-manager.ts
     │   │   ├── repository-registry.ts
+    │   │   ├── store-context.ts
+    │   │   ├── store-registry.ts
+    │   │   ├── store-router.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
     │   │   ├── help-content.ts
     │   │   ├── help.ts
     │   │   ├── knowledge.ts
     │   │   ├── observations.ts
+    │   │   ├── ping.ts
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
     │   │   ├── repository-context.ts
@@ -209,6 +219,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── read-project-name.ts
     │   │   └── runner.ts
     │   │   └── server-version.ts
+    │   │   └── store-resolution.ts
     │   │   └── synthesis-parser.ts
     │   │   └── timestamp.ts
     │   │   └── workflow-helpers.ts
@@ -227,11 +238,15 @@ _SOURCE: Top-level directory tree_
     │   │   ├── api-knowledge.test.ts
     │   │   ├── api-models.test.ts
     │   │   ├── api-orchestrator.test.ts
+    │   │   ├── api-repos-store.test.ts
     │   │   ├── api-repos.test.ts
     │   │   ├── api-reset.test.ts
     │   │   ├── api-run-metadata.test.ts
+    │   │   ├── api-store-conflicts.test.ts
+    │   │   ├── api-stores.test.ts
     │   │   ├── api-wp-overview.test.ts
     │   │   ├── api.test.ts
+    │   │   ├── auto-archive-multi-store.test.ts
     │   │   ├── auto-archive.test.ts
     │   │   ├── chunk-renderer-text.test.ts
     │   │   ├── chunk-renderer.test.ts
@@ -246,6 +261,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── knowledge-repository-scope.test.ts
     │   │   ├── log-resolver.test.ts
     │   │   ├── model-registry.test.ts
+    │   │   ├── multi-store-api.test.ts
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
     │   │   ├── orchestrator-widgets.test.ts
@@ -259,6 +275,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── project-detail-runs.test.ts
     │   │   ├── project-detail-scroll.test.ts
     │   │   ├── project-detail-snapshot.test.ts
+    │   │   ├── project-detail-wp-title.test.ts
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
     │   │   ├── route-structured-format.test.ts
@@ -275,6 +292,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── server-queue.test.ts
     │   │   ├── setup-gui-globals.ts
     │   │   ├── stale-check.test.ts
+    │   │   ├── work-package-detail.test.ts
     │   ├── helpers/
     │   │   ├── create-temp-store.ts
     │   │   ├── fixtures.ts
@@ -283,25 +301,34 @@ _SOURCE: Top-level directory tree_
     │   │   ├── auto-handoff.test.ts
     │   │   ├── full-workflow.test.ts
     │   ├── schema/
+    │   │   ├── common.test.ts
     │   │   ├── knowledge.test.ts
     │   │   ├── project-archiving-schema.test.ts
     │   │   ├── project-meta-runner.test.ts
     │   │   ├── project-meta.test.ts
     │   │   ├── repository-registry.test.ts
     │   │   ├── root-index.test.ts
+    │   │   ├── store-config.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
     │   ├── startup/
     │   │   ├── tool-log-sync.test.ts
     │   ├── storage/
+    │   │   ├── cross-device-portability.test.ts
     │   │   ├── knowledge-store-exclusion.test.ts
     │   │   ├── knowledge-store.test.ts
     │   │   ├── ledger-store.test.ts
     │   │   ├── list-all-projects.test.ts
     │   │   ├── migrate-namespaced.test.ts
+    │   │   ├── multi-store-conflicts.test.ts
+    │   │   ├── multi-store-manager.test.ts
     │   │   ├── project-meta.test.ts
     │   │   ├── repository-registry.test.ts
     │   │   ├── slug-resolution.test.ts
+    │   │   ├── store-context-reload.test.ts
+    │   │   ├── store-context.test.ts
+    │   │   ├── store-registry.test.ts
+    │   │   ├── store-router.test.ts
     │   ├── tools/
     │   │   ├── begin-work.test.ts
     │   │   ├── cancelled-status.test.ts
@@ -310,18 +337,24 @@ _SOURCE: Top-level directory tree_
     │   │   ├── complete-pipeline-guards.test.ts
     │   │   ├── enrichment-resilience.test.ts
     │   │   ├── knowledge-help.test.ts
+    │   │   ├── knowledge-multi-store.test.ts
     │   │   ├── knowledge.test.ts
     │   │   ├── list-projects.test.ts
     │   │   ├── meta-enrichment.test.ts
+    │   │   ├── multi-store-tool-resolution.test.ts
     │   │   ├── observations.test.ts
+    │   │   ├── ping.test.ts
     │   │   ├── pipeline-duration.test.ts
     │   │   ├── pipeline.test.ts
+    │   │   ├── project-lifecycle-multi-store.test.ts
     │   │   ├── project-lifecycle.test.ts
     │   │   ├── reopen-cancelled-wp.test.ts
+    │   │   ├── repository-context-multi-store.test.ts
     │   │   ├── repository-context.test.ts
     │   │   ├── rework-circuit-breaker.test.ts
     │   │   ├── runner-integration.test.ts
     │   │   ├── schema-integrity.test.ts
+    │   │   ├── standalone-import-multi-store.test.ts
     │   │   ├── standalone-import.test.ts
     │   │   ├── start-pipeline-guards.test.ts
     │   │   ├── synthesis-terminal.test.ts
@@ -342,6 +375,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── project-reset.test.ts
     │   │   └── project-resolver.test.ts
     │   │   └── runner.test.ts
+    │   │   └── store-resolution.test.ts
     │   │   └── synthesis-parser.test.ts
     │   │   └── timestamp.test.ts
     │   │   └── workflow-helpers.test.ts
@@ -402,6 +436,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── persona_models.py
     │   │   └── plan_parser.py
     │   │   └── run_queue.py
+    │   │   └── store_resolution.py
     │   │   └── subagents.py
     │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
@@ -436,6 +471,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_run_queue.py
     │   └── test_slug_dir.py
     │   └── test_state.py
+    │   └── test_store_resolution.py
     │   └── test_stream_retry.py
     │   └── test_streaming_capture.py
     │   └── test_subagents.py
@@ -642,6 +678,7 @@ _SOURCE: Top-level directory tree_
     ├── cli.js
     ├── extract-changelog-entry.js
     ├── extract-dialogue.js
+    ├── generate-agents-overview.js
     ├── import-standalone.js
     ├── install-hooks.js
     ├── install-mcp-global.js
@@ -649,6 +686,8 @@ _SOURCE: Top-level directory tree_
     ├── lib/
     │   ├── health-checks.js
     │   ├── persona-model-resolution.js
+    │   ├── store-commands.js
+    │   ├── yaml-utils.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js
@@ -660,13 +699,18 @@ _SOURCE: Top-level directory tree_
     ├── run-gui.js
     ├── run-orchestrator.js
     ├── sync-personas.js
+    ├── templates/
+    │   ├── agents-overview-header.md
+    │   ├── notebooklm-bundle-header.md
     ├── tests/
     │   ├── README.md
     │   ├── build-personas-model-resolution.test.js
+    │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
     │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
     │   ├── publish-skills.test.js
+    │   ├── store-commands.test.js
     ├── validate-workflow-manifest.js
 └── shared/
     ├── workflow-manifest.json

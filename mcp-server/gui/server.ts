@@ -84,6 +84,7 @@ import {
   handleCreateRepo,
   handleUpdateRepo,
   handleDeleteRepo,
+  handleMoveRepo,
   type RepoListItem,
 } from './api-repos.js';
 import {
@@ -579,6 +580,10 @@ function buildRepoRoutes(ledgerRoot: string): Route[] {
     { method: 'PUT', path: /^\/api\/repos\/(?<repoId>[^/]+)$/,
       handler: async (body, groups) =>
         handleUpdateRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
+    // POST /api/repos/:repoId/move
+    { method: 'POST', path: /^\/api\/repos\/(?<repoId>[^/]+)\/move$/,
+      handler: async (body, groups) =>
+        handleMoveRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
     // GET /api/repos — always delegates to handleListRepos() which handles
     //   both multi-store (tagged results) and single-store modes.
     { method: 'GET', path: '/api/repos', noBody: true,

@@ -382,14 +382,14 @@ describe('buildTable — repository label resolution (WP-010)', () => {
     document.body.removeChild(app);
   });
 
-  // AC-1 extended: label links to #/strategy/:repoId
-  it('label is a link pointing to #/strategy/:repoId', async () => {
+  // AC-1 extended: label links to #/strategy
+  it('label is a link pointing to #/strategy', async () => {
     const app = await renderList([projectMatchingFolder], [declaredRepo]);
 
     const repoCell = app.querySelector('td.repo-col') as HTMLElement;
     const link = repoCell.querySelector('a') as HTMLAnchorElement | null;
     expect(link).not.toBeNull();
-    expect(link!.getAttribute('href')).toBe('#/strategy/' + encodeURIComponent(declaredRepo.id));
+    expect(link!.getAttribute('href')).toBe('#/strategy');
 
     document.body.removeChild(app);
   });
