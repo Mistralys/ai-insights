@@ -40,7 +40,7 @@ A sequence of focused, well-labeled Git commits, each covering a single topic. A
 
 ### Side Effects
 
-- Plan folders containing a `synthesis.md` are automatically archived: both the `plan.md` and `synthesis.md` are moved to `docs/agents/implementation-history/` before committing.
+- Plan folders containing a `synthesis.md` are automatically archived: `plan.md`, `synthesis.md`, and `request.md` (if present) are moved to `docs/agents/implementation-history/` before committing.
 - Incomplete plans (no `synthesis.md`) are reported to the user but not committed.
 
 ---
@@ -99,11 +99,11 @@ Organize changed files into topic groups based on:
 
 For each topic group, attempt to match it against plan documents.
 
-**Plan folder convention:** Only `plan.md` and `synthesis.md` are version-controlled in plan folders. All other files (work-package state, pipeline records, blocker files) are gitignored — ignore them during discovery and staging.
+**Plan folder convention:** Only `plan.md`, `synthesis.md`, and `request.md` are version-controlled in plan folders. All other files (work-package state, pipeline records, blocker files) are gitignored — ignore them during discovery and staging.
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md` and `synthesis.md` for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
+   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md`, `synthesis.md`, and `request.md` (if present) for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
@@ -155,7 +155,7 @@ Wait for explicit approval before proceeding. If the user requests changes to th
 After approval:
 
 1. For each topic group (in dependency order if applicable):
-   a. Move both `plan.md` and `synthesis.md` to `docs/agents/implementation-history/` if queued.
+   a. Move `plan.md`, `synthesis.md`, and `request.md` (if present) to `docs/agents/implementation-history/` if queued.
    b. Stage the group's files with `git add`.
    c. Execute `git commit` with the approved message.
 2. Report the final commit log (short hashes + messages) as confirmation.
@@ -171,7 +171,7 @@ After approval:
 - **CTX grouping is mandatory.** If the project has a `context.yaml` in its root, all `.context/` changes must be grouped into a single commit labeled `CTX: Updated docs`. Do not scatter CTX changes across topic commits.
 - **No `.context/` commits in feature branches.** When the current branch is not the repository's default branch (e.g. `main`), exclude all `.context/` files from the commit plan by default. Only context files generated on the default branch should enter version control. If the user explicitly requests their inclusion, comply — but flag the deviation.
 - **One topic per commit.** Never mix unrelated changes in a single commit. If a file serves two topics, ask the user which group it belongs to.
-- **No confirmation for plan archival.** When a matched plan has a `synthesis.md`, move both files to `docs/agents/implementation-history/` as part of that commit without asking. This is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent).
+- **No confirmation for plan archival.** When a matched plan has a `synthesis.md`, move `plan.md`, `synthesis.md`, and `request.md` (if present) to `docs/agents/implementation-history/` as part of that commit without asking. This is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent).
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) are permitted.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.
