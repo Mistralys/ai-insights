@@ -742,7 +742,7 @@ interface ProjectEntry {
 
 In single-store / legacy mode (no `stores.json`), `isMultiStore` is `false` and all three reads fall back to the original single-store paths — behavior is unchanged.
 
-**Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by numeric `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Two helper functions handle repository-scoped lookup with the same error-handling contract: `safeListRepositoryInsights()` (single-store, legacy mode) and `safeListAllStoreRepositoryInsights()` (multi-store mode, WP-008). Both helpers suppress slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) and return `[]` for those cases; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result. Any future helper of this type must preserve both invariants.
+**Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Two helper functions handle repository-scoped lookup with the same error-handling contract: `safeListRepositoryInsights()` (single-store, legacy mode) and `safeListAllStoreRepositoryInsights()` (multi-store mode, WP-008). Both helpers suppress slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) and return `[]` for those cases; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result. Any future helper of this type must preserve both invariants.
 
 **Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`.
 
@@ -769,7 +769,7 @@ Adds a new insight to the knowledge store.
 
 - **`scope: 'global'`** — stored in `global-insights.json`. **In multi-store mode, global insights are written to the first configured store in `stores.json` order (the designated default store).** In single-store / legacy mode, written to `{ledgerRoot}/.knowledge/global-insights.json`.
 - **`scope: 'repository'`** — stored in `{repository_name}-insights.json`; `repository_name` is required. In multi-store mode, routes via `StoreRouter.resolveStoreForWrite(repository_name)` to the store whose `.repositories.json` claims the repository — returns `isError: true` if no store has registered it. In single-store / legacy mode, delegates to `KnowledgeStoreManager.addInsight()` on the default ledger root unchanged.
-- **Response:** Returns the full `Insight` object with an additional `formatted_id` field. In **single-store / legacy mode** the format is `"KN-0001"`; in **multi-store mode** a store-ID prefix is prepended: `"{storeId}:KN-NNNN"` (e.g. `"work:KN-0003"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and repository stores. If a global and a repository store both contain an insight with `id: 1`, their legacy-mode `formatted_id` values will be identical.
+- **Response:** Returns the full `Insight` object. The `id` field is a UUID v4 string — globally unique across all stores. No `formatted_id` field is included.
 
 #### `ledger_search_insights`
 
@@ -784,9 +784,9 @@ Adds a new insight to the knowledge store.
 }) => Promise<MCPResult>
 ```
 
-Searches insights using OR semantics: the `query` string is tokenized on whitespace and an insight matches if any token appears (case-insensitive) in its `title`, `content`, or `tags`. Multi-token results are ranked by descending match count so insights matching more terms surface first. Single-token queries produce identical results to the previous substring behavior. An empty or whitespace-only query returns all insights. Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found.
+Searches insights using OR semantics: the `query` string is tokenized on whitespace and an insight matches if any token appears (case-insensitive) in its `title`, `content`, or `tags`. Multi-token results are ranked by descending match count so insights matching more terms surface first. Single-token queries produce identical results to the previous substring behavior. An empty or whitespace-only query returns all insights. Returns an array of matching `Insight` objects. Returns an empty array when no matches are found.
 
-**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.searchKnowledge()`) to capture the owning store ID per insight and include it in `formatted_id`. Results are deduplicated by numeric `id` using first-store-wins (store-order priority); the `limit` cap is applied globally after the cross-store merge. In single-store / legacy mode, store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
+**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.searchKnowledge()`) to capture the owning store ID per insight. Results are deduplicated by UUID `id` using first-store-wins (store-order priority); the `limit` cap is applied globally after the cross-store merge. In single-store / legacy mode, store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
 
 **Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned. Use `query` for free-text OR filtering and `tags` for structured AND filtering — they complement each other.
 
@@ -803,22 +803,22 @@ Searches insights using OR semantics: the `query` string is tokenized on whitesp
 }) => Promise<MCPResult>
 ```
 
-Lists insights with optional filters and pagination. Filter application order: store selection → category → tags → offset → limit. Returns each `Insight` augmented with a `formatted_id` field.
+Lists insights with optional filters and pagination. Filter application order: store selection → category → tags → offset → limit. Returns each `Insight`.
 
-**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.listKnowledge()`) to capture the owning store ID per insight and include it in `formatted_id`. Deduplication is first-store-wins by numeric `id` (store-order priority). **`limit` and `offset` are forwarded per-store before merging** — they are NOT applied globally to the combined result set. This means a `limit: 5` request across three stores may return up to 15 results. Callers in multi-store mode should treat `limit` as a per-store upper bound rather than a global page size. In single-store / legacy mode, delegates to the single `KnowledgeStoreManager` on the default ledger root.
+**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.listKnowledge()`) to capture the owning store per insight. Deduplication is first-store-wins by UUID `id` (store-order priority). **`limit` and `offset` are forwarded per-store before merging** — they are NOT applied globally to the combined result set. This means a `limit: 5` request across three stores may return up to 15 results. Callers in multi-store mode should treat `limit` as a per-store upper bound rather than a global page size. In single-store / legacy mode, delegates to the single `KnowledgeStoreManager` on the default ledger root.
 
 #### `ledger_update_insight`
 
 ```typescript
 (args: {
-  id: number;                         // Numeric ID as returned in the id field of a previous response
+  id: string;                         // UUID v4 string as returned in the id field of a previous response
   title?: string;
   content?: string;
   category?: string;
   tags?: string[];                    // Replaces the tags array
   source?: string;
   confidence?: number;                // 0–1 float
-  superseded_by?: number;             // Numeric ID of the insight that supersedes this one
+  superseded_by?: string;             // UUID v4 of the insight that supersedes this one
 },
 filter?: {             // Optional scope filter — restricts which store is searched
   scope?: 'global' | 'repository';
@@ -828,22 +828,21 @@ filter?: {             // Optional scope filter — restricts which store is sea
 
 Updates an existing insight. Immutable fields: `id`, `scope`, `repository_name`, `created_at`. Sets `updated_at` on success.
 
-- **Scope filter:** Pass `scope` and/or `repository_name` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'repository'` + `repository_name` are set only `{repository_name}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
+- **Scope filter:** Pass `scope` and/or `repository_name` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'repository'` + `repository_name` are set only `{repository_name}-insights.json` is searched. Prevents accidental global-insight mutation when the same UUID `id` somehow exists in multiple stores.
 - **Without filter in multi-store mode (WP-009):** Iterates `getAllStores()` in config order (store-order priority), applying the update to the first `KnowledgeStoreManager` that succeeds. Non-'not found' errors are re-thrown immediately (no silent swallowing of I/O failures). In single-store / legacy mode: all stores are searched in alphabetical order via `_enumerateStorePaths()`; `global-insights.json` sorts before `{repository_name}-insights.json`, so a global insight is updated first.
-- **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
 - **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
 
 #### `ledger_delete_insight`
 
 ```typescript
 (args: {
-  id: number;                         // Numeric ID as returned in the id field of a previous response
+  id: string;                         // UUID v4 string as returned in the id field of a previous response
   scope?: 'global' | 'repository';   // Optional. Restrict deletion to stores of this scope.
   repository_name?: string;          // Optional. Restrict deletion to the specified repository store.
 }) => Promise<MCPResult>
 ```
 
-Permanently removes an insight from the knowledge base. Returns a confirmation object with the deleted `id`, `formatted_id`, and `deleted: true`.
+Permanently removes an insight from the knowledge base. Returns a confirmation object with the deleted `id` and `deleted: true`.
 
 - **Scope filter:** Same store-selection semantics as `ledger_update_insight`. Pass `scope` and/or `repository_name` to restrict which store is searched and prevent accidental cross-store deletion when the same numeric `id` exists in multiple stores.
 - **Without filter in multi-store mode (WP-009):** Same iterate-all-stores pattern as `ledger_update_insight` — iterates `getAllStores()` in config order, deletes from the first store that has the insight. Non-'not found' errors are re-thrown immediately. In single-store / legacy mode: delegates to `KnowledgeStoreManager.deleteInsight()` on the default ledger root.
@@ -858,7 +857,7 @@ These handler functions are exported from `gui/api-knowledge.ts` (extracted from
 
 > **Route wiring note:** All knowledge handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) are implemented in `gui/api-knowledge.ts`, tested, and registered as HTTP routes in `server.ts`, which imports them from `./api-knowledge.js`.
 
-> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight has a **different numeric ID** (assigned by the target store's `next_id` counter) — the original ID is no longer valid after a promote or move. Frontend consumers that need to track a moved insight must capture the pre-operation ID before calling promote/move and match by that ID, not by the new ID returned in the response.
+> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight **preserves the original UUID** — `moveInsight()` performs an atomic cross-store transfer that retains the source insight's `id` unchanged.
 
 ### HTTP Route Table
 
@@ -869,18 +868,18 @@ The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch 
 | Method | Path | Query Parameters | Return Shape | Error Codes |
 |--------|------|-----------------|--------------|-------------|
 | `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `repository_name`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid/unrecognised scope — throws VALIDATION_ERROR; omitting scope returns all insights) |
-| `DELETE` | `/api/knowledge/:id` | `scope` (required), `repository_name` (required when `scope=repository`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing repository_name), 404 (insight not found) |
-| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"repository"`), `repository_name` (required when `scope=repository`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"repository"`; missing repository_name), 404 (insight not found) |
+| `DELETE` | `/api/knowledge/:id` | `scope` (required), `repository_name` (required when `scope=repository`) | HTTP 204 No Content | 400 (malformed UUID id; missing/invalid scope; missing repository_name), 404 (insight not found) |
+| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"repository"`), `repository_name` (required when `scope=repository`) | HTTP 200 `{ data: Insight }` (moved global insight — same UUID preserved) | 400 (malformed UUID id; scope not `"repository"`; missing repository_name), 404 (insight not found) |
 
 **Body-parsing routes (dispatched via `dispatchRoute()`)**
 
 | Method | Path | Request Body | Return Shape | Error Codes |
 |--------|------|-------------|--------------|-------------|
-| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `repository_name`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (non-integer/zero/float id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
-| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_repository_name`? (required when `source_scope=repository`), `repository_name` (required, destination) | HTTP 200 `{ data: Insight }` (new target insight — ⚠ new ID) | 400 (non-integer/zero/float id; invalid body; missing source_repository_name; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
+| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `repository_name`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (malformed UUID id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
+| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_repository_name`? (required when `source_scope=repository`), `repository_name` (required, destination) | HTTP 200 `{ data: Insight }` (moved target insight — same UUID preserved) | 400 (malformed UUID id; invalid body; missing source_repository_name; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
 
 **Notes:**
-- `:id` must be a positive integer. Float strings (`"1.5"`), zero (`"0"`), and non-numeric strings are rejected with HTTP 400.
+- `:id` must be a valid UUID v4 string. Non-UUID strings are rejected with HTTP 400.
 - Body-parsing routes enforce a 1 MiB body size limit (`MAX_BODY_BYTES`). Exceeding it returns HTTP 413.
 - All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }` shape.
 - CORS is locked to `http://localhost:{port}` (same port as the server).
@@ -904,7 +903,7 @@ export const KnowledgeUpdateBodySchema: z.ZodObject<{
   tags?: z.ZodOptional<z.ZodArray<z.ZodString>>;
   source?: z.ZodOptional<z.ZodString>;
   confidence?: z.ZodOptional<z.ZodNumber>;                // 0–1 float
-  superseded_by?: z.ZodOptional<z.ZodNullable<z.ZodNumber>>; // null clears the field; undefined omits it
+  superseded_by?: z.ZodOptional<z.ZodNullable<z.ZodString>>; // UUID v4; null clears the field; undefined omits it
 }>;
 ```
 
@@ -930,11 +929,10 @@ export async function handleListKnowledge(
 
 ```typescript
 // PATCH /api/knowledge/:id
-// Updates an existing insight identified by its numeric ID.
+// Updates an existing insight identified by its UUID.
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings (e.g. "0", "1.5", "2.0" all rejected)
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings
 //   - body validated via KnowledgeUpdateBodySchema.safeParse() — throws VALIDATION_ERROR
 //     for unknown fields or type mismatches (.strict() enforced)
 //
@@ -943,15 +941,14 @@ export async function handleListKnowledge(
 //
 // Scope disambiguation: `scope` and `repository_name` from the body are passed as the filter
 // parameter to KnowledgeStoreManager.updateInsight() — restricts the search to the correct
-// store and prevents accidental cross-scope updates when the same numeric id exists in
-// multiple stores.
+// store and prevents accidental cross-scope updates when an id needs to be disambiguated.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, unknown body fields, type mismatches
+//   VALIDATION_ERROR — non-UUID id, unknown body fields, type mismatches
 //   NOT_FOUND        — no insight with the given id in the specified scope
 //
 // @param ledgerRoot  Absolute path to the central ledger root.
-// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param rawId       Raw id string from the URL parameter (e.g. "550e8400-e29b-41d4-a716-446655440000").
 // @param body        Parsed request body (any shape — validated here).
 // @returns The updated Insight.
 export async function handleUpdateKnowledge(
@@ -965,12 +962,12 @@ export async function handleUpdateKnowledge(
 
 ```typescript
 // DELETE /api/knowledge/:id
-// Deletes an existing insight identified by its numeric ID.
+// Deletes an existing insight identified by its UUID.
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings. ID validation runs BEFORE scope validation;
-//     when both are invalid the caller receives a VALIDATION_ERROR for the id.
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings.
+//     ID validation runs BEFORE scope validation; when both are invalid the caller receives
+//     a VALIDATION_ERROR for the id.
 //   - scope (query parameter) required; validated via InsightScope.safeParse() —
 //     throws VALIDATION_ERROR when absent or not 'global' | 'repository'
 //   - repository_name (query parameter) required when scope === 'repository';
@@ -982,12 +979,12 @@ export async function handleUpdateKnowledge(
 // KnowledgeStoreManager.deleteInsight(), restricting deletion to the correct store.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing repository_name,
+//   VALIDATION_ERROR — non-UUID id, missing/invalid scope, missing repository_name,
 //                      malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified scope
 //
 // @param ledgerRoot      Absolute path to the central ledger root.
-// @param rawId           Raw id string from the URL parameter (e.g. "42").
+// @param rawId           Raw id string from the URL parameter (e.g. "550e8400-e29b-41d4-a716-446655440000").
 // @param scope           Required scope query parameter ('global' or 'repository').
 // @param repository_name Required when scope is 'repository'.
 // @returns null — consistent with other DELETE handlers.
@@ -1006,8 +1003,7 @@ export async function handleDeleteKnowledge(
 // Promotes a repository-scoped insight to global scope.
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings.
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings.
 //   - scope (query parameter) required; must be "repository". Passing scope="global" throws
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
 //   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
@@ -1019,17 +1015,11 @@ export async function handleDeleteKnowledge(
 // — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
 // The old add→delete two-step compose is fully removed.
 //
-// The returned insight is the newly created global copy — it has a different numeric ID
-// (assigned by the global store's next_id counter).
-//
-// ⚠ ID-change semantics: the returned insight's `id` is NOT the same as the pre-promote
-// repository-scoped insight's `id`. The global store assigns a new `next_id`-based ID.
-// Frontend consumers that need to track which insight was promoted must capture the
-// original ID before calling promote and match by pre-promote ID — not by the new ID
-// returned in the response.
+// The returned insight is the moved global copy — it PRESERVES the original UUID.
+// Frontend consumers can track the insight by the same id before and after promote.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//   VALIDATION_ERROR — non-UUID id, missing/invalid scope, scope is "global",
 //                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified repository scope
 export async function handlePromoteKnowledge(
@@ -1067,8 +1057,7 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 //   - repository → repository: moves a repository insight to a different repository
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings.
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings.
 //   - body validated via KnowledgeMoveBodySchema.safeParse().
 //   - source_repository_name is required when source_scope is "repository" (handler-enforced;
 //     the field is optional in the Zod schema — see KnowledgeMoveBodySchema).
@@ -1080,11 +1069,11 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 // The old non-atomic add→delete two-step compose is fully removed; no intermediate state
 // is observable.
 //
-// The returned insight is the newly created copy in the target repository — it has a different
-// numeric ID (assigned by the target store's next_id counter).
+// The returned insight is the moved copy in the target repository — it PRESERVES the original UUID.
+// Frontend consumers can track the insight by the same id before and after move.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, invalid body, source_repository_name absent when required,
+//   VALIDATION_ERROR — non-UUID id, invalid body, source_repository_name absent when required,
 //                      source and destination identical
 //   NOT_FOUND        — no insight with the given id in the specified source scope
 export async function handleMoveKnowledge(
@@ -2199,7 +2188,7 @@ class KnowledgeStoreManager {
   // ── Read Methods ──────────────────────────────────────────────────────────
 
   // Reads and validates the global insights store.
-  // Returns a valid empty KnowledgeStore (version '1.0.0', next_id: 1, insights: [])
+  // Returns a valid empty KnowledgeStore (version '2.0.0', insights: [])
   // when the file does not yet exist — no error thrown.
   // @throws Error if the file exists but contains malformed JSON or fails schema validation
   readGlobalStore(): Promise<KnowledgeStore>;
@@ -2221,19 +2210,10 @@ class KnowledgeStoreManager {
   // @warning Same nested-lock deadlock risk as writeGlobalStore.
   writeRepositoryStore(repoName: string, data: KnowledgeStore): Promise<void>;
 
-  // ── ID Generation ─────────────────────────────────────────────────────────
-
-  // Increments store.next_id in-place and returns the KN-NNNN formatted string
-  // (e.g. "KN-0001" for next_id === 1). Mutates the store object — caller must
-  // persist the updated store for the counter to survive process restarts.
-  // Note: the KN-NNNN return value is used by MCP tool consumers for display;
-  // the storage layer stores numeric ids (store.next_id before increment).
-  nextId(store: KnowledgeStore): string;
-
   // ── CRUD Operations ───────────────────────────────────────────────────────
 
   // Adds a new insight to the appropriate store (global or repository-scoped).
-  // Auto-assigns numeric id from store.next_id. The entire read-modify-write
+  // Auto-assigns UUID v4 via crypto.randomUUID(). The entire read-modify-write
   // sequence runs under a single lock on knowledgeDir().
   // @throws Error if scope === 'repository' and repository_name is absent
   addInsight(input: Omit<Insight, 'id'>): Promise<Insight>;
@@ -2267,17 +2247,16 @@ class KnowledgeStoreManager {
     offset?: number;           // default: 0
   }): Promise<Insight[]>;
 
-  // Updates an existing insight by numeric id. Searches ALL stores (global +
+  // Updates an existing insight by UUID. Searches ALL stores (global +
   // all repository stores) to locate the insight.
   // Immutable fields: id, scope, repository_name, created_at.
   // Sets updated_at to the current timestamp on success.
   // @param filter — Optional scope/repository_name filter. When provided, restricts the
-  //   store search to matching stores only, preventing accidental global-insight mutation
-  //   when the same numeric id exists in both global and repository stores.
+  //   store search to matching stores only, preventing accidental global-insight mutation.
   //   Without a filter, all stores are searched in alphabetical order (original behaviour).
   // @throws Error if no insight with the given id exists in the filtered stores
   updateInsight(
-    id: number,
+    id: string,
     updates: Partial<Pick<Insight,
       'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
     >>,
@@ -2289,31 +2268,31 @@ class KnowledgeStoreManager {
   //
   // Steps (all inside one withLock(knowledgeDir) span):
   //   1. Resolve source store path(s) from sourceFilter.
-  //   2. Find insight by id in source store — throws if not found.
-  //   3. Construct moved insight: new id (from target store's next_id), corrected
+  //   2. Find insight by UUID in source store — throws if not found.
+  //   3. Construct the moved insight: original UUID preserved, corrected
   //      scope/repository_name, and a fresh updated_at timestamp (captured once via now()).
   //   4. Validate with InsightSchema.parse(…).
   //   5. Write updated target store via atomicWriteJson.
   //   6. Splice source and write updated source store via atomicWriteJson.
   //
-  // Returns the moved Insight with new id, corrected scope/repository_name, and updated_at.
+  // Returns the moved Insight with preserved UUID, corrected scope/repository_name, and updated_at.
   //
   // @throws Error if the insight is not found in the source store(s)
   // @throws Error if targetScope === 'repository' and targetRepositoryName is absent
   // @throws Error if moving to the same repository store (identity move guard)
   // @warning Do NOT call from inside a withLock(knowledgeDir, …) callback — will deadlock.
   moveInsight(
-    id: number,
+    id: string,
     sourceFilter: { scope: InsightScope; repository_name?: string },
     targetScope: InsightScope,
     targetRepositoryName?: string
   ): Promise<Insight>;
 
-  // Deletes an insight by numeric id.
+  // Deletes an insight by UUID.
   // @param filter — Optional scope/repository_name filter (same semantics as updateInsight).
   //   Without a filter, all stores are searched.
   // @throws Error if no insight with the given id exists in the filtered stores
-  deleteInsight(id: number, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void>;
+  deleteInsight(id: string, filter?: { scope?: InsightScope; repository_name?: string }): Promise<void>;
 }
 ```
 
@@ -2724,7 +2703,7 @@ class MultiStoreManager {
   getRegistryConflicts(): Promise<RegistryConflict[]>;
 
   /**
-   * Searches insights across all stores, deduplicating by numeric insight id
+   * Searches insights across all stores, deduplicating by UUID insight id
    * (first-seen in store-order wins).
    *
    * Pre-pagination semantics: limit/offset are forwarded to each per-store
@@ -2747,7 +2726,7 @@ class MultiStoreManager {
   ): Promise<Insight[]>;
 
   /**
-   * Lists insights across all stores, deduplicating by numeric insight id
+   * Lists insights across all stores, deduplicating by UUID insight id
    * (first-seen in store-order wins). limit/offset are applied globally after
    * the full deduplicated merge — same post-merge pagination semantics as
    * searchKnowledge() (WP-009 rework-1).
@@ -2768,8 +2747,6 @@ class MultiStoreManager {
 **Store priority:** All merge operations follow store-array order from `StoreRouter.getAllStores()`, mirroring the `stores.json` config order. The first store to claim a resource (repo id, insight id) wins.
 
 **Legacy-mode transparency:** When `StoreRouter` is in legacy mode (null config), `getAllStores()` returns a single entry with `id: 'default'`. All `MultiStoreManager` methods operate over one store and tag results with `store_id: 'default'` — no behaviour change for existing single-store setups.
-
-**Id collision note:** Independent stores start their insight `next_id` counter at 1. The same numeric id in two different stores refers to different insights; the first-seen-wins dedup rule is intentional and tested. A future scoped-id scheme would eliminate this ambiguity.
 
 ---
 
@@ -3132,7 +3109,7 @@ type InsightScope = 'global' | 'repository';
 //   superseded_by   — id of the insight that replaces this one; no referential integrity enforced at schema layer
 // confidence: 0–1 float; range enforced as [0, 1] — values outside this range are rejected at parse time.
 const InsightSchema: z.ZodObject<{
-  id: z.ZodNumber;              // integer; storage layer should enforce id >= 1; per-store only — not globally unique across global and repository stores
+  id: z.ZodString;              // UUID v4 string; globally unique across all stores
   scope: typeof InsightScope;
   repository_name: z.ZodOptional<z.ZodString>; // required by storage layer when scope === 'repository'
   origin_plan: z.ZodOptional<z.ZodString>;     // provenance: plan slug that produced the insight
@@ -3144,19 +3121,17 @@ const InsightSchema: z.ZodObject<{
   created_at: z.ZodString;      // ISO 8601 timestamp
   updated_at: z.ZodOptional<z.ZodString>;
   confidence: z.ZodNumber;      // 0–1 float; range [0, 1] enforced at schema layer
-  superseded_by: z.ZodOptional<z.ZodNumber>; // integer id of superseding insight
+  superseded_by: z.ZodOptional<z.ZodString>; // UUID v4 of superseding insight
 }>;
 type Insight = z.infer<typeof InsightSchema>;
 
-// Top-level structure for .knowledge/store.json.
-// - version: schema version string (e.g. "1.0.0") for forward-compatibility
+// Top-level structure for per-scope .knowledge/*.json files.
+// - version: schema version string (e.g. "2.0.0") for forward-compatibility
 // - last_updated: ISO 8601 timestamp of the most recent write
-// - next_id: auto-increment counter; assigned to the next insight added
 // - insights: flat array of all stored Insight records
 const KnowledgeStoreSchema: z.ZodObject<{
   version: z.ZodString;
   last_updated: z.ZodString;
-  next_id: z.ZodNumber;         // nonnegative integer
   insights: z.ZodArray<typeof InsightSchema>;
 }>;
 type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
@@ -3165,7 +3140,7 @@ type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
 **Design notes:**
 - `scope === 'repository'` → `repository_name` required constraint is owned by the storage layer (`KnowledgeStoreManager`, WP-002+), not this schema. The schema accepts `repository_name` as optional to remain context-free and composable.
 - `origin_plan` is semantically distinct from `source`: `source` is a reference link/URL, while `origin_plan` is the planning artefact slug (e.g. a plan folder name) where the insight was first discovered. Use `origin_plan` to record provenance; use `source` to record a citable reference.
-- Storage layer should enforce `z.number().int().positive()` for `id` (schema accepts 0) and `z.number().finite()` for `confidence` (schema accepts `Infinity`) when persisting.
+- `id` is a UUID v4 string assigned by `crypto.randomUUID()` at creation time. No sequential counter exists in the schema.
 - Empty strings for `title`, `content`, `source`, `category` are accepted by the schema; storage layer should guard against them.
 
 ---
@@ -5445,8 +5420,7 @@ export async function handleListKnowledge(
 // Promotes a repository-scoped insight to global scope using the atomic moveInsight() method.
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings.
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings.
 //   - scope (query parameter) required; must be "repository". Passing scope="global" throws
 //     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
 //   - repository_name (query parameter) required when scope is "repository"; throws VALIDATION_ERROR
@@ -5458,20 +5432,19 @@ export async function handleListKnowledge(
 // — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
 // add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
 //
-// The returned insight is the newly created global copy — it has a different numeric ID
-// (assigned by the global store's next_id counter). The original repository-scoped insight
-// is atomically removed by the same moveInsight() call.
+// The returned insight is the moved global copy — it PRESERVES the original UUID.
+// The original repository-scoped insight is atomically removed by the same moveInsight() call.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global",
+//   VALIDATION_ERROR — non-UUID id, missing/invalid scope, scope is "global",
 //                      missing repository_name, malformed repository_name (fails SLUG_REGEX)
 //   NOT_FOUND        — no insight with the given id in the specified repository scope
 //
 // @param ledgerRoot      Absolute path to the central ledger root.
-// @param rawId           Raw id string from the URL parameter (e.g. "42").
+// @param rawId           Raw id string from the URL parameter (e.g. "550e8400-e29b-41d4-a716-446655440000").
 // @param scope           Source scope query parameter — must be "repository".
 // @param repository_name Required when scope is "repository".
-// @returns The newly created global Insight.
+// @returns The moved global Insight (same UUID as source).
 export async function handlePromoteKnowledge(
   ledgerRoot: string,
   rawId: string,
@@ -5507,8 +5480,7 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 //   - repository → repository: moves a repository insight to a different repository
 //
 // Validation:
-//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
-//     zero, or floating-point strings.
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-UUID-v4 strings.
 //   - body validated via KnowledgeMoveBodySchema.safeParse() — throws VALIDATION_ERROR for
 //     unknown fields or type mismatches.
 //   - source_repository_name is required when source_scope is "repository" (handler-enforced conditional
@@ -5520,18 +5492,18 @@ export const KnowledgeMoveBodySchema: z.ZodObject<{
 // — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
 // add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
 //
-// The returned insight is the newly created copy — it has a different numeric ID (assigned by the
-// target store's next_id counter). The original source insight is atomically removed.
+// The returned insight is the moved copy in the target repository — it PRESERVES the original UUID.
+// The original source insight is atomically removed.
 //
 // Error codes:
-//   VALIDATION_ERROR — non-integer id, invalid body, source_repository_name absent when required,
+//   VALIDATION_ERROR — non-UUID id, invalid body, source_repository_name absent when required,
 //                      source and destination identical
 //   NOT_FOUND        — no insight with the given id in the specified source scope
 //
 // @param ledgerRoot  Absolute path to the central ledger root.
-// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param rawId       Raw id string from the URL parameter (e.g. "550e8400-e29b-41d4-a716-446655440000").
 // @param body        Parsed request body (any shape — validated here via KnowledgeMoveBodySchema).
-// @returns The newly created Insight in the target repository store.
+// @returns The moved Insight in the target repository store (same UUID as source).
 export async function handleMoveKnowledge(
   ledgerRoot: string,
   rawId: string,
@@ -5542,14 +5514,10 @@ export async function handleMoveKnowledge(
 // Knowledge — exported helpers (gui/api-knowledge.ts)
 // ---------------------------------------------------------------------------
 //
-// parseKnowledgeId(raw: string): number
-//   Exported helper (WP-003). Parses a raw string as a positive integer insight ID.
-//   Rejects: non-numeric strings (NaN), floating-point strings (any '.' in raw string checked
-//   BEFORE numeric coercion — catches "2.0" which Number("2.0") === 2 would miss), zero, negatives.
-//   Throws: ApiError VALIDATION_ERROR for any rejected value.
-//   Note: The raw.includes('.') check runs before Number() coercion — this is intentional.
-//   Number("2.0") === 2 (an integer), so Number.isInteger alone is insufficient for float-string
-//   rejection.
+// parseKnowledgeId(raw: string): string
+//   Exported helper (WP-003). Parses a raw string as a UUID v4 insight ID.
+//   Validates: the raw string must be a valid UUID v4 (validated via z.string().uuid()).
+//   Throws: ApiError VALIDATION_ERROR for non-UUID-v4 strings.
 //
 // findInsightById — REMOVED (WP-003). This helper was a dead code artifact after promote and move
 //   handlers were wired to moveInsight(). It has been deleted from the codebase.

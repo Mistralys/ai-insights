@@ -1,6 +1,22 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.7.0 - Model Settings Rework and GUI Improvements
+## v2.8.0 - **WIP UNRELEASED**
+
+**This release migrates knowledge insight IDs from auto-increment integers to UUID v4 strings.**
+Insights are now globally unique across all stores; cross-store deduplication no longer requires
+a collision note. `moveInsight()` preserves the original UUID, removing the ID-change
+semantics that previously complicated frontend tracking.
+
+- Knowledge: `InsightSchema.id` changed from `z.number().int()` to `z.string().uuid()`.
+- Knowledge: `KnowledgeStoreSchema` no longer has a `next_id` field; IDs are assigned
+  via `crypto.randomUUID()` in `KnowledgeStoreManager.addInsight()`.
+- Knowledge: `moveInsight()` preserves the original UUID when moving an insight across
+  stores (promote and move operations).
+- Knowledge: `formatInsightId()` removed; `parseKnowledgeId()` now validates UUID format.
+- Manifest: Updated all four manifest docs (`api-surface.md`, `constraints.md`,
+  `data-flows.md`, `file-tree.md`) to reflect UUID-based IDs.
+
+
 
 **This release reworks the model settings subsystem with a declarative route table and a
 three-tab config UI.** Repository display and breadcrumbs have been added to the project

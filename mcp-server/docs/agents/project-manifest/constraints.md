@@ -2085,6 +2085,45 @@ function _bindQueueActions(container, entries) { /* ... */ }
 
 ## Knowledge Store Constraints
 
+### 73aa. Insight IDs Are UUID v4 Strings — Not Auto-Increment Integers
+
+**Rule:** Every insight stored in the knowledge base has an `id` field that is a **UUID v4 string** generated via `crypto.randomUUID()` at creation time. The old auto-increment `next_id` counter no longer exists in `KnowledgeStoreSchema`. IDs are globally unique across all stores and all scopes — no two insights in any store will share the same `id`.
+
+**Rationale:** Auto-increment integers were per-store only — the same numeric `id` could appear in two independent stores, causing deduplication logic to discard valid insights on cross-store merge. UUID v4 eliminates this collision class without any coordination between stores.
+
+**`moveInsight()` preserves the original UUID:** When an insight is promoted (`repository → global`) or moved (`global → repository` or `repository → repository`), the returned insight retains the source's `id` unchanged. No new UUID is assigned. Frontend consumers do not need to track "pre-promote ID" to correlate with the post-move insight.
+
+**`KnowledgeStoreSchema` does not include `next_id`:** Any store file containing a `next_id` field pre-dates the UUID migration. The schema no longer declares or persists `next_id`.
+
+**`formatInsightId()` is removed:** The `formatInsightId(id, storeId?)` helper (which produced `KN-NNNN` / `{storeId}:KN-NNNN` display strings) has been removed from `src/tools/knowledge.ts`. Tool responses no longer include a `formatted_id` field.
+
+**`parseKnowledgeId()` validates UUID format:** The `parseKnowledgeId(raw)` helper in `gui/api-knowledge.ts` validates UUID v4 format (via `z.string().uuid()`) instead of positive-integer format.
+
+**Anti-patterns:**
+```typescript
+// ❌ WRONG — using store.next_id as insight ID (removed field)
+const insight = { id: store.next_id++, ...fields };
+
+// ❌ WRONG — treating id as a number
+const found = store.insights.find(i => i.id === 42);
+```
+
+**Correct patterns:**
+```typescript
+// ✅ CORRECT — assign UUID at creation
+import { randomUUID } from 'crypto';
+const insight = InsightSchema.parse({ id: randomUUID(), ...fields });
+
+// ✅ CORRECT — locate by UUID string
+const found = store.insights.find(i => i.id === '550e8400-e29b-41d4-a716-446655440000');
+
+// ✅ CORRECT — moveInsight() preserves UUID
+const moved = await manager.moveInsight(insight.id, { scope: 'repository', repository_name: 'my-repo' }, 'global');
+// moved.id === insight.id  ← same UUID
+```
+
+---
+
 ### 73a. `'global'` Is a Reserved Repository Name
 
 **Rule:** The string `"global"` MUST NOT be used as a `repository_name` when adding or moving a repository-scoped insight. Attempting to call `addInsight` or `repositoryStorePath()` with `repository_name === 'global'` throws an error.
