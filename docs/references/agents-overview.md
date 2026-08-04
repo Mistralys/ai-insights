@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-08-01
+> **Generated:** 2026-08-04
 > **Total Personas:** 42
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -244,7 +244,7 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 ---
 
-### Git Committer (v1.3.0)
+### Git Committer (v1.4.0)
 
 **Identity:** Configuration Management Engineer
 
