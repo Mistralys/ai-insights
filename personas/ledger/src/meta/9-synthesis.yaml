@@ -5,6 +5,7 @@ id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 changelog: |
+  3.7.2 (2026-08-04): Split single Inputs item into separate Project Overview and Work Package Detail entries
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-06-05): Deferred items collection added to operational protocol
   3.6.0 (2026-05-29): Knowledge extraction delegated to Knowledge Archiver sub-agent

@@ -5,6 +5,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
   3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups

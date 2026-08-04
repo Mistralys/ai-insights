@@ -46,18 +46,6 @@ You will be provided with:
 
 ---
 
-## Operational Protocol — Spec File Verification
-
-This protocol verifies that all WP spec files exist, contain complete content, and have acceptance criteria matching the ledger. Run it once after ledger bootstrapping.
-
-1. **Check spec files exist:** For each WP in the ledger, confirm:
-   - The individual spec file exists at `work/<WP-ID>.md` inside the plan folder
-   - The summary index `work.md` exists in the plan folder root
-2. **Create missing files:** If any files are missing, create them before proceeding. Each `work/<WP-ID>.md` must contain all fields from the WP draft verbatim: plan context, description, scope, deliverables, acceptance criteria, estimated complexity, rationale (if present), rejected approaches (if present), and notes (if present) — plus the two injected fields: dependencies and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure.
-3. **AC fidelity check (self-healing):** For each WP, call `ledger_get_work_package` and compare the returned `acceptance_criteria` array against the `## Acceptance Criteria` section of `work/<WP-ID>.md` using normalized comparison (trim whitespace + case-fold). If a mismatch is detected, update the spec file to replace its `## Acceptance Criteria` section with the criteria from the ledger — the ledger is authoritative. Do not modify the ledger entry. After updating, re-read the spec file to confirm the fix was applied correctly.
-
----
-
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
@@ -141,11 +129,10 @@ This protocol verifies that all WP spec files exist, contain complete content, a
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
 8. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.
 9. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
-10. **Verify WP spec files:** Execute the Spec File Verification protocol (see Operational Protocol above). This is a critical gate — do not hand off with missing or stripped WP spec files.
 {{#if target_vscode}}
-11. {{> handoff-block-vscode}}
+10. {{> handoff-block-vscode}}
 {{else if target_claude_code}}
-11. {{> handoff-block-claude-code}}
+10. {{> handoff-block-claude-code}}
 {{else}}
-11. {{> handoff-block-manual}}
+10. {{> handoff-block-manual}}
 {{/if}}

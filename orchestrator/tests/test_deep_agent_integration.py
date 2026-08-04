@@ -1104,12 +1104,13 @@ async def test_pm_stage_live() -> None:
         build_prompt=lambda state: (
             "You are the Project Manager agent.  "
             "Call ledger_initialize_project to create the project ledger "
-            "(work_package_file='work/WP-001.md', plan_file='plan.md', "
+            "(plan_file='plan.md', "
             "project_path='/smoke-test').  "
             "Then call ledger_create_work_package to create WP-001 "
             "(assigned_to='Developer', dependencies=[], "
             "acceptance_criteria=['Implementation complete'], "
-            "work_package_file='work/WP-001.md').  "
+            "description='Smoke test WP', "
+            "title='Smoke test WP').  "
             "project_path is /smoke-test."
         ),
         config=config,

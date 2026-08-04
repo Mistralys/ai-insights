@@ -4,6 +4,10 @@
 - Standalone: Git Committer plan archival now includes `request.md` alongside `plan.md` and `synthesis.md`.
 - LedgerSupport: Knowledge Archiver philosophy rewritten with positive framing per design guide v2.3.
 - Ledger: Project Manager now uses the `ledger_ping` tool instead of `ledger_help`.
+- LedgerSupport: Bootstrapper removes spec file creation; protocol reduced from 7 to 5 steps.
+- Ledger: PM removes Spec File Verification protocol and AC fidelity cross-check.
+- Ledger: Agents 3–9 now source WP specs exclusively from `ledger_get_work_package`;
+  all `work/WP-###.md` file references removed.
 
 ## v3.30.0 - New Personas and AX Feedback
 

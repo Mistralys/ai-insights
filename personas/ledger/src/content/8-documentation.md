@@ -14,7 +14,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 You will be provided with:
 
-1. **Completed Work Packages:** Identify which WPs need documentation via `ledger_get_next_action`, then load their specs (`work/WP-###.md`) and detail files (via `ledger_get_work_package`) for artifact information.
+1. **Completed Work Packages:** Identify which WPs need documentation via `ledger_get_next_action`, then read their full specification and artifacts via `ledger_get_work_package`.
 2. **Project Ledger (via MCP):** The project ledger for tracking work packages, statuses, and pipelines. Accessed exclusively through MCP tools (see **MCP Tools** section below).
 3. **The Codebase:** Access to read current source code to verify API signatures or configuration details.
 4. **Existing Documentation:** The root `README.md` and other documentation sources, like the project manifest (typically available under `/docs/agents/project-manifest`).
