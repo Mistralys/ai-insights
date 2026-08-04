@@ -178,7 +178,7 @@ describe('getQaAction — excludes BLOCKED WPs from new-work suggestions', () =>
     const blocked = makeWorkPackageDetail({ status: 'BLOCKED', acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
     ] });
-    const ready = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', acceptance_criteria: [], pipelines: [
+    const ready = makeWorkPackageDetail({ work_package_id: 'WP-002', acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
     ] });
     const rootIndex = await setupStore(handle, [blocked, ready]);
@@ -287,7 +287,7 @@ describe('PM action logic', () => {
     const wp: WorkPackageDetail = makeWorkPackageDetail({ status: 'BLOCKED', acceptance_criteria: [], pipelines: [], blocked_by: { type: 'dependency', description: 'waiting on WP-000', blocking_work_package: 'WP-000' },
       dependencies: ['WP-000'], });
     // WP-000 is still READY (not terminal), so canStartWorkPackage returns false
-    const dep: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-000', work_package_file: 'work/WP-000.md', status: 'READY', acceptance_criteria: [], pipelines: [] });
+    const dep: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-000', status: 'READY', acceptance_criteria: [], pipelines: [] });
     const rootIndex = await setupStore(handle, [dep, wp]);
     const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
 
@@ -345,7 +345,7 @@ describe('PM action logic', () => {
   // Case 7: BLOCKED WP, absent blocked_by, all deps COMPLETE → REPAIR_ORPHAN_BLOCKED
   it('returns REPAIR_ORPHAN_BLOCKED when a BLOCKED WP has no blocked_by and its dep is COMPLETE', async () => {
     const dep: WorkPackageDetail = makeWorkPackageDetail({ status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
-    const wp: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', status: 'BLOCKED', acceptance_criteria: [], pipelines: [], dependencies: ['WP-001'], });
+    const wp: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'BLOCKED', acceptance_criteria: [], pipelines: [], dependencies: ['WP-001'], });
     const rootIndex = await setupStore(handle, [dep, wp]);
     const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
 
@@ -356,7 +356,7 @@ describe('PM action logic', () => {
   // Case 8: All WPs COMPLETE → WAIT
   it('returns WAIT when all work packages are COMPLETE', async () => {
     const wp1 = makeWorkPackageDetail({ status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
-    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
+    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
     const rootIndex = await setupStore(handle, [wp1, wp2]);
     const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
 
@@ -368,7 +368,7 @@ describe('PM action logic', () => {
     // WP-001 has rework limit hit (would trigger P2)
     const wp1: WorkPackageDetail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [], rework_counts: { implementation: MAX_REWORK_COUNT }, });
     // WP-002 has a technical blocker (triggers P1)
-    const wp2: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', status: 'BLOCKED', acceptance_criteria: [], pipelines: [], blocked_by: { type: 'technical', description: 'needs architectural decision' }, });
+    const wp2: WorkPackageDetail = makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'BLOCKED', acceptance_criteria: [], pipelines: [], blocked_by: { type: 'technical', description: 'needs architectural decision' }, });
     const rootIndex = await setupStore(handle, [wp1, wp2]);
     const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
 
@@ -402,7 +402,7 @@ describe('PM action logic', () => {
     // WP-002: impl PASS + no QA pipeline (would trigger P3d if WP-001 did not fire first)
     const recentComplete = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const recentStart    = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', acceptance_criteria: [], pipelines: [
+    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'PASS', recentStart, recentComplete),
     ] });
     const rootIndex = await setupStore(handle, [wp1, wp2]);
@@ -418,13 +418,13 @@ describe('PM action logic', () => {
     const dep: WorkPackageDetail = makeWorkPackageDetail({ status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
     // WP-002: BLOCKED with no blocked_by and its dep is now COMPLETE → REPAIR_ORPHAN_BLOCKED
     const blocked: WorkPackageDetail = makeWorkPackageDetail({
-      work_package_id: 'WP-002', work_package_file: 'work/WP-002.md',
+      work_package_id: 'WP-002',
       status: 'BLOCKED', acceptance_criteria: [], pipelines: [], dependencies: ['WP-001'],
     });
     // WP-003: impl PASS + no QA pipeline → would trigger P3d if P3c did not fire first
     const recentComplete = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     const recentStart    = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const routable = makeWorkPackageDetail({ work_package_id: 'WP-003', work_package_file: 'work/WP-003.md', acceptance_criteria: [], pipelines: [
+    const routable = makeWorkPackageDetail({ work_package_id: 'WP-003', acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'PASS', recentStart, recentComplete),
     ] });
     const rootIndex = await setupStore(handle, [dep, blocked, routable]);
@@ -496,7 +496,7 @@ describe('Developer action logic', () => {
     const wp1 = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
     ] });
-    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', acceptance_criteria: [], pipelines: [] });
+    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', acceptance_criteria: [], pipelines: [] });
     const rootIndex = await setupStore(handle, [wp1, wp2]);
     const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
 
@@ -606,7 +606,7 @@ describe('Developer action logic', () => {
   // Case 8: All WPs COMPLETE → WAIT
   it('returns WAIT when all work packages are COMPLETE', async () => {
     const wp1 = makeWorkPackageDetail({ status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
-    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
+    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
     const rootIndex = await setupStore(handle, [wp1, wp2]);
     const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
 
@@ -619,7 +619,7 @@ describe('Developer action logic', () => {
     const wpFail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
       makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
     ] });
-    const wpNoPipeline = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', acceptance_criteria: [], pipelines: [] });
+    const wpNoPipeline = makeWorkPackageDetail({ work_package_id: 'WP-002', acceptance_criteria: [], pipelines: [] });
     const rootIndex = await setupStore(handle, [wpFail, wpNoPipeline]);
     const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
 

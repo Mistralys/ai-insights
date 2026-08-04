@@ -78,7 +78,6 @@ describe('Cascade-block dependents on WP reopen', () => {
   function makeWpDetail(id: string, status: string, deps: string[] = []): WorkPackageDetail {
     return {
       work_package_id: id,
-      work_package_file: `work/${id}.md`,
       status: status as any,
       assigned_to: 'Developer',
       dependencies: deps,

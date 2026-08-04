@@ -57,7 +57,6 @@ describe('Pipeline ordering enforcement', () => {
   async function writeWp(pipelines: Array<{ type: string; status: string }>) {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -232,7 +231,6 @@ describe('assigned_to update on pipeline start', () => {
       await store2.writeRootIndex(root);
       await store2.writeWorkPackage('WP-001', {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Developer',
         dependencies: [],
@@ -309,7 +307,6 @@ describe('cancelPipeline logic', () => {
   it('cancels an IN_PROGRESS pipeline by setting status to FAIL', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -343,7 +340,6 @@ describe('cancelPipeline logic', () => {
   it('errors when no IN_PROGRESS pipeline of the given type exists', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -392,7 +388,6 @@ describe('cancelPipeline — auto_cancelled parameter', () => {
   function makeWpWithInProgressPipeline(): WorkPackageDetail {
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -580,7 +575,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('rework_count is undefined for a new WP (backward compatible)', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -596,7 +590,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('starting first implementation pipeline does NOT set rework_count', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -614,7 +607,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('starting implementation after a FAIL implementation sets rework_counts.implementation to 1', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -636,7 +628,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('rework_count tracking via legacy simulation — count reflects migration lazy-persistence side-effect', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -664,7 +655,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('starting implementation after FAIL then PASS does NOT increment rework_count', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -691,7 +681,6 @@ describe('rework_count tracking (WP-005)', () => {
   it('starting a qa pipeline after a FAIL implementation pipeline does NOT increment rework_count', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -754,7 +743,6 @@ describe('updatePipelineProgress logic (WP-005)', () => {
   it('updates the summary of the most recent IN_PROGRESS pipeline', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -784,7 +772,6 @@ describe('updatePipelineProgress logic (WP-005)', () => {
   it('errors when no IN_PROGRESS pipeline of the given type exists', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -809,7 +796,6 @@ describe('updatePipelineProgress logic (WP-005)', () => {
     // Write a WP without rework_count (as would exist in pre-WP-005 ledger files)
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1169,7 +1155,6 @@ describe('completePipeline handler normalizes lenient inputs', () => {
   function makeWpWithImplPipeline(): WorkPackageDetail {
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1319,7 +1304,6 @@ describe('completePipeline — acceptance_criteria_updates merge semantics (FIX-
   ): WorkPackageDetail {
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1451,7 +1435,6 @@ describe('completePipeline — auto-finalize on documentation PASS (WP-006)', ()
     ];
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -1594,7 +1577,6 @@ describe('dynamic pipeline engine — startPipeline respects active_pipeline_sta
   function makeWpWithStages(activeStages: string[], pipelines: WorkPackageDetail['pipelines'] = []): WorkPackageDetail {
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1682,7 +1664,6 @@ describe('dynamic pipeline engine — startPipeline respects active_pipeline_sta
     // Write a WP without active_pipeline_stages field (simulates legacy ledger file)
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1747,7 +1728,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     await store.writeRootIndex(makeRoot2());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -1790,7 +1770,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -1822,7 +1801,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     await store.writeRootIndex(makeRoot2());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1852,7 +1830,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     await store.writeRootIndex(makeRoot2());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1885,7 +1862,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     await store.writeRootIndex(makeRoot2());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -1928,7 +1904,6 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -1987,7 +1962,6 @@ describe('completePipeline — non-doc pipeline does not auto-finalize', () => {
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2052,7 +2026,6 @@ describe('completePipeline — auto-finalize triggers propagateDependencyUnblock
   function makeWp001ForDocPipeline(): WorkPackageDetail {
     return {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -2071,7 +2044,6 @@ describe('completePipeline — auto-finalize triggers propagateDependencyUnblock
   function makeWp002Blocked(blockerType: 'dependency' | 'technical' = 'dependency'): WorkPackageDetail {
     return {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'BLOCKED',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2236,7 +2208,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(makeStalenessRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2250,7 +2221,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     });
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2290,7 +2260,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(makeStalenessRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2304,7 +2273,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     });
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2340,7 +2308,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(makeStalenessRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2352,7 +2319,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     });
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2398,7 +2364,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(noDepsRoot);
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2434,7 +2399,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(makeStalenessRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2446,7 +2410,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     });
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2483,7 +2446,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     await store.writeRootIndex(makeStalenessRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2494,7 +2456,6 @@ describe('completePipeline — cross-WP dependency staleness advisory (WP-008)',
     });
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -2565,7 +2526,6 @@ describe('WorkPackageDetail.last_updated — lifecycle integration (WP-002)', ()
     // Write WP without last_updated (simulating a legacy WP)
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],

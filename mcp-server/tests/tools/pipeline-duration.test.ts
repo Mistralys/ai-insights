@@ -63,7 +63,6 @@ describe('pipeline duration_ms computation', () => {
     };
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -116,7 +115,6 @@ describe('pipeline duration_ms computation', () => {
     // Bypass Zod validation by using the store directly with a known-invalid date string
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],

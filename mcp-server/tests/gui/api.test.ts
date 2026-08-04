@@ -67,7 +67,6 @@ function makeRoot(overrides: Partial<RootIndex> = {}): RootIndex {
 function makeWp(id: string): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: 'READY',
     assigned_to: 'Developer',
     dependencies: [],

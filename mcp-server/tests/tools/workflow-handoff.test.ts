@@ -53,7 +53,6 @@ function makeWp(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: assignedTo,
     dependencies: deps,
@@ -544,7 +543,6 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
   it('completePipeline with handoff_notes creates a handoff note entry on the WP', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -567,7 +565,6 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
   it('handoff note from_agent correctly maps from pipeline type (qa → QA)', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -588,7 +585,6 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
   it('handoff note to_agent correctly maps to next agent (qa → Reviewer)', async () => {
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -657,7 +653,6 @@ describe('getNextActions batch tool (WP-006)', () => {
     for (const w of wps) {
       const wpDetail: WorkPackageDetail = {
         work_package_id: w.id,
-        work_package_file: `work/${w.id}.md`,
         status: w.status as any,
         assigned_to: 'Developer',
         dependencies: w.deps ?? [],
@@ -899,7 +894,6 @@ describe('Developer downstream pipeline failure detection', () => {
     for (const w of wps) {
       const wpDetail: WorkPackageDetail = {
         work_package_id: w.id,
-        work_package_file: `work/${w.id}.md`,
         status: w.status as any,
         assigned_to: 'Developer',
         dependencies: w.deps ?? [],
@@ -1678,7 +1672,6 @@ function makeWpTimed(
   const base = new Date('2026-01-01T08:00:00').getTime();
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: deps,

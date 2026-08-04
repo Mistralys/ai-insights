@@ -152,10 +152,10 @@ async function setupProjectWithWP(acList: string[] = ['All tasks complete.']): P
   const wpResult = await createWorkPackage({
     project_path: planPath,
     title: 'Test WP',
+    description: 'Test work package.',
     assigned_to: 'Developer',
     dependencies: [],
     acceptance_criteria: acList,
-    work_package_file: 'work/WP-001.md',
   });
   const wpData = parseResult(wpResult) as { work_package_id: string };
   return wpData.work_package_id;
@@ -642,10 +642,10 @@ describe('createWorkPackage — write routing (multi-store mode)', () => {
     const result = await createWorkPackage({
       project_path: planPath,
       title: 'Unregistered WP',
+      description: 'Test work package.',
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: ['Test passes.'],
-      work_package_file: 'work/WP-001.md',
     });
 
     expect((result as any).isError).toBe(true);
@@ -665,10 +665,10 @@ describe('createWorkPackage — write routing (multi-store mode)', () => {
     const result = await createWorkPackage({
       project_path: planPath,
       title: 'Routed WP',
+      description: 'Test work package.',
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: ['All done.'],
-      work_package_file: 'work/WP-001.md',
     });
 
     expect((result as any).isError).toBeFalsy();
@@ -692,10 +692,10 @@ describe('createWorkPackage — write routing (multi-store mode)', () => {
       {
         project_path: planPath,
         title: 'Legacy WP',
+        description: 'Test work package.',
         assigned_to: 'Developer',
         dependencies: [wpId],
         acceptance_criteria: ['Test passes.'],
-        work_package_file: 'work/WP-002.md',
       },
       storeSecondaryPath,
     );

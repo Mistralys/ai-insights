@@ -784,7 +784,6 @@ export class LedgerStore {
 
       const wpDetail: WorkPackageDetail = {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         title: 'Standalone implementation',
         status: 'COMPLETE',
         assigned_to: 'Developer',

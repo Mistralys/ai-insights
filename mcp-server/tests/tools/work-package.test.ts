@@ -322,7 +322,6 @@ function makeWpDetail(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: deps,
@@ -544,8 +543,9 @@ describe('createWorkPackage — revision and assigned_to defaults (AC 7 & 8)', (
         project_path: CREATE_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Feature works'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -562,8 +562,9 @@ describe('createWorkPackage — revision and assigned_to defaults (AC 7 & 8)', (
         project_path: CREATE_PLAN_PATH,
         assigned_to: 'QA',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Tests pass'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -810,7 +811,6 @@ function makeWp004Detail(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: [],
@@ -1212,7 +1212,6 @@ describe('claimWorkPackage — CLAIMABLE_ROLES guard (WP-005)', () => {
     await store.writeRootIndex(root);
     await store.writeWorkPackage(id, {
       work_package_id: id,
-      work_package_file: `work/${id}.md`,
       status: 'READY',
       assigned_to: assignedTo,
       dependencies: [],
@@ -1383,8 +1382,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Feature works'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -1399,8 +1399,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'QA',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Done'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -1419,8 +1420,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-002.md',
       },
       tempDir
     );
@@ -1442,8 +1444,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-002.md',
       },
       tempDir
     );
@@ -1481,8 +1484,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-002.md',
       },
       tempDir
     );
@@ -1496,8 +1500,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Valid criterion', ''],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -1511,8 +1516,9 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
         project_path: WP006_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['   '],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -1558,8 +1564,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: [],
       },
       tempDir
@@ -1574,8 +1581,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['implementation', 'unknown-stage'],
       },
       tempDir
@@ -1591,8 +1599,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['implementation', 'qa', 'implementation'],
       },
       tempDir
@@ -1609,8 +1618,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['documentation', 'implementation'],
       },
       tempDir
@@ -1627,8 +1637,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['implementation', 'code-review'],
       },
       tempDir
@@ -1645,8 +1656,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['qa'],
       },
       tempDir
@@ -1665,8 +1677,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -1683,8 +1696,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: [
           'implementation', 'qa', 'security-audit',
           'code-review', 'release-engineering', 'documentation',
@@ -1706,8 +1720,9 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
         project_path: APS_PLAN_PATH,
         assigned_to: 'QA',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['QA pass'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: ['qa', 'code-review'],
       },
       tempDir
@@ -2030,7 +2045,6 @@ function makeResetReworkWpDetail(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: 'IN_PROGRESS',
     assigned_to: 'Developer',
     dependencies: [],
@@ -2198,7 +2212,6 @@ function makeUpdateAcWpDetail(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: [],
@@ -2413,7 +2426,6 @@ describe('updateWorkPackageStatus — BLOCKED → IN_PROGRESS agent guard (FIX-0
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'BLOCKED',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2503,7 +2515,6 @@ describe('updateWorkPackageStatus — IN_PROGRESS → READY agent guard (FIX-02)
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2584,7 +2595,6 @@ describe('createWorkPackage — synthesis_generated reset when added to COMPLETE
     } as any);
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2599,8 +2609,9 @@ describe('createWorkPackage — synthesis_generated reset when added to COMPLETE
         project_path: FIX03_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['New feature works'],
-        work_package_file: 'work/WP-002.md',
       },
       tempDir
     );
@@ -2628,8 +2639,9 @@ describe('createWorkPackage — synthesis_generated reset when added to COMPLETE
         project_path: FIX03_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Feature works'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir
     );
@@ -2666,7 +2678,6 @@ describe('updateWorkPackageStatus — IN_PROGRESS → COMPLETE rejected for non-
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2737,7 +2748,6 @@ describe('updateWorkPackageStatus — IN_PROGRESS → CANCELLED rejected for non
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2808,7 +2818,6 @@ describe('updateWorkPackageStatus — → BLOCKED without blocked_by rejected (F
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2859,7 +2868,6 @@ describe('updateWorkPackageStatus — COMPLETE → COMPLETE same-state no-op (FI
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2919,7 +2927,6 @@ describe('updateWorkPackageStatus — COMPLETE → CANCELLED counter invariant (
     });
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'COMPLETE',
       assigned_to: 'Developer',
       dependencies: [],
@@ -2996,8 +3003,9 @@ describe('MCP extra-argument leak — _ledgerRoot defensive type guard (regressi
         project_path: GHOST_PLAN,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['AC-1'],
-        work_package_file: 'work/WP-001.md',
       },
       FAKE_EXTRA
     );
@@ -3195,8 +3203,9 @@ describe('createWorkPackage — clears synthesis_generated_at on COMPLETE projec
         project_path: WP008_CREATE_PLAN,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['New feature works'],
-        work_package_file: 'work/WP-002.md',
       },
       tempDir,
     );
@@ -3244,8 +3253,9 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
         project_path: WP008_APS_PLAN,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: stages,
       },
       tempDir,
@@ -3264,8 +3274,9 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
         project_path: WP008_APS_PLAN,
         assigned_to: 'Developer',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
       },
       tempDir,
     );
@@ -3286,8 +3297,9 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
         project_path: WP008_APS_PLAN,
         assigned_to: 'QA',
         dependencies: [],
+        title: 'Test WP',
+        description: 'Test work package.',
         acceptance_criteria: ['QA pass'],
-        work_package_file: 'work/WP-001.md',
         active_pipeline_stages: stages,
       },
       tempDir,
@@ -3337,7 +3349,6 @@ describe('createWorkPackage — title and description fields', () => {
         assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         title: 'My feature WP',
         description: 'Full spec body.',
       },
@@ -3357,8 +3368,8 @@ describe('createWorkPackage — title and description fields', () => {
         assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         title: 'Summary title',
+        description: 'Test work package.',
       },
       tempDir,
     );
@@ -3375,7 +3386,6 @@ describe('createWorkPackage — title and description fields', () => {
         assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
         title: 'T',
         description: 'Detailed spec.',
       },
@@ -3394,7 +3404,6 @@ describe('createWorkPackage — title and description fields', () => {
       assigned_to: z.string(),
       dependencies: z.array(z.string()),
       acceptance_criteria: z.array(z.string()).min(1),
-      work_package_file: z.string(),
       title: z.string().min(1),
     });
 
@@ -3402,7 +3411,6 @@ describe('createWorkPackage — title and description fields', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: ['Works'],
-      work_package_file: 'work/WP-001.md',
       // title intentionally omitted
     });
 
@@ -3420,7 +3428,6 @@ describe('createWorkPackage — title and description fields', () => {
       assigned_to: z.string(),
       dependencies: z.array(z.string()),
       acceptance_criteria: z.array(z.string()).min(1),
-      work_package_file: z.string(),
       title: z.string().min(1),
     });
 
@@ -3428,7 +3435,6 @@ describe('createWorkPackage — title and description fields', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: ['Works'],
-      work_package_file: 'work/WP-001.md',
       title: '',
     });
 
@@ -3439,21 +3445,47 @@ describe('createWorkPackage — title and description fields', () => {
     }
   });
 
-  it('stores WP without description when description is omitted', async () => {
+  it('stores description when description is provided', async () => {
     await createWorkPackage(
       {
         project_path: TITLE_PLAN_PATH,
         assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: ['Works'],
-        work_package_file: 'work/WP-001.md',
-        title: 'No-desc WP',
+        title: 'WP with description',
+        description: 'Full specification for this work package.',
       },
       tempDir,
     );
 
     const wp = await store.readWorkPackage('WP-001');
-    expect(wp.title).toBe('No-desc WP');
-    expect(wp.description).toBeUndefined();
+    expect(wp.title).toBe('WP with description');
+    expect(wp.description).toBe('Full specification for this work package.');
+  });
+
+  it('rejects missing description (schema replica)', () => {
+    // description is required in CreateWorkPackageSchema — test via schema replica
+    // (Zod validation fires at the MCP SDK layer, not inside createWorkPackage())
+    const MinimalCreateSchema = z.object({
+      assigned_to: z.string(),
+      dependencies: z.array(z.string()),
+      acceptance_criteria: z.array(z.string()).min(1),
+      title: z.string().min(1),
+      description: z.string(),
+    });
+
+    const result = MinimalCreateSchema.safeParse({
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: ['Works'],
+      title: 'My WP',
+      // description intentionally omitted
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const hasDescriptionError = result.error.issues.some((i) => i.path.includes('description'));
+      expect(hasDescriptionError).toBe(true);
+    }
   });
 });

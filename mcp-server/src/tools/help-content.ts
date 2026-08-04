@@ -28,7 +28,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_complete_synthesis | cwd_path or project_path | Mark synthesis as generated; transitions project to COMPLETE |
 | ledger_get_work_package | cwd_path or project_path, work_package_id | Read a work package's full detail |
 | ledger_list_work_packages | cwd_path or project_path | List work packages (optional: status, assigned_to filters) |
-| ledger_create_work_package | cwd_path or project_path, assigned_to, dependencies, acceptance_criteria, work_package_file | Create a new work package |
+| ledger_create_work_package | cwd_path or project_path, assigned_to, dependencies, acceptance_criteria, description | Create a new work package |
 | ledger_claim_work_package | cwd_path or project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
 | ledger_begin_work | cwd_path or project_path, work_package_id, type, agent_role | Claim + start pipeline in one atomic call |
 | ledger_update_work_package_status | cwd_path or project_path, work_package_id, status, agent | Update WP status |
@@ -223,9 +223,10 @@ ${PROJECT_PATH_PARAM}
 - **assigned_to** (string): Agent name (e.g., "Developer")
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
 - **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
-- **work_package_file** (string): Relative path to the WP spec file
+- **description** (string): Full specification body for this work package (scope, deliverables, rationale, etc.)
 
 ## Optional Parameters
+- **title** (string): Human-readable title for the work package
 - **active_pipeline_stages** (array of strings): Ordered subset of pipeline stages for this WP. Omit to use the default 4-stage chain: ["implementation", "qa", "code-review", "documentation"]. Each entry must be a valid pipeline type. The array must be a contiguous subsequence of the canonical ordering and cannot be empty, contain duplicates, or be out of order. A soft warning is emitted if "implementation" is included without "qa", or if only a single stage is specified.
 
 ## Example
@@ -235,7 +236,7 @@ ${PROJECT_PATH_PARAM}
   "assigned_to": "Developer",
   "dependencies": [],
   "acceptance_criteria": ["All tests pass", "No lint errors"],
-  "work_package_file": "work/WP-001.md"
+  "description": "Implement feature X as described in the plan."
 }
 \`\`\`
 
@@ -246,7 +247,7 @@ ${PROJECT_PATH_PARAM}
   "assigned_to": "Developer",
   "dependencies": [],
   "acceptance_criteria": ["OWASP checks pass"],
-  "work_package_file": "work/WP-002.md",
+  "description": "Security-focused implementation of feature Y.",
   "active_pipeline_stages": ["implementation", "qa", "security-audit", "code-review", "documentation"]
 }
 \`\`\`

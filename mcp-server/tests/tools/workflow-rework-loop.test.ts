@@ -35,7 +35,6 @@ function makeWp(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: deps,
@@ -100,7 +99,6 @@ describe('FAIL handoff routing (handoff_notes to_agent)', () => {
     // Set up a WP with a PASS implementation and an IN_PROGRESS QA pipeline
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -143,7 +141,6 @@ describe('FAIL handoff routing (handoff_notes to_agent)', () => {
   it('complete_pipeline PASS sets handoff_note to_agent via NEXT_AGENT_MAP', async () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'QA',
       dependencies: [],
@@ -363,7 +360,6 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
 
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],

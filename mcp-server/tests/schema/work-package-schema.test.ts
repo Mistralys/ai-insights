@@ -17,7 +17,6 @@ const minimalPipeline = {
 
 const minimalWpDetail = {
   work_package_id: 'WP-001',
-  work_package_file: 'work/WP-001.md',
   status: 'READY' as const,
   assigned_to: 'Developer',
   dependencies: [],

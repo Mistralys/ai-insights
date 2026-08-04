@@ -54,7 +54,6 @@ function makeWpDetail(
 ): WorkPackageDetail {
   return {
     work_package_id: 'WP-001',
-    work_package_file: 'work/WP-001.md',
     status,
     assigned_to: assignedTo,
     dependencies,

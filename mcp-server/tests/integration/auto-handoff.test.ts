@@ -37,7 +37,6 @@ function makeWp(
 ): WorkPackageDetail {
   const wp: WorkPackageDetail = {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: [],

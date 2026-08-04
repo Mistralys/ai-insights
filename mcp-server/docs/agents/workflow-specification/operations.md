@@ -59,7 +59,8 @@ function createWorkPackage(root, wpData, agentRole):
   // --- Create WP detail file ---
   wpDetail = WorkPackageDetail {
     work_package_id: wpId,
-    work_package_file: "{storageDir}/{wpId}.json",
+    title: wpData.title,
+    description: wpData.description,
     status: initialStatus,
     assigned_to: null,
     dependencies: wpData.dependencies,
@@ -84,11 +85,12 @@ function createWorkPackage(root, wpData, agentRole):
   // --- Update root index ---
   root.work_packages.append(WorkPackageSummary {
     work_package_id: wpId,
+    title: wpData.title,
     status: initialStatus,
     assigned_to: null,
     dependencies: wpData.dependencies,
     active_pipeline_stages: wpData.active_pipeline_stages ?? null,
-    file: wpDetail.work_package_file
+    file: "ledger/{wpId}.json"
   })
   root.total_work_packages = root.work_packages.length
   root.pending_work_packages = count(wp in root.work_packages where NOT isTerminalStatus(wp.status))

@@ -65,7 +65,8 @@ WorkPackageSummary {
 ```
 WorkPackageDetail {
   work_package_id:         string
-  work_package_file:       string
+  title:                   string?  // Human-readable label; absent on WPs created before this field was added
+  description:             string?  // Full specification body; stored in detail only, not in root index summary
   status:                  WorkPackageStatus
   assigned_to:             string
   dependencies:            string[]

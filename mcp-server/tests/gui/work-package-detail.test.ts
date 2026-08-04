@@ -65,7 +65,6 @@ declare global {
 function makeWpDetail(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     work_package_id: 'WP-001',
-    work_package_file: 'work/WP-001.md',
     status: 'READY',
     assigned_to: 'Developer',
     dependencies: [],

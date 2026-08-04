@@ -80,7 +80,6 @@ describe('claim_work_package assignment guard', () => {
 
     const wp1: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'READY',
       assigned_to: 'Developer',
       dependencies: [],
@@ -92,7 +91,6 @@ describe('claim_work_package assignment guard', () => {
 
     const wp2: WorkPackageDetail = {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'READY',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -112,7 +110,6 @@ describe('claim_work_package assignment guard', () => {
   it('allows claiming a WP assigned to the same agent', () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'READY',
       assigned_to: 'Developer',
       dependencies: [],
@@ -127,7 +124,6 @@ describe('claim_work_package assignment guard', () => {
   it('rejects claiming a WP assigned to a different agent', () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'READY',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -145,7 +141,6 @@ describe('claim_work_package assignment guard', () => {
   it('allows cross-agent claim when override is true', () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'READY',
       assigned_to: 'Documentation',
       dependencies: [],
@@ -160,7 +155,6 @@ describe('claim_work_package assignment guard', () => {
   it('allows claiming a WP with empty assigned_to', () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'READY',
       assigned_to: '',
       dependencies: [],
@@ -175,7 +169,6 @@ describe('claim_work_package assignment guard', () => {
   it('rejects claiming a non-READY WP regardless of agent match', () => {
     const wp: WorkPackageDetail = {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
