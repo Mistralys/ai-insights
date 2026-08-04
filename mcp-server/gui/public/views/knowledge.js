@@ -18,9 +18,9 @@ function renderKnowledge(app) {
   var filterCategory     = '';
   var filterRepository   = '';
   var filterQuery        = '';
-  var editingId       = null;       /* numeric id of card in edit mode */
-  var confirmDeleteId = null;       /* numeric id of card in delete-confirm mode */
-  var movingId        = null;       /* numeric id of card in move mode */
+  var editingId       = null;       /* UUID string id of card in edit mode */
+  var confirmDeleteId = null;       /* UUID string id of card in delete-confirm mode */
+  var movingId        = null;       /* UUID string id of card in move mode */
 
   /* ── formatConfidence ────────────────────────────────────── */
   function formatConfidence(value) {
@@ -125,7 +125,7 @@ function renderKnowledge(app) {
 
       /* ── Superseded-by notice ── */
       var supersededHtml = ins.superseded_by != null
-        ? '<p class="text-muted" style="font-size:12px">Superseded by KN-' + ins.superseded_by + '</p>'
+        ? '<p class="text-muted" style="font-size:12px">Superseded by ' + escapeHtml(String(ins.superseded_by)) + '</p>'
         : '';
 
       /* ── Inline edit form ── */
@@ -308,6 +308,9 @@ function renderKnowledge(app) {
   }
 
   /* ── wireEvents ──────────────────────────────────────────── */
+  /* data-id attributes carry UUID strings (not integers). Read them as raw
+     strings — do not coerce with parseInt. All state comparisons (editingId,
+     confirmDeleteId, movingId) and DOM element ID suffixes use string equality. */
   function wireEvents(fb) {
     /* Tab bar */
     var tabButtons = document.querySelectorAll('.knowledge-tab');
@@ -353,7 +356,7 @@ function renderKnowledge(app) {
 
       var action = btn.getAttribute('data-action');
       var rawId  = btn.getAttribute('data-id');
-      var id     = parseInt(rawId, 10);
+      var id     = rawId; // UUID string — do not coerce to int
 
       if (action === 'edit') {
         editingId       = id;
@@ -451,7 +454,7 @@ function renderKnowledge(app) {
       e.preventDefault();
 
       var formId = form.id.replace('kn-edit-form-', '');
-      var eid    = parseInt(formId, 10);
+      var eid    = formId; // UUID string — do not coerce to int
 
       /* Find insight to get scope/repository_name */
       var original = allInsights.find(function (ins) { return ins.id === eid; });
