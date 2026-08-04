@@ -28,22 +28,7 @@ import {
 } from '../utils/pipeline-maps.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
-import { isStoreContextInitialized, getStoreRouter } from '../storage/store-context.js';
 import { StoreNotRegisteredError } from '../storage/store-router.js';
-import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
-
-// Resolve the correct ledger root in multi-store mode (same pattern as getProjectStatus).
-async function resolveMultiStoreLedgerRoot(projectPath: string, testOverride: unknown): Promise<string | undefined> {
-  const overridden = extractLedgerRoot(testOverride);
-  if (overridden !== undefined) return overridden;
-  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
-    const projectRoot = inferProjectRootFromPlanPath(projectPath);
-    const repoName = deriveRepoName(projectPath, projectRoot);
-    const storeRef = await getStoreRouter().resolveStoreForRepo(repoName);
-    if (storeRef !== null) return storeRef.storePath;
-  }
-  return undefined;
-}
 
 /**
  * Build a next-step guidance string after a WP status transition.
