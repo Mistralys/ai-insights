@@ -295,6 +295,14 @@ class TestStreamAccumulation:
     """AC2: final_content, tokens_used, and _msgs match expected values derived
     from accumulated stream chunks."""
 
+    @pytest.fixture(autouse=True)
+    def patch_store_resolution(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prevent _derive_slug_dir() from writing to the real store."""
+        def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+            return workspace_root / "mcp-server" / "storage" / "ledger"
+
+        monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
+
     async def test_final_content_from_single_chunk(self, tmp_path: Path) -> None:
         """final_content must equal the content of a single AIMessageChunk."""
         from src.nodes.developer import make_developer_node
@@ -434,6 +442,14 @@ class TestNoMarkdownDialogue:
 class TestDialogueCapturedChunkEvent:
     """AC4: dialogue_captured event with format='chunks' must be emitted
     for the chunk file when capture_dialogues=True."""
+
+    @pytest.fixture(autouse=True)
+    def patch_store_resolution(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Prevent _derive_slug_dir() from writing to the real store."""
+        def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+            return workspace_root / "mcp-server" / "storage" / "ledger"
+
+        monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
 
     async def test_chunk_event_emitted_in_run_log(self, tmp_path: Path) -> None:
         """A dialogue_captured entry with format='chunks' must appear in run_log."""
