@@ -1100,9 +1100,9 @@ export async function handleMoveKnowledge(
 
 These handler functions are exported from `gui/api-repos.ts` (introduced in WP-006) and called by the HTTP server in `gui/server.ts`. They implement the full CRUD lifecycle for the central `.repositories.json` registry — the same registry that `ledger_get_repository_context` reads when resolving project history for a repository.
 
-> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
+> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`, `handleMoveRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
 
-> **Multi-store routing (WP-006 rework-1):** `GET /api/repos` always delegates to `handleListRepos()` in `gui/api-repos.ts` — both single-store and multi-store paths go through the same handler. `POST /api/repos` routes the new entry to the store identified by `store_id` in the request body (validated against all configured stores; defaults to the configured default store when omitted; ignored in single-store mode). `GET /api/repos/:repoId`, `PUT /api/repos/:repoId`, and `DELETE /api/repos/:repoId` use `findEntryInStores()` to locate the owning store across all configured stores before performing their operation.
+> **Multi-store routing (WP-006 rework-1):** `GET /api/repos` always delegates to `handleListRepos()` in `gui/api-repos.ts` — both single-store and multi-store paths go through the same handler. `POST /api/repos` routes the new entry to the store identified by `store_id` in the request body (validated against all configured stores; defaults to the configured default store when omitted; ignored in single-store mode). `GET /api/repos/:repoId`, `PUT /api/repos/:repoId`, and `DELETE /api/repos/:repoId` use `findEntryInStores()` to locate the owning store across all configured stores before performing their operation. `POST /api/repos/:repoId/move` is a **multi-store only** endpoint — it rejects with `VALIDATION_ERROR` in single-store mode.
 
 ### HTTP Route Table
 
@@ -1122,6 +1122,7 @@ The five repository endpoints registered in `gui/server.ts`:
 |--------|------|-------------|--------------|-------------|-------------|
 | `POST` | `/api/repos` | `RepoCreateBodySchema` — `id`, `label`, `folder_names`, `vision`?, `store_id`? | `RepositoryEntry` (created entry) | **201** Created | 400 (invalid body, duplicate id, folder_names conflict, invalid store_id) |
 | `PUT` | `/api/repos/:repoId` | `RepoUpdateBodySchema` — `label`?, `folder_names`?, `vision`?, `store_id`? (accepted but ignored) | `RepositoryEntry` (updated entry) | 200 | 400 (invalid body, folder_names conflict), 404 (repo not found) |
+| `POST` | `/api/repos/:repoId/move` | `RepoMoveBodySchema` — `target_store_id` | `RepositoryEntry & { store_id: string }` (moved entry) | 200 | 400 (invalid body, single-store mode, unknown target_store_id, ID conflict, folder_name conflict), 404 (repo not found) |
 
 **Notes:**
 - `POST /api/repos` returns HTTP **201** (Created), unlike most other mutation endpoints in `server.ts` which return 200. This is intentional REST practice — the `statusCode: 201` is set on the route entry in `buildRoutes()`.
@@ -1130,6 +1131,7 @@ The five repository endpoints registered in `gui/server.ts`:
 - `DELETE /api/repos/:repoId` removes only the registry declaration. **No project data is deleted.** Released folder names become immediately reusable.
 - An empty-body `PUT` (`{}`) is valid — all fields are optional. It is accepted as a no-op update that still stamps `last_modified`. If the product team later requires at least one field to be present, add a `z.refine()` guard to `RepoUpdateBodySchema`.
 - **`folder_names` min-1 constraint (POST and PUT):** `folder_names` must contain at least one non-empty string in both `POST /api/repos` and `PUT /api/repos/:repoId`. Sending an empty array (`[]`) is rejected with HTTP 400 (`VALIDATION_ERROR`). Each entry must also be a non-empty string (whitespace-only entries are rejected). This constraint is enforced server-side by `RepoCreateBodySchema` and `RepoUpdateBodySchema` — API clients **must** enforce it client-side as well to surface a meaningful error before the round-trip.
+- **Same-store no-op (`POST /api/repos/:repoId/move`):** If `target_store_id` identifies the store that already owns the repository, the handler returns the entry with `store_id` immediately without writing to either registry. This is a short-circuit, not an error.
 
 ### `RepoListItem` vs `RepositoryEntry` — Shape Distinction
 
@@ -1197,6 +1199,16 @@ export const RepoCreateBodySchema: z.ZodObject<{
   store_id?: z.ZodOptional<z.ZodString>; // target store in multi-store mode; validated against getAllStores();
                                           // defaults to configured default store when omitted;
                                           // ignored in single-store / legacy mode
+}>;
+```
+
+### `RepoMoveBodySchema`
+
+```typescript
+// Exported Zod schema for POST /api/repos/:repoId/move request bodies.
+// `.strict()` rejects unknown keys. Exported for test use — treat as @internal.
+export const RepoMoveBodySchema: z.ZodObject<{
+  target_store_id: z.ZodString; // min(1) — must reference a known store id from getAllStores()
 }>;
 ```
 
@@ -1273,14 +1285,17 @@ export async function handleListRepos(
 // Returns the full RepositoryEntry for the given repoId.
 //
 // Multi-store mode: uses findEntryInStores() to search all configured stores.
-// Single-store mode: loads from ledgerRoot directly.
+//   The returned object is enriched with store_id resolved from the owning store
+//   (matched via storePath against getStoreRouter().getAllStores()). If the match
+//   yields no result, store_id is omitted silently.
+// Single-store mode / uninitialized: returns the entry without store_id.
 //
 // Error codes:
 //   NOT_FOUND — no entry with the given id exists in any store (→ HTTP 404)
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param repoId     - The `id` field of the repository entry to retrieve.
-export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise<RepositoryEntry>
+export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise<RepositoryEntry & { store_id?: string }>
 ```
 
 ### `handleCreateRepo()`
@@ -1367,6 +1382,43 @@ export async function handleUpdateRepo(
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param repoId     - The `id` field of the repository entry to remove.
 export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Promise<{ deleted: true }>
+```
+
+### `handleMoveRepo()`
+
+```typescript
+// POST /api/repos/:repoId/move → HTTP 200
+// Moves a repository declaration from its current store to a different store.
+//
+// Multi-store only: rejects with VALIDATION_ERROR when single-store mode is active
+// (isStoreContextInitialized() is false or isMultiStoreMode() is false).
+//
+// Validations (in order):
+//   1. Multi-store mode must be active (VALIDATION_ERROR otherwise).
+//   2. Body must conform to RepoMoveBodySchema (.strict() — unknown keys rejected).
+//   3. `target_store_id` must reference a known store from getAllStores() (VALIDATION_ERROR otherwise).
+//   4. `repoId` must exist in some store (NOT_FOUND otherwise).
+//   5. Same-store move short-circuits — returns the entry with `store_id` without any writes.
+//   6. `repoId` must not already exist in the target store (VALIDATION_ERROR on ID conflict).
+//   7. No `folder_names` value from the entry may appear in the target store (VALIDATION_ERROR on conflict).
+//
+// On success, removes the entry from the source registry and appends it to the target registry
+// (two sequential awaits — source first, then target). Returns the moved entry with updated
+// `last_modified` and the `store_id` of the target store.
+//
+// Error codes:
+//   VALIDATION_ERROR — single-store mode, invalid body, unknown target_store_id,
+//                      ID conflict in target, folder_name conflict in target (→ HTTP 400)
+//   NOT_FOUND        — unknown repoId in any store (→ HTTP 404)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field of the repository entry to move.
+// @param body       - Parsed request body (any shape — validated here).
+export async function handleMoveRepo(
+  ledgerRoot: string,
+  repoId: string,
+  body: unknown
+): Promise<RepositoryEntry & { store_id: string }>
 ```
 
 ---
@@ -5908,7 +5960,7 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 | `.btn-resume:disabled` | Disabled state: `opacity: 0.6; cursor: not-allowed` — applied immediately on click to prevent double-submit; re-enabled on error |
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 40 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `getStores()` → `GET /api/stores` (returns store list with project and repository counts; single-store mode returns one entry); `getStoreConflicts()` → `GET /api/stores/conflicts` (returns cross-store repository conflicts with per-store entries and `winner_store_id`; empty array in single-store mode); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending); **Model Registry group** (all 8 methods carry `@throws {{ code: string, message: string }} On HTTP error responses.` JSDoc): `getModels()` → `GET /api/models` (auto-initialises `local.json` from `default.json` on first access); `saveModels(models)` → `PUT /api/models` (bulk save; entries missing `id` receive auto-assigned UUIDv4; returns `{ models }` or `{ conflict: true, referencedModels }` on 409); `loadDefaultModels()` → `POST /api/models/load-defaults` (merges `default.json` into `local.json` without overwriting; returns `{ models, conflicts }`); `getPersonas()` → `GET /api/personas` (returns empty array when `name-mapping.json` absent); `getAssignments()` → `GET /api/model-assignments` (enriched with a `stale` boolean indicating whether the persona build output may be out of date); `updateAssignments(data)` → `PUT /api/model-assignments` (validates all model UUIDs and persona keys before persisting); `replaceAssignedModel(oldModelId, newModelId)` → `POST /api/model-assignments/replace` (replaces all occurrences of one UUID across assignments; rejects when IDs are equal or `old_model_id` is not referenced); `rebuildPersonas()` → `POST /api/personas/rebuild` (spawns `node scripts/build-personas.js`; returns `{ success: true, output }` on exit 0 or `{ success: false, output, exitCode }` with HTTP 500; returns 409 when a build is already in progress)
+- **`API`** — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); Repos group (`listRepos(includeUndeclared?)` → `GET /api/repos`; `getRepo(repoId)` → `GET /api/repos/{repoId}`; `createRepo(data)` → `POST /api/repos`; `updateRepo(repoId, data)` → `PUT /api/repos/{repoId}`; `deleteRepo(repoId)` → `DELETE /api/repos/{repoId}`; `moveRepo(repoId, targetStoreId)` → `POST /api/repos/{repoId}/move` with `{ target_store_id: targetStoreId }` — moves a repository entry between stores, multi-store only, rejects in single-store mode; all Repos methods URI-encode `repoId` via `encodeURIComponent` and carry `@throws {{ code: string, message: string }}` JSDoc); `getStores()` → `GET /api/stores` (returns store list with project and repository counts; single-store mode returns one entry); `getStoreConflicts()` → `GET /api/stores/conflicts` (returns cross-store repository conflicts with per-store entries and `winner_store_id`; empty array in single-store mode); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending); **Model Registry group** (all 8 methods carry `@throws {{ code: string, message: string }} On HTTP error responses.` JSDoc): `getModels()` → `GET /api/models` (auto-initialises `local.json` from `default.json` on first access); `saveModels(models)` → `PUT /api/models` (bulk save; entries missing `id` receive auto-assigned UUIDv4; returns `{ models }` or `{ conflict: true, referencedModels }` on 409); `loadDefaultModels()` → `POST /api/models/load-defaults` (merges `default.json` into `local.json` without overwriting; returns `{ models, conflicts }`); `getPersonas()` → `GET /api/personas` (returns empty array when `name-mapping.json` absent); `getAssignments()` → `GET /api/model-assignments` (enriched with a `stale` boolean indicating whether the persona build output may be out of date); `updateAssignments(data)` → `PUT /api/model-assignments` (validates all model UUIDs and persona keys before persisting); `replaceAssignedModel(oldModelId, newModelId)` → `POST /api/model-assignments/replace` (replaces all occurrences of one UUID across assignments; rejects when IDs are equal or `old_model_id` is not referenced); `rebuildPersonas()` → `POST /api/personas/rebuild` (spawns `node scripts/build-personas.js`; returns `{ success: true, output }` on exit 0 or `{ success: false, output, exitCode }` with HTTP 500; returns 409 when a build is already in progress); **Knowledge group**: `getKnowledge(params)` → `GET /api/knowledge` (list or search insights; `params` may include `scope`, `repository_name`, `tag`, `search`, `limit`); `updateKnowledge(id, scope, repositoryName, data)` → `PATCH /api/knowledge/:id` (updates title, content, tags; `scope` and `repository_name` sent as body fields to locate the insight); `deleteKnowledge(id, scope, repositoryName)` → `DELETE /api/knowledge/:id` (scope/repositoryName passed as query params); `promoteKnowledge(id, scope, repositoryName)` → `POST /api/knowledge/:id/promote` (promotes a repository-scoped insight to global); `moveKnowledge(id, sourceScope, sourceRepositoryName, targetRepositoryName)` → `POST /api/knowledge/:id/move` (moves an insight between repositories or scopes); **Orchestrator group**: `orchestratorGetRunStatus(slug)` → `GET /api/orchestrator/run-status/:slug`; **Chunks group**: `getChunkText(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/:filename/text` (returns plain-text rendering of a chunk file)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
