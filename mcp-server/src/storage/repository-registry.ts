@@ -71,6 +71,7 @@ export async function saveRegistry(
   registry: RepositoryRegistry
 ): Promise<void> {
   const validated = RepositoryRegistrySchema.parse(registry);
+  validated.repositories.sort((a, b) => a.id.localeCompare(b.id));
   const path = registryPath(storePath);
 
   await withLock(storePath, async () => {
