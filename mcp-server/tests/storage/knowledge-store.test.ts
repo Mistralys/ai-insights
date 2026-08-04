@@ -23,9 +23,8 @@ function makeInsightInput(overrides: Partial<Omit<Insight, 'id'>> = {}): Omit<In
 
 function makeStore(overrides: Partial<KnowledgeStore> = {}): KnowledgeStore {
   return {
-    version: '1.0.0',
+    version: '2.0.0',
     last_updated: '2026-05-28T12:00:00Z',
-    next_id: 1,
     insights: [],
     ...overrides,
   };
@@ -94,11 +93,10 @@ describe('KnowledgeStoreManager', () => {
   // ─── Empty Store Initialization ────────────────────────────────────────
 
   describe('readGlobalStore — empty store initialization', () => {
-    it('returns empty store with next_id: 1 when file does not exist', async () => {
+    it('returns empty store with no insights when file does not exist', async () => {
       const store = await manager.readGlobalStore();
-      expect(store.next_id).toBe(1);
       expect(store.insights).toEqual([]);
-      expect(store.version).toBe('1.0.0');
+      expect(store.version).toBeDefined();
     });
 
     it('does not throw when file does not exist', async () => {
@@ -107,9 +105,8 @@ describe('KnowledgeStoreManager', () => {
   });
 
   describe('readRepositoryStore — empty store initialization', () => {
-    it('returns empty store with next_id: 1 when file does not exist', async () => {
+    it('returns empty store with no insights when file does not exist', async () => {
       const store = await manager.readRepositoryStore('some-repo');
-      expect(store.next_id).toBe(1);
       expect(store.insights).toEqual([]);
     });
 
@@ -118,69 +115,36 @@ describe('KnowledgeStoreManager', () => {
     });
   });
 
-  // ─── nextId ────────────────────────────────────────────────────────────
-
-  describe('nextId', () => {
-    it('returns KN-0001 for the first insight (next_id: 1)', () => {
-      const store = makeStore({ next_id: 1 });
-      expect(manager.nextId(store)).toBe('KN-0001');
-    });
-
-    it('returns KN-0002 for the second insight (next_id: 2)', () => {
-      const store = makeStore({ next_id: 2 });
-      expect(manager.nextId(store)).toBe('KN-0002');
-    });
-
-    it('pads to 4 digits for ids 1–9999', () => {
-      expect(manager.nextId(makeStore({ next_id: 9 }))).toBe('KN-0009');
-      expect(manager.nextId(makeStore({ next_id: 99 }))).toBe('KN-0099');
-      expect(manager.nextId(makeStore({ next_id: 999 }))).toBe('KN-0999');
-      expect(manager.nextId(makeStore({ next_id: 9999 }))).toBe('KN-9999');
-    });
-
-    it('increments the store next_id in place', () => {
-      const store = makeStore({ next_id: 1 });
-      manager.nextId(store);
-      expect(store.next_id).toBe(2);
-    });
-
-    it('sequential calls return incrementing IDs', () => {
-      const store = makeStore({ next_id: 1 });
-      expect(manager.nextId(store)).toBe('KN-0001');
-      expect(manager.nextId(store)).toBe('KN-0002');
-      expect(manager.nextId(store)).toBe('KN-0003');
-    });
-  });
 
   // ─── writeGlobalStore / writeProjectStore ─────────────────────────────
 
   describe('writeGlobalStore', () => {
     it('writes store data to global-insights.json', async () => {
-      const store = makeStore({ next_id: 5 });
+      const store = makeStore({ version: '2.0.0' });
       await manager.writeGlobalStore(store);
 
       const raw = JSON.parse(
         await readFile(manager.globalStorePath(), 'utf-8')
       );
-      expect(raw.next_id).toBe(5);
+      expect(raw.version).toBe('2.0.0');
     });
 
     it('creates the .knowledge/ directory if absent', async () => {
       await manager.writeGlobalStore(makeStore());
       const store = await manager.readGlobalStore();
-      expect(store.next_id).toBe(1);
+      expect(store.insights).toEqual([]);
     });
   });
 
   describe('writeRepositoryStore', () => {
     it('writes store data to {repoName}-insights.json', async () => {
-      const store = makeStore({ next_id: 3 });
+      const store = makeStore({ version: '2.0.0' });
       await manager.writeRepositoryStore('test-repo', store);
 
       const raw = JSON.parse(
         await readFile(manager.repositoryStorePath('test-repo'), 'utf-8')
       );
-      expect(raw.next_id).toBe(3);
+      expect(raw.version).toBe('2.0.0');
     });
   });
 
@@ -214,31 +178,33 @@ describe('KnowledgeStoreManager', () => {
       expect(globalStore.insights).toHaveLength(0);
     });
 
-    it('assigns id starting at 1 for the first insight', async () => {
+    it('assigns a UUID id to the first insight', async () => {
       const insight = await manager.addInsight(makeInsightInput());
-      expect(insight.id).toBe(1);
+      expect(typeof insight.id).toBe('string');
+      expect(insight.id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      );
     });
 
-    it('increments id for subsequent insights', async () => {
+    it('assigns unique UUIDs to subsequent insights', async () => {
       const first = await manager.addInsight(makeInsightInput({ title: 'First' }));
       const second = await manager.addInsight(makeInsightInput({ title: 'Second' }));
-      expect(first.id).toBe(1);
-      expect(second.id).toBe(2);
+      expect(first.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(second.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(first.id).not.toBe(second.id);
     });
 
-    it('counter persists across manager instances (simulates process restart)', async () => {
-      // First write with initial manager
+    it('ids are unique across manager instances (simulates process restart)', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Insight 1' }));
 
-      // Create a new manager reading from same disk location
       const manager2 = new KnowledgeStoreManager(tempLedgerRoot);
       const insight2 = await manager2.addInsight(makeInsightInput({ title: 'Insight 2' }));
 
-      expect(insight2.id).toBe(2);
+      expect(insight2.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
-      // Both insights present in the store
       const store = await manager2.readGlobalStore();
       expect(store.insights).toHaveLength(2);
+      expect(store.insights[0].id).not.toBe(store.insights[1].id);
     });
 
     it('throws when scope is "repository" but repository_name is missing', async () => {
@@ -623,8 +589,9 @@ describe('KnowledgeStoreManager', () => {
     });
 
     it('throws when insight id does not exist', async () => {
-      await expect(manager.updateInsight(9999, { title: 'Nope' })).rejects.toThrow(
-        'Insight with id 9999 not found'
+      const fakeId = '00000000-0000-0000-0000-000000000000';
+      await expect(manager.updateInsight(fakeId, { title: 'Nope' })).rejects.toThrow(
+        `Insight with id ${fakeId} not found`
       );
     });
 
@@ -638,17 +605,12 @@ describe('KnowledgeStoreManager', () => {
     });
 
     it('scope filter — targets global store when scope is "global"', async () => {
-      // Both stores will have an insight with the same numeric id (id=1).
-      // The global store is added first so its next_id starts at 1.
+      // With UUID ids, cross-store collisions are impossible. Test the scope filter by
+      // adding insights to different scopes and verifying targeted mutation.
       const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
       await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'filter-test', title: 'Repository one' })
       );
-
-      // Verify id collision: both stores start at next_id=1
-      expect(globalId).toBe(1);
-      const repoStore = await manager.readRepositoryStore('filter-test');
-      expect(repoStore.insights[0].id).toBe(1);
 
       // Update with scope filter — must touch only global store
       const updated = await manager.updateInsight(globalId, { title: 'Global updated' }, { scope: 'global' });
@@ -662,14 +624,13 @@ describe('KnowledgeStoreManager', () => {
 
     it('scope filter — targets repository store when scope+repository_name are provided', async () => {
       const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
-      await manager.addInsight(
+      const { id: repoId } = await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'scoped-repo', title: 'Repository one' })
       );
-      expect(globalId).toBe(1);
 
       // Update with scope + repository_name filter — must touch only repository store
       const updated = await manager.updateInsight(
-        1,
+        repoId,
         { title: 'Repository updated' },
         { scope: 'repository', repository_name: 'scoped-repo' }
       );
@@ -678,17 +639,17 @@ describe('KnowledgeStoreManager', () => {
 
       // Global store must be untouched
       const globalStore = await manager.readGlobalStore();
-      expect(globalStore.insights[0].title).toBe('Global one');
+      expect(globalStore.insights.find((i) => i.id === globalId)?.title).toBe('Global one');
     });
 
     it('repository_name filter (without scope) targets only the specified repository store', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Global one' }));
-      await manager.addInsight(
+      const { id: repoId } = await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'name-only', title: 'Repository one' })
       );
 
       const updated = await manager.updateInsight(
-        1,
+        repoId,
         { title: 'Name-only updated' },
         { repository_name: 'name-only' }
       );
@@ -749,8 +710,9 @@ describe('KnowledgeStoreManager', () => {
     });
 
     it('throws when insight id does not exist', async () => {
-      await expect(manager.deleteInsight(9999)).rejects.toThrow(
-        'Insight with id 9999 not found'
+      const fakeId = '00000000-0000-0000-0000-000000000000';
+      await expect(manager.deleteInsight(fakeId)).rejects.toThrow(
+        `Insight with id ${fakeId} not found`
       );
     });
 
@@ -770,7 +732,6 @@ describe('KnowledgeStoreManager', () => {
       await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'del-scope', title: 'Repository one' })
       );
-      expect(globalId).toBe(1);
 
       await manager.deleteInsight(globalId, { scope: 'global' });
 
@@ -784,11 +745,11 @@ describe('KnowledgeStoreManager', () => {
 
     it('scope filter — deletes from repository store only when scope+repository_name are provided', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Global one' }));
-      await manager.addInsight(
+      const { id: repoId } = await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'del-repo', title: 'Repository one' })
       );
 
-      await manager.deleteInsight(1, { scope: 'repository', repository_name: 'del-repo' });
+      await manager.deleteInsight(repoId, { scope: 'repository', repository_name: 'del-repo' });
 
       const repoStore = await manager.readRepositoryStore('del-repo');
       expect(repoStore.insights).toHaveLength(0);
@@ -895,15 +856,14 @@ describe('KnowledgeStoreManager', () => {
     });
 
     it('throws when the insight id is not found in the source store', async () => {
+      const fakeId = '00000000-0000-0000-0000-000000000000';
       await expect(
-        manager.moveInsight(9999, { scope: 'global' }, 'repository', 'some-repo')
-      ).rejects.toThrow('Insight with id 9999 not found');
+        manager.moveInsight(fakeId, { scope: 'global' }, 'repository', 'some-repo')
+      ).rejects.toThrow(`Insight with id ${fakeId} not found`);
     });
 
-    it('returned insight has a new id from the target store, correct scope, and a fresh updated_at', async () => {
-      // Pre-seed the target repository store with one insight so its next_id is 2.
-      // This lets us verify the moved insight receives the target store's next_id
-      // rather than the source store's id (which is also 1 for an empty global store).
+    it('returned insight preserves the original UUID, has updated scope and a fresh updated_at', async () => {
+      // UUID is preserved on move — the insight retains its identity across stores.
       await manager.addInsight(
         makeInsightInput({ scope: 'repository', repository_name: 'new-repo', title: 'Existing in target' })
       );
@@ -912,10 +872,6 @@ describe('KnowledgeStoreManager', () => {
         makeInsightInput({ scope: 'global', title: 'Move me' })
       );
 
-      // Source global store next_id is 1 → originalId is 1.
-      // Target repository store next_id is 2 → moved.id should be 2.
-      expect(originalId).toBe(1);
-
       const moved = await manager.moveInsight(
         originalId,
         { scope: 'global' },
@@ -923,18 +879,14 @@ describe('KnowledgeStoreManager', () => {
         'new-repo'
       );
 
-      // New id is from target store's next_id (2, because the target already had one insight)
-      expect(typeof moved.id).toBe('number');
-      expect(moved.id).toBe(2);
-      expect(moved.id).not.toBe(originalId);
+      // UUID is preserved across the move
+      expect(moved.id).toBe(originalId);
 
-      // Scope is correct
+      // Scope is updated
       expect(moved.scope).toBe('repository');
       expect(moved.repository_name).toBe('new-repo');
 
       // updated_at is set and is a valid ISO 8601 timestamp string.
-      // now() truncates to whole seconds, so we just verify it is a parseable date
-      // rather than doing a sub-second millisecond comparison.
       expect(typeof moved.updated_at).toBe('string');
       expect(moved.updated_at).toBeTruthy();
       expect(isNaN(new Date(moved.updated_at!).getTime())).toBe(false);
@@ -957,18 +909,14 @@ describe('KnowledgeStoreManager', () => {
       expect(globalStore.insights.find((i) => i.id === first.id)).toBeDefined();
     });
 
-    it('target store next_id is incremented after move', async () => {
+    it('insight appears in target store after move', async () => {
       const { id } = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'To move' }));
-
-      // Pre-condition: target repository store starts with next_id = 1
-      const targetBefore = await manager.readRepositoryStore('incr-repo');
-      expect(targetBefore.next_id).toBe(1);
 
       await manager.moveInsight(id, { scope: 'global' }, 'repository', 'incr-repo');
 
-      // Post-condition: target store next_id is now 2
       const targetAfter = await manager.readRepositoryStore('incr-repo');
-      expect(targetAfter.next_id).toBe(2);
+      expect(targetAfter.insights).toHaveLength(1);
+      expect(targetAfter.insights[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('preserves origin_plan metadata through move', async () => {
@@ -1007,7 +955,6 @@ describe('KnowledgeStoreManager', () => {
       // Verify all insights are in the store
       const store = await manager.readGlobalStore();
       expect(store.insights).toHaveLength(N);
-      expect(store.next_id).toBe(N + 1);
     });
   });
 });

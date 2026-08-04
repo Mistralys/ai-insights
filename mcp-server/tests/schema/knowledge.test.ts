@@ -11,7 +11,7 @@ import {
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 
 const validInsight: Insight = {
-  id: 1,
+  id: '00000000-0000-0000-0000-000000000001',
   scope: 'global',
   title: 'Use path.join for cross-platform paths',
   content: 'Always use path.join() instead of string concatenation to ensure cross-platform compatibility.',
@@ -24,15 +24,14 @@ const validInsight: Insight = {
 
 const validRepositoryInsight: Insight = {
   ...validInsight,
-  id: 2,
+  id: '00000000-0000-0000-0000-000000000002',
   scope: 'repository',
   repository_name: 'hcp-editor',
 };
 
 const validKnowledgeStore: KnowledgeStore = {
-  version: '1.0.0',
+  version: '2.0.0',
   last_updated: '2026-05-28T12:00:00Z',
-  next_id: 1,
   insights: [],
 };
 
@@ -148,13 +147,14 @@ describe('InsightSchema', () => {
       repository_name: 'my-repo',
       origin_plan: 'my-plan',
       updated_at: '2026-05-28T13:00:00Z',
-      superseded_by: 5,
+      superseded_by: '00000000-0000-0000-0000-000000000099',
     };
     expect(InsightSchema.safeParse(full).success).toBe(true);
   });
 
-  it('rejects a non-integer id', () => {
-    expect(InsightSchema.safeParse({ ...validInsight, id: 1.5 }).success).toBe(false);
+  it('rejects a non-UUID id', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, id: 'not-a-uuid' }).success).toBe(false);
+    expect(InsightSchema.safeParse({ ...validInsight, id: 1 }).success).toBe(false);
   });
 
   it('rejects an invalid scope value', () => {
@@ -179,14 +179,15 @@ describe('InsightSchema', () => {
     expect(InsightSchema.safeParse({ ...validInsight, confidence: 1 }).success).toBe(true);
   });
 
-  it('rejects a non-integer superseded_by value', () => {
-    expect(InsightSchema.safeParse({ ...validInsight, superseded_by: 2.7 }).success).toBe(false);
+  it('rejects a non-UUID superseded_by value', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, superseded_by: 2 }).success).toBe(false);
+    expect(InsightSchema.safeParse({ ...validInsight, superseded_by: 'not-a-uuid' }).success).toBe(false);
   });
 
   it('TypeScript type Insight is inferred from schema (no handwritten duplicate interface)', () => {
     // Compile-time check: if Insight diverges from InsightSchema this line fails.
     const insight: Insight = validInsight;
-    expect(insight.id).toBe(1);
+    expect(insight.id).toBe('00000000-0000-0000-0000-000000000001');
   });
 });
 
@@ -197,28 +198,12 @@ describe('KnowledgeStoreSchema', () => {
     expect(KnowledgeStoreSchema.safeParse(validKnowledgeStore).success).toBe(true);
   });
 
-  it('accepts a valid store with a non-zero next_id', () => {
-    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 42 }).success).toBe(true);
-  });
-
   it('accepts a store with a populated insights array', () => {
-    const store = { ...validKnowledgeStore, next_id: 2, insights: [validInsight] };
+    const store = { ...validKnowledgeStore, insights: [validInsight] };
     expect(KnowledgeStoreSchema.safeParse(store).success).toBe(true);
   });
 
-  it('accepts next_id of 0 (initial empty-store value)', () => {
-    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 0 }).success).toBe(true);
-  });
-
-  it('rejects a negative next_id', () => {
-    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: -1 }).success).toBe(false);
-  });
-
-  it('rejects a non-integer next_id', () => {
-    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 1.5 }).success).toBe(false);
-  });
-
-  it.each(['version', 'last_updated', 'next_id', 'insights'])(
+  it.each(['version', 'last_updated', 'insights'])(
     'rejects when required field "%s" is missing',
     (field) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -235,6 +220,19 @@ describe('KnowledgeStoreSchema', () => {
   it('TypeScript type KnowledgeStore is inferred from schema (no handwritten duplicate interface)', () => {
     // Compile-time check: if KnowledgeStore diverges from KnowledgeStoreSchema this line fails.
     const store: KnowledgeStore = validKnowledgeStore;
-    expect(store.next_id).toBe(1);
+    expect(store.version).toBeDefined();
+    expect(store.insights).toBeDefined();
+  });
+
+  it('strips next_id from v1-shaped input without throwing', () => {
+    const v1Shaped = {
+      version: '2.0.0',
+      last_updated: '2026-05-28T12:00:00Z',
+      insights: [],
+      next_id: 5,
+    };
+    const result = KnowledgeStoreSchema.safeParse(v1Shaped);
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).next_id).toBeUndefined();
   });
 });

@@ -187,7 +187,7 @@ describe('AC2: addInsight — global scope writes to the first (default) store',
 
 describe('AC3: searchInsights returns merged results from all stores', () => {
   it('merges search results from both stores and deduplicates by id', async () => {
-    // Seed store-a with a global insight (gets id=1)
+    // Seed store-a with a global insight
     const managerA = new KnowledgeStoreManager(storeA);
     await managerA.addInsight({
       scope: 'global',
@@ -200,12 +200,11 @@ describe('AC3: searchInsights returns merged results from all stores', () => {
       created_at: now(),
     });
 
-    // Seed store-b: first a filler insight to consume id=1 (so it collides with store-a
-    // and gets deduplicated away), then the real insight which gets id=2 (unique).
+    // Seed store-b with two insights; only the second matches the "atomic" query.
     const managerB = new KnowledgeStoreManager(storeB);
     await managerB.addInsight({
       scope: 'global',
-      title: 'Filler to offset id sequence',
+      title: 'Unrelated insight',
       content: 'Not relevant to this search.',
       category: 'testing',
       tags: [],
@@ -226,7 +225,7 @@ describe('AC3: searchInsights returns merged results from all stores', () => {
 
     await initTwoStoreContext(storeA, storeB);
 
-    // store-a id=1 and store-b id=2 both match "atomic" — store-b id=1 is deduped away.
+    // "atomic" matches both atomic insights (one per store); the unrelated insight is excluded.
     const result = await searchInsights({ query: 'atomic' });
     const data = parseResult(result as any) as Array<Record<string, unknown>>;
 
@@ -241,7 +240,8 @@ describe('AC3: searchInsights returns merged results from all stores', () => {
 
 describe('AC4: listInsights returns merged results from all stores', () => {
   it('lists insights from both stores with deduplication', async () => {
-    // Store-a gets id=1 "Insight from A".
+    // Seed store-a with one insight and store-b with two insights.
+    // With UUID ids all insights have unique IDs — all three appear in the merged list.
     const managerA = new KnowledgeStoreManager(storeA);
     await managerA.addInsight({
       scope: 'global',
@@ -254,13 +254,12 @@ describe('AC4: listInsights returns merged results from all stores', () => {
       created_at: now(),
     });
 
-    // Store-b: filler takes id=1 (deduped away), real insight gets id=2 (unique).
     const managerB = new KnowledgeStoreManager(storeB);
     await managerB.addInsight({
       scope: 'global',
-      title: 'Filler to offset id sequence',
-      content: 'Offset id so the real insight gets a unique id.',
-      category: 'internal',
+      title: 'Insight from B (first)',
+      content: 'In store B.',
+      category: 'workflow',
       tags: [],
       source: '',
       confidence: 1,
@@ -279,13 +278,13 @@ describe('AC4: listInsights returns merged results from all stores', () => {
 
     await initTwoStoreContext(storeA, storeB);
 
-    // store-a id=1 and store-b id=2 appear; store-b id=1 is deduped against store-a id=1.
     const result = await listInsights({});
     const data = parseResult(result as any) as Array<Record<string, unknown>>;
 
-    expect(data.length).toBeGreaterThanOrEqual(2);
+    expect(data).toHaveLength(3);
     const titles = data.map((d) => d['title'] as string);
     expect(titles).toContain('Insight from A');
+    expect(titles).toContain('Insight from B (first)');
     expect(titles).toContain('Insight from B');
   });
 });
@@ -327,7 +326,7 @@ describe('AC5: updateInsight and deleteInsight locate the correct store', () => 
   it('updateInsight returns an error when the insight does not exist in any store', async () => {
     await initTwoStoreContext(storeA, storeB);
 
-    const result = await updateInsight({ id: 9999, title: 'Ghost update' });
+    const result = await updateInsight({ id: '00000000-0000-0000-0000-000000000000', title: 'Ghost update' });
     expect((result as any).isError).toBe(true);
     expect((result as any).content[0].text).toMatch(/not found/);
   });
@@ -360,189 +359,12 @@ describe('AC5: updateInsight and deleteInsight locate the correct store', () => 
   it('deleteInsight returns an error when the insight does not exist in any store', async () => {
     await initTwoStoreContext(storeA, storeB);
 
-    const result = await deleteInsight({ id: 9999 });
+    const result = await deleteInsight({ id: '00000000-0000-0000-0000-000000000000' });
     expect((result as any).isError).toBe(true);
     expect((result as any).content[0].text).toMatch(/not found/);
   });
 });
 
-// ─── WP-002: store-scoped formatted_id ────────────────────────────────────────
-
-describe('WP-002: formatted_id includes store prefix in multi-store mode', () => {
-  it('addInsight (global): formatted_id is prefixed with the first store id', async () => {
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await addInsight({
-      scope: 'global',
-      title: 'Global prefixed insight',
-      content: 'Should carry store-a prefix.',
-      category: 'architecture',
-      tags: [],
-    });
-
-    const data = parseResult(result as any) as Record<string, unknown>;
-    expect(data['formatted_id']).toMatch(/^store-a:KN-\d{4}$/);
-  });
-
-  it('addInsight (repo): formatted_id is prefixed with the claiming store id', async () => {
-    await writeRegistry(storeB, ['prefixed-repo']);
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await addInsight({
-      scope: 'repository',
-      repository_name: 'prefixed-repo',
-      title: 'Repo prefixed insight',
-      content: 'Should carry store-b prefix.',
-      category: 'workflow',
-      tags: [],
-    });
-
-    const data = parseResult(result as any) as Record<string, unknown>;
-    expect(data['formatted_id']).toMatch(/^store-b:KN-\d{4}$/);
-  });
-
-  it('searchInsights: each insight formatted_id reflects its owning store', async () => {
-    // Insert id=1 into store-a
-    const managerA = new KnowledgeStoreManager(storeA);
-    await managerA.addInsight({
-      scope: 'global',
-      title: 'Store-A insight',
-      content: 'Lives in store-a.',
-      category: 'architecture',
-      tags: ['search-prefix'],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    // Insert filler (id=1, deduped) + real (id=2) into store-b
-    const managerB = new KnowledgeStoreManager(storeB);
-    await managerB.addInsight({
-      scope: 'global',
-      title: 'Filler to offset id',
-      content: 'Offset.',
-      category: 'internal',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-    await managerB.addInsight({
-      scope: 'global',
-      title: 'Store-B insight',
-      content: 'Lives in store-b.',
-      category: 'architecture',
-      tags: ['search-prefix'],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await searchInsights({ query: 'search-prefix' });
-    const data = parseResult(result as any) as Array<Record<string, unknown>>;
-
-    expect(data).toHaveLength(2);
-    const aEntry = data.find((d) => d['title'] === 'Store-A insight');
-    const bEntry = data.find((d) => d['title'] === 'Store-B insight');
-
-    expect(aEntry?.['formatted_id']).toMatch(/^store-a:KN-\d{4}$/);
-    expect(bEntry?.['formatted_id']).toMatch(/^store-b:KN-\d{4}$/);
-  });
-
-  it('listInsights: each insight formatted_id reflects its owning store', async () => {
-    const managerA = new KnowledgeStoreManager(storeA);
-    await managerA.addInsight({
-      scope: 'global',
-      title: 'List insight from A',
-      content: 'Store-A.',
-      category: 'workflow',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    const managerB = new KnowledgeStoreManager(storeB);
-    // Filler to offset id sequence so store-b's real insight has id=2 (not deduped)
-    await managerB.addInsight({
-      scope: 'global',
-      title: 'Filler',
-      content: 'Offset.',
-      category: 'internal',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-    await managerB.addInsight({
-      scope: 'global',
-      title: 'List insight from B',
-      content: 'Store-B.',
-      category: 'workflow',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await listInsights({ category: 'workflow' });
-    const data = parseResult(result as any) as Array<Record<string, unknown>>;
-
-    const aEntry = data.find((d) => d['title'] === 'List insight from A');
-    const bEntry = data.find((d) => d['title'] === 'List insight from B');
-
-    expect(aEntry?.['formatted_id']).toMatch(/^store-a:KN-\d{4}$/);
-    expect(bEntry?.['formatted_id']).toMatch(/^store-b:KN-\d{4}$/);
-  });
-
-  it('updateInsight: formatted_id in the response reflects the owning store', async () => {
-    // Only store-b has the insight
-    const managerB = new KnowledgeStoreManager(storeB);
-    const original = await managerB.addInsight({
-      scope: 'global',
-      title: 'Update prefix test',
-      content: 'In store-b.',
-      category: 'architecture',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await updateInsight({ id: original.id, title: 'Updated' });
-    const data = parseResult(result as any) as Record<string, unknown>;
-
-    expect(data['formatted_id']).toMatch(/^store-b:KN-\d{4}$/);
-  });
-
-  it('deleteInsight: formatted_id in the response reflects the owning store', async () => {
-    const managerA = new KnowledgeStoreManager(storeA);
-    const insight = await managerA.addInsight({
-      scope: 'global',
-      title: 'Delete prefix test',
-      content: 'In store-a.',
-      category: 'testing',
-      tags: [],
-      source: '',
-      confidence: 1,
-      created_at: now(),
-    });
-
-    await initTwoStoreContext(storeA, storeB);
-
-    const result = await deleteInsight({ id: insight.id });
-    const data = parseResult(result as any) as Record<string, unknown>;
-
-    expect(data['formatted_id']).toMatch(/^store-a:KN-\d{4}$/);
-    expect(data['deleted']).toBe(true);
-  });
-});
 
 // ─── WP-002: deleteInsight error propagation normalization ────────────────────
 
@@ -550,14 +372,14 @@ describe('WP-002: deleteInsight uses throw new Error() on exhaustion (no lastErr
   it('returns a clean "not found" error message when no store has the insight', async () => {
     await initTwoStoreContext(storeA, storeB);
 
-    const result = await deleteInsight({ id: 42 });
+    const result = await deleteInsight({ id: '00000000-0000-0000-0000-000000000042' });
 
     expect((result as any).isError).toBe(true);
     const text: string = (result as any).content[0].text;
     // Must contain "not found" (same as updateInsight's exhaustion message)
     expect(text).toMatch(/not found/);
     // Must reference the insight id
-    expect(text).toContain('42');
+    expect(text).toContain('00000000-0000-0000-0000-000000000042');
   });
 });
 
@@ -565,9 +387,9 @@ describe('WP-002: deleteInsight uses throw new Error() on exhaustion (no lastErr
 
 describe('D-1: listInsights — global pagination after merge', () => {
   /**
-   * Seed store-a with 3 global insights (IDs 1–3) and store-b with 3 filler
-   * insights (IDs 1–3, deduped away) then 3 real insights (IDs 4–6).
-   * The merged+deduped set is 6 insights total (IDs 1–6).
+   * Seed store-a with 3 global insights and store-b with 3 global insights.
+   * With UUID ids every insight is unique, so no dedup occurs.
+   * The merged set is 6 insights total.
    */
   async function seedSixInsights(): Promise<void> {
     const managerA = new KnowledgeStoreManager(storeA);
@@ -585,20 +407,6 @@ describe('D-1: listInsights — global pagination after merge', () => {
     }
 
     const managerB = new KnowledgeStoreManager(storeB);
-    // Filler insights consume IDs 1–3 in store-b (deduped against store-a's IDs 1–3).
-    for (let i = 1; i <= 3; i++) {
-      await managerB.addInsight({
-        scope: 'global',
-        title: `Filler ${i} for dedup`,
-        content: 'Offset id sequence in store-b.',
-        category: 'internal',
-        tags: [],
-        source: '',
-        confidence: 1,
-        created_at: now(),
-      });
-    }
-    // Real store-b insights get IDs 4–6 (unique across the merged set).
     for (let i = 4; i <= 6; i++) {
       await managerB.addInsight({
         scope: 'global',
@@ -638,9 +446,9 @@ describe('D-1: listInsights — global pagination after merge', () => {
     expect(offsetData).toHaveLength(2);
 
     // The two result sets must not overlap.
-    const limitIds = new Set(limitData.map((d) => d['id'] as number));
+    const limitIds = new Set(limitData.map((d) => d['id'] as string));
     for (const item of offsetData) {
-      expect(limitIds.has(item['id'] as number)).toBe(false);
+      expect(limitIds.has(item['id'] as string)).toBe(false);
     }
   });
 
@@ -681,20 +489,7 @@ describe('D-1: searchInsights — limit already applied globally', () => {
     }
 
     const managerB = new KnowledgeStoreManager(storeB);
-    // Filler insights offset the ID sequence in store-b (IDs 1–3, deduped away).
-    for (let i = 1; i <= 3; i++) {
-      await managerB.addInsight({
-        scope: 'global',
-        title: `Filler ${i}`,
-        content: 'Offset.',
-        category: 'internal',
-        tags: [],
-        source: '',
-        confidence: 1,
-        created_at: now(),
-      });
-    }
-    // 2 real store-b insights matching "pagination" get IDs 4–5 (unique).
+    // 2 real store-b insights matching "pagination" (unique UUIDs, no dedup needed).
     for (let i = 4; i <= 5; i++) {
       await managerB.addInsight({
         scope: 'global',

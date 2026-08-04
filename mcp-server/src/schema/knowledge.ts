@@ -36,13 +36,13 @@ export const SLUG_REGEX = _SLUG_REGEX;
  *   planning artefact that produced the insight.
  * - `confidence`: a 0–1 float indicating reliability of the insight. Range is
  *   enforced as [0, 1] — values outside this range are rejected at parse time.
- * - `superseded_by`: optional reference to the id of the insight that replaces
+ * - `superseded_by`: optional reference to the UUID of the insight that replaces
  *   this one. No referential integrity is enforced at the schema layer.
  * - `updated_at`: optional; present only when an insight has been amended after
  *   initial creation.
  */
 export const InsightSchema = z.object({
-  id: z.number().int(),
+  id: z.string().uuid(),
   scope: InsightScope,
   repository_name: z.string().regex(SLUG_REGEX).optional(),
   origin_plan: z.string().regex(SLUG_REGEX).optional(),
@@ -54,7 +54,7 @@ export const InsightSchema = z.object({
   created_at: z.string(),
   updated_at: z.string().optional(),
   confidence: z.number().min(0).max(1),
-  superseded_by: z.number().int().optional(),
+  superseded_by: z.string().uuid().optional(),
 });
 export type Insight = z.infer<typeof InsightSchema>;
 
@@ -66,16 +66,19 @@ export type Insight = z.infer<typeof InsightSchema>;
  * - `.knowledge/{repositoryName}-insights.json` — repository-scoped insights
  *
  * Each file conforms to this schema:
- * - `version`: schema version string (e.g. "1.0.0") for forward-compatibility.
+ * - `version`: schema version string (e.g. "2.0.0") for forward-compatibility.
  * - `last_updated`: ISO 8601 timestamp of the most recent write.
- * - `next_id`: auto-increment counter; the id that will be assigned to the
- *   next insight added to this store.
  * - `insights`: flat array of all stored Insight records in this store.
+ *
+ * Parsing behavior: Zod uses `.strip()` by default — unknown fields (e.g. the
+ * legacy v1 `next_id` counter) are silently discarded rather than rejected with
+ * a ZodError. This is intentional and consistent with the codebase's tolerant-
+ * reader convention. Run `scripts/migrate-knowledge-uuids.js` to upgrade v1
+ * files to v2.0.0 before deploying this schema.
  */
 export const KnowledgeStoreSchema = z.object({
   version: z.string(),
   last_updated: z.string(),
-  next_id: z.number().int().nonnegative(),
   insights: z.array(InsightSchema),
 });
 export type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;

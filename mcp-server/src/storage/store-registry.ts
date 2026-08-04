@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { dirname, join, resolve } from 'path';
 import { StoresConfigSchema, type StoresConfig } from '../schema/store-config.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
@@ -149,9 +149,10 @@ export async function saveStoresConfig(
   const path = configPath ?? resolveStoresConfigPath();
   const validated = StoresConfigSchema.parse(config);
 
-  // Lock on the parent directory (~/.ai-insights/) to serialize all
-  // user-level config writes under the same lock.
-  const lockDir = join(homedir(), AI_INSIGHTS_DIR);
+  // Lock on the parent directory of the config file so that each call site
+  // (production: ~/.ai-insights/, tests: their own tempDir) uses an isolated
+  // lock and parallel test workers never contend on a shared path.
+  const lockDir = dirname(path);
 
   await withLock(lockDir, async () => {
     await atomicWriteJson(path, validated);
