@@ -3323,6 +3323,14 @@ describe('createWorkPackage — title and description fields', () => {
   let tempDir: string;
   let store: LedgerStore;
 
+  // Mirrors the required subset of CreateWorkPackageSchema for schema-replica tests.
+  const MinimalCreateSchema = z.object({
+    assigned_to: z.string(),
+    dependencies: z.array(z.string()),
+    acceptance_criteria: z.array(z.string()).min(1),
+    title: z.string().min(1),
+  });
+
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'title-desc-test-'));
     store = new LedgerStore(TITLE_PLAN_PATH, tempDir);
@@ -3398,14 +3406,15 @@ describe('createWorkPackage — title and description fields', () => {
   });
 
   it('rejects missing title (schema replica)', () => {
+    // ─── Schema-replica pattern note ─────────────────────────────────────────────
+    // These tests use local Zod definitions that mirror a subset of CreateWorkPackageSchema.
+    // The replicas exist because Zod input validation fires at the MCP SDK layer (before
+    // the tool function runs), so it cannot be triggered by calling createWorkPackage()
+    // directly. Trade-off: if production schema constraints change, these replicas won't
+    // auto-fail — keep them in sync with CreateWorkPackageSchema manually.
+    // ─────────────────────────────────────────────────────────────────────────────
     // title is required in CreateWorkPackageSchema — test via schema replica
     // (Zod validation fires at the MCP SDK layer, not inside createWorkPackage())
-    const MinimalCreateSchema = z.object({
-      assigned_to: z.string(),
-      dependencies: z.array(z.string()),
-      acceptance_criteria: z.array(z.string()).min(1),
-      title: z.string().min(1),
-    });
 
     const result = MinimalCreateSchema.safeParse({
       assigned_to: 'Developer',
@@ -3424,12 +3433,6 @@ describe('createWorkPackage — title and description fields', () => {
   it('rejects empty-string title (schema replica)', () => {
     // .min(1) on title rejects empty strings — test via schema replica
     // (Zod validation fires at the MCP SDK layer, not inside createWorkPackage())
-    const MinimalCreateSchema = z.object({
-      assigned_to: z.string(),
-      dependencies: z.array(z.string()),
-      acceptance_criteria: z.array(z.string()).min(1),
-      title: z.string().min(1),
-    });
 
     const result = MinimalCreateSchema.safeParse({
       assigned_to: 'Developer',

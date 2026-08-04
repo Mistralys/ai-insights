@@ -187,6 +187,10 @@ describe('WorkPackageDetailSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.last_updated).toBeUndefined();
   });
+
+  it('does not contain work_package_file field (regression: field was removed)', () => {
+    expect('work_package_file' in WorkPackageDetailSchema.shape).toBe(false);
+  });
 });
 
 // ─── WorkPackageSummarySchema ──────────────────────────────────────────────

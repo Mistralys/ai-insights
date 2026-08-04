@@ -224,9 +224,9 @@ ${PROJECT_PATH_PARAM}
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
 - **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
 - **description** (string): Full specification body for this work package (scope, deliverables, rationale, etc.)
+- **title** (string): Human-readable title for the work package
 
 ## Optional Parameters
-- **title** (string): Human-readable title for the work package
 - **active_pipeline_stages** (array of strings): Ordered subset of pipeline stages for this WP. Omit to use the default 4-stage chain: ["implementation", "qa", "code-review", "documentation"]. Each entry must be a valid pipeline type. The array must be a contiguous subsequence of the canonical ordering and cannot be empty, contain duplicates, or be out of order. A soft warning is emitted if "implementation" is included without "qa", or if only a single stage is specified.
 
 ## Example
