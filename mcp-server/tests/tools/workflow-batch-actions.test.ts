@@ -65,7 +65,6 @@ describe('getNextActions batch tool — all-CANCELLED short-circuit (GN-1)', () 
     for (const wp of root.work_packages) {
       const wpDetail: WorkPackageDetail = {
         work_package_id: wp.work_package_id,
-        work_package_file: `work/${wp.work_package_id}.md`,
         status: 'CANCELLED',
         assigned_to: 'Developer',
         dependencies: [],

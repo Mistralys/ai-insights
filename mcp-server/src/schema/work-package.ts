@@ -116,8 +116,8 @@ export type ReworkCounts = z.infer<typeof ReworkCountsSchema>;
  */
 export const WorkPackageDetailSchema = z.object({
   work_package_id: z.string().regex(/^WP-\d{3,}$/),
-  work_package_file: z.string(),
   title: z.string().optional(),
+  // Optional for backward compat with pre-existing JSON; required on input via CreateWorkPackageSchema.
   description: z.string().optional(),
   status: WorkPackageStatus,
   assigned_to: z.string().nullable(),

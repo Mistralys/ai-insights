@@ -5,6 +5,7 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.7.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.3 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.2 (2026-04-08): Updated release protocol and output format documentation
   3.7.0 (2026-04-08): Delegates changelog curation to Changelog Curator; delegates CTX updates

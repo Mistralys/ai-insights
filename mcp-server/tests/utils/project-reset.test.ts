@@ -46,7 +46,6 @@ function makeWp(
 
   return {
     work_package_id: id,
-    work_package_file: `${id}.json`,
     status: status as WorkPackageDetail['status'],
     assigned_to: assignedTo,
     dependencies: [],

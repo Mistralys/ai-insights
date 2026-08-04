@@ -5,6 +5,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.7.3 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
   3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent

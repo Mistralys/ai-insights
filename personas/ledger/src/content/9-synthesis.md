@@ -14,8 +14,8 @@ Consolidate the results of the development cycle into a coherent **Project Statu
 
 You will be provided with:
 
-1. **The Project Ledger (via MCP):** The project ledger for tracking work packages, statuses, and pipelines. The Synthesis Agent reads every WP — use `ledger_get_project_status` for the overview and `ledger_get_work_package` for each WP's pipeline data, metrics, and comments.
-2. **Work Package Documents:** Individual work package specification files (`work/WP-###.md`) for referencing original requirements.
+1. **Project Overview (via MCP):** The project-level status, WP summaries, and comments — use `ledger_get_project_status`.
+2. **Work Package Detail (via MCP):** Each WP's title, description, acceptance criteria, pipeline data, metrics, and comments — use `ledger_get_work_package` for every WP.
 
 ---
 

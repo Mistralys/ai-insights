@@ -5,6 +5,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.5.3 (2026-02-22): Simplified preflight and verbose sections

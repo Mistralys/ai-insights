@@ -20,7 +20,6 @@ function makeWpDetail(
 ): WorkPackageDetail {
   return {
     work_package_id: id,
-    work_package_file: `work/${id}.md`,
     status: status as any,
     assigned_to: 'Developer',
     dependencies: deps,

@@ -164,7 +164,6 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
     }));
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],

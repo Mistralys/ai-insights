@@ -28,7 +28,7 @@ Both roles run in parallel: implement *and* observe continuously throughout ever
 
 You will be provided with:
 
-* **The Work Package:** The individual work package specification file (`work/WP-###.md`) containing requirements, technical constraints, and acceptance criteria.
+* **The Work Package:** The WP specification is available via `ledger_get_work_package` in the Project Ledger (title, description, acceptance criteria, pipeline data, and artifacts).
 * **Project Ledger (via MCP):** The project ledger containing WP status, dependencies, pipelines, and acceptance criteria. Accessed exclusively through MCP tools (see **MCP Tools** section below).
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
 * **The Codebase:** Access to the current state of all project files.
@@ -146,7 +146,7 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
-3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → read WP detail (via `ledger_get_work_package` and the `work/WP-###.md` specification file) → start pipeline → implement → complete pipeline.
+3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → read WP detail (via `ledger_get_work_package`) → start pipeline → implement → complete pipeline.
 4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify & Refine, Observe). For `REWORK` actions, follow the **Rework Handling** section instead.
 5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 6. **AX Feedback:** Before handing off, reflect on your session experience.

@@ -123,7 +123,6 @@ describe('Full workflow integration', () => {
 
         const wpDetail: WorkPackageDetail = {
           work_package_id: wpId,
-          work_package_file: 'work/WP-001.md',
           status: 'READY',
           assigned_to: 'Developer',
           dependencies: [],
@@ -170,7 +169,6 @@ describe('Full workflow integration', () => {
 
         const wpDetail: WorkPackageDetail = {
           work_package_id: wpId,
-          work_package_file: 'work/WP-002.md',
           status: initialStatus as 'READY' | 'BLOCKED',
           assigned_to: 'Developer',
           dependencies: ['WP-001'],
@@ -235,7 +233,6 @@ describe('Full workflow integration', () => {
 
       const wp: WorkPackageDetail = {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'READY',
         assigned_to: 'Developer',
         dependencies: [],
@@ -393,7 +390,6 @@ describe('Full workflow integration', () => {
 
       const wp: WorkPackageDetail = {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Developer',
         dependencies: [],
@@ -511,7 +507,6 @@ describe('Full workflow integration', () => {
 
       const wp: WorkPackageDetail = {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Developer',
         dependencies: [],
@@ -667,7 +662,6 @@ describe('Full workflow integration', () => {
 
       await store.writeWorkPackage('WP-001', {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Dev',
         dependencies: [],
@@ -762,7 +756,6 @@ describe('Full workflow integration', () => {
 
       await store.writeWorkPackage('WP-001', {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'COMPLETE',
         assigned_to: 'Dev',
         dependencies: [],
@@ -813,7 +806,6 @@ describe('Full workflow integration', () => {
 
       await store.writeWorkPackage('WP-001', {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'COMPLETE',
         assigned_to: 'Dev',
         dependencies: [],
@@ -864,7 +856,6 @@ describe('Full workflow integration', () => {
 
       await store.writeWorkPackage('WP-001', {
         work_package_id: 'WP-001',
-        work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Documentation Agent',
         dependencies: [],
@@ -998,7 +989,6 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
 
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],
@@ -1009,7 +999,6 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
 
     await store.writeWorkPackage('WP-002', {
       work_package_id: 'WP-002',
-      work_package_file: 'work/WP-002.md',
       status: 'BLOCKED',
       assigned_to: 'Developer',
       dependencies: ['WP-001'],
@@ -1021,7 +1010,6 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
 
     await store.writeWorkPackage('WP-003', {
       work_package_id: 'WP-003',
-      work_package_file: 'work/WP-003.md',
       status: 'BLOCKED',
       assigned_to: 'Developer',
       dependencies: ['WP-001', 'WP-002'],
@@ -1121,7 +1109,6 @@ function makeCompWp(
 ): WorkPackageDetail {
   return {
     work_package_id: 'WP-001',
-    work_package_file: 'work/WP-001.md',
     status: 'IN_PROGRESS',
     assigned_to: assignedTo,
     dependencies: [],
@@ -1199,7 +1186,6 @@ describe('composition: legacy-4 default — backward compatibility', () => {
     await store.writeRootIndex(makeCompRoot());
     await store.writeWorkPackage('WP-001', {
       work_package_id: 'WP-001',
-      work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
       dependencies: [],

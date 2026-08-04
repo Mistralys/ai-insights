@@ -1131,7 +1131,6 @@ describe('getProjectStatus — pipeline_health', () => {
   ): WorkPackageDetail {
     return {
       work_package_id: id,
-      work_package_file: `work/${id}.md`,
       status,
       assigned_to: 'Developer',
       dependencies: [],

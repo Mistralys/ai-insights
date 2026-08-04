@@ -193,10 +193,9 @@ Before starting the workflow, ensure your project has:
 2. **Open the plan document** created in Stage 1
 3. **Copy and send** the contents of [2-pm.agent.md](vs-code/2-pm.agent.md)
 4. **Review the work packages** for logical sequencing and dependencies
-5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
-   - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
-   - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
+5. **Verify outputs** (the agent initializes the ledger via MCP and registers all work packages):
    - The project ledger is stored centrally by the MCP server (not as files in the plan directory)
+   - Use `ledger_get_project_status` to confirm all WPs are registered correctly
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
@@ -221,7 +220,7 @@ The Project Manager persona can invoke four specialized standalone sub-agents to
 For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
-2. **Open** the work package specification (`work/WP-###.md`) and relevant source files for context
+2. **Open relevant source files** for context and call `ledger_get_work_package` to read the WP specification from the ledger
 3. **Copy and send** the contents of [3-dev.agent.md](vs-code/3-dev.agent.md)
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
 5. **Monitor progress**: The agent reads and updates the ledger via MCP tools automatically
@@ -242,7 +241,7 @@ For **each work package**:
 **Goal**: Verify acceptance criteria and run tests
 
 1. **Start a new chat session** or continue from implementation
-2. **Open** the work package specification (`work/WP-###.md`) and relevant source files
+2. **Open relevant source files** and call `ledger_get_work_package` to read the WP specification from the ledger
 3. **Copy and send** the contents of [4-qa.agent.md](vs-code/4-qa.agent.md)
 4. **Specify the work package** to validate (the agent reads implementation artifacts from the ledger via MCP)
 5. **Review validation results**:
@@ -578,11 +577,6 @@ your-project/
 │   │   └── plans/
 │   │       └── 2026-02-11-feature-name/
 │   │           ├── plan.md                # Plan document
-│   │           ├── work.md                # WP summary index
-│   │           ├── work/                  # WP specification files
-│   │           │   ├── WP-001.md
-│   │           │   ├── WP-002.md
-│   │           │   └── ...
 │   │           └── synthesis.md           # Final report
 │   └── [other project docs]
 └── [your source code]

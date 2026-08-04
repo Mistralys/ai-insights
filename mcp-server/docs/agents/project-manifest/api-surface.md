@@ -246,9 +246,8 @@ Lists work package summaries from the root index with optional filters.
   assigned_to: string;      // Accepted silently but IGNORED — WP always starts with assigned_to: null
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
-  work_package_file: string;
-  title: string; // REQUIRED — human-readable WP title; empty string accepted (no .min(1) guard)
-  description?: string; // Optional — full specification body; stored in WP detail only (not in root index summary)
+  title: string; // REQUIRED — human-readable WP title; empty strings rejected (min(1) guard)
+  description: string; // REQUIRED — full specification body; stored in WP detail only (not in root index summary)
   active_pipeline_stages?: PipelineType[]; // optional — defaults to DEFAULT_PIPELINE_STAGES when omitted
 }) => Promise<MCPResult>
 ```
@@ -2905,7 +2904,6 @@ interface HandoffNote {
 
 interface WorkPackageDetail {
   work_package_id: string;
-  work_package_file: string;
   title?: string; // Human-readable WP title; absent on WPs created before this field was added
   description?: string; // Full specification body (scope, deliverables, rationale, etc.); stored in detail only, not in summary
   status: WorkPackageStatus;

@@ -39,7 +39,6 @@ function makeRoot(extras?: Partial<RootIndex>): RootIndex {
 function makeWpDetail(overrides: Partial<WorkPackageDetail> = {}): WorkPackageDetail {
   return {
     work_package_id: 'WP-001',
-    work_package_file: 'work/WP-001.md',
     status: 'CANCELLED',
     assigned_to: 'Developer',
     dependencies: [],
@@ -433,7 +432,6 @@ describe('ledger_reopen_cancelled_wp — transitions to BLOCKED when deps unsati
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'CANCELLED',
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
@@ -492,7 +490,6 @@ describe('ledger_reopen_cancelled_wp — transitions to BLOCKED when deps unsati
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'CANCELLED',
         assigned_to: null,
         dependencies: ['WP-001'],
@@ -548,7 +545,6 @@ describe('ledger_reopen_cancelled_wp — transitions to BLOCKED when deps unsati
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'CANCELLED',
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
@@ -624,7 +620,6 @@ describe('ledger_reopen_cancelled_wp — cascade reblock on downstream dependent
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'READY',
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
@@ -681,7 +676,6 @@ describe('ledger_reopen_cancelled_wp — cascade reblock on downstream dependent
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'BLOCKED',
         assigned_to: 'Developer',
         dependencies: ['WP-001'],
@@ -742,7 +736,6 @@ describe('ledger_reopen_cancelled_wp — cascade reblock on downstream dependent
       'WP-002',
       makeWpDetail({
         work_package_id: 'WP-002',
-        work_package_file: 'work/WP-002.md',
         status: 'IN_PROGRESS',
         assigned_to: 'Developer',
         dependencies: ['WP-001'],

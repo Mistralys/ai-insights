@@ -14,7 +14,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 You will be provided with:
 
-1. **Work Package Details:** The individual work package specification file (`work/WP-###.md`).
+1. **Work Package Details:** Retrieved via `ledger_get_work_package` from the project ledger (title, description, acceptance criteria, and implementation artifacts).
 2. **Project Ledger (via MCP):** The project ledger for tracking work packages, statuses, and pipelines. Accessed exclusively through MCP tools (see **MCP Tools** section below).
 3. **The Codebase:** Access to the current state of the files.
 4. **Modified/created files:** Provided by the Developer Agent in the WP detail file's `implementation` pipeline `artifacts` (retrieve via `ledger_get_work_package`).
