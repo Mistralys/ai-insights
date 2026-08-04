@@ -59,8 +59,6 @@ declare global {
   var renderOrchestrator: (...args: unknown[]) => void;
   // eslint-disable-next-line no-var
   var renderStrategyList: (...args: unknown[]) => void;
-  // eslint-disable-next-line no-var
-  var renderStrategyDetail: (...args: unknown[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +81,6 @@ beforeEach(() => {
   globalThis.renderKnowledge        = vi.fn();
   globalThis.renderOrchestrator     = vi.fn();
   globalThis.renderStrategyList     = vi.fn();
-  globalThis.renderStrategyDetail   = vi.fn();
 
   // Load router (breadcrumb, escapeHtml from utils.js loaded by setup-gui-globals.ts)
   vm.runInThisContext(routerJs);
@@ -232,19 +229,6 @@ describe('Router — singleton routes', () => {
   it('dispatches #/strategy to renderStrategyList', () => {
     dispatchHash('#/strategy');
     expect(globalThis.renderStrategyList).toHaveBeenCalled();
-  });
-
-  it('dispatches #/strategy/:repoId to renderStrategyDetail with decoded repoId', () => {
-    dispatchHash('#/strategy/my-repo');
-    const lastCall = (globalThis.renderStrategyDetail as ReturnType<typeof vi.fn>).mock.lastCall!;
-    expect(lastCall[0]).toBe(document.getElementById('app'));
-    expect(lastCall[1]).toBe('my-repo');
-  });
-
-  it('URL-decodes the repoId in #/strategy/:repoId', () => {
-    dispatchHash('#/strategy/my%20repo');
-    const lastCall = (globalThis.renderStrategyDetail as ReturnType<typeof vi.fn>).mock.lastCall!;
-    expect(lastCall[1]).toBe('my repo');
   });
 });
 

@@ -62,7 +62,7 @@ async function addGlobalInsight(
   storePath: string,
   title: string,
   content: string
-): Promise<number> {
+): Promise<string> {
   const manager = new KnowledgeStoreManager(storePath);
   const insight = await manager.addInsight({
     scope: 'global',
@@ -75,6 +75,34 @@ async function addGlobalInsight(
     confidence: 1,
   });
   return insight.id;
+}
+
+/** Write a global knowledge store file with a single insight using a fixed UUID. */
+async function seedInsightWithId(
+  storePath: string,
+  id: string,
+  title: string
+): Promise<void> {
+  const knowledgeDir = join(storePath, '.knowledge');
+  await mkdir(knowledgeDir, { recursive: true });
+  const filePath = join(knowledgeDir, 'global-insights.json');
+  await atomicWriteJson(filePath, {
+    version: '2.0.0',
+    last_updated: now(),
+    insights: [
+      {
+        id,
+        scope: 'global',
+        title,
+        content: 'Seeded content',
+        category: 'test',
+        tags: [],
+        source: '',
+        created_at: now(),
+        confidence: 1,
+      },
+    ],
+  });
 }
 
 // ─── Setup / Teardown ──────────────────────────────────────────────────────
@@ -113,11 +141,7 @@ describe('MultiStoreManager — cross-device portability and knowledge dedup', (
 
   describe('searchKnowledge() — AC 5', () => {
     it('returns results from both stores', async () => {
-      // store-1 first insight gets id=1
       await addGlobalInsight(storePath1, 'TypeScript strict mode', 'Enable strict mode.');
-      // store-2 first insight also gets id=1 (independent counter) — will be deduplicated
-      await addGlobalInsight(storePath2, 'Duplicate placeholder', 'This id=1 is suppressed by store-1.');
-      // store-2 second insight gets id=2 — unique id, survives dedup
       await addGlobalInsight(storePath2, 'Python type hints', 'Use type hints.');
 
       const manager = makeManager();
@@ -129,40 +153,35 @@ describe('MultiStoreManager — cross-device portability and knowledge dedup', (
       expect(titles).toContain('Python type hints');
     });
 
-    it('AC 5: deduplicates by insight id — first-seen wins for same numeric id', async () => {
-      // Both stores start their next_id at 1, so both will produce an insight with id=1.
-      // The store-1 insight with id=1 should win.
-      const id1 = await addGlobalInsight(storePath1, 'Store 1 — insight 1', 'Content A');
-      const id2 = await addGlobalInsight(storePath2, 'Store 2 — insight 1', 'Content B');
-
-      // Both should have id=1 (each store's next_id starts at 1)
-      expect(id1).toBe(1);
-      expect(id2).toBe(1);
+    it('AC 5: deduplicates by insight id — first-seen wins when same UUID appears in both stores', async () => {
+      // Manually seed the same UUID in both stores to simulate cross-device sync overlap.
+      const sharedUUID = '11111111-1111-1111-1111-111111111111';
+      await seedInsightWithId(storePath1, sharedUUID, 'Store 1 — shared insight');
+      await seedInsightWithId(storePath2, sharedUUID, 'Store 2 — shared insight');
 
       const manager = makeManager();
-      const results = await manager.searchKnowledge('insight 1');
+      const results = await manager.searchKnowledge('shared insight');
 
-      // Only one result for id=1; must be from store-1
-      const dedupById = results.filter((r) => r.id === 1);
+      // Only one result for the shared UUID; must be from store-1 (first-seen wins)
+      const dedupById = results.filter((r) => r.id === sharedUUID);
       expect(dedupById).toHaveLength(1);
-      expect(dedupById[0]!.title).toBe('Store 1 — insight 1');
+      expect(dedupById[0]!.title).toBe('Store 1 — shared insight');
     });
 
     it('returns unique results across stores when ids do not clash', async () => {
-      // Add two insights to store-1 (id=1, id=2) and one to store-2 (id=1)
+      // Add two insights to store-1 and one unique insight to store-2.
+      // Since UUIDs are globally unique, all three insights have different ids.
       await addGlobalInsight(storePath1, 'S1 Insight A', 'Alpha content');
       await addGlobalInsight(storePath1, 'S1 Insight B', 'Beta content');
       await addGlobalInsight(storePath2, 'S2 Insight A', 'Gamma content');
 
       const manager = makeManager();
-      // Search for empty query returns all
       const results = await manager.searchKnowledge('');
 
-      // Store-1 contributes ids 1 and 2; store-2 contributes id 1 — but id=1 is already seen.
-      // So we expect 2 unique ids: 1 (from store-1) and 2 (from store-1).
+      // All three UUIDs are distinct — all three insights are returned.
       const uniqueIds = [...new Set(results.map((r) => r.id))];
       expect(uniqueIds.length).toBe(results.length); // no duplicate ids in result
-      expect(results.length).toBe(2); // 2 unique ids (1 and 2)
+      expect(results.length).toBe(3); // 3 unique UUIDs
     });
 
     it('passes scope filter through to each per-store search', async () => {
@@ -190,16 +209,18 @@ describe('MultiStoreManager — cross-device portability and knowledge dedup', (
 
   describe('listKnowledge() — dedup', () => {
     it('returns merged results across stores deduplicated by id', async () => {
-      await addGlobalInsight(storePath1, 'S1 Insight', 'content');
-      await addGlobalInsight(storePath2, 'S2 Insight', 'content'); // id=1, same as store-1
+      // Manually seed the same UUID in both stores to simulate cross-device sync overlap.
+      const sharedUUID = '22222222-2222-2222-2222-222222222222';
+      await seedInsightWithId(storePath1, sharedUUID, 'S1 Insight');
+      await seedInsightWithId(storePath2, sharedUUID, 'S2 Insight');
 
       const manager = makeManager();
       const results = await manager.listKnowledge({});
 
-      // id=1 exists in both stores; only store-1's version should appear
-      const id1Results = results.filter((r) => r.id === 1);
-      expect(id1Results).toHaveLength(1);
-      expect(id1Results[0]!.title).toBe('S1 Insight');
+      // The shared UUID exists in both stores; only store-1's version should appear
+      const sharedResults = results.filter((r) => r.id === sharedUUID);
+      expect(sharedResults).toHaveLength(1);
+      expect(sharedResults[0]!.title).toBe('S1 Insight');
     });
   });
 

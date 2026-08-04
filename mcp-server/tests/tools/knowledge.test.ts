@@ -49,7 +49,7 @@ afterEach(async () => {
 // ─── ledger_add_insight ───────────────────────────────────────────────────
 
 describe('ledger_add_insight', () => {
-  it('creates a global insight and returns the insight with formatted_id', async () => {
+  it('creates a global insight and returns the insight with a UUID id', async () => {
     const result = await addInsight({
       scope: 'global',
       title: 'Always use atomic writes',
@@ -61,8 +61,8 @@ describe('ledger_add_insight', () => {
     });
 
     const data = parseResult(result as any);
-    expect(data.id).toBe(1);
-    expect(data.formatted_id).toBe('KN-0001');
+    expect(typeof data.id).toBe('string');
+    expect(data.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(data.scope).toBe('global');
     expect(data.title).toBe('Always use atomic writes');
     expect(data.category).toBe('architecture');
@@ -84,7 +84,7 @@ describe('ledger_add_insight', () => {
     const data = parseResult(result as any);
     expect(data.scope).toBe('repository');
     expect(data.repository_name).toBe('my-repo');
-    expect(data.formatted_id).toBe('KN-0001');
+    expect(typeof data.id).toBe('string');
   });
 
   it('defaults source to empty string and confidence to 1 when omitted', async () => {
@@ -101,7 +101,7 @@ describe('ledger_add_insight', () => {
     expect(data.confidence).toBe(1);
   });
 
-  it('assigns incrementing IDs to successive global insights', async () => {
+  it('assigns unique UUIDs to successive global insights', async () => {
     const r1 = await addInsight({
       scope: 'global',
       title: 'First',
@@ -117,8 +117,11 @@ describe('ledger_add_insight', () => {
       tags: [],
     });
 
-    expect(parseResult(r1 as any).id).toBe(1);
-    expect(parseResult(r2 as any).id).toBe(2);
+    const id1 = parseResult(r1 as any).id;
+    const id2 = parseResult(r2 as any).id;
+    expect(typeof id1).toBe('string');
+    expect(typeof id2).toBe('string');
+    expect(id1).not.toBe(id2);
   });
 
   it('returns an error when scope is "repository" but repository_name is missing', async () => {
@@ -160,7 +163,7 @@ describe('ledger_add_insight', () => {
     expect(data.source).toBe('WP-004');
     expect(data.confidence).toBe(0.9);
     expect(data.id).toBeDefined();
-    expect(data.formatted_id).toMatch(/^KN-\d{4}$/);
+    expect(typeof data.id).toBe('string');
     expect(data.created_at).toBeDefined();
   });
 
@@ -267,10 +270,11 @@ describe('ledger_search_insights', () => {
     expect(data.length).toBeLessThanOrEqual(2);
   });
 
-  it('includes formatted_id in results', async () => {
+  it('returns UUID id in results', async () => {
     const result = await searchInsights({ query: 'atomic' });
     const data = parseResult(result as any);
-    expect(data[0].formatted_id).toMatch(/^KN-\d{4}$/);
+    expect(typeof data[0].id).toBe('string');
+    expect(data[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   // AC-3: repository_name filter restricts search to that store only
@@ -372,10 +376,11 @@ describe('ledger_list_insights', () => {
     expect(data).toEqual([]);
   });
 
-  it('includes formatted_id in results', async () => {
+  it('returns UUID id in results', async () => {
     const result = await listInsights({ scope: 'global', limit: 1 });
     const data = parseResult(result as any);
-    expect(data[0].formatted_id).toMatch(/^KN-\d{4}$/);
+    expect(typeof data[0].id).toBe('string');
+    expect(data[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   // AC-4: scope:'repository' + repository_name filters correctly
@@ -398,8 +403,8 @@ describe('ledger_list_insights', () => {
 // ─── ledger_update_insight ────────────────────────────────────────────────
 
 describe('ledger_update_insight', () => {
-  let globalInsightId: number;
-  let repositoryInsightId: number;
+  let globalInsightId: string;
+  let repositoryInsightId: string;
 
   beforeEach(async () => {
     const g = await addInsight({
@@ -472,36 +477,30 @@ describe('ledger_update_insight', () => {
     expect(data.superseded_by).toBe(newerId);
   });
 
-  it('can update a repository-scoped insight by numeric id', async () => {
-    // Note: numeric ids are per-store, not globally unique. To avoid id conflicts
-    // between the global store (id=1) and the repository store (id=1), we use a
-    // distinct repository name with no conflicting global insight at the same id.
-    // The globalInsightId created in beforeEach is id=1; the repositoryInsightId
-    // is also id=1 in its own store. updateInsight searches stores alphabetically
-    // and finds global-insights.json first. So we verify repository insight updates
-    // in their own isolated test that has no global insight with the same id.
+  it('can update a repository-scoped insight by UUID', async () => {
+    // With UUIDs, each insight id is globally unique — no per-store id collisions.
+    // repositoryInsightId is already unique; updating by it finds the correct insight
+    // regardless of store search order.
     const result = await updateInsight({
       id: repositoryInsightId,
       title: 'Updated repository insight',
     });
-    // updateInsight finds the FIRST insight with this id across all stores.
-    // The global insight (id=1) is found first since 'global-insights.json' sorts
-    // before 'repo-b-insights.json'. This reflects expected storage behaviour.
     const data = parseResult(result as any);
     expect(data.title).toBe('Updated repository insight');
     expect(data.id).toBe(repositoryInsightId);
   });
 
   it('returns an error when the insight id does not exist', async () => {
-    const result = await updateInsight({ id: 9999, title: 'Ghost update' });
+    const result = await updateInsight({ id: '00000000-0000-0000-0000-000000000000', title: 'Ghost update' });
     expect(isError(result as any)).toBe(true);
     expect((result as any).content[0].text).toContain('not found');
   });
 
-  it('includes formatted_id in the updated response', async () => {
+  it('returns a UUID id in the updated response', async () => {
     const result = await updateInsight({ id: globalInsightId, confidence: 0.5 });
     const data = parseResult(result as any);
-    expect(data.formatted_id).toMatch(/^KN-\d{4}$/);
+    expect(typeof data.id).toBe('string');
+    expect(data.id).toBe(globalInsightId);
   });
 });
 
@@ -528,8 +527,7 @@ describe('ledger_update_insight — repository store (isolated)', () => {
 });
 
 describe('ledger_update_insight — scope filter', () => {
-  it('scope:"global" targets the global store when both stores share the same numeric id', async () => {
-    // Add a global insight (id=1) and a repository insight (id=1 in its own store)
+  it('scope:"global" targets the global store', async () => {
     const g = await addInsight({
       scope: 'global',
       title: 'Global title',
@@ -560,7 +558,7 @@ describe('ledger_update_insight — scope filter', () => {
     expect(data.scope).toBe('global');
   });
 
-  it('scope:"repository"+repository_name targets the repository store when global has same numeric id', async () => {
+  it('scope:"repository"+repository_name targets the repository store', async () => {
     await addInsight({
       scope: 'global',
       title: 'Global title',
@@ -577,7 +575,7 @@ describe('ledger_update_insight — scope filter', () => {
       category: 'workflow',
       tags: [],
     });
-    const repoId = parseResult(p as any).id; // will be 1 in its own store
+    const repoId = parseResult(p as any).id;
 
     const result = await updateInsight({
       id: repoId,
@@ -593,17 +591,18 @@ describe('ledger_update_insight — scope filter', () => {
   });
 
   it('returns an error when the filtered store does not contain the specified id', async () => {
-    await addInsight({
+    const g = await addInsight({
       scope: 'global',
       title: 'Global only',
       content: 'Content.',
       category: 'architecture',
       tags: [],
     });
+    const globalId = parseResult(g as any).id;
 
     // Filter to a repository store that never had this insight
     const result = await updateInsight({
-      id: 1,
+      id: globalId,
       scope: 'repository',
       repository_name: 'nonexistent-repo',
       title: 'Should fail',
@@ -617,7 +616,7 @@ describe('ledger_update_insight — scope filter', () => {
 // ─── ledger_delete_insight ────────────────────────────────────────────────
 
 describe('ledger_delete_insight', () => {
-  it('deletes a global insight and returns a confirmation with id and formatted_id', async () => {
+  it('deletes a global insight and returns a confirmation with the UUID id', async () => {
     const added = await addInsight({
       scope: 'global',
       title: 'To be deleted',
@@ -632,13 +631,12 @@ describe('ledger_delete_insight', () => {
     expect(isError(result as any)).toBe(false);
     const data = parseResult(result as any);
     expect(data.id).toBe(addedId);
-    expect(data.formatted_id).toBe(`KN-${String(addedId).padStart(4, '0')}`);
     expect(data.deleted).toBe(true);
 
     // Confirm the insight is gone from the store
     const listResult = await listInsights({ scope: 'global' });
     const remaining = parseResult(listResult as any);
-    expect(remaining.find((i: { id: number }) => i.id === addedId)).toBeUndefined();
+    expect(remaining.find((i: { id: string }) => i.id === addedId)).toBeUndefined();
   });
 
   it('deletes a repository-scoped insight', async () => {
@@ -666,18 +664,18 @@ describe('ledger_delete_insight', () => {
     // Confirm removal
     const listResult = await listInsights({ scope: 'repository', repository_name: 'delete-test-repo' });
     const remaining = parseResult(listResult as any);
-    expect(remaining.find((i: { id: number }) => i.id === addedId)).toBeUndefined();
+    expect(remaining.find((i: { id: string }) => i.id === addedId)).toBeUndefined();
   });
 
   it('returns an error when the insight id does not exist', async () => {
-    const result = await deleteInsight({ id: 9999 });
+    const result = await deleteInsight({ id: '00000000-0000-0000-0000-000000000000' });
 
     expect(isError(result as any)).toBe(true);
     expect((result as any).content[0].text).toContain('not found');
   });
 
   it('respects scope filter to prevent cross-store deletion', async () => {
-    // Add a global insight and a repository insight — both get id=1 in their respective stores
+    // Add a global insight and a repository insight — both get distinct UUIDs
     const global = await addInsight({
       scope: 'global',
       title: 'Global insight',
@@ -708,12 +706,12 @@ describe('ledger_delete_insight', () => {
       // Deletion succeeded in repo store — global must still exist
       const listResult = await listInsights({ scope: 'global' });
       const globals = parseResult(listResult as any);
-      expect(globals.find((i: { id: number }) => i.id === globalId)).toBeDefined();
+      expect(globals.find((i: { id: string }) => i.id === globalId)).toBeDefined();
     } else {
       // The repo store had no matching id — that's also valid; just confirm global is untouched
       const listResult = await listInsights({ scope: 'global' });
       const globals = parseResult(listResult as any);
-      expect(globals.find((i: { id: number }) => i.id === globalId)).toBeDefined();
+      expect(globals.find((i: { id: string }) => i.id === globalId)).toBeDefined();
     }
   });
 });

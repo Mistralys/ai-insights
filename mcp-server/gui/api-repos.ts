@@ -17,6 +17,7 @@
  *   POST   /api/repos              — create a new repository entry
  *   PUT    /api/repos/:repoId      — update label, folder_names, and/or vision
  *   DELETE /api/repos/:repoId      — remove the declaration (no project data deleted)
+ *   POST   /api/repos/:repoId/move — move the declaration to a different store (multi-store only)
  *
  * Validation rules:
  *   - `id` (create): must match SLUG_REGEX; must be unique across existing entries.
@@ -356,16 +357,29 @@ export async function handleListRepos(
  * Returns the full repository entry for the given `repoId`, or throws
  * NOT_FOUND (404) if no entry with that id exists in the registry.
  *
+ * In multi-store mode, the returned object is enriched with a `store_id` field
+ * identifying the store that owns the entry. The id is resolved by matching the
+ * `storePath` returned by `findEntryInStores()` against `getStoreRouter().getAllStores()`.
+ * If the match yields no result (e.g. store removed between calls), the field is omitted.
+ * In single-store mode or when store context is not initialized, `store_id` is absent.
+ *
  * @param ledgerRoot - Absolute path to the centralized ledger root directory.
  * @param repoId     - The `id` field of the repository entry to retrieve.
  */
 export async function handleGetRepo(
   ledgerRoot: string,
   repoId: string
-): Promise<RepositoryEntry> {
+): Promise<RepositoryEntry & { store_id?: string }> {
   const found = await findEntryInStores(ledgerRoot, repoId);
   if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
+  }
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const match = getStoreRouter().getAllStores().find((s) => s.path === found.storePath);
+    if (match) {
+      return { ...found.entry, store_id: match.id };
+    }
+    console.warn(`handleGetRepo: no store found for storePath '${found.storePath}' — store_id omitted from response`);
   }
   return found.entry;
 }
@@ -548,4 +562,100 @@ export async function handleDeleteRepo(
   const updatedRepositories = registry.repositories.filter((e) => e.id !== repoId);
   await saveRegistry(storePath, { repositories: updatedRepositories });
   return { deleted: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/repos/:repoId/move
+// ---------------------------------------------------------------------------
+
+/**
+ * Body schema for POST /api/repos/:repoId/move.
+ *
+ * Exported so that test code can construct and inspect validated shapes.
+ * Not intended as a stable public API — treat as `@internal`.
+ */
+export const RepoMoveBodySchema = z
+  .object({
+    target_store_id: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Moves a repository declaration from its current store to a different store.
+ *
+ * Performs the move atomically: removes the entry from the source registry and
+ * appends it to the target registry in a single logical transaction (two
+ * sequential writes — source first, then target).
+ *
+ * Validations (in order):
+ *   1. Multi-store mode must be active (VALIDATION_ERROR otherwise).
+ *   2. Request body must conform to {@link RepoMoveBodySchema}.
+ *   3. `target_store_id` must reference a known store.
+ *   4. `repoId` must exist in some store (NOT_FOUND otherwise).
+ *   5. Same-store move short-circuits — returns the entry with `store_id` without writes.
+ *   6. `repoId` must not already exist in the target store.
+ *   7. No `folder_names` value may already appear in the target store.
+ *
+ * Returns the moved entry (with updated `last_modified`) and the `store_id` of
+ * the target store.
+ *
+ * @param ledgerRoot - Absolute path to the centralized ledger root directory.
+ * @param repoId     - The `id` field of the repository entry to move.
+ * @param body       - Parsed request body (any shape — validated here).
+ */
+export async function handleMoveRepo(
+  ledgerRoot: string,
+  repoId: string,
+  body: unknown
+): Promise<RepositoryEntry & { store_id: string }> {
+  if (!isStoreContextInitialized() || !getStoreRouter().isMultiStoreMode()) {
+    validationError('Repository move requires multi-store mode.');
+  }
+
+  const parsed = RepoMoveBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError('Invalid request body.', parsed.error.flatten().fieldErrors);
+  }
+  const { target_store_id } = parsed.data;
+
+  const stores = getStoreRouter().getAllStores();
+  const targetStore = stores.find((s) => s.id === target_store_id);
+  if (!targetStore) {
+    validationError(`Unknown target_store_id: '${target_store_id}'.`);
+  }
+
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
+    throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
+  }
+  const { storePath: sourceStorePath, entry } = found;
+
+  // Same-store no-op — return entry with current store_id without any writes.
+  if (sourceStorePath === targetStore.path) {
+    const sourceStore = stores.find((s) => s.path === sourceStorePath)!;
+    return { ...entry, store_id: sourceStore.id };
+  }
+
+  const targetRegistry = await loadRegistry(targetStore.path);
+
+  if (targetRegistry.repositories.some((e) => e.id === repoId)) {
+    validationError(`A repository with id '${repoId}' already exists in the target store.`);
+  }
+
+  assertNoFolderNameConflicts(targetRegistry.repositories, entry.folder_names);
+
+  // Remove from source registry, then append to target registry.
+  const sourceRegistry = await loadRegistry(sourceStorePath);
+  const updatedSource = sourceRegistry.repositories.filter((e) => e.id !== repoId);
+  await saveRegistry(sourceStorePath, { repositories: updatedSource });
+
+  const movedEntry: RepositoryEntry = RepositoryEntrySchema.parse({
+    ...entry,
+    last_modified: nowIso(),
+  });
+  await saveRegistry(targetStore.path, {
+    repositories: [...targetRegistry.repositories, movedEntry],
+  });
+
+  return { ...movedEntry, store_id: target_store_id };
 }

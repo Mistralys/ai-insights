@@ -121,8 +121,8 @@ describe('KnowledgeStoreManager.addInsight — repository scope', () => {
     expect(insight.repository_name).toBe('hcp-editor');
     expect(insight.origin_plan).toBe('my-plan');
     expect(insight.title).toBe('Codebase insight');
-    expect(insight.id).toBeTypeOf('number');
-    expect(insight.id).toBeGreaterThan(0);
+    expect(insight.id).toBeTypeOf('string');
+    expect(insight.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
     // Verify the file was written in the correct location
     const store = await manager.readRepositoryStore('hcp-editor');
@@ -159,7 +159,6 @@ describe('KnowledgeStoreManager.readRepositoryStore', () => {
   it('returns empty store when repository file does not exist', async () => {
     const store = await manager.readRepositoryStore('hcp-editor');
     expect(store.insights).toEqual([]);
-    expect(store.next_id).toBe(1);
   });
 
   it('returns stored insights after addInsight', async () => {

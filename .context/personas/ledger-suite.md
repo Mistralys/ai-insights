@@ -57,7 +57,7 @@ Each work package runs only the pipeline stages configured by the Project Manage
 implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-> **Hard constraint:** Stages may be omitted but **never reordered**. `ledger_create_work_package` rejects any `active_pipeline_stages` array that is not a strict subsequence of the canonical order. See [personas constraints.md §44](docs/agents/project-manifest/constraints.md).
+> **Hard constraint:** Stages may be omitted but **never reordered**. `ledger_create_work_package` rejects any `active_pipeline_stages` array that is not a strict subsequence of the canonical order. See [personas constraints.md §44](../docs/agents/project-manifest/constraints.md).
 
 Stages not included in a WP's configuration are skipped automatically. **Common composition patterns:**
 
@@ -648,7 +648,7 @@ For the full build system documentation — source layout, metadata schema, temp
 1. **Try the workflow**: Start with a small feature to familiarize yourself — use the **Ledger Claude Coordinator** persona for automated orchestration, or follow the manual stages above
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
 3. **Build system details**: See the [Personas Project Manifest](../docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
-4. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
+4. **Review the MCP tool API**: Understand all available tools and schemas in [api-surface.md](../../mcp-server/docs/agents/project-manifest/api-surface.md)
 5. **Explore MCP tools**: The MCP server exposes tools for project lifecycle, work packages, pipelines, observations, and workflow coordination
 6. **Share feedback**: Document what works and what doesn't for your use cases
 

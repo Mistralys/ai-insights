@@ -11,15 +11,6 @@ import {
 } from '../storage/store-context.js';
 import { StoreNotRegisteredError } from '../storage/store-router.js';
 
-/**
- * Formats a numeric insight ID as a human-readable KN-NNNN string.
- * In multi-store mode, a store prefix is prepended: {storeId}:KN-NNNN.
- */
-function formatInsightId(id: number, storeId?: string): string {
-  const base = `KN-${String(id).padStart(4, '0')}`;
-  return storeId !== undefined ? `${storeId}:${base}` : base;
-}
-
 // ─── Tool: ledger_add_insight ─────────────────────────────────────────────
 
 const AddInsightSchema = z.object({
@@ -65,20 +56,17 @@ async function addInsight(args: z.infer<typeof AddInsightSchema>) {
   // errors (e.g., unregistered repo) are surfaced as isError responses.
   try {
     let storePath: string;
-    let storeId: string | undefined;
     if (isStoreContextInitialized()) {
       if (args.scope === 'global') {
         // Global insights go to the first (default) store; fall back to ledger root on empty config
         const stores = getStoreRouter().getAllStores();
         storePath = stores[0]?.path ?? resolveLedgerRoot();
-        storeId = stores[0]?.id;
       } else {
         const resolved = await getStoreRouter().resolveStoreForRepo(args.repository_name!);
         if (resolved === null) {
           throw new StoreNotRegisteredError(args.repository_name!);
         }
         storePath = resolved.storePath;
-        storeId = resolved.storeId;
       }
     } else {
       storePath = resolveLedgerRoot();
@@ -103,7 +91,7 @@ async function addInsight(args: z.infer<typeof AddInsightSchema>) {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id, storeId) }, null, 2),
+          text: JSON.stringify(insight, null, 2),
         },
       ],
     };
@@ -150,13 +138,11 @@ const SearchInsightsSchema = z.object({
 async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
   try {
     let results: Insight[];
-    let storeIdByInsightId: Map<number, string> | undefined;
 
     if (isStoreContextInitialized()) {
-      // Multi-store: iterate stores directly to capture the owning store per insight
+      // Multi-store: UUID ids make cross-store collisions statistically impossible; dedup is a safety net.
       const stores = getStoreRouter().getAllStores();
-      const seen = new Set<number>();
-      const storeMap = new Map<number, string>();
+      const seen = new Set<string>();
       results = [];
 
       for (const store of stores) {
@@ -167,16 +153,11 @@ async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
           repository_name: args.repository_name,
         });
         for (const insight of storeResults) {
-          // Tiebreak: first-store-wins when the same numeric id exists in multiple stores.
-          // Store order in StoresConfig is deterministic (config array order).
           if (seen.has(insight.id)) continue;
           seen.add(insight.id);
-          storeMap.set(insight.id, store.id);
           results.push(insight);
         }
       }
-
-      storeIdByInsightId = storeMap;
     } else {
       // Legacy: single store
       const manager = new KnowledgeStoreManager(resolveLedgerRoot());
@@ -199,16 +180,11 @@ async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
       results = results.slice(0, args.limit);
     }
 
-    const formatted = results.map((insight) => ({
-      ...insight,
-      formatted_id: formatInsightId(insight.id, storeIdByInsightId?.get(insight.id)),
-    }));
-
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(formatted, null, 2),
+          text: JSON.stringify(results, null, 2),
         },
       ],
     };
@@ -256,13 +232,11 @@ const ListInsightsSchema = z.object({
 async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
   try {
     let results: Insight[];
-    let storeIdByInsightId: Map<number, string> | undefined;
 
     if (isStoreContextInitialized()) {
-      // Multi-store: iterate stores directly to capture the owning store per insight
+      // Multi-store: UUID ids make cross-store collisions statistically impossible; dedup is a safety net.
       const stores = getStoreRouter().getAllStores();
-      const seen = new Set<number>();
-      const storeMap = new Map<number, string>();
+      const seen = new Set<string>();
       results = [];
 
       for (const store of stores) {
@@ -274,10 +248,8 @@ async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
           repository_name: args.repository_name,
         });
         for (const insight of storeResults) {
-          // Tiebreak: first-store-wins when the same numeric id exists in multiple stores.
           if (seen.has(insight.id)) continue;
           seen.add(insight.id);
-          storeMap.set(insight.id, store.id);
           results.push(insight);
         }
       }
@@ -287,8 +259,6 @@ async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
       results = args.limit !== undefined
         ? results.slice(start, start + args.limit)
         : results.slice(start);
-
-      storeIdByInsightId = storeMap;
     } else {
       // Legacy: single store
       const manager = new KnowledgeStoreManager(resolveLedgerRoot());
@@ -302,16 +272,11 @@ async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
       });
     }
 
-    const formatted = results.map((insight) => ({
-      ...insight,
-      formatted_id: formatInsightId(insight.id, storeIdByInsightId?.get(insight.id)),
-    }));
-
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(formatted, null, 2),
+          text: JSON.stringify(results, null, 2),
         },
       ],
     };
@@ -332,14 +297,14 @@ async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
 
 const UpdateInsightSchema = z.object({
   id: z
-    .number()
-    .int()
+    .string()
+    .uuid()
     .describe(
-      'Numeric ID of the insight to update (as returned in the id field of a previous response).'
+      'UUID of the insight to update (as returned in the id field of a previous response).'
     ),
   scope: InsightScope.optional().describe(
     'Optional. Restrict the update to stores of this scope ("global" or "repository"). ' +
-    'Recommended when the same numeric ID may exist in both global and repository stores — ' +
+    'Recommended when the same UUID may exist in both global and repository stores — ' +
     'prevents accidental global-insight mutation.'
   ),
   repository_name: z
@@ -349,7 +314,7 @@ const UpdateInsightSchema = z.object({
     .describe(
       'Optional. Restrict the update to the specified repository store. ' +
       'When provided, only that repository\'s store is searched — prevents ambiguous resolution ' +
-      'when the same numeric ID exists in multiple stores.'
+      'when the same UUID exists in multiple stores.'
     ),
   title: z.string().optional().describe('Optional. New title for the insight.'),
   content: z.string().optional().describe('Optional. New content for the insight.'),
@@ -358,10 +323,10 @@ const UpdateInsightSchema = z.object({
   source: z.string().optional().describe('Optional. New source reference.'),
   confidence: z.number().optional().describe('Optional. New confidence score (0–1).'),
   superseded_by: z
-    .number()
-    .int()
+    .string()
+    .uuid()
     .optional()
-    .describe('Optional. Numeric ID of the insight that supersedes this one.'),
+    .describe('Optional. UUID of the insight that supersedes this one.'),
 });
 
 async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
@@ -381,7 +346,6 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
 
   try {
     let insight: Insight | undefined;
-    let insightStoreId: string | undefined;
 
     if (isStoreContextInitialized()) {
       // Multi-store: iterate stores in order and apply to the first store that has the insight
@@ -394,7 +358,6 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
             scope: args.scope,
             repository_name: args.repository_name,
           });
-          insightStoreId = store.id;
           break;
         } catch (err) {
           if ((err as Error).message.includes('not found')) {
@@ -420,7 +383,7 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id, insightStoreId) }, null, 2),
+          text: JSON.stringify(insight, null, 2),
         },
       ],
     };
@@ -441,14 +404,14 @@ async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
 
 const DeleteInsightSchema = z.object({
   id: z
-    .number()
-    .int()
+    .string()
+    .uuid()
     .describe(
-      'Numeric ID of the insight to delete (as returned in the id field of a previous response).'
+      'UUID of the insight to delete (as returned in the id field of a previous response).'
     ),
   scope: InsightScope.optional().describe(
     'Optional. Restrict the deletion to stores of this scope ("global" or "repository"). ' +
-    'Recommended when the same numeric ID may exist in both global and repository stores — ' +
+    'Recommended when the same UUID may exist in both global and repository stores — ' +
     'prevents accidental cross-store deletion.'
   ),
   repository_name: z
@@ -458,14 +421,12 @@ const DeleteInsightSchema = z.object({
     .describe(
       'Optional. Restrict the deletion to the specified repository store. ' +
       'When provided, only that repository\'s store is searched — prevents ambiguous resolution ' +
-      'when the same numeric ID exists in multiple stores.'
+      'when the same UUID exists in multiple stores.'
     ),
 });
 
 async function deleteInsight(args: z.infer<typeof DeleteInsightSchema>) {
   try {
-    let deletedStoreId: string | undefined;
-
     if (isStoreContextInitialized()) {
       // Multi-store: iterate stores in order and delete from the first store that has the insight
       const stores = getStoreRouter().getAllStores();
@@ -478,7 +439,6 @@ async function deleteInsight(args: z.infer<typeof DeleteInsightSchema>) {
             scope: args.scope,
             repository_name: args.repository_name,
           });
-          deletedStoreId = store.id;
           found = true;
           break;
         } catch (err) {
@@ -505,11 +465,7 @@ async function deleteInsight(args: z.infer<typeof DeleteInsightSchema>) {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(
-            { id: args.id, formatted_id: formatInsightId(args.id, deletedStoreId), deleted: true },
-            null,
-            2
-          ),
+          text: JSON.stringify({ id: args.id, deleted: true }, null, 2),
         },
       ],
     };
@@ -577,7 +533,7 @@ export function register(server: McpServer): void {
     'ledger_update_insight',
     {
       description:
-        'Update an existing insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same numeric ID may exist in both global and repository stores). Optional update fields: title, content, category, tags, source, confidence, superseded_by.',
+        'Update an existing insight by UUID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same UUID may exist in both global and repository stores). Optional update fields: title, content, category, tags, source, confidence, superseded_by.',
       inputSchema: UpdateInsightSchema,
     },
     updateInsight as any
@@ -587,7 +543,7 @@ export function register(server: McpServer): void {
     'ledger_delete_insight',
     {
       description:
-        'Permanently delete an insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same numeric ID may exist in both global and repository stores).',
+        'Permanently delete an insight by UUID. REQUIRED params: id. Optional scope filters: scope, repository_name (recommended when the same UUID may exist in both global and repository stores).',
       inputSchema: DeleteInsightSchema,
     },
     deleteInsight as any

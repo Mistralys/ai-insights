@@ -8,6 +8,7 @@ _SOURCE: GUI REST route handlers: knowledge, queue, run-log, server bootstrap_
         └── api-knowledge.ts
         └── api-models.ts
         └── api-repos.ts
+        └── api-stores.ts
         └── api.ts
         └── chunk-accumulator.ts
         └── chunk-renderer.ts
@@ -1165,6 +1166,7 @@ export function _resetBuildInProgress(): void {
  *   POST   /api/repos              — create a new repository entry
  *   PUT    /api/repos/:repoId      — update label, folder_names, and/or vision
  *   DELETE /api/repos/:repoId      — remove the declaration (no project data deleted)
+ *   POST   /api/repos/:repoId/move — move the declaration to a different store (multi-store only)
  *
  * Validation rules:
  *   - `id` (create): must match SLUG_REGEX; must be unique across existing entries.
@@ -1196,8 +1198,13 @@ import {
   StrategicVisionSchema,
   type RepositoryEntry,
 } from '../src/schema/repository-registry.js';
-import { SLUG_REGEX } from '../src/schema/knowledge.js';
+import { SLUG_REGEX } from '../src/schema/common.js';
 import { LedgerStore } from '../src/storage/ledger-store.js';
+import {
+  isStoreContextInitialized,
+  getStoreRouter,
+  getMultiStoreManager,
+} from '../src/storage/store-context.js';
 
 // Re-export ApiError so consumers can catch typed errors without importing
 // from a separate path.
@@ -1246,6 +1253,42 @@ function assertNoFolderNameConflicts(
   }
 }
 
+/**
+ * Searches all configured stores for a repository entry with the given ID.
+ *
+ * - Multi-store mode: iterates stores in **config order** and returns the path of
+ *   the **first** store whose registry contains the repo, along with the entry.
+ * - Single-store / legacy mode: loads the single registry at `ledgerRoot`.
+ *
+ * Returns `null` when no matching entry is found in any store.
+ *
+ * **First-match semantics:** Iteration stops at the first store that contains the
+ * given `repoId`. If the same ID is present in multiple stores (cross-store
+ * uniqueness is not enforced on creation — see `handleCreateRepo`), all read,
+ * update, and delete operations will silently target only the first-matched store
+ * in config order. The second occurrence remains unaffected and unreachable via
+ * these routes. Use `GET /api/stores/conflicts` to detect and resolve duplicate
+ * IDs across stores.
+ */
+async function findEntryInStores(
+  ledgerRoot: string,
+  repoId: string
+): Promise<{ storePath: string; entry: RepositoryEntry } | null> {
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const stores = getStoreRouter().getAllStores();
+    for (const store of stores) {
+      const registry = await loadRegistry(store.path);
+      const entry = registry.repositories.find((e) => e.id === repoId);
+      if (entry) return { storePath: store.path, entry };
+    }
+    return null;
+  }
+
+  const registry = await loadRegistry(ledgerRoot);
+  const entry = registry.repositories.find((e) => e.id === repoId);
+  return entry ? { storePath: ledgerRoot, entry } : null;
+}
+
 // ---------------------------------------------------------------------------
 // Zod schemas for request bodies
 // ---------------------------------------------------------------------------
@@ -1270,6 +1313,8 @@ export const RepoCreateBodySchema = z
       .array(z.string().min(1))
       .min(1, { message: 'folder_names must contain at least one entry.' }),
     vision: StrategicVisionSchema.optional(),
+    /** Target store ID — optional; when omitted the default store (or legacy ledgerRoot) is used. */
+    store_id: z.string().optional(),
   })
   .strict();
 
@@ -1290,6 +1335,8 @@ export const RepoUpdateBodySchema = z
       .min(1, { message: 'folder_names must contain at least one entry.' })
       .optional(),
     vision: StrategicVisionSchema.optional(),
+    /** Accepted but ignored — the owning store is located automatically via the registry. */
+    store_id: z.string().optional(),
   })
   .strict();
 
@@ -1335,9 +1382,14 @@ export interface RepoListItem {
    * (returned only when `?include_undeclared=true` is specified).
    */
   declared: boolean;
+  /**
+   * ID of the store this repository belongs to.
+   * Present only in multi-store mode — absent in single-store / legacy mode.
+   */
+  store_id?: string;
 }
 
-function toListItem(entry: RepositoryEntry): RepoListItem {
+function toListItem(entry: RepositoryEntry, storeId?: string): RepoListItem {
   const { vision } = entry;
   const has_vision =
     vision.short_term !== null ||
@@ -1356,6 +1408,7 @@ function toListItem(entry: RepositoryEntry): RepoListItem {
     created_at: entry.created_at,
     last_modified: entry.last_modified,
     declared: true,
+    ...(storeId !== undefined ? { store_id: storeId } : {}),
   };
 }
 
@@ -1382,8 +1435,17 @@ export async function handleListRepos(
   ledgerRoot: string,
   includeUndeclared = false
 ): Promise<RepoListItem[]> {
+  // Multi-store mode: return a merged view from all stores, each entry tagged with store_id.
+  // `includeUndeclared` is not supported in multi-store mode (would require scanning every
+  // store's filesystem — left as a future enhancement; returns declared entries only).
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const tagged = await getMultiStoreManager().getMergedRegistry();
+    return tagged.map((entry) => toListItem(entry, entry.store_id));
+  }
+
+  // Single-store / legacy mode: existing behavior
   const registry = await loadRegistry(ledgerRoot);
-  const declared = registry.repositories.map(toListItem);
+  const declared = registry.repositories.map((e) => toListItem(e));
 
   if (!includeUndeclared) {
     return declared;
@@ -1444,19 +1506,31 @@ export async function handleListRepos(
  * Returns the full repository entry for the given `repoId`, or throws
  * NOT_FOUND (404) if no entry with that id exists in the registry.
  *
+ * In multi-store mode, the returned object is enriched with a `store_id` field
+ * identifying the store that owns the entry. The id is resolved by matching the
+ * `storePath` returned by `findEntryInStores()` against `getStoreRouter().getAllStores()`.
+ * If the match yields no result (e.g. store removed between calls), the field is omitted.
+ * In single-store mode or when store context is not initialized, `store_id` is absent.
+ *
  * @param ledgerRoot - Absolute path to the centralized ledger root directory.
  * @param repoId     - The `id` field of the repository entry to retrieve.
  */
 export async function handleGetRepo(
   ledgerRoot: string,
   repoId: string
-): Promise<RepositoryEntry> {
-  const registry = await loadRegistry(ledgerRoot);
-  const entry = registry.repositories.find((e) => e.id === repoId);
-  if (!entry) {
+): Promise<RepositoryEntry & { store_id?: string }> {
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-  return entry;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const match = getStoreRouter().getAllStores().find((s) => s.path === found.storePath);
+    if (match) {
+      return { ...found.entry, store_id: match.id };
+    }
+    console.warn(`handleGetRepo: no store found for storePath '${found.storePath}' — store_id omitted from response`);
+  }
+  return found.entry;
 }
 
 // ---------------------------------------------------------------------------
@@ -1489,8 +1563,33 @@ export async function handleCreateRepo(
     );
   }
 
-  const { id, label, folder_names, vision } = parsed.data;
-  const registry = await loadRegistry(ledgerRoot);
+  const { id, label, folder_names, vision, store_id } = parsed.data;
+
+  // Resolve the target store path.
+  // In multi-store mode: use the requested store_id (validating it), or fall back to the
+  //   configured default store when store_id is omitted.
+  // In single-store / legacy mode: always write to ledgerRoot.
+  let targetStorePath: string;
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    if (store_id !== undefined) {
+      const stores = getStoreRouter().getAllStores();
+      const target = stores.find((s) => s.id === store_id);
+      if (!target) {
+        const validIds = stores.map((s) => s.id).join(', ');
+        validationError(
+          `Invalid store_id '${store_id}'. Valid store IDs are: ${validIds}.`
+        );
+      }
+      targetStorePath = target.path;
+    } else {
+      // No store_id specified — use the default store
+      targetStorePath = getStoreRouter().resolveDefaultStore();
+    }
+  } else {
+    targetStorePath = ledgerRoot;
+  }
+
+  const registry = await loadRegistry(targetStorePath);
 
   // Unique id check
   if (registry.repositories.some((e) => e.id === id)) {
@@ -1510,11 +1609,9 @@ export async function handleCreateRepo(
     last_modified: now,
   });
 
-  const updatedRegistry = {
+  await saveRegistry(targetStorePath, {
     repositories: [...registry.repositories, newEntry],
-  };
-
-  await saveRegistry(ledgerRoot, updatedRegistry);
+  });
   return newEntry;
 }
 
@@ -1545,12 +1642,15 @@ export async function handleUpdateRepo(
   repoId: string,
   body: unknown
 ): Promise<RepositoryEntry> {
-  const registry = await loadRegistry(ledgerRoot);
-  const existingIndex = registry.repositories.findIndex((e) => e.id === repoId);
-  if (existingIndex === -1) {
+  // Locate the owning store — in multi-store mode this iterates stores in config order
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-
+  const { storePath } = found;
+  const registry = await loadRegistry(storePath);
+  const existingIndex = registry.repositories.findIndex((e) => e.id === repoId);
+  // existingIndex must be valid since findEntryInStores already found the entry
   const parsed = RepoUpdateBodySchema.safeParse(body);
   if (!parsed.success) {
     validationError(
@@ -1579,7 +1679,7 @@ export async function handleUpdateRepo(
   const updatedRepositories = [...registry.repositories];
   updatedRepositories[existingIndex] = updated;
 
-  await saveRegistry(ledgerRoot, { repositories: updatedRepositories });
+  await saveRegistry(storePath, { repositories: updatedRepositories });
   return updated;
 }
 
@@ -1602,15 +1702,810 @@ export async function handleDeleteRepo(
   ledgerRoot: string,
   repoId: string
 ): Promise<{ deleted: true }> {
-  const registry = await loadRegistry(ledgerRoot);
-  const index = registry.repositories.findIndex((e) => e.id === repoId);
-  if (index === -1) {
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
     throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
   }
-
+  const { storePath } = found;
+  const registry = await loadRegistry(storePath);
   const updatedRepositories = registry.repositories.filter((e) => e.id !== repoId);
-  await saveRegistry(ledgerRoot, { repositories: updatedRepositories });
+  await saveRegistry(storePath, { repositories: updatedRepositories });
   return { deleted: true };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/repos/:repoId/move
+// ---------------------------------------------------------------------------
+
+/**
+ * Body schema for POST /api/repos/:repoId/move.
+ *
+ * Exported so that test code can construct and inspect validated shapes.
+ * Not intended as a stable public API — treat as `@internal`.
+ */
+export const RepoMoveBodySchema = z
+  .object({
+    target_store_id: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Moves a repository declaration from its current store to a different store.
+ *
+ * Performs the move atomically: removes the entry from the source registry and
+ * appends it to the target registry in a single logical transaction (two
+ * sequential writes — source first, then target).
+ *
+ * Validations (in order):
+ *   1. Multi-store mode must be active (VALIDATION_ERROR otherwise).
+ *   2. Request body must conform to {@link RepoMoveBodySchema}.
+ *   3. `target_store_id` must reference a known store.
+ *   4. `repoId` must exist in some store (NOT_FOUND otherwise).
+ *   5. Same-store move short-circuits — returns the entry with `store_id` without writes.
+ *   6. `repoId` must not already exist in the target store.
+ *   7. No `folder_names` value may already appear in the target store.
+ *
+ * Returns the moved entry (with updated `last_modified`) and the `store_id` of
+ * the target store.
+ *
+ * @param ledgerRoot - Absolute path to the centralized ledger root directory.
+ * @param repoId     - The `id` field of the repository entry to move.
+ * @param body       - Parsed request body (any shape — validated here).
+ */
+export async function handleMoveRepo(
+  ledgerRoot: string,
+  repoId: string,
+  body: unknown
+): Promise<RepositoryEntry & { store_id: string }> {
+  if (!isStoreContextInitialized() || !getStoreRouter().isMultiStoreMode()) {
+    validationError('Repository move requires multi-store mode.');
+  }
+
+  const parsed = RepoMoveBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError('Invalid request body.', parsed.error.flatten().fieldErrors);
+  }
+  const { target_store_id } = parsed.data;
+
+  const stores = getStoreRouter().getAllStores();
+  const targetStore = stores.find((s) => s.id === target_store_id);
+  if (!targetStore) {
+    validationError(`Unknown target_store_id: '${target_store_id}'.`);
+  }
+
+  const found = await findEntryInStores(ledgerRoot, repoId);
+  if (!found) {
+    throw new ApiError('NOT_FOUND', `Repository not found: '${repoId}'.`);
+  }
+  const { storePath: sourceStorePath, entry } = found;
+
+  // Same-store no-op — return entry with current store_id without any writes.
+  if (sourceStorePath === targetStore.path) {
+    const sourceStore = stores.find((s) => s.path === sourceStorePath)!;
+    return { ...entry, store_id: sourceStore.id };
+  }
+
+  const targetRegistry = await loadRegistry(targetStore.path);
+
+  if (targetRegistry.repositories.some((e) => e.id === repoId)) {
+    validationError(`A repository with id '${repoId}' already exists in the target store.`);
+  }
+
+  assertNoFolderNameConflicts(targetRegistry.repositories, entry.folder_names);
+
+  // Remove from source registry, then append to target registry.
+  const sourceRegistry = await loadRegistry(sourceStorePath);
+  const updatedSource = sourceRegistry.repositories.filter((e) => e.id !== repoId);
+  await saveRegistry(sourceStorePath, { repositories: updatedSource });
+
+  const movedEntry: RepositoryEntry = RepositoryEntrySchema.parse({
+    ...entry,
+    last_modified: nowIso(),
+  });
+  await saveRegistry(targetStore.path, {
+    repositories: [...targetRegistry.repositories, movedEntry],
+  });
+
+  return { ...movedEntry, store_id: target_store_id };
+}
+
+```
+###  Path: `/mcp-server/gui/api-stores.ts`
+
+```ts
+/**
+ * GUI API Route Handlers — Stores Domain
+ *
+ * All REST handlers for the /api/stores and /api/stores/:storeId endpoints.
+ * Follows the domain-split pattern established by `api-repos.ts` and
+ * `api-knowledge.ts` — each API domain gets its own handler file imported
+ * from `server.ts`.
+ *
+ * Routes provided (managed by buildStoreRoutes() in server.ts):
+ *   GET    /api/stores                       — enriched store list (replaces old handleGetStores)
+ *   GET    /api/stores/conflicts             — cross-store repository conflicts
+ *   POST   /api/stores                       — add a new store (creates directory)
+ *   POST   /api/stores/import                — import existing directory as a store
+ *   PUT    /api/stores/order                  — reorder stores
+ *   PUT    /api/stores/:storeId              — update store label
+ *   DELETE /api/stores/:storeId              — remove a store (deregisters only)
+ *   POST   /api/stores/:storeId/default      — set the default store
+ *
+ * Validation rules:
+ *   - `id`: must match SLUG_REGEX; must not be a reserved word ("import",
+ *     "order", "conflicts"); must be unique.
+ *   - `path`: must be absolute (/...) or home-relative (~/...); relative paths
+ *     are rejected. Duplicate resolved paths are rejected with 409.
+ *   - `label`: optional; trimmed; whitespace-only rejected with 400.
+ *
+ * Git detection:
+ *   - Each store is tested with `git rev-parse --git-dir` (5-second timeout).
+ *   - `ahead`/`behind` come from `git rev-list --left-right --count HEAD...@{upstream}`.
+ *   - All git commands degrade gracefully: ENOENT → is_git: false; timeout or
+ *     no upstream → ahead/behind omitted.
+ *
+ * Error shape: { code: string, message: string, details?: unknown }
+ *   NOT_FOUND        → 404
+ *   VALIDATION_ERROR → 400
+ *   CONFLICT         → 409
+ *   INTERNAL_ERROR   → 500
+ *
+ * STDIO discipline: this file never writes to process.stdout.
+ */
+
+import { execFile } from 'node:child_process';
+import { mkdir, writeFile, stat, readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { join } from 'node:path';
+import { z } from 'zod';
+import { ApiError } from '../src/gui/errors.js';
+import {
+  loadStoresConfig,
+  saveStoresConfig,
+  expandStorePath,
+} from '../src/storage/store-registry.js';
+import {
+  reloadStoreContext,
+  isStoreContextInitialized,
+  getMultiStoreManager,
+} from '../src/storage/store-context.js';
+import { LedgerStore } from '../src/storage/ledger-store.js';
+import { loadRegistry } from '../src/storage/repository-registry.js';
+import { RepositoryRegistrySchema } from '../src/schema/repository-registry.js';
+import type { StoresConfig, StoreListItem } from '../src/schema/store-config.js';
+import { SLUG_REGEX } from '../src/schema/common.js';
+import type { RegistryConflict } from '../src/storage/multi-store-manager.js';
+
+export { ApiError };
+export type { StoreListItem };
+
+// ---------------------------------------------------------------------------
+// Private constants
+// ---------------------------------------------------------------------------
+
+/** Store IDs that collide with literal API path suffixes in buildStoreRoutes(). */
+const RESERVED_IDS = new Set(['import', 'order', 'conflicts']);
+
+/** Timeout in milliseconds for git subprocess calls. */
+const GIT_TIMEOUT_MS = 5_000;
+
+const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+function validationError(message: string, details?: unknown): never {
+  throw new ApiError('VALIDATION_ERROR', message, details);
+}
+
+/**
+ * Runs a single git command in the given directory with a 5-second timeout.
+ * Rejects on any error (non-zero exit, ENOENT, timeout).
+ */
+async function runGit(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS });
+  return stdout;
+}
+
+/**
+ * Detects whether `storePath` is a Git repository and, if so, fetches
+ * ahead/behind counts relative to the upstream tracking branch.
+ *
+ * - `is_git: false` when Git is not installed (ENOENT) or the directory is not
+ *   a Git repo (non-zero `rev-parse` exit).
+ * - `ahead`/`behind` are omitted when no upstream tracking branch exists (exit
+ *   128 from `rev-list`) or when any git command times out.
+ */
+async function detectGitStatus(
+  storePath: string
+): Promise<{ is_git: boolean; ahead?: number; behind?: number }> {
+  try {
+    await runGit(['rev-parse', '--git-dir'], storePath);
+  } catch (err) {
+    // ENOENT → git not installed; any other error → not a git repo
+    return { is_git: false };
+  }
+
+  // Is a git repo — try to get ahead/behind counts
+  try {
+    const raw = await runGit(
+      ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'],
+      storePath
+    );
+    const parts = raw.trim().split(/\s+/);
+    const ahead = parseInt(parts[0] ?? '', 10);
+    const behind = parseInt(parts[1] ?? '', 10);
+    if (!isNaN(ahead) && !isNaN(behind)) {
+      return { is_git: true, ahead, behind };
+    }
+  } catch {
+    // No upstream, timeout, or detached HEAD — ahead/behind omitted
+  }
+
+  return { is_git: true };
+}
+
+/**
+ * Builds the enriched StoreListItem array from an in-memory StoresConfig.
+ *
+ * All stores are processed concurrently via `Promise.all`. Git detection for
+ * each store runs concurrently alongside the project/registry I/O.
+ */
+async function buildEnrichedMultiStoreList(config: StoresConfig): Promise<StoreListItem[]> {
+  return Promise.all(
+    config.stores.map(async (entry) => {
+      const expandedPath = expandStorePath(entry.path);
+      const [[projects, registry], gitStatus] = await Promise.all([
+        Promise.all([
+          LedgerStore.listAllProjects(expandedPath),
+          loadRegistry(expandedPath),
+        ]),
+        detectGitStatus(expandedPath),
+      ]);
+      return {
+        id: entry.id,
+        label: entry.label ?? entry.id,
+        path: expandedPath,
+        project_count: projects.length,
+        repository_count: registry.repositories.length,
+        is_default: entry.id === config.default_store,
+        is_git: gitStatus.is_git,
+        ...(gitStatus.ahead !== undefined ? { ahead: gitStatus.ahead } : {}),
+        ...(gitStatus.behind !== undefined ? { behind: gitStatus.behind } : {}),
+        ...(entry.sync !== undefined ? { sync: entry.sync } : {}),
+      };
+    })
+  );
+}
+
+/**
+ * Rejects relative paths. Absolute paths start with '/' and home-relative
+ * paths start with '~/' or are exactly '~'.
+ */
+function assertAbsolutePath(rawPath: string): void {
+  if (!rawPath.startsWith('/') && !rawPath.startsWith('~/') && rawPath !== '~') {
+    validationError(
+      `Store path must be absolute (starting with /) or home-relative (starting with ~/). ` +
+        `Relative paths are not supported.`
+    );
+  }
+}
+
+/** Rejects IDs that shadow literal API path suffixes. */
+function assertNotReservedId(id: string): void {
+  if (RESERVED_IDS.has(id)) {
+    validationError(`Store ID "${id}" is reserved. Choose a different identifier.`);
+  }
+}
+
+/** Trims a label and rejects empty/whitespace-only values. */
+function normalizeLabel(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed === '') {
+    validationError('label must not be whitespace-only.');
+  }
+  return trimmed;
+}
+
+/** Throws CONFLICT when a store with `id` already exists in `config`. */
+function assertNoDuplicateId(config: StoresConfig | null, id: string): void {
+  if (config !== null && config.stores.some((s) => s.id === id)) {
+    throw new ApiError('CONFLICT', `A store with id "${id}" already exists.`);
+  }
+}
+
+/** Throws CONFLICT when a store with the same resolved `expandedPath` already exists. */
+function assertNoDuplicatePath(config: StoresConfig | null, expandedPath: string): void {
+  if (config === null) return;
+  for (const s of config.stores) {
+    let existingExpanded: string;
+    try {
+      existingExpanded = expandStorePath(s.path);
+    } catch {
+      continue; // skip entries with unresolvable paths
+    }
+    if (existingExpanded === expandedPath) {
+      throw new ApiError('CONFLICT', `A store already exists at path "${expandedPath}".`);
+    }
+  }
+}
+
+/**
+ * Creates the store directory (no-op if it already exists) and seeds an empty
+ * `.repositories.json` when one is not already present.
+ *
+ * Throws ApiError with code 'INTERNAL_ERROR' (→ 500) on EACCES / EPERM.
+ */
+async function createStoreDirectory(expandedPath: string): Promise<void> {
+  try {
+    await mkdir(expandedPath, { recursive: true });
+  } catch (err) {
+    const nodeErr = err as NodeJS.ErrnoException;
+    if (nodeErr.code === 'EACCES' || nodeErr.code === 'EPERM') {
+      throw new ApiError(
+        'INTERNAL_ERROR',
+        `Cannot create store directory: permission denied at ${expandedPath}.`
+      );
+    }
+    throw err;
+  }
+
+  const registryPath = join(expandedPath, '.repositories.json');
+  try {
+    await stat(registryPath);
+    // File already exists — do not overwrite
+  } catch {
+    // File does not exist — create an empty registry
+    try {
+      await writeFile(registryPath, JSON.stringify({ repositories: [] }), 'utf-8');
+    } catch (err) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code === 'EACCES' || nodeErr.code === 'EPERM') {
+        throw new ApiError(
+          'INTERNAL_ERROR',
+          `Cannot create store directory: permission denied at ${expandedPath}.`
+        );
+      }
+      throw err;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request body schemas
+// ---------------------------------------------------------------------------
+
+const AddStoreBodySchema = z
+  .object({
+    id: z.string().regex(SLUG_REGEX, {
+      message:
+        'id must start with an alphanumeric character and contain only letters, digits, hyphens, and underscores.',
+    }),
+    path: z.string().min(1, { message: 'path must be a non-empty string.' }),
+    label: z.string().optional(),
+  })
+  .strict();
+
+// Import has identical shape to add; the semantics differ (directory must exist).
+const ImportStoreBodySchema = AddStoreBodySchema;
+
+const UpdateStoreBodySchema = z
+  .object({
+    label: z.string(),
+  })
+  .strict();
+
+const ReorderStoresBodySchema = z
+  .object({
+    order: z.array(z.string()),
+  })
+  .strict();
+
+// ---------------------------------------------------------------------------
+// GET /api/stores — handleGetStoresEnriched
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the list of configured stores, each enriched with `is_default`,
+ * `is_git`, optional `ahead`/`behind`, project and repository counts, and
+ * optional `sync` metadata.
+ *
+ * Mode selection is based on `loadStoresConfig()`:
+ * - **Multi-store** (non-null config): iterates `config.stores`.
+ * - **Legacy / single-store** (null config): returns a single synthesized entry
+ *   for `ledgerRoot` with `id: 'default'` and `label: 'Default Store'`.
+ *
+ * Git commands run concurrently (Promise.all) and degrade gracefully on
+ * failure — no 500 errors from missing Git or unreachable remotes.
+ *
+ * @param ledgerRoot - Absolute ledger root path; used to resolve store paths and
+ *   project/repository counts in single-store legacy mode (when `loadStoresConfig()`
+ *   returns null).
+ */
+export async function handleGetStoresEnriched(ledgerRoot: string): Promise<StoreListItem[]> {
+  const config = await loadStoresConfig();
+
+  if (config !== null) {
+    return buildEnrichedMultiStoreList(config);
+  }
+
+  // Legacy / single-store mode: synthesize a single default entry.
+  const [[projects, registry], gitStatus] = await Promise.all([
+    Promise.all([
+      LedgerStore.listAllProjects(ledgerRoot),
+      loadRegistry(ledgerRoot),
+    ]),
+    detectGitStatus(ledgerRoot),
+  ]);
+
+  return [
+    {
+      id: 'default',
+      label: 'Default Store',
+      path: ledgerRoot,
+      project_count: projects.length,
+      repository_count: registry.repositories.length,
+      is_default: true,
+      is_git: gitStatus.is_git,
+      ...(gitStatus.ahead !== undefined ? { ahead: gitStatus.ahead } : {}),
+      ...(gitStatus.behind !== undefined ? { behind: gitStatus.behind } : {}),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/stores/conflicts — handleGetStoreConflicts
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the list of repositories registered in more than one store.
+ *
+ * Delegates to `MultiStoreManager.getRegistryConflicts()`. Returns an empty
+ * array in single-store / legacy mode (no cross-store conflicts possible).
+ */
+export async function handleGetStoreConflicts(): Promise<RegistryConflict[]> {
+  if (!isStoreContextInitialized()) {
+    return [];
+  }
+  return getMultiStoreManager().getRegistryConflicts();
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/stores — handleAddStore
+// ---------------------------------------------------------------------------
+
+/**
+ * Adds a new store to `stores.json`.
+ *
+ * Creates the store directory and seeds an empty `.repositories.json` when
+ * neither already exists. Creates `stores.json` if none exists (first-store
+ * scenario — the new store becomes the default).
+ *
+ * Validation: slug ID, reserved-ID rejection, absolute path, duplicate
+ * id/path detection, optional label trimming.
+ *
+ * @returns Updated enriched store list.
+ */
+export async function handleAddStore(body: unknown): Promise<StoreListItem[]> {
+  const parsed = AddStoreBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(parsed.error.issues[0]?.message ?? 'Invalid request body.');
+  }
+
+  const { id, path: rawPath, label } = parsed.data;
+  const trimmedLabel = label !== undefined ? normalizeLabel(label) : undefined;
+
+  assertNotReservedId(id);
+  assertAbsolutePath(rawPath);
+
+  let expandedPath: string;
+  try {
+    expandedPath = expandStorePath(rawPath);
+  } catch (err) {
+    validationError((err as Error).message);
+  }
+
+  const config = await loadStoresConfig();
+  assertNoDuplicateId(config, id);
+  assertNoDuplicatePath(config, expandedPath!);
+
+  await createStoreDirectory(expandedPath!);
+
+  const newEntry = {
+    id,
+    path: rawPath,
+    ...(trimmedLabel !== undefined ? { label: trimmedLabel } : {}),
+  };
+
+  const newConfig: StoresConfig =
+    config !== null
+      ? { ...config, stores: [...config.stores, newEntry] }
+      : { stores: [newEntry], default_store: id };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  return buildEnrichedMultiStoreList(newConfig);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/stores/import — handleImportStore
+// ---------------------------------------------------------------------------
+
+/**
+ * Imports an existing directory as a store in `stores.json`.
+ *
+ * Unlike `handleAddStore`, the target directory **must already exist** and the
+ * handler never creates it. Any existing `.repositories.json` is preserved
+ * as-is; a `warning` is included in the response when it is present but fails
+ * schema validation. Creates `stores.json` if none exists (first-store).
+ *
+ * @returns Wrapped response `{ stores, warning? }` where `stores` is the
+ *   updated enriched store list.
+ */
+export async function handleImportStore(
+  body: unknown
+): Promise<{ stores: StoreListItem[]; warning?: string }> {
+  const parsed = ImportStoreBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(parsed.error.issues[0]?.message ?? 'Invalid request body.');
+  }
+
+  const { id, path: rawPath, label } = parsed.data;
+  const trimmedLabel = label !== undefined ? normalizeLabel(label) : undefined;
+
+  assertNotReservedId(id);
+  assertAbsolutePath(rawPath);
+
+  let expandedPath: string;
+  try {
+    expandedPath = expandStorePath(rawPath);
+  } catch (err) {
+    validationError((err as Error).message);
+  }
+
+  // Directory must already exist
+  try {
+    const s = await stat(expandedPath!);
+    if (!s.isDirectory()) {
+      validationError(`Path "${expandedPath!}" exists but is not a directory.`);
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    validationError(`Directory does not exist at path "${expandedPath!}".`);
+  }
+
+  const config = await loadStoresConfig();
+  assertNoDuplicateId(config, id);
+  assertNoDuplicatePath(config, expandedPath!);
+
+  // Check for a corrupted .repositories.json (preserve it regardless)
+  let warning: string | undefined;
+  const registryFilePath = join(expandedPath!, '.repositories.json');
+  try {
+    const content = await readFile(registryFilePath, 'utf-8');
+    try {
+      RepositoryRegistrySchema.parse(JSON.parse(content));
+    } catch {
+      warning =
+        'Existing .repositories.json is present but could not be validated — it may need manual repair.';
+    }
+  } catch {
+    // File absent — no warning
+  }
+
+  const newEntry = {
+    id,
+    path: rawPath,
+    ...(trimmedLabel !== undefined ? { label: trimmedLabel } : {}),
+  };
+
+  const newConfig: StoresConfig =
+    config !== null
+      ? { ...config, stores: [...config.stores, newEntry] }
+      : { stores: [newEntry], default_store: id };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  const stores = await buildEnrichedMultiStoreList(newConfig);
+  return warning !== undefined ? { stores, warning } : { stores };
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/stores/:storeId — handleUpdateStore
+// ---------------------------------------------------------------------------
+
+/**
+ * Updates the label of an existing store.
+ *
+ * The label is trimmed; whitespace-only values are rejected with 400.
+ *
+ * @returns Updated enriched store list.
+ */
+export async function handleUpdateStore(
+  storeId: string,
+  body: unknown
+): Promise<StoreListItem[]> {
+  const parsed = UpdateStoreBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(parsed.error.issues[0]?.message ?? 'Invalid request body.');
+  }
+
+  const { label } = parsed.data;
+  const trimmedLabel = normalizeLabel(label);
+
+  const config = await loadStoresConfig();
+  if (config === null) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  const storeIndex = config.stores.findIndex((s) => s.id === storeId);
+  if (storeIndex === -1) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  const updatedStores = config.stores.map((s, i) =>
+    i === storeIndex ? { ...s, label: trimmedLabel } : s
+  );
+  const newConfig: StoresConfig = { ...config, stores: updatedStores };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  return buildEnrichedMultiStoreList(newConfig);
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/stores/:storeId — handleRemoveStore
+// ---------------------------------------------------------------------------
+
+/**
+ * Removes a store from `stores.json`.
+ *
+ * - Rejects removal of the last store (schema requires ≥ 1 store).
+ * - If the removed store was the default, the first remaining store becomes
+ *   the new default (matching CLI `storeRemove` behavior).
+ * - The store directory is **not** deleted from disk.
+ *
+ * @returns `{ stores, warned }` where `warned` is `true` when the removed
+ *   store had registered repositories.
+ */
+export async function handleRemoveStore(
+  storeId: string
+): Promise<{ stores: StoreListItem[]; warned: boolean }> {
+  const config = await loadStoresConfig();
+  if (config === null) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  const storeIndex = config.stores.findIndex((s) => s.id === storeId);
+  if (storeIndex === -1) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  if (config.stores.length === 1) {
+    validationError('Cannot remove the last store. At least one store must remain configured.');
+  }
+
+  // Check for registered repositories (for the warned flag)
+  const storeEntry = config.stores[storeIndex]!;
+  let warned = false;
+  try {
+    const expandedPath = expandStorePath(storeEntry.path);
+    const registry = await loadRegistry(expandedPath);
+    warned = registry.repositories.length > 0;
+  } catch {
+    // Path unresolvable — proceed without warning
+  }
+
+  const remainingStores = config.stores.filter((_, i) => i !== storeIndex);
+
+  // Reassign default to the first remaining store if the removed store was default
+  const newDefault =
+    config.default_store === storeId ? remainingStores[0]!.id : config.default_store;
+
+  const newConfig: StoresConfig = {
+    ...config,
+    stores: remainingStores,
+    default_store: newDefault,
+  };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  const stores = await buildEnrichedMultiStoreList(newConfig);
+  return { stores, warned };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/stores/:storeId/default — handleSetDefaultStore
+// ---------------------------------------------------------------------------
+
+/**
+ * Sets the default store in `stores.json`.
+ *
+ * @returns Updated enriched store list.
+ */
+export async function handleSetDefaultStore(storeId: string): Promise<StoreListItem[]> {
+  const config = await loadStoresConfig();
+  if (config === null) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  if (!config.stores.some((s) => s.id === storeId)) {
+    throw new ApiError('NOT_FOUND', `Store "${storeId}" not found.`);
+  }
+
+  const newConfig: StoresConfig = { ...config, default_store: storeId };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  return buildEnrichedMultiStoreList(newConfig);
+}
+
+// ---------------------------------------------------------------------------
+// PUT /api/stores/order — handleReorderStores
+// ---------------------------------------------------------------------------
+
+/**
+ * Reorders the `stores` array in `stores.json`.
+ *
+ * The `order` array must be an exact permutation of the current store IDs:
+ * - Same length (catches duplicates).
+ * - Every ID in `order` must exist in config (no unknowns).
+ * - Every ID in config must appear in `order` (no omissions).
+ *
+ * Store order determines conflict-resolution priority.
+ *
+ * @returns Updated enriched store list.
+ */
+export async function handleReorderStores(body: unknown): Promise<StoreListItem[]> {
+  const parsed = ReorderStoresBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(parsed.error.issues[0]?.message ?? 'Invalid request body.');
+  }
+
+  const { order } = parsed.data;
+
+  const config = await loadStoresConfig();
+  if (config === null) {
+    validationError('No stores are configured to reorder.');
+  }
+
+  const existingIds = config!.stores.map((s) => s.id);
+
+  if (order.length !== existingIds.length) {
+    validationError(
+      `order array length (${order.length}) does not match the number of configured stores (${existingIds.length}).`
+    );
+  }
+
+  const existingIdSet = new Set(existingIds);
+  for (const id of order) {
+    if (!existingIdSet.has(id)) {
+      validationError(`Unknown store id "${id}" in order array.`);
+    }
+  }
+
+  const orderSet = new Set(order);
+  for (const id of existingIds) {
+    if (!orderSet.has(id)) {
+      validationError(`Store id "${id}" is missing from the order array.`);
+    }
+  }
+
+  const storeMap = new Map(config!.stores.map((s) => [s.id, s]));
+  const reorderedStores = order.map((id) => storeMap.get(id)!);
+
+  const newConfig: StoresConfig = { ...config!, stores: reorderedStores };
+
+  await saveStoresConfig(newConfig);
+  await reloadStoreContext();
+
+  return buildEnrichedMultiStoreList(newConfig);
 }
 
 ```
@@ -1677,6 +2572,13 @@ import type {
   MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
 import { ApiError } from '../src/gui/errors.js';
+import {
+  getMultiStoreManager,
+  getStoreRouter,
+  isStoreContextInitialized,
+} from '../src/storage/store-context.js';
+import { loadRegistry } from '../src/storage/repository-registry.js';
+import type { TaggedProjectMeta } from '../src/storage/multi-store-manager.js';
 export { ApiError };
 import {
   getQueue,
@@ -1686,7 +2588,7 @@ import {
   startOrchestrator,
   getRunStatus,
 } from './orchestrator-manager.js';
-import type { QueueEntry, KillResult, StartResult, RunStatus } from './orchestrator-manager.js';
+import type { QueueEntry, KillResult, StartResult, RunStatus, PreflightResult } from './orchestrator-manager.js';
 import { renderChunksToText } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -1804,34 +2706,51 @@ async function resolveProjectStore(
   }
   const slugOrQualified = repoName !== undefined ? `${repoName}/${slug}` : slug;
 
-  let storageDir: string;
-  try {
-    storageDir = await resolveProjectDir(slugOrQualified, ledgerRoot);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Intentionally downgrade AMBIGUOUS to NOT_FOUND: the caller must not learn
-    // that multiple repos contain this slug (prevents cross-namespace existence leak).
-    if (msg.startsWith('NOT_FOUND') || msg.startsWith('AMBIGUOUS')) {
-      notFound(`Project '${slug}' not found.`);
+  // In multi-store mode, search all configured stores; fall back to default store otherwise.
+  const storePaths =
+    isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()
+      ? getStoreRouter().getAllStorePaths()
+      : [ledgerRoot];
+
+  for (const storePath of storePaths) {
+    let storageDir: string;
+    try {
+      storageDir = await resolveProjectDir(slugOrQualified, storePath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // NOT_FOUND or AMBIGUOUS in this store: try next store. AMBIGUOUS is
+      // downgraded to NOT_FOUND to prevent cross-namespace existence leaks
+      // (security contract — see JSDoc above).
+      if (msg.startsWith('NOT_FOUND') || msg.startsWith('AMBIGUOUS')) {
+        continue;
+      }
+      throw err;
     }
-    throw err;
+
+    try {
+      const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
+      const meta = ProjectMetaSchema.parse(JSON.parse(raw));
+      return new LedgerStore(meta.plan_path, storePath);
+    } catch (err) {
+      // ENOENT means the project doesn't live in this store — try the next one.
+      // This handles the qualified-slug case where resolveProjectDir() constructs
+      // the path without checking existence.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') continue;
+
+      // Corrupt JSON or schema validation failure — log for operator diagnostics
+      // (stderr only) and return 404 to the caller.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
+          (repoName !== undefined ? ` repo="${repoName}"` : '') +
+          `: ${errMsg}\n`
+      );
+      notFound(`Project '${slug}' not found or has no metadata.`);
+    }
   }
 
-  try {
-    const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
-    const meta = ProjectMetaSchema.parse(JSON.parse(raw));
-    return new LedgerStore(meta.plan_path, ledgerRoot);
-  } catch (err) {
-    // .meta.json missing, corrupt JSON, or schema validation failure —
-    // log for operator diagnostics (stderr only) and return 404 to the caller.
-    const errMsg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[resolveProjectStore] Failed to read metadata for slug="${slug}"` +
-        (repoName !== undefined ? ` repo="${repoName}"` : '') +
-        `: ${errMsg}\n`
-    );
-    notFound(`Project '${slug}' not found or has no metadata.`);
-  }
+  notFound(`Project '${slug}' not found.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1939,7 +2858,15 @@ export async function handleListProjects(
   // so that unrecognized runners return an empty set rather than a 500 error.
   const runnerFilter: string | undefined = rawParams.runner;
 
-  const allProjects = await LedgerStore.listAllProjects(ledgerRoot);
+  const allProjects: ProjectMeta[] = isStoreContextInitialized()
+    ? await getMultiStoreManager().listAllProjects()
+    : await LedgerStore.listAllProjects(ledgerRoot);
+
+  // In multi-store mode each project carries its source store_path; in legacy
+  // mode the single ledger root is used for all projects.
+  function getStorePath(meta: ProjectMeta): string {
+    return (meta as TaggedProjectMeta).store_path ?? ledgerRoot;
+  }
 
   // --- Enrich all projects ---
   const enrichedAll = await Promise.all(
@@ -1981,7 +2908,7 @@ export async function handleListProjects(
           project_name = meta.project_name;
         }
       } else {
-        const store = new LedgerStore(meta.plan_path, ledgerRoot);
+        const store = new LedgerStore(meta.plan_path, getStorePath(meta));
 
         await Promise.all([
           (async () => {
@@ -2211,8 +3138,19 @@ export async function handleGetProject(
       }
     }
     const createdAt = meta.date_created ? new Date(meta.date_created).getTime() : NaN;
-    const updatedAt = meta.last_updated ? new Date(meta.last_updated).getTime() : NaN;
-    const project_elapsed_ms = (!isNaN(createdAt) && !isNaN(updatedAt)) ? updatedAt - createdAt : null;
+    // Prefer synthesis_generated_at as the end-time for completed projects: it is set
+    // once by ledger_complete_synthesis and never bumped by post-run operations, making
+    // it a reliable wall-clock end marker regardless of runner (MCP or orchestrator).
+    // synthesis_generated_at lives on the root index, not on ProjectMeta — use rootIndex.
+    // Fall back to last_updated for in-progress projects that have not yet synthesised.
+    const endTimeStr = rootIndex.synthesis_generated_at ?? meta.last_updated;
+    const endAt = endTimeStr ? new Date(endTimeStr).getTime() : NaN;
+    const rawElapsedMs = (!isNaN(createdAt) && !isNaN(endAt)) ? endAt - createdAt : null;
+    // For standalone projects, date_created and synthesis_generated_at are both written
+    // during archival (same moment), so elapsed = 0. Null it out so the UI can show
+    // "Not measured" rather than "< 1s".
+    const project_elapsed_ms =
+      rawElapsedMs === 0 && rootIndex.runner === 'standalone' ? null : rawElapsedMs;
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
     return { ...rootIndex, meta, project_name, timing };
@@ -2770,6 +3708,7 @@ export interface WpPipelineStage {
 
 export interface WpOverviewEntry {
   work_package_id: string;
+  title?: string;
   status: WorkPackageStatus;
   assigned_to: string | null;
   dependencies: string[];
@@ -2855,6 +3794,7 @@ export async function handleGetWorkPackageOverview(
         const metCount = wp.acceptance_criteria.filter((ac) => ac.met).length;
         const entry: WpOverviewEntry = {
           work_package_id: wp.work_package_id,
+          ...(wp.title !== undefined && { title: wp.title }),
           status: wp.status,
           assigned_to: wp.assigned_to,
           dependencies: wp.dependencies,
@@ -3263,11 +4203,21 @@ export async function handleGetChunkText(
 // POST /api/orchestrator/start
 // ---------------------------------------------------------------------------
 
+/** UUID v4 format accepted by `body.resumeThreadId` in {@link handleOrchestratorStart}. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /**
  * Validates `body.planPath`, then runs preflight checks and (when `dryRun`
  * is `false` and all checks pass) spawns a detached orchestrator process.
  *
  * Throws VALIDATION_ERROR when `body.planPath` is absent or not a string.
+ *
+ * In multi-store mode, runs a registration preflight before the standard checks:
+ * if the repository folder inferred from `planPath` is not registered in any store,
+ * returns a `store-registration` fail check immediately without calling
+ * `startOrchestrator()`. When `inferProjectRootFromPlanPath` returns `null`
+ * (i.e. `planPath` does not contain the `/docs/agents/` segment), the registration
+ * check is skipped and `startOrchestrator()` proceeds normally.
  *
  * @param workspaceRoot - Absolute path to the workspace root directory.
  * @param body          - Parsed request body (any shape — validated here).
@@ -3287,13 +4237,33 @@ export async function handleOrchestratorStart(
   const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
 
   // Optional resume thread ID — must be UUID v4 when supplied.
-  const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   let resumeThreadId: string | undefined;
   if ('resumeThreadId' in b) {
     if (typeof b['resumeThreadId'] !== 'string' || !UUID_V4.test(b['resumeThreadId'])) {
       validationError('body.resumeThreadId must be a valid UUID v4 string.');
     }
     resumeThreadId = b['resumeThreadId'];
+  }
+
+  // Multi-store registration preflight (runs before all other checks).
+  // In single-store / legacy mode this is a no-op — registration is optional.
+  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+    const projectRoot = inferProjectRootFromPlanPath(planPath);
+    const folderName = projectRoot
+      ? projectRoot.split(/[\/\\]/).filter(Boolean).pop() ?? null
+      : null;
+    if (folderName !== null) {
+      const storeResult = await getStoreRouter().resolveStoreForRepo(folderName);
+      if (storeResult === null) {
+        const check: PreflightResult = {
+          name:   'store-registration',
+          pass:   false,
+          detail: `Repository '${folderName}' is not registered in any store`,
+          fix:    `Register '${folderName}' using the Repos tab or: node scripts/cli.js store repos add`,
+        };
+        return { checks: [check], started: false };
+      }
+    }
   }
 
   return startOrchestrator(planPath, workspaceRoot, dryRun, resumeThreadId);
@@ -3457,6 +4427,8 @@ export async function handleGetRunMetadata(
     notFound(`Run metadata not found for project '${slug}'.`);
   }
 }
+
+// handleGetStores and handleGetStoreConflicts have been moved to api-stores.ts
 ```
 ###  Path: `/mcp-server/gui/chunk-accumulator.ts`
 
@@ -5892,6 +6864,10 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
+import { StoreRouter } from '../src/storage/store-router.js';
+import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
+import { setStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
 import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
@@ -5933,6 +6909,16 @@ import {
   ApiError,
 } from './api.js';
 import {
+  handleGetStoresEnriched,
+  handleGetStoreConflicts,
+  handleAddStore,
+  handleImportStore,
+  handleUpdateStore,
+  handleRemoveStore,
+  handleSetDefaultStore,
+  handleReorderStores,
+} from './api-stores.js';
+import {
   handleListKnowledge,
   handleUpdateKnowledge,
   handleDeleteKnowledge,
@@ -5945,6 +6931,8 @@ import {
   handleCreateRepo,
   handleUpdateRepo,
   handleDeleteRepo,
+  handleMoveRepo,
+  type RepoListItem,
 } from './api-repos.js';
 import {
   handleGetModels,
@@ -6230,22 +7218,33 @@ export async function resolveRepoName(
 ): Promise<string> {
   assertSafeSlug(repoUrlParam);
   assertSafeSlug(slugUrlParam);
-  const metaPath = join(ledgerRoot, repoUrlParam, slugUrlParam, '.meta.json');
-  let raw: string;
-  try {
-    raw = await readFile(metaPath, 'utf-8');
-  } catch {
-    throw new ApiError('NOT_FOUND', `Project not found: ${slugUrlParam}`);
+
+  // In multi-store mode, search all configured stores; fall back to default store otherwise.
+  const storePaths =
+    isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()
+      ? getStoreRouter().getAllStorePaths()
+      : [ledgerRoot];
+
+  for (const storePath of storePaths) {
+    const metaPath = join(storePath, repoUrlParam, slugUrlParam, '.meta.json');
+    let raw: string;
+    try {
+      raw = await readFile(metaPath, 'utf-8');
+    } catch {
+      // .meta.json not found in this store — try next
+      continue;
+    }
+    try {
+      const meta = JSON.parse(raw) as { repository_name?: string | null };
+      return meta.repository_name ?? repoUrlParam;
+    } catch {
+      // Malformed .meta.json — log and fall back to URL param
+      process.stderr.write(`[server] Warning: malformed .meta.json at ${metaPath} — falling back to URL param '${repoUrlParam}'\n`);
+      return repoUrlParam;
+    }
   }
-  try {
-    const meta = JSON.parse(raw) as { repository_name?: string | null };
-    return meta.repository_name ?? repoUrlParam;
-  } catch {
-    // Malformed .meta.json — project directory exists, fall back to URL param.
-    // Log to stderr so operators can detect corrupt meta files during troubleshooting.
-    process.stderr.write(`[server] Warning: malformed .meta.json at ${metaPath} — falling back to URL param '${repoUrlParam}'\n`);
-    return repoUrlParam;
-  }
+
+  throw new ApiError('NOT_FOUND', `Project not found: ${slugUrlParam}`);
 }
 
 /**
@@ -6418,6 +7417,7 @@ function buildOrchestratorRoutes(
  *   GET    /api/repos/:repoId
  *   DELETE /api/repos/:repoId
  */
+
 function buildRepoRoutes(ledgerRoot: string): Route[] {
   return [
     // POST /api/repos — 201 Created
@@ -6427,7 +7427,12 @@ function buildRepoRoutes(ledgerRoot: string): Route[] {
     { method: 'PUT', path: /^\/api\/repos\/(?<repoId>[^/]+)$/,
       handler: async (body, groups) =>
         handleUpdateRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
-    // GET /api/repos
+    // POST /api/repos/:repoId/move
+    { method: 'POST', path: /^\/api\/repos\/(?<repoId>[^/]+)\/move$/,
+      handler: async (body, groups) =>
+        handleMoveRepo(ledgerRoot, decodeURIComponent(groups!.repoId!), body) },
+    // GET /api/repos — always delegates to handleListRepos() which handles
+    //   both multi-store (tagged results) and single-store modes.
     { method: 'GET', path: '/api/repos', noBody: true,
       handler: async (_, _groups, query) =>
         handleListRepos(ledgerRoot, query?.get('include_undeclared') === 'true') },
@@ -6544,6 +7549,66 @@ function buildModelRoutes(): Route[] {
     // GET /api/personas
     { method: 'GET', path: '/api/personas', noBody: true,
       handler: async () => handleGetPersonas() },
+  ];
+}
+
+/**
+ * Store routes (Section A body-parsing and Section B body-free).
+ *
+ * Section A — Body-parsing write routes:
+ *   POST   /api/stores              — add a new store (creates directory)
+ *   POST   /api/stores/import       — import existing directory as a store
+ *   PUT    /api/stores/order         — reorder stores
+ *   PUT    /api/stores/:storeId     — update store label
+ *
+ * Section B — Body-free routes:
+ *   DELETE /api/stores/:storeId     — remove store (deregisters only)
+ *   POST   /api/stores/:storeId/default — set the default store
+ *   GET    /api/stores/conflicts    — cross-store conflicts (literal path)
+ *   GET    /api/stores              — enriched store list (catch-all)
+ *
+ * ⚠️  ORDERING CONSTRAINT: Literal-path routes (/import, /order, /conflicts)
+ *     MUST precede parameterised :storeId routes to avoid shadowing.
+ *     GET /api/stores/conflicts MUST precede the GET /api/stores catch-all.
+ */
+function buildStoreRoutes(ledgerRoot: string): Route[] {
+  return [
+    // =========================================================================
+    // Section A — Body-parsing store write routes
+    // =========================================================================
+
+    // POST /api/stores — add new store (201 Created)
+    { method: 'POST', path: '/api/stores', statusCode: 201,
+      handler: async (body) => handleAddStore(body) },
+    // POST /api/stores/import — literal path must precede :storeId routes (201 Created)
+    { method: 'POST', path: '/api/stores/import', statusCode: 201,
+      handler: async (body) => handleImportStore(body) },
+    // PUT /api/stores/order — literal path must precede :storeId routes
+    { method: 'PUT', path: '/api/stores/order',
+      handler: async (body) => handleReorderStores(body) },
+    // PUT /api/stores/:storeId — update store label
+    { method: 'PUT', path: /^\/api\/stores\/(?<storeId>[^/]+)$/,
+      handler: async (body, groups) =>
+        handleUpdateStore(decodeURIComponent(groups!.storeId!), body) },
+
+    // =========================================================================
+    // Section B — Body-free store routes
+    // =========================================================================
+
+    // DELETE /api/stores/:storeId — remove store (no directory deletion)
+    { method: 'DELETE', path: /^\/api\/stores\/(?<storeId>[^/]+)$/, noBody: true,
+      handler: async (_, groups) =>
+        handleRemoveStore(decodeURIComponent(groups!.storeId!)) },
+    // POST /api/stores/:storeId/default — set default store
+    { method: 'POST', path: /^\/api\/stores\/(?<storeId>[^/]+)\/default$/, noBody: true,
+      handler: async (_, groups) =>
+        handleSetDefaultStore(decodeURIComponent(groups!.storeId!)) },
+    // GET /api/stores/conflicts — must precede the /api/stores catch-all
+    { method: 'GET', path: '/api/stores/conflicts', noBody: true,
+      handler: async () => handleGetStoreConflicts() },
+    // GET /api/stores — enriched store list (catch-all, must be last)
+    { method: 'GET', path: '/api/stores', noBody: true,
+      handler: async () => handleGetStoresEnriched(ledgerRoot) },
   ];
 }
 
@@ -6796,7 +7861,13 @@ function buildProjectRoutes(
         // logsDir uses the URL segments to locate the directory. Unlike other namespaced
         // routes, we do NOT call resolveRepoName here — log files must be readable for
         // active runs whose project ledger hasn't been initialised yet (no .meta.json).
-        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        // In multi-store mode, resolve the correct store path via the repo registry.
+        let storePathForLogs = ledgerRoot;
+        if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+          const storeRef = await getStoreRouter().resolveStoreForRepo(repo);
+          if (storeRef !== null) storePathForLogs = storeRef.storePath;
+        }
+        const logsDir = join(storePathForLogs, repo, slug, 'orchestrator', 'logs');
         return handleListRunLogs(slug, repo, logsDir, orchestratorLogsDir);
       } },
 
@@ -6814,7 +7885,13 @@ function buildProjectRoutes(
         const afterParsed = afterParam != null ? parseInt(afterParam, 10) : NaN;
         const afterLine = !isNaN(afterParsed) ? afterParsed : undefined;
         // logsDir uses the URL segments — do NOT call resolveRepoName here (see runs list note).
-        const logsDir = join(ledgerRoot, repo, slug, 'orchestrator', 'logs');
+        // In multi-store mode, resolve the correct store path via the repo registry.
+        let storePathForLogs = ledgerRoot;
+        if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
+          const storeRef = await getStoreRouter().resolveStoreForRepo(repo);
+          if (storeRef !== null) storePathForLogs = storeRef.storePath;
+        }
+        const logsDir = join(storePathForLogs, repo, slug, 'orchestrator', 'logs');
         return handleGetRunLog(slug, repo, filename, logsDir, orchestratorLogsDir, afterLine);
       } },
 
@@ -7052,6 +8129,7 @@ function buildProjectRoutes(
  *   - {@link buildRepoRoutes}         — `/api/repos/*`
  *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
  *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
+ *   - {@link buildStoreRoutes}        — `/api/stores/*`
  *   - {@link buildProjectRoutes}      — `/api/projects/*`
  *
  * The composed array preserves the Section A/B/C ordering invariant:
@@ -7086,6 +8164,7 @@ export function buildRoutes(
     ...buildRepoRoutes(ledgerRoot),
     ...buildKnowledgeRoutes(ledgerRoot),
     ...buildModelRoutes(),
+    ...buildStoreRoutes(ledgerRoot),
     ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
   ];
 }
@@ -7219,7 +8298,25 @@ export async function handleRequest(
 async function main(): Promise<void> {
   const port = getPort();
   const ledgerRoot = resolveLedgerRoot();
-  const configPath = join(ledgerRoot, 'gui-config.json');
+
+  // Load multi-store configuration (returns null in single-store / legacy mode).
+  // Mirror the same initialization sequence as index.ts.
+  const storeConfig = await loadStoresConfig();
+  const storeRouter = new StoreRouter(storeConfig);
+  const multiStoreManager = new MultiStoreManager(storeRouter);
+  setStoreContext(storeRouter, multiStoreManager);
+
+  if (storeConfig !== null) {
+    process.stdout.write(
+      `[gui-server] Multi-store mode: ${storeConfig.stores.length} store(s) configured.\n`
+    );
+  } else {
+    process.stdout.write('[gui-server] Single-store mode (no stores.json found).\n');
+  }
+
+  // Resolve gui-config.json: ~/.ai-insights/gui-config.json in multi-store mode,
+  // join(ledgerRoot, 'gui-config.json') in single-store mode.
+  const configPath = resolveGuiConfigPath(storeConfig, ledgerRoot);
 
   // Populate config cache from disk (defaults used if file missing)
   await readConfigFromDisk(configPath);

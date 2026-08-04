@@ -204,7 +204,7 @@ async function getRepositoryContext(
       }
 
       // Deduplicate by insight id (global insights take precedence over repo-scoped)
-      const seenIds = new Set<number>();
+      const seenIds = new Set<string>();
       const deduped: Insight[] = [];
       for (const insight of [...globalInsights, ...repoInsights]) {
         if (!seenIds.has(insight.id)) {

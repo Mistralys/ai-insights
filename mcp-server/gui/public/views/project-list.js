@@ -164,7 +164,7 @@ function renderProjectList(app) {
       var repoEntry = repo ? repoFolderMap[repo] : null;
       var repoCell;
       if (repoEntry) {
-        repoCell = '<td class="repo-col"><a href="#/strategy/' + encodeURIComponent(repoEntry.id) + '" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
+        repoCell = '<td class="repo-col"><a href="#/strategy" title="' + escapeHtml(repo) + '">' + escapeHtml(repoEntry.label) + '</a></td>';
       } else {
         repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
       }

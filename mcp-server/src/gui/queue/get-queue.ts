@@ -33,6 +33,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { assertSafeSegment } from '../../utils/path-validator.js';
+import { isStoreContextInitialized, getStoreRouter } from '../../storage/store-context.js';
 import { QUEUE_FILENAME, type RawQueueEntry, type QueueEntry } from './types.js';
 import { isRawQueueEntry } from './validate-entry.js';
 import { resolveProgress } from './resolve-progress.js';
@@ -134,6 +135,28 @@ export async function getProjectLedgerStatus(
   if (expectedRepo !== null && !assertSafeSegment(expectedRepo)) {
     return { exists: false, synthesisGenerated: false };
   }
+  if (isStoreContextInitialized()) {
+    const storePaths = getStoreRouter().getAllStorePaths();
+    for (const storePath of storePaths) {
+      const ledgerPath = expectedRepo
+        ? join(storePath, expectedRepo, slug, 'project-ledger.json')
+        : join(storePath, slug, 'project-ledger.json');
+      let raw: string;
+      try {
+        raw = await readFile(ledgerPath, 'utf-8');
+      } catch {
+        continue;
+      }
+      try {
+        const data = JSON.parse(raw) as Record<string, unknown>;
+        return { exists: true, synthesisGenerated: data['synthesis_generated'] === true };
+      } catch {
+        return { exists: true, synthesisGenerated: false };
+      }
+    }
+    return { exists: false, synthesisGenerated: false };
+  }
+
   const projectLedgerPath = expectedRepo
     ? join(ledgerRoot, expectedRepo, slug, 'project-ledger.json')
     : join(ledgerRoot, slug, 'project-ledger.json');

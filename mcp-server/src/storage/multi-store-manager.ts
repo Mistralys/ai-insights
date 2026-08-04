@@ -264,7 +264,7 @@ export class MultiStoreManager {
   ): Promise<Insight[]> {
     const { limit, offset, ...storeOptions } = options ?? {};
     const stores = this.router.getAllStores();
-    const seen = new Set<number>();
+    const seen = new Set<string>();
     const merged: Insight[] = [];
 
     for (const store of stores) {
@@ -303,7 +303,7 @@ export class MultiStoreManager {
   ): Promise<Insight[]> {
     const { limit, offset, ...storeOptions } = options;
     const stores = this.router.getAllStores();
-    const seen = new Set<number>();
+    const seen = new Set<string>();
     const merged: Insight[] = [];
 
     for (const store of stores) {

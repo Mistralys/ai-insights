@@ -156,7 +156,8 @@ export function loadRegistry(storePath) {
  * @param {{ repositories: Array }} registry
  */
 export function saveRegistry(storePath, registry) {
-  writeJsonSync(registryPath(storePath), registry);
+  const sorted = { ...registry, repositories: [...registry.repositories].sort((a, b) => a.id.localeCompare(b.id)) };
+  writeJsonSync(registryPath(storePath), sorted);
 }
 
 // ─── store init ───────────────────────────────────────────────────────────────

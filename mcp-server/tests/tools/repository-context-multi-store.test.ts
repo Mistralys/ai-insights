@@ -6,7 +6,7 @@
  *
  * Tests cover:
  *   AC-1: projects resolved across multiple stores
- *   AC-2: insights aggregated from all stores with include_insights: true
+ *   AC-2: insights deduplicated by UUID across stores with include_insights: true
  *   AC-3: max_projects limits the merged project list correctly
  */
 
@@ -135,28 +135,39 @@ describe('WP-007: getRepositoryContext — multi-store data aggregation', () => 
     expect(slugs).toContain('proj-beta');
   });
 
-  it('AC-2: aggregates insights from all stores when include_insights is true', async () => {
+  it('AC-2: aggregates insights from all stores when include_insights is true, deduplicating by UUID', async () => {
     await initTwoStoreContext(storeA, storeB);
 
-    // Store A gets one insight (id=1, "Insight from A").
-    // Store B gets two insights: id=1 ("Insight 1 from B" — will be deduplicated against A's id=1)
-    //                            id=2 ("Insight 2 from B" — unique, must appear in merged result).
-    // MultiStoreManager deduplicates by numeric id (first-seen wins). By seeding 2 insights in
-    // store-b, the second one (id=2) has a unique ID and proves cross-store aggregation.
-    const kmsA = new KnowledgeStoreManager(storeA);
-    const kmsB = new KnowledgeStoreManager(storeB);
-    await kmsA.addInsight({
-      scope: 'global', title: 'Insight from A', content: 'Content A',
-      category: 'testing', tags: [], source: '', confidence: 1, created_at: now(),
-    });
-    await kmsB.addInsight({
-      scope: 'global', title: 'Insight 1 from B', content: 'Content B1',
-      category: 'testing', tags: [], source: '', confidence: 1, created_at: now(),
-    });
-    await kmsB.addInsight({
-      scope: 'global', title: 'Insight 2 from B', content: 'Content B2',
-      category: 'testing', tags: [], source: '', confidence: 1, created_at: now(),
-    });
+    // A UUID written to BOTH stores forces the dedup Set<string> path.
+    // A second UUID written only to store-b proves cross-store aggregation.
+    const SHARED_UUID = '00000000-0000-0000-0000-000000000042';
+    const UNIQUE_UUID_B = '00000000-0000-0000-0000-000000000099';
+
+    async function writeGlobalStore(storePath: string, insights: unknown[]): Promise<void> {
+      const dir = join(storePath, '.knowledge');
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, 'global-insights.json'),
+        JSON.stringify({ version: '2.0.0', last_updated: now(), insights }),
+        'utf-8'
+      );
+    }
+
+    const baseInsight = {
+      scope: 'global', category: 'testing', tags: [], source: '',
+      confidence: 1, created_at: now(),
+    };
+
+    // Store A: shared UUID only
+    await writeGlobalStore(storeA, [
+      { ...baseInsight, id: SHARED_UUID, title: 'Shared insight', content: 'Shared' },
+    ]);
+
+    // Store B: shared UUID (duplicate) + unique UUID
+    await writeGlobalStore(storeB, [
+      { ...baseInsight, id: SHARED_UUID, title: 'Shared insight copy', content: 'Dupe' },
+      { ...baseInsight, id: UNIQUE_UUID_B, title: 'Unique from B', content: 'Unique' },
+    ]);
 
     const result = await getRepositoryContext({
       repository_name: 'my-repo',
@@ -164,11 +175,14 @@ describe('WP-007: getRepositoryContext — multi-store data aggregation', () => 
     });
 
     const data = parseResult(result as any) as any;
-    const titles = (data.relevant_insights as Array<{ title: string }>).map((i) => i.title);
-    // "Insight from A" comes from store-a (id=1)
-    expect(titles).toContain('Insight from A');
-    // "Insight 2 from B" comes from store-b (id=2 — unique across stores)
-    expect(titles).toContain('Insight 2 from B');
+    const insights = data.relevant_insights as Array<{ id: string }>;
+
+    // SHARED_UUID must appear exactly once — dedup via Set<string>
+    expect(insights.filter((i) => i.id === SHARED_UUID)).toHaveLength(1);
+    // UNIQUE_UUID_B must appear once
+    expect(insights.filter((i) => i.id === UNIQUE_UUID_B)).toHaveLength(1);
+    // Total: 2 unique insights
+    expect(insights).toHaveLength(2);
   });
 
   it('AC-3: max_projects caps the returned projects[] while total_projects reflects full count', async () => {

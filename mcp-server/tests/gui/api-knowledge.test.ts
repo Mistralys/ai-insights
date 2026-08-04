@@ -11,6 +11,7 @@
  *   Explicit AC-1 through AC-6 coverage for all five mutating handlers
  *   operating on repository-scoped stores.
  *
+ * parseKnowledgeId (AC-8) is exported and tested via direct import.
  * Uses real temp directories and KnowledgeStoreManager to seed fixture data.
  */
 
@@ -25,6 +26,7 @@ import {
   handleDeleteKnowledge,
   handlePromoteKnowledge,
   handleMoveKnowledge,
+  parseKnowledgeId,
   ApiError,
 } from '../../gui/api-knowledge.js';
 import { KnowledgeStoreManager } from '../../src/storage/knowledge-store.js';
@@ -288,107 +290,78 @@ describe('WP-001 Knowledge Handler Foundations', () => {
   });
 
   // ─── parseKnowledgeId ───────────────────────────────────────────────────
-  // parseKnowledgeId is a private module helper. AC-8 is covered by direct
-  // unit tests in the 'parseKnowledgeId — direct tests via dynamic import'
-  // describe block below (mirror function approach).
+  // AC-8 is tested via direct import — parseKnowledgeId is exported from
+  // gui/api-knowledge.ts and validates UUID v4 strings after WP-005.
 
-  // Direct tests of parseKnowledgeId via re-export for testability
-  // The WP spec calls it "private" but still requires direct AC tests.
-  // We test by dynamically importing the module and calling the function.
-  // Since TypeScript compilation strips access modifiers we test via the
-  // compiled module.
-
-  describe('parseKnowledgeId — direct tests via dynamic import', () => {
-    // Import the module under test — parseKnowledgeId is not exported,
-    // so we test it through a thin wrapper approach. We verify the behaviour
-    // by checking that the module's compiled output can be introspected.
-    // For a private function the agreed approach is to test observable effects:
-    // the AC specifies exact throw behaviour, which is observable through
-    // future handlers. We validate the logic here through a local duplicate
-    // that mirrors the exact implementation.
-
-    /**
-     * Mirror of the private parseKnowledgeId to test the algorithm directly.
-     * Must be kept in sync with the implementation in gui/api.ts.
-     */
-    function parseKnowledgeIdMirror(raw: string): number {
-      if (raw.includes('.')) {
-        throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
-      }
-      const n = Number(raw);
-      if (!Number.isInteger(n) || n <= 0) {
-        throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
-      }
-      return n;
-    }
-
-    it('AC-8: returns a positive integer for valid IDs', () => {
-      expect(parseKnowledgeIdMirror('1')).toBe(1);
-      expect(parseKnowledgeIdMirror('42')).toBe(42);
-      expect(parseKnowledgeIdMirror('999')).toBe(999);
+  describe('parseKnowledgeId — direct tests', () => {
+    it('AC-8: returns the UUID string unchanged for a valid UUID', () => {
+      const uuid = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+      expect(parseKnowledgeId(uuid)).toBe(uuid);
     });
 
-    it('AC-8: throws VALIDATION_ERROR for non-integer strings', () => {
-      expect(() => parseKnowledgeIdMirror('abc')).toThrow(ApiError);
-      expect(() => parseKnowledgeIdMirror('abc')).toThrow('Invalid insight id.');
+    it('AC-8: throws VALIDATION_ERROR for non-UUID strings', () => {
+      expect(() => parseKnowledgeId('abc')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('abc')).toThrow('Invalid insight id.');
       try {
-        parseKnowledgeIdMirror('abc');
+        parseKnowledgeId('abc');
       } catch (err) {
         expect(err).toBeInstanceOf(ApiError);
         expect((err as ApiError).code).toBe('VALIDATION_ERROR');
       }
     });
 
+    it('AC-8: throws VALIDATION_ERROR for integer strings (rejected post-WP-005)', () => {
+      // Integer strings were valid pre-WP-005; they are now rejected because they are not UUIDs.
+      expect(() => parseKnowledgeId('1')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('42')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('999')).toThrow(ApiError);
+    });
+
     it('AC-8: throws VALIDATION_ERROR for negative numbers', () => {
-      expect(() => parseKnowledgeIdMirror('-1')).toThrow(ApiError);
-      expect(() => parseKnowledgeIdMirror('-100')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('-1')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('-100')).toThrow(ApiError);
       try {
-        parseKnowledgeIdMirror('-5');
+        parseKnowledgeId('-5');
       } catch (err) {
         expect((err as ApiError).code).toBe('VALIDATION_ERROR');
       }
     });
 
     it('AC-8: throws VALIDATION_ERROR for zero', () => {
-      expect(() => parseKnowledgeIdMirror('0')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('0')).toThrow(ApiError);
       try {
-        parseKnowledgeIdMirror('0');
+        parseKnowledgeId('0');
       } catch (err) {
         expect((err as ApiError).code).toBe('VALIDATION_ERROR');
       }
     });
 
     it('AC-8: throws VALIDATION_ERROR for floating-point strings', () => {
-      expect(() => parseKnowledgeIdMirror('1.5')).toThrow(ApiError);
-      expect(() => parseKnowledgeIdMirror('2.0')).toThrow(ApiError);
-      expect(() => parseKnowledgeIdMirror('0.1')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('1.5')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('2.0')).toThrow(ApiError);
       try {
-        parseKnowledgeIdMirror('1.5');
+        parseKnowledgeId('1.5');
       } catch (err) {
         expect((err as ApiError).code).toBe('VALIDATION_ERROR');
       }
     });
 
     it('AC-8: throws VALIDATION_ERROR for empty string', () => {
-      expect(() => parseKnowledgeIdMirror('')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('')).toThrow(ApiError);
     });
 
     it('AC-8: throws VALIDATION_ERROR for whitespace-only string', () => {
-      // Number('  ') === 0, which fails the > 0 check
-      expect(() => parseKnowledgeIdMirror('  ')).toThrow(ApiError);
+      expect(() => parseKnowledgeId('  ')).toThrow(ApiError);
     });
   });
 
   // ─── findInsightById ────────────────────────────────────────────────────
 
   describe('findInsightById', () => {
-    /**
-     * Mirror of the private findInsightById to test the algorithm directly.
-     * Must be kept in sync with the implementation in gui/api.ts.
-     */
+    /** Test helper: exercises the 'find insight by UUID and optional filter' pattern. */
     async function findInsightByIdMirror(
       mgr: KnowledgeStoreManager,
-      id: number,
+      id: string,
       filter?: Parameters<KnowledgeStoreManager['listInsights']>[0]
     ): Promise<Insight> {
       const insights = await mgr.listInsights(filter ?? {});
@@ -401,7 +374,9 @@ describe('WP-001 Knowledge Handler Foundations', () => {
 
     // AC-9: throws NOT_FOUND when no insight matches the given id and filter
     it('AC-9: throws NOT_FOUND when no insight matches the given id (empty store)', async () => {
-      await expect(findInsightByIdMirror(manager, 999)).rejects.toMatchObject({
+      await expect(
+        findInsightByIdMirror(manager, 'ffffffff-ffff-4fff-bfff-000000000999')
+      ).rejects.toMatchObject({
         code: 'NOT_FOUND',
         message: 'Insight not found.',
       });
@@ -428,7 +403,9 @@ describe('WP-001 Knowledge Handler Foundations', () => {
     it('AC-9: throws NOT_FOUND when id does not exist but other insights do', async () => {
       await manager.addInsight(makeInsightInput({ title: 'Exists' }));
 
-      await expect(findInsightByIdMirror(manager, 99999)).rejects.toMatchObject({
+      await expect(
+        findInsightByIdMirror(manager, 'ffffffff-ffff-4fff-bfff-000000099999')
+      ).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
     });
@@ -486,10 +463,10 @@ describe('WP-004 handleUpdateKnowledge', () => {
   // AC-2: clears superseded_by when null is passed in the body
   it('AC-2: clears superseded_by when null is passed', async () => {
     const created = await manager.addInsight(
-      makeInsightInput({ title: 'Superseded', superseded_by: 99 })
+      makeInsightInput({ title: 'Superseded', superseded_by: '00000000-0000-0000-0000-000000000099' })
     );
 
-    expect(created.superseded_by).toBe(99);
+    expect(created.superseded_by).toBe('00000000-0000-0000-0000-000000000099');
 
     const updated = await handleUpdateKnowledge(ledgerRoot, String(created.id), {
       scope: 'global',
@@ -502,7 +479,7 @@ describe('WP-004 handleUpdateKnowledge', () => {
   // AC-3: throws NOT_FOUND for unknown id in the specified scope
   it('AC-3: throws NOT_FOUND for unknown id in the specified scope', async () => {
     await expect(
-      handleUpdateKnowledge(ledgerRoot, '99999', { scope: 'global', title: 'x' })
+      handleUpdateKnowledge(ledgerRoot, '00000000-0000-0000-0000-000000000000', { scope: 'global', title: 'x' })
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -558,21 +535,17 @@ describe('WP-004 handleUpdateKnowledge', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
-  // AC-6: updates the correct insight when two stores share the same numeric id (scope disambiguation)
-  it('AC-6: scope disambiguates when global and repository stores share the same numeric id', async () => {
-    // Both stores start at next_id=1, so their first insight will have id=1
+  // AC-6: updates the correct insight when scope disambiguates the target
+  it('AC-6: scope disambiguates when global and repository stores have separate insights', async () => {
     const globalInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+      makeInsightInput({ scope: 'global', title: 'Global insight' })
     );
     const repoInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository insight' })
     );
 
-    expect(globalInsight.id).toBe(1);
-    expect(repoInsight.id).toBe(1);
-
-    // Update only the repository-scoped insight
-    const updated = await handleUpdateKnowledge(ledgerRoot, '1', {
+    // Update only the repository-scoped insight by its UUID
+    const updated = await handleUpdateKnowledge(ledgerRoot, String(repoInsight.id), {
       scope: 'repository',
       repository_name: 'repo-a',
       title: 'Updated repository',
@@ -583,7 +556,7 @@ describe('WP-004 handleUpdateKnowledge', () => {
 
     // Verify global insight is unchanged
     const globalInsights = await manager.listInsights({ scope: 'global' });
-    expect(globalInsights[0]!.title).toBe('Global id=1');
+    expect(globalInsights[0]!.title).toBe('Global insight');
   });
 });
 
@@ -632,7 +605,7 @@ describe('WP-004 handleDeleteKnowledge', () => {
   // AC-8: throws NOT_FOUND for unknown id in the specified scope
   it('AC-8: throws NOT_FOUND for unknown id in global scope', async () => {
     await expect(
-      handleDeleteKnowledge(ledgerRoot, '99999', 'global')
+      handleDeleteKnowledge(ledgerRoot, '00000000-0000-0000-0000-000000000000', 'global')
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -711,21 +684,17 @@ describe('WP-004 handleDeleteKnowledge', () => {
     ).rejects.toBeInstanceOf(ApiError);
   });
 
-  // AC-10: deletes from the repository store without affecting a same-id insight in the global store
+  // AC-10: deletes from the repository store without affecting an insight in the global store
   it('AC-10: deletes from repository store without affecting same-id insight in global store', async () => {
-    // Both stores start at next_id=1, so their first insight will have id=1
     const globalInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+      makeInsightInput({ scope: 'global', title: 'Global insight' })
     );
     const repoInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository insight' })
     );
 
-    expect(globalInsight.id).toBe(1);
-    expect(repoInsight.id).toBe(1);
-
-    // Delete only the repository-scoped insight
-    const result = await handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'repo-a');
+    // Delete only the repository-scoped insight by UUID
+    const result = await handleDeleteKnowledge(ledgerRoot, String(repoInsight.id), 'repository', 'repo-a');
     expect(result).toBeNull();
 
     // Repository insight is gone
@@ -735,7 +704,7 @@ describe('WP-004 handleDeleteKnowledge', () => {
     // Global insight is untouched
     const globalInsights = await manager.listInsights({ scope: 'global' });
     expect(globalInsights).toHaveLength(1);
-    expect(globalInsights[0]!.title).toBe('Global id=1');
+    expect(globalInsights[0]!.title).toBe('Global insight');
   });
 });
 
@@ -798,7 +767,7 @@ describe('WP-005 handlePromoteKnowledge', () => {
   // AC-4: throws NOT_FOUND for unknown id in the specified scope
   it('AC-4: throws NOT_FOUND for unknown id in the specified scope', async () => {
     await expect(
-      handlePromoteKnowledge(ledgerRoot, '99999', 'repository', 'my-repo')
+      handlePromoteKnowledge(ledgerRoot, '00000000-0000-0000-0000-000000000000', 'repository', 'my-repo')
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -812,37 +781,33 @@ describe('WP-005 handlePromoteKnowledge', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  // AC-5: promotes the correct insight when two stores share the same numeric id (scope disambiguation)
-  it('AC-5: promotes the correct insight when two stores share the same numeric id', async () => {
-    // Both stores start at next_id=1, so their first insight will have id=1
+  // AC-5: promotes the correct insight when scope disambiguates the target
+  it('AC-5: promotes the correct insight when scope+repository_name disambiguate the target', async () => {
     const globalInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+      makeInsightInput({ scope: 'global', title: 'Global insight' })
     );
     const repoInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository insight' })
     );
 
-    expect(globalInsight.id).toBe(1);
-    expect(repoInsight.id).toBe(1);
-
-    // Promote the repository insight (id=1, scope=repository)
-    const promoted = await handlePromoteKnowledge(ledgerRoot, '1', 'repository', 'repo-a');
+    // Promote the repository insight by UUID
+    const promoted = await handlePromoteKnowledge(ledgerRoot, String(repoInsight.id), 'repository', 'repo-a');
 
     // The promoted insight is the repository-scoped one
     expect(promoted.scope).toBe('global');
-    expect(promoted.title).toBe('Repository id=1');
+    expect(promoted.title).toBe('Repository insight');
 
     // The original repository insight is gone
     const repoInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
     expect(repoInsights).toHaveLength(0);
 
-    // The global insight is untouched (different object despite same original id)
+    // The global insight is untouched
     const globalInsights = await manager.listInsights({ scope: 'global' });
     // Two global insights now: the original and the promoted copy
     expect(globalInsights).toHaveLength(2);
     const titles = globalInsights.map((i) => i.title);
-    expect(titles).toContain('Global id=1');
-    expect(titles).toContain('Repository id=1');
+    expect(titles).toContain('Global insight');
+    expect(titles).toContain('Repository insight');
   });
 
   // Validation: missing scope throws VALIDATION_ERROR
@@ -885,11 +850,8 @@ describe('WP-005 handlePromoteKnowledge', () => {
     ).rejects.toBeInstanceOf(ApiError);
   });
 
-  // Returned insight has a new ID (different from the source insight)
+  // Returned insight preserves the UUID of the source insight
   it('returned insight has a different id than the original', async () => {
-    // Add a global insight first so the global store's next_id starts at 2
-    await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Pre-existing global' }));
-
     const original = await manager.addInsight(
       makeInsightInput({ scope: 'repository', repository_name: 'my-repo', title: 'Will be promoted' })
     );
@@ -901,8 +863,8 @@ describe('WP-005 handlePromoteKnowledge', () => {
       'my-repo'
     );
 
-    // The original had id=1 in the repository store; the promoted copy should get id=2 in global store
-    expect(promoted.id).not.toBe(original.id);
+    // promoteInsight preserves the UUID when moving the insight to global scope
+    expect(promoted.id).toBe(original.id);
   });
 });
 
@@ -1020,7 +982,7 @@ describe('WP-005 handleMoveKnowledge', () => {
   // AC-10: throws NOT_FOUND for unknown id in the specified source scope
   it('AC-10: throws NOT_FOUND for unknown id in global scope', async () => {
     await expect(
-      handleMoveKnowledge(ledgerRoot, '99999', {
+      handleMoveKnowledge(ledgerRoot, '00000000-0000-0000-0000-000000000000', {
         source_scope: 'global',
         repository_name: 'target-repo',
       })
@@ -1028,12 +990,12 @@ describe('WP-005 handleMoveKnowledge', () => {
   });
 
   it('AC-10: throws NOT_FOUND when id exists in a different repository', async () => {
-    await manager.addInsight(
+    const insight = await manager.addInsight(
       makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'In repo-a' })
     );
 
     await expect(
-      handleMoveKnowledge(ledgerRoot, '1', {
+      handleMoveKnowledge(ledgerRoot, String(insight.id), {
         source_scope: 'repository',
         source_repository_name: 'repo-b',
         repository_name: 'repo-c',
@@ -1041,20 +1003,17 @@ describe('WP-005 handleMoveKnowledge', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
-  // AC-11: moves the correct insight when two stores share the same numeric id (scope disambiguation)
+  // AC-11: moves the correct insight when scope+source_repository_name disambiguate the target
   it('AC-11: moves the correct insight when two stores share the same numeric id', async () => {
     const globalInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+      makeInsightInput({ scope: 'global', title: 'Global insight' })
     );
     const repoInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository id=1' })
+      makeInsightInput({ scope: 'repository', repository_name: 'repo-a', title: 'Repository insight' })
     );
 
-    expect(globalInsight.id).toBe(1);
-    expect(repoInsight.id).toBe(1);
-
-    // Move only the repository insight (id=1, source_scope=repository, source_repository_name=repo-a)
-    const moved = await handleMoveKnowledge(ledgerRoot, '1', {
+    // Move only the repository insight by UUID
+    const moved = await handleMoveKnowledge(ledgerRoot, String(repoInsight.id), {
       source_scope: 'repository',
       source_repository_name: 'repo-a',
       repository_name: 'repo-b',
@@ -1062,7 +1021,7 @@ describe('WP-005 handleMoveKnowledge', () => {
 
     expect(moved.scope).toBe('repository');
     expect(moved.repository_name).toBe('repo-b');
-    expect(moved.title).toBe('Repository id=1');
+    expect(moved.title).toBe('Repository insight');
 
     // repo-a is now empty
     const repoAInsights = await manager.listInsights({ scope: 'repository', repository_name: 'repo-a' });
@@ -1071,7 +1030,7 @@ describe('WP-005 handleMoveKnowledge', () => {
     // Global insight is untouched
     const globalInsights = await manager.listInsights({ scope: 'global' });
     expect(globalInsights).toHaveLength(1);
-    expect(globalInsights[0]!.title).toBe('Global id=1');
+    expect(globalInsights[0]!.title).toBe('Global insight');
   });
 
   // Validation: body with extra fields throws VALIDATION_ERROR (.strict())
@@ -1220,18 +1179,14 @@ describe('WP-005 Acceptance Criteria', () => {
   });
 
   it('AC-3: deleting from repository store does not affect insights in other stores', async () => {
-    // Both stores start at next_id=1 — deliberately create the same-id situation.
     const globalInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'global', title: 'Global id=1' })
+      makeInsightInput({ scope: 'global', title: 'Global insight' })
     );
     const editorInsight = await manager.addInsight(
-      makeInsightInput({ scope: 'repository', repository_name: 'hcp-editor', title: 'Editor id=1' })
+      makeInsightInput({ scope: 'repository', repository_name: 'hcp-editor', title: 'Editor insight' })
     );
 
-    expect(globalInsight.id).toBe(1);
-    expect(editorInsight.id).toBe(1);
-
-    await handleDeleteKnowledge(ledgerRoot, '1', 'repository', 'hcp-editor');
+    await handleDeleteKnowledge(ledgerRoot, String(editorInsight.id), 'repository', 'hcp-editor');
 
     // hcp-editor store is empty
     const editorRemaining = await manager.listInsights({ scope: 'repository', repository_name: 'hcp-editor' });
@@ -1240,7 +1195,7 @@ describe('WP-005 Acceptance Criteria', () => {
     // Global store is untouched
     const globalRemaining = await manager.listInsights({ scope: 'global' });
     expect(globalRemaining).toHaveLength(1);
-    expect(globalRemaining[0]!.title).toBe('Global id=1');
+    expect(globalRemaining[0]!.title).toBe('Global insight');
   });
 
   // ── AC-4: scope: 'project' returns VALIDATION_ERROR in all mutating handlers ──

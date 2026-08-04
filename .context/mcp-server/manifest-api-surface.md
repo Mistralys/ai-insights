@@ -23,7 +23,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (30 Total)
+## MCP Tools
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -78,6 +78,8 @@ Creates a new project ledger with root index and centralized storage directory. 
 
 **`project_summary` optional field:** When provided, the value is persisted to both `project-ledger.json` and `.meta.json` using key-presence semantics (the field is omitted entirely when not supplied — never written as `null`). The Zod `.min(1)` constraint rejects empty strings at parse time. In the GUI project detail page, `project_summary` is preferred over the auto-extracted synopsis (`extractSynopsis()` + `marked.parse()`): if set, the `.plan-synopsis` block renders it as XSS-safe plain text rather than Markdown. Bootstrapper agents should supply this field when creating a project, as it gives a curated, stable description that does not depend on plan file content.
 
+**Multi-store write routing (WP-007):** In multi-store mode (a valid `stores.json` is present and `isStoreContextInitialized()` returns `true`), `initializeProject()` derives `repoName` via `deriveRepoName()` and calls `getStoreRouter().resolveStoreForWrite(repoName)` to determine the target store. The target store is the first store (in `stores.json` order) whose `.repositories.json` claims the repository. If no store has registered the repository, the tool returns an error containing `"not registered in any store"` and the `repoName`. In single-store / legacy mode this routing is bypassed and the behavior is unchanged.
+
 #### `ledger_list_projects`
 
 ```typescript
@@ -87,7 +89,9 @@ Creates a new project ledger with root index and centralized storage directory. 
 }) => Promise<MCPResult>
 ```
 
-Scans the central ledger root directory and returns metadata for all projects. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped.
+Delegates to `MultiStoreManager.listAllProjects()` and returns metadata for all projects across all configured stores. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped. Each result is tagged with `store_id` and `store_label` from the store that owns it.
+
+**Multi-store tagging:** In multi-store mode every returned entry carries `store_id` (the store's `id` field from `stores.json`) and `store_label` (the store's `label`). In single-store / legacy mode all entries are tagged with `store_id: 'default'` — this is additive and does not break existing consumers.
 
 **ARCHIVED exclusion (default behavior):** When `include_archived` is `false` (the default), ARCHIVED projects are excluded from results unless an explicit `status: 'ARCHIVED'` filter is set. An explicit `status` filter always takes precedence — so `{ status: 'ARCHIVED' }` returns only archived projects regardless of `include_archived`. Pass `include_archived: true` to include archived projects alongside non-archived ones in an unfiltered listing.
 
@@ -123,15 +127,18 @@ All guards must pass before `synthesis_generated` is set. Not idempotent with re
 (args: { cwd_path: string }) => Promise<MCPResult>
 ```
 
-Identifies the active project by cross-referencing the supplied working-directory path against all project roots stored in the centralized ledger. Returns `{ plan_path, slug, title?, status }` for the unique matching project.
+Delegates to `MultiStoreManager.detectProjectByCwd()` in multi-store mode, searching all configured stores for a project whose codebase contains `cwd_path`. Returns `{ plan_path, slug, title?, status }` for the unique matching project.
 
 **Error cases:**
-- **`NOT_FOUND`** — no known project root is an ancestor of `cwd_path`. Returned when `cwd_path` is not inside any initialized project's codebase.
-- **`AMBIGUOUS`** — more than one project root is an ancestor of `cwd_path`. The error message lists all matching `plan_path` values. Pass an explicit `project_path` to the tool requiring it to disambiguate.
+- **`NOT_FOUND`** — no known project root is an ancestor of `cwd_path`. Returned when `cwd_path` is not inside any initialized project's codebase (across all stores in multi-store mode).
+- **`AMBIGUOUS`** — more than one project root within the **same** store is an ancestor of `cwd_path`. The error message lists all matching `plan_path` values. Pass an explicit `project_path` to disambiguate.
+- **`MULTI_STORE_AMBIGUOUS`** — `cwd_path` matches projects in **different stores**. The error message lists the candidate projects in the form `[store_id: X] slug-a, [store_id: Y] slug-b`. Provide an explicit `project_path` to the tool requiring it.
 
 Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
 All tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
+
+**Multi-store cwd detection coverage (WP-003 rework-1):** All tool handlers now have full multi-store `cwd_path` support. `resolveProjectPath()` in `src/utils/project-resolver.ts` uses the compound guard `isStoreContextInitialized() && isMultiStoreMode()` to delegate to `getMultiStoreManager().detectProjectByCwd()` in multi-store mode, handling FOUND, MULTI_STORE_AMBIGUOUS, AMBIGUOUS, and NOT_FOUND statuses. In single-store / legacy mode it falls back to `LedgerStore.detectProjectByCwd()` directly.
 
 #### `ledger_import_standalone`
 
@@ -259,6 +266,8 @@ Lists work package summaries from the root index with optional filters.
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
   work_package_file: string;
+  title: string; // REQUIRED — human-readable WP title; empty string accepted (no .min(1) guard)
+  description?: string; // Optional — full specification body; stored in WP detail only (not in root index summary)
   active_pipeline_stages?: PipelineType[]; // optional — defaults to DEFAULT_PIPELINE_STAGES when omitted
 }) => Promise<MCPResult>
 ```
@@ -653,6 +662,34 @@ Each successful emission increments `auto_handoff_depth` in the root index. The 
 
 ---
 
+### Health Check Tools
+
+#### `ledger_ping`
+
+```typescript
+(args: {}) => Promise<MCPResult>
+```
+
+Lightweight health check — verifies MCP server reachability and detects stale instances. Returns a compact JSON response (~50 tokens). Use this for preflight connectivity checks instead of `ledger_help` to avoid ~2,000-token overhead.
+
+**Response shape:**
+
+```typescript
+{
+  status: "ok";
+  server_version: string;    // Running process version (SERVER_VERSION at startup)
+  stale: boolean | null;     // false: fresh; true: rebuilt dist not restarted; null: check failed
+  uptime_seconds: number;    // Integer seconds since server started (Math.floor(process.uptime()))
+  stale_detail?: string;     // Present when stale is true or null — human-readable explanation
+}
+```
+
+**Stale detection:** Compares `SERVER_VERSION` (captured at module load / process startup) against `readPackageVersion()` (re-reads `package.json` from disk on each call). If they differ, the dist was rebuilt but the process was not restarted. When `readPackageVersion()` throws (e.g., `package.json` momentarily absent during a rebuild), `stale` is `null` and `stale_detail` explains the I/O failure — the error is never propagated as an opaque MCP error.
+
+**Implementation:** `src/tools/ping.ts` — registered via `pingTools.register(server)` in `src/index.ts`.
+
+---
+
 ### Help & Documentation Tools
 
 #### `ledger_help`
@@ -717,7 +754,14 @@ interface ProjectEntry {
 
 **No-registry fallback:** When no registry entry matches `repository_name`, `repository_id`, `repository_label`, and `strategic_vision` are `null`. The tool reads projects from the single derived folder name only.
 
-**Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by numeric `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Repository-scoped lookup is handled by `safeListRepositoryInsights()`: slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) are intentionally suppressed and return `[]`; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result.
+**Multi-store behavior (WP-008):** When `isStoreContextInitialized()` is `true`, `getRepositoryContext()` operates in multi-store mode for all three data reads:
+- **Registry:** Uses `getMultiStoreManager().getMergedRegistry()` instead of loading a single `.repositories.json`. Store-order priority deduplication applies — the first store in `stores.json` order wins when the same repository id appears in multiple stores.
+- **Projects:** Iterates `getStoreRouter().getAllStorePaths()` and calls `LedgerStore.listProjectsByFolderNames()` per store, deduplicating by `plan_path` across stores before sorting.
+- **Insights:** Delegates to `getMultiStoreManager().listKnowledge()` via `safeListAllStoreRepositoryInsights()`, which collates global and repository-scoped insights from all stores with id-based deduplication (global-first, first-seen wins).
+
+In single-store / legacy mode (no `stores.json`), `isMultiStore` is `false` and all three reads fall back to the original single-store paths — behavior is unchanged.
+
+**Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by numeric `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Two helper functions handle repository-scoped lookup with the same error-handling contract: `safeListRepositoryInsights()` (single-store, legacy mode) and `safeListAllStoreRepositoryInsights()` (multi-store mode, WP-008). Both helpers suppress slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) and return `[]` for those cases; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result. Any future helper of this type must preserve both invariants.
 
 **Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`.
 
@@ -740,11 +784,11 @@ interface ProjectEntry {
 }) => Promise<MCPResult>
 ```
 
-Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.addInsight()`.
+Adds a new insight to the knowledge store.
 
-- **`scope: 'global'`** — stored in `global-insights.json` (cross-repository knowledge).
-- **`scope: 'repository'`** — stored in `{repository_name}-insights.json`; `repository_name` is required. Returns `isError: true` if `repository_name` is absent. The name `"global"` is reserved and cannot be used as a `repository_name`.
-- **Response:** Returns the full `Insight` object with an additional `formatted_id` field (e.g. `"KN-0001"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and repository stores. If a global and a repository store both contain an insight with `id: 1`, their `formatted_id` values will be identical.
+- **`scope: 'global'`** — stored in `global-insights.json`. **In multi-store mode, global insights are written to the first configured store in `stores.json` order (the designated default store).** In single-store / legacy mode, written to `{ledgerRoot}/.knowledge/global-insights.json`.
+- **`scope: 'repository'`** — stored in `{repository_name}-insights.json`; `repository_name` is required. In multi-store mode, routes via `StoreRouter.resolveStoreForWrite(repository_name)` to the store whose `.repositories.json` claims the repository — returns `isError: true` if no store has registered it. In single-store / legacy mode, delegates to `KnowledgeStoreManager.addInsight()` on the default ledger root unchanged.
+- **Response:** Returns the full `Insight` object with an additional `formatted_id` field. In **single-store / legacy mode** the format is `"KN-0001"`; in **multi-store mode** a store-ID prefix is prepended: `"{storeId}:KN-NNNN"` (e.g. `"work:KN-0003"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and repository stores. If a global and a repository store both contain an insight with `id: 1`, their legacy-mode `formatted_id` values will be identical.
 
 #### `ledger_search_insights`
 
@@ -759,7 +803,9 @@ Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.a
 }) => Promise<MCPResult>
 ```
 
-Searches insights using OR semantics: the `query` string is tokenized on whitespace and an insight matches if any token appears (case-insensitive) in its `title`, `content`, or `tags`. Multi-token results are ranked by descending match count so insights matching more terms surface first. Single-token queries produce identical results to the previous substring behavior. An empty or whitespace-only query returns all insights. Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found. Store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
+Searches insights using OR semantics: the `query` string is tokenized on whitespace and an insight matches if any token appears (case-insensitive) in its `title`, `content`, or `tags`. Multi-token results are ranked by descending match count so insights matching more terms surface first. Single-token queries produce identical results to the previous substring behavior. An empty or whitespace-only query returns all insights. Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found.
+
+**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.searchKnowledge()`) to capture the owning store ID per insight and include it in `formatted_id`. Results are deduplicated by numeric `id` using first-store-wins (store-order priority); the `limit` cap is applied globally after the cross-store merge. In single-store / legacy mode, store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
 
 **Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned. Use `query` for free-text OR filtering and `tags` for structured AND filtering — they complement each other.
 
@@ -777,6 +823,8 @@ Searches insights using OR semantics: the `query` string is tokenized on whitesp
 ```
 
 Lists insights with optional filters and pagination. Filter application order: store selection → category → tags → offset → limit. Returns each `Insight` augmented with a `formatted_id` field.
+
+**Multi-store mode (WP-002/009):** Iterates all configured stores directly (does not use `MultiStoreManager.listKnowledge()`) to capture the owning store ID per insight and include it in `formatted_id`. Deduplication is first-store-wins by numeric `id` (store-order priority). **`limit` and `offset` are forwarded per-store before merging** — they are NOT applied globally to the combined result set. This means a `limit: 5` request across three stores may return up to 15 results. Callers in multi-store mode should treat `limit` as a per-store upper bound rather than a global page size. In single-store / legacy mode, delegates to the single `KnowledgeStoreManager` on the default ledger root.
 
 #### `ledger_update_insight`
 
@@ -797,10 +845,10 @@ filter?: {             // Optional scope filter — restricts which store is sea
 }) => Promise<MCPResult>
 ```
 
-Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()`. Immutable fields: `id`, `scope`, `repository_name`, `created_at`. Sets `updated_at` on success.
+Updates an existing insight. Immutable fields: `id`, `scope`, `repository_name`, `created_at`. Sets `updated_at` on success.
 
 - **Scope filter:** Pass `scope` and/or `repository_name` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'repository'` + `repository_name` are set only `{repository_name}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
-- **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{repository_name}-insights.json`, so a global insight is updated before any repository insight with the same `id`. Use the scope filter when disambiguation is needed.
+- **Without filter in multi-store mode (WP-009):** Iterates `getAllStores()` in config order (store-order priority), applying the update to the first `KnowledgeStoreManager` that succeeds. Non-'not found' errors are re-thrown immediately (no silent swallowing of I/O failures). In single-store / legacy mode: all stores are searched in alphabetical order via `_enumerateStorePaths()`; `global-insights.json` sorts before `{repository_name}-insights.json`, so a global insight is updated first.
 - **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
 - **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
 
@@ -814,9 +862,10 @@ Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()
 }) => Promise<MCPResult>
 ```
 
-Permanently removes an insight from the knowledge base. Delegates to `KnowledgeStoreManager.deleteInsight()`. Returns a confirmation object with the deleted `id`, `formatted_id`, and `deleted: true`.
+Permanently removes an insight from the knowledge base. Returns a confirmation object with the deleted `id`, `formatted_id`, and `deleted: true`.
 
 - **Scope filter:** Same store-selection semantics as `ledger_update_insight`. Pass `scope` and/or `repository_name` to restrict which store is searched and prevent accidental cross-store deletion when the same numeric `id` exists in multiple stores.
+- **Without filter in multi-store mode (WP-009):** Same iterate-all-stores pattern as `ledger_update_insight` — iterates `getAllStores()` in config order, deletes from the first store that has the insight. Non-'not found' errors are re-thrown immediately. In single-store / legacy mode: delegates to `KnowledgeStoreManager.deleteInsight()` on the default ledger root.
 - **Hard-delete:** The insight is removed from the store and cannot be recovered. For non-destructive deprecation, use `ledger_update_insight` with `confidence: 0` and `superseded_by`.
 - **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
 
@@ -1070,7 +1119,9 @@ export async function handleMoveKnowledge(
 
 These handler functions are exported from `gui/api-repos.ts` (introduced in WP-006) and called by the HTTP server in `gui/server.ts`. They implement the full CRUD lifecycle for the central `.repositories.json` registry — the same registry that `ledger_get_repository_context` reads when resolving project history for a repository.
 
-> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
+> **Route wiring note:** All repository handlers (`handleListRepos`, `handleGetRepo`, `handleCreateRepo`, `handleUpdateRepo`, `handleDeleteRepo`, `handleMoveRepo`) are implemented in `gui/api-repos.ts` and registered in `server.ts`, which imports them from `./api-repos.js`. All routes (body-free and body-parsing) are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
+
+> **Multi-store routing (WP-006 rework-1):** `GET /api/repos` always delegates to `handleListRepos()` in `gui/api-repos.ts` — both single-store and multi-store paths go through the same handler. `POST /api/repos` routes the new entry to the store identified by `store_id` in the request body (validated against all configured stores; defaults to the configured default store when omitted; ignored in single-store mode). `GET /api/repos/:repoId`, `PUT /api/repos/:repoId`, and `DELETE /api/repos/:repoId` use `findEntryInStores()` to locate the owning store across all configured stores before performing their operation. `POST /api/repos/:repoId/move` is a **multi-store only** endpoint — it rejects with `VALIDATION_ERROR` in single-store mode.
 
 ### HTTP Route Table
 
@@ -1088,8 +1139,9 @@ The five repository endpoints registered in `gui/server.ts`:
 
 | Method | Path | Request Body | Return Shape | Status Code | Error Codes |
 |--------|------|-------------|--------------|-------------|-------------|
-| `POST` | `/api/repos` | `RepoCreateBodySchema` — `id`, `label`, `folder_names`, `vision`? | `RepositoryEntry` (created entry) | **201** Created | 400 (invalid body, duplicate id, folder_names conflict) |
-| `PUT` | `/api/repos/:repoId` | `RepoUpdateBodySchema` — `label`?, `folder_names`?, `vision`? | `RepositoryEntry` (updated entry) | 200 | 400 (invalid body, folder_names conflict), 404 (repo not found) |
+| `POST` | `/api/repos` | `RepoCreateBodySchema` — `id`, `label`, `folder_names`, `vision`?, `store_id`? | `RepositoryEntry` (created entry) | **201** Created | 400 (invalid body, duplicate id, folder_names conflict, invalid store_id) |
+| `PUT` | `/api/repos/:repoId` | `RepoUpdateBodySchema` — `label`?, `folder_names`?, `vision`?, `store_id`? (accepted but ignored) | `RepositoryEntry` (updated entry) | 200 | 400 (invalid body, folder_names conflict), 404 (repo not found) |
+| `POST` | `/api/repos/:repoId/move` | `RepoMoveBodySchema` — `target_store_id` | `RepositoryEntry & { store_id: string }` (moved entry) | 200 | 400 (invalid body, single-store mode, unknown target_store_id, ID conflict, folder_name conflict), 404 (repo not found) |
 
 **Notes:**
 - `POST /api/repos` returns HTTP **201** (Created), unlike most other mutation endpoints in `server.ts` which return 200. This is intentional REST practice — the `statusCode: 201` is set on the route entry in `buildRoutes()`.
@@ -1098,6 +1150,7 @@ The five repository endpoints registered in `gui/server.ts`:
 - `DELETE /api/repos/:repoId` removes only the registry declaration. **No project data is deleted.** Released folder names become immediately reusable.
 - An empty-body `PUT` (`{}`) is valid — all fields are optional. It is accepted as a no-op update that still stamps `last_modified`. If the product team later requires at least one field to be present, add a `z.refine()` guard to `RepoUpdateBodySchema`.
 - **`folder_names` min-1 constraint (POST and PUT):** `folder_names` must contain at least one non-empty string in both `POST /api/repos` and `PUT /api/repos/:repoId`. Sending an empty array (`[]`) is rejected with HTTP 400 (`VALIDATION_ERROR`). Each entry must also be a non-empty string (whitespace-only entries are rejected). This constraint is enforced server-side by `RepoCreateBodySchema` and `RepoUpdateBodySchema` — API clients **must** enforce it client-side as well to surface a meaningful error before the round-trip.
+- **Same-store no-op (`POST /api/repos/:repoId/move`):** If `target_store_id` identifies the store that already owns the repository, the handler returns the entry with `store_id` immediately without writing to either registry. This is a short-circuit, not an error.
 
 ### `RepoListItem` vs `RepositoryEntry` — Shape Distinction
 
@@ -1114,6 +1167,18 @@ interface RepoListItem {
   has_full_vision: boolean;
   created_at: string;   // ISO 8601
   last_modified: string; // ISO 8601
+  /**
+   * `false` for auto-discovered undeclared project roots (only when include_undeclared=true).
+   * `true` (or absent) for registered entries.
+   */
+  declared?: boolean;
+  /**
+   * Present in multi-store mode: identifies the store that owns this repository entry.
+   * Also returned by the HTTP route (`GET /api/repos`) in multi-store mode (WP-006 rework-1 —
+   * previously omitted by a now-removed inline `taggedEntryToRepoListItem()` in `server.ts`).
+   * Absent in single-store / legacy mode.
+   */
+  store_id?: string;
 }
 ```
 
@@ -1144,12 +1209,25 @@ interface RepositoryEntry {
 // Exported Zod schema for POST /api/repos request bodies.
 // `.strict()` rejects unknown keys. Exported for test use — treat as @internal.
 //
-// All fields required except `vision`, which defaults to all-null horizons when omitted.
+// All fields required except `vision` and `store_id`.
 export const RepoCreateBodySchema: z.ZodObject<{
   id: z.ZodString;           // Must match SLUG_REGEX (alphanumeric, hyphens, underscores; starts with alphanumeric)
   label: z.ZodString;        // min(1) — non-empty string
   folder_names: z.ZodArray<z.ZodString>; // min(1) — at least one entry; each entry non-empty
   vision?: z.ZodOptional<typeof StrategicVisionSchema>; // defaults to all-null on creation
+  store_id?: z.ZodOptional<z.ZodString>; // target store in multi-store mode; validated against getAllStores();
+                                          // defaults to configured default store when omitted;
+                                          // ignored in single-store / legacy mode
+}>;
+```
+
+### `RepoMoveBodySchema`
+
+```typescript
+// Exported Zod schema for POST /api/repos/:repoId/move request bodies.
+// `.strict()` rejects unknown keys. Exported for test use — treat as @internal.
+export const RepoMoveBodySchema: z.ZodObject<{
+  target_store_id: z.ZodString; // min(1) — must reference a known store id from getAllStores()
 }>;
 ```
 
@@ -1165,7 +1243,35 @@ export const RepoUpdateBodySchema: z.ZodObject<{
   label?: z.ZodOptional<z.ZodString>;         // min(1) when present
   folder_names?: z.ZodOptional<z.ZodArray<z.ZodString>>; // min(1) when present
   vision?: z.ZodOptional<typeof StrategicVisionSchema>;
+  store_id?: z.ZodOptional<z.ZodString>; // accepted but ignored — owning store is determined
+                                          // by findEntryInStores(); the store cannot be changed via update
 }>;
+```
+
+### `findEntryInStores()` (internal helper)
+
+```typescript
+// Searches all configured stores in config order for a repository entry matching repoId.
+// Returns the owning store path and the matched RepositoryEntry, or null if not found.
+// In single-store / legacy mode, searches only ledgerRoot.
+//
+// Used by handleGetRepo, handleUpdateRepo, and handleDeleteRepo to locate the owning
+// store before performing their respective operations.
+//
+// First-match semantics: iteration stops at the first store that contains the
+// given repoId. Cross-store uniqueness is NOT enforced on creation (handleCreateRepo
+// only validates uniqueness within the target store). If the same ID appears in
+// multiple stores, all GET/PUT/DELETE operations will silently target the first-
+// matched store in config order; the duplicate entry in subsequent stores is
+// unreachable via these routes. Use GET /api/stores/conflicts to surface and
+// resolve duplicate IDs across stores.
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field to search for.
+async function findEntryInStores(
+  ledgerRoot: string,
+  repoId: string
+): Promise<{ storePath: string; entry: RepositoryEntry } | null>
 ```
 
 ### `handleListRepos()`
@@ -1175,8 +1281,20 @@ export const RepoUpdateBodySchema: z.ZodObject<{
 // Returns all declared repositories as RepoListItem projections.
 // Returns an empty array when the registry file does not exist (first-run).
 //
-// @param ledgerRoot - Absolute path to the centralized ledger root directory.
-export async function handleListRepos(ledgerRoot: string): Promise<RepoListItem[]>
+// Multi-store mode: returns a merged view from all stores via getMergedRegistry(),
+// each entry tagged with store_id. Supports include_undeclared query param to
+// include auto-discovered project roots not present in any registry.
+//
+// The HTTP route in buildRepoRoutes() (server.ts) always delegates to this handler
+// for both single-store and multi-store mode (WP-006 rework-1). The previous inline
+// multi-store branch using taggedEntryToRepoListItem() has been removed.
+//
+// @param ledgerRoot        - Absolute path to the centralized ledger root directory.
+// @param includeUndeclared - When true, includes undeclared project roots (default: false).
+export async function handleListRepos(
+  ledgerRoot: string,
+  includeUndeclared?: boolean
+): Promise<RepoListItem[]>
 ```
 
 ### `handleGetRepo()`
@@ -1185,12 +1303,18 @@ export async function handleListRepos(ledgerRoot: string): Promise<RepoListItem[
 // GET /api/repos/:repoId
 // Returns the full RepositoryEntry for the given repoId.
 //
+// Multi-store mode: uses findEntryInStores() to search all configured stores.
+//   The returned object is enriched with store_id resolved from the owning store
+//   (matched via storePath against getStoreRouter().getAllStores()). If the match
+//   yields no result, store_id is omitted silently.
+// Single-store mode / uninitialized: returns the entry without store_id.
+//
 // Error codes:
-//   NOT_FOUND — no entry with the given id exists in the registry (→ HTTP 404)
+//   NOT_FOUND — no entry with the given id exists in any store (→ HTTP 404)
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param repoId     - The `id` field of the repository entry to retrieve.
-export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise<RepositoryEntry>
+export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise<RepositoryEntry & { store_id?: string }>
 ```
 
 ### `handleCreateRepo()`
@@ -1202,13 +1326,19 @@ export async function handleGetRepo(ledgerRoot: string, repoId: string): Promise
 // Validations (in order):
 //   1. Body must conform to RepoCreateBodySchema (.strict() — unknown keys rejected).
 //   2. `id` must match SLUG_REGEX.
-//   3. `id` must be unique across existing entries.
-//   4. No `folder_names` value may already appear in any existing entry.
+//   3. `id` must be unique within the target store (cross-store uniqueness is NOT enforced—
+//      a repo id that exists in storeA can be created in storeB; conflicts are surfaced
+//      via GET /api/stores/conflicts).
+//   4. No `folder_names` value may already appear in any existing entry within the target store.
+//
+// Multi-store mode: routes the create to the store identified by `store_id` in the body
+//   (validated against getAllStores()). When omitted, resolves the configured default store.
+// Single-store mode: `store_id` is accepted but ignored; always writes to ledgerRoot.
 //
 // On success, returns the created RepositoryEntry (vision defaults to all-null if omitted).
 //
 // Error codes:
-//   VALIDATION_ERROR — invalid body, duplicate id, folder_names conflict (→ HTTP 400)
+//   VALIDATION_ERROR — invalid body, invalid store_id, duplicate id, folder_names conflict (→ HTTP 400)
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param body       - Parsed request body (any shape — validated here).
@@ -1224,16 +1354,21 @@ export async function handleCreateRepo(ledgerRoot: string, body: unknown): Promi
 // Updatable fields: `label`, `folder_names`, `vision`.
 // Immutable fields: `id`, `created_at` (never mutated).
 // Always updates: `last_modified` (stamped on every successful write, even a no-op body).
+// Ignored field: `store_id` (accepted by RepoUpdateBodySchema but not acted on — the owning
+//   store cannot be changed; use findEntryInStores to locate the entry across stores).
+//
+// Multi-store mode: uses findEntryInStores() to locate the owning store before updating.
+// Single-store mode: reads and writes ledgerRoot directly.
 //
 // Validations:
-//   1. `repoId` must match an existing entry (NOT_FOUND → HTTP 404 otherwise).
+//   1. `repoId` must match an existing entry in any store (NOT_FOUND → HTTP 404 otherwise).
 //   2. Body must conform to RepoUpdateBodySchema (.strict() — unknown keys rejected).
 //   3. If `folder_names` is supplied, each value must be unique across all OTHER entries.
 //      The current entry's own folder names are excluded from the conflict check so that
 //      a no-change update (re-submitting the same names) always succeeds (self-conflict allowed).
 //
 // Error codes:
-//   NOT_FOUND        — unknown repoId (→ HTTP 404)
+//   NOT_FOUND        — unknown repoId in any store (→ HTTP 404)
 //   VALIDATION_ERROR — invalid body or folder_names conflict (→ HTTP 400)
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
@@ -1256,13 +1391,179 @@ export async function handleUpdateRepo(
 // It only removes the entry from .repositories.json. After deletion, the freed
 // folder names can be reused by a new repository entry.
 //
+// Multi-store mode: uses findEntryInStores() to locate the owning store before removing.
+// The pre-existing inverted-predicate bug (findIndex with `id !== repoId`) in the original
+// single-store implementation is implicitly corrected by the findEntryInStores()-based path.
+//
 // Error codes:
-//   NOT_FOUND — unknown repoId (→ HTTP 404)
+//   NOT_FOUND — unknown repoId in any store (→ HTTP 404)
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param repoId     - The `id` field of the repository entry to remove.
 export async function handleDeleteRepo(ledgerRoot: string, repoId: string): Promise<{ deleted: true }>
 ```
+
+### `handleMoveRepo()`
+
+```typescript
+// POST /api/repos/:repoId/move → HTTP 200
+// Moves a repository declaration from its current store to a different store.
+//
+// Multi-store only: rejects with VALIDATION_ERROR when single-store mode is active
+// (isStoreContextInitialized() is false or isMultiStoreMode() is false).
+//
+// Validations (in order):
+//   1. Multi-store mode must be active (VALIDATION_ERROR otherwise).
+//   2. Body must conform to RepoMoveBodySchema (.strict() — unknown keys rejected).
+//   3. `target_store_id` must reference a known store from getAllStores() (VALIDATION_ERROR otherwise).
+//   4. `repoId` must exist in some store (NOT_FOUND otherwise).
+//   5. Same-store move short-circuits — returns the entry with `store_id` without any writes.
+//   6. `repoId` must not already exist in the target store (VALIDATION_ERROR on ID conflict).
+//   7. No `folder_names` value from the entry may appear in the target store (VALIDATION_ERROR on conflict).
+//
+// On success, removes the entry from the source registry and appends it to the target registry
+// (two sequential awaits — source first, then target). Returns the moved entry with updated
+// `last_modified` and the `store_id` of the target store.
+//
+// Error codes:
+//   VALIDATION_ERROR — single-store mode, invalid body, unknown target_store_id,
+//                      ID conflict in target, folder_name conflict in target (→ HTTP 400)
+//   NOT_FOUND        — unknown repoId in any store (→ HTTP 404)
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+// @param repoId     - The `id` field of the repository entry to move.
+// @param body       - Parsed request body (any shape — validated here).
+export async function handleMoveRepo(
+  ledgerRoot: string,
+  repoId: string,
+  body: unknown
+): Promise<RepositoryEntry & { store_id: string }>
+```
+
+---
+
+## GUI API — Store Endpoints
+
+These handler functions are exported from `gui/api-stores.ts` and called by the HTTP server in `gui/server.ts` via the non-exported `buildStoreRoutes()` sub-builder. They expose the configured store list and cross-store conflict data — primarily consumed by the GUI Stores tab.
+
+### HTTP Route Table
+
+All store handlers live in `gui/api-stores.ts`. Literal-path routes (`/api/stores/import`, `/api/stores/order`, `/api/stores/conflicts`) are registered before parameterized `:storeId` routes to prevent shadowing.
+
+**Section A — body-parsing routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `POST` | `/api/stores` | `handleAddStore` | Add a new store. Creates directory + empty `.repositories.json`. Returns `StoreListItem[]`. |
+| `POST` | `/api/stores/import` | `handleImportStore` | Import an existing directory as a store. Preserves any existing `.repositories.json`. Returns `{ stores: StoreListItem[], warning?: string }`. |
+| `PUT` | `/api/stores/order` | `handleReorderStores` | Reorder stores. Body: `{ order: string[] }`. Returns `StoreListItem[]`. |
+| `PUT` | `/api/stores/:storeId` | `handleUpdateStore` | Update store label. Body: `{ label?: string }`. Returns `StoreListItem[]`. |
+
+**Section B — body-free routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `DELETE` | `/api/stores/:storeId` | `handleRemoveStore` | Remove store from config (does NOT delete directory). Returns `{ stores: StoreListItem[], warned: boolean }`. |
+| `POST` | `/api/stores/:storeId/default` | `handleSetDefaultStore` | Set default store. Returns `StoreListItem[]`. |
+| `GET` | `/api/stores/conflicts` | `handleGetStoreConflicts` | Cross-store registry conflicts. Returns `RegistryConflict[]`; `[]` in legacy mode. |
+| `GET` | `/api/stores` | `handleGetStoresEnriched` | Enriched store list. Returns `StoreListItem[]`; synthesized single entry in legacy mode. |
+
+### `StoreListItem` — Response Shape
+
+```typescript
+export interface StoreListItem {
+  id: string;               // Store identifier ('default' in legacy mode, or the id from stores.json)
+  label: string;            // Human-readable store name
+  path: string;             // Absolute path to the store's ledger root
+  project_count: number;    // Number of projects in this store
+  repository_count: number; // Number of registered repositories in this store
+  is_default: boolean;      // true when this store is the default_store in stores.json
+  is_git: boolean;          // true when the store path is a Git repository
+  ahead?: number;           // Local commits ahead of remote (only when is_git && upstream configured)
+  behind?: number;          // Remote commits not yet pulled (only when is_git && upstream configured)
+  sync?: StoreSyncMeta;     // Informational sync metadata from StoreEntry.sync; undefined when absent
+}
+```
+
+> **Invariant:** When `is_git` is `false`, both `ahead` and `behind` are `undefined`. The enriched GET returns `is_git: false` for all stores when `git` is not installed. Git detection per store runs concurrently via `Promise.all` with a 5-second timeout per `execFile` call.
+
+> **Location:** `StoreListItem` is defined in `src/schema/store-config.ts` (co-located with `StoreEntry` and `StoresConfig`) and exported directly from there. Import from `src/schema/store-config.ts` in all consumers.
+
+### `handleGetStoresEnriched(ledgerRoot)`
+
+```typescript
+export async function handleGetStoresEnriched(ledgerRoot: string): Promise<StoreListItem[]>
+```
+
+Returns the enriched list of configured stores. Each entry includes project/repository counts, default-store designation, Git status, and sync metadata.
+
+**Behaviour by mode:**
+- **Multi-store mode** (`isStoreContextInitialized()` is `true`): iterates all configured stores via `getStoreRouter().getAllStores()`, loads per-store counts in parallel via `Promise.all()`, and runs Git detection for each store concurrently.
+- **Single-store / legacy mode** (store context not initialized): returns a single `StoreListItem` with `id: 'default'`, `label: 'Default Store'`, `is_default: true`, and Git enrichment applied to `ledgerRoot`.
+
+> **Guard note:** Uses only `isStoreContextInitialized()` — does not apply the secondary `isMultiStoreMode()` check, so it surfaces all stores even in single-store configurations.
+
+### `handleAddStore(body)`
+
+```typescript
+export async function handleAddStore(body: unknown): Promise<StoreListItem[]>
+```
+
+Validates `{ id, path, label? }`. Rejects reserved IDs (`"import"`, `"order"`, `"conflicts"`), duplicate IDs, duplicate paths, relative paths, and whitespace-only labels. Creates the store directory and an empty `.repositories.json` (no-op if directory already exists). Saves config via `saveStoresConfig()`, calls `reloadStoreContext()`, returns the updated store list.
+
+### `handleImportStore(body)`
+
+```typescript
+export async function handleImportStore(body: unknown): Promise<{ stores: StoreListItem[], warning?: string }>
+```
+
+Validates `{ id, path, label? }` with the same rules as `handleAddStore`. The target directory **must already exist** (400 if absent). Never overwrites an existing `.repositories.json`. Returns `warning` if the existing `.repositories.json` is present but fails `RepositoryRegistrySchema` validation.
+
+### `handleUpdateStore(storeId, body)`
+
+```typescript
+export async function handleUpdateStore(storeId: string, body: unknown): Promise<StoreListItem[]>
+```
+
+Updates label for an existing store. Trims whitespace; rejects whitespace-only labels with 400. Calls `reloadStoreContext()` after saving.
+
+### `handleRemoveStore(storeId)`
+
+```typescript
+export async function handleRemoveStore(storeId: string): Promise<{ stores: StoreListItem[], warned: boolean }>
+```
+
+Removes the store from config. Does **not** delete the directory. When the removed store was `default_store`, the first remaining store becomes the new default (matches CLI behavior). Returns `warned: true` when the store had registered repositories.
+
+### `handleSetDefaultStore(storeId)`
+
+```typescript
+export async function handleSetDefaultStore(storeId: string): Promise<StoreListItem[]>
+```
+
+Sets `default_store` to `storeId`. Calls `reloadStoreContext()` after saving.
+
+### `handleReorderStores(body)`
+
+```typescript
+export async function handleReorderStores(body: unknown): Promise<StoreListItem[]>
+```
+
+Validates `{ order: string[] }` — must contain exactly the current store IDs, no duplicates, no omissions. Reorders `config.stores` to match. Store order determines conflict-resolution priority.
+
+### `handleGetStoreConflicts()`
+
+```typescript
+export async function handleGetStoreConflicts(): Promise<RegistryConflict[]>
+```
+
+Returns the list of repositories registered in more than one store.
+
+**Behaviour by mode:**
+- **Multi-store mode** (`isStoreContextInitialized()` is `true`): delegates to `getMultiStoreManager().getRegistryConflicts()`, which returns a `RegistryConflict[]` identifying each cross-store duplicate, all its per-store entries, and the `winner_store_id` (the first-priority store in `stores.json` order).
+- **Single-store / legacy mode** (store context not initialized): returns `[]` immediately — cross-store conflicts cannot exist when there is only one store.
+
+See the `Multi-Store Manager` section for the full `RegistryConflict` type definition.
 
 ---
 
@@ -2051,7 +2352,7 @@ class KnowledgeStoreManager {
 
 Plain-function storage module for the central `.repositories.json` registry. Follows the same `atomicWriteJson` / `withLock` pattern as the rest of the storage layer. No class, no in-memory state, no caching.
 
-**File location:** `{ledgerRoot}/.repositories.json` — stored directly under the ledger root, not inside any project sub-directory.
+**File location:** `{storePath}/.repositories.json` — stored directly under the store root, not inside any project sub-directory. The `storePath` parameter accepts any absolute directory path, making this module reusable across multiple independent stores (cross-device ledger sync plan, WP-002).
 
 ```typescript
 // Exported from src/storage/repository-registry.ts
@@ -2076,23 +2377,23 @@ Plain-function storage module for the central `.repositories.json` registry. Fol
  * `{ registry, source: 'loaded' | 'default' | 'corrupt' }` would expose this
  * information without a breaking change.
  *
- * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @param storePath - Absolute path to the store root directory
  * @returns Parsed RepositoryRegistry, or { repositories: [] } on any error
  */
-function loadRegistry(ledgerRoot: string): Promise<RepositoryRegistry>;
+function loadRegistry(storePath: string): Promise<RepositoryRegistry>;
 
 /**
  * Writes the registry to `.repositories.json` atomically under a file lock.
  *
- * The lock target is `ledgerRoot` (not the file path), serializing all registry
+ * The lock target is `storePath` (not the file path), serializing all registry
  * writes via the same lock used by the rest of the ledger infrastructure.
  * The write itself uses `atomicWriteJson` (write-to-temp-then-rename).
  *
- * @param ledgerRoot - Absolute path to the centralized ledger root directory
+ * @param storePath  - Absolute path to the store root directory
  * @param registry   - Registry data to persist (validated against RepositoryRegistrySchema before write)
  * @throws Error if schema validation fails or if the atomic write fails
  */
-function saveRegistry(ledgerRoot: string, registry: RepositoryRegistry): Promise<void>;
+function saveRegistry(storePath: string, registry: RepositoryRegistry): Promise<void>;
 
 // ── Pure Synchronous Helpers (no I/O) ──────────────────────────────────────
 
@@ -2120,10 +2421,406 @@ function getAllFolderNames(entry: RepositoryEntry): string[];
 ```
 
 **Concurrency notes:**
-- `saveRegistry()` acquires `withLock(ledgerRoot, …)` — the same lock used by the ledger store for project-level writes. No cross-lock contention exists between `saveRegistry()` and `LedgerStore.writeRootIndex()` because those two callers lock different paths (`ledgerRoot` vs `store.storageDir`).
+- `saveRegistry()` acquires `withLock(storePath, …)` — the same lock used by the ledger store for project-level writes. No cross-lock contention exists between `saveRegistry()` and `LedgerStore.writeRootIndex()` because those two callers lock different paths (`storePath` vs `store.storageDir`).
 - `loadRegistry()` performs no locking (reads are lock-free, consistent with `LedgerStore` read methods and `KnowledgeStoreManager` reads).
 
-**Consumers:** `api-repos.ts` (WP-006) and `repository-context.ts` (WP-005), both of which resolve `ledgerRoot` via `resolveLedgerRoot()` before calling these functions.
+**Consumers:** `api-repos.ts` (WP-006) and `repository-context.ts` (WP-005), both of which resolve the store path via `resolveLedgerRoot()` before calling these functions.
+
+---
+
+### Store Config Schema — `src/schema/store-config.ts`
+
+Zod schemas for `~/.ai-insights/stores.json`, the user-level multi-store configuration file introduced in the cross-device-ledger-sync plan (WP-001). Imported by `store-registry.ts`.
+
+```typescript
+// Exported from src/schema/store-config.ts
+
+/**
+ * Optional informational sync metadata attached to a store entry.
+ * The MCP server does NOT act on this data — it is for user documentation only.
+ */
+export const StoreSyncMetaSchema: z.ZodObject<{
+  provider?: z.ZodOptional<z.ZodString>;    // min(1) when present
+  remote_path?: z.ZodOptional<z.ZodString>; // min(1) when present
+  notes?: z.ZodOptional<z.ZodString>;
+}>;
+export type StoreSyncMeta = z.infer<typeof StoreSyncMetaSchema>;
+
+/**
+ * A single store entry in stores.json.
+ * - id: slug identifier (SLUG_REGEX — alphanumeric, hyphens, underscores; starts with alphanumeric).
+ *   Used as a stable reference key; safe as a directory fragment.
+ * - path: path to the store's root directory. May use ~ prefix (expanded at runtime by
+ *   expandStorePath()). Schema accepts any non-empty string — expansion and normalization
+ *   happen in the storage layer, not at the schema boundary.
+ * - label: optional human-readable display name.
+ * - sync: optional informational sync metadata (not enforced by the server).
+ */
+export const StoreEntrySchema: z.ZodObject<{
+  id: z.ZodString;                               // regex: SLUG_REGEX (imported from schema/common.ts)
+  path: z.ZodString;                             // min(1) — ~ expansion done in storage layer
+  label?: z.ZodOptional<z.ZodString>;            // min(1) when present
+  sync?: z.ZodOptional<typeof StoreSyncMetaSchema>;
+}>;
+export type StoreEntry = z.infer<typeof StoreEntrySchema>;
+
+/**
+ * Top-level schema for stores.json.
+ * Stored at ~/.ai-insights/stores.json (user-level; survives reinstalls).
+ * Array order in stores defines store priority when the same repository appears
+ * in multiple stores' .repositories.json — the first matching store wins for write routing.
+ *
+ * Refinements:
+ * - stores must contain at least one entry (z.array(...).min(1))
+ * - stores must not contain duplicate id values
+ * - default_store must reference an id that exists in stores
+ */
+export const StoresConfigSchema: z.ZodEffects<z.ZodObject<{
+  stores: z.ZodArray<typeof StoreEntrySchema>;   // min(1)
+  default_store: z.ZodString;
+}>>;
+export type StoresConfig = z.infer<typeof StoresConfigSchema>;
+```
+
+**`SLUG_REGEX` source:** `store-config.ts`, `repository-registry.ts`, and `gui/api-repos.ts` all import `SLUG_REGEX` from `schema/common.ts` — the canonical zero-import home for this cross-domain constant (WP-001, rework-1).
+
+---
+
+### Store Registry — `src/storage/store-registry.ts`
+
+Plain-function I/O module for `~/.ai-insights/stores.json` (cross-device ledger sync plan, WP-001). No class, no in-memory state, no caching. Follows the same `atomicWriteJson` / `withLock` pattern as the rest of the storage layer.
+
+**File location:** `~/.ai-insights/stores.json` — user-level, independent of any single store. Survives reinstalls and is resolved before any ledger store path.
+
+```typescript
+// Exported from src/storage/store-registry.ts
+
+// ── Path Utilities ─────────────────────────────────────────────────────────
+
+/**
+ * Returns the absolute path of stores.json under the user's home directory.
+ * Fixed location: ~/.ai-insights/stores.json
+ */
+function resolveStoresConfigPath(): string;
+
+/**
+ * Expands a ~-prefixed path to an absolute path using os.homedir(),
+ * then normalizes it with path.resolve().
+ *
+ * Expansion rules:
+ *   - ~/foo       → {homedir}/foo
+ *   - ~           → {homedir} (bare tilde)
+ *   - /absolute   → /absolute (unchanged, normalized)
+ *   - relative/foo → resolved relative to process.cwd()
+ *
+ * @warning Relative paths (no leading ~ or /) resolve against process.cwd().
+ *   In production, stores.json paths should always use ~/... or absolute paths.
+ *   Relative paths are technically supported but will silently produce incorrect
+ *   results if the server's CWD changes between reads and writes.
+ *
+ * Note: `~username` patterns (tilde followed directly by a non-separator character,
+ * e.g. `~bob`, `~bob/data`) are **rejected with an error**:
+ * `"Store path 'X' uses ~username syntax which is not supported. Use ~/path or an absolute path."`
+ * Only `~/path` and bare `~` are expanded to the home directory.
+ *
+ * @param pathStr - Path string to expand and normalize
+ */
+function expandStorePath(pathStr: string): string;
+
+/**
+ * Returns the path to the GUI configuration file.
+ *
+ * When storeConfig is non-null (multi-store mode), the GUI config is shared
+ * across all stores at: ~/.ai-insights/gui-config.json
+ *
+ * When storeConfig is null (single-store / legacy mode), the GUI config is
+ * co-located with the ledger root at: {ledgerRoot}/gui-config.json
+ *
+ * @param storeConfig - The current stores config, or null in single-store mode
+ * @param ledgerRoot  - Absolute path to the active ledger root directory
+ */
+function resolveGuiConfigPath(storeConfig: StoresConfig | null, ledgerRoot: string): string;
+
+// ── I/O ────────────────────────────────────────────────────────────────────
+
+/**
+ * Reads and parses the stores.json configuration file.
+ *
+ * Returns null when:
+ *   - the file does not exist (first-run / single-store mode — silent)
+ *   - the file contains malformed JSON (silent)
+ *   - the file fails StoresConfigSchema validation (a warning is written to
+ *     stderr so the caller is not left guessing)
+ *
+ * @param configPath - Absolute path to stores.json.
+ *   Defaults to resolveStoresConfigPath() (~/.ai-insights/stores.json).
+ */
+function loadStoresConfig(configPath?: string): Promise<StoresConfig | null>;
+
+/**
+ * Validates and writes the stores.json configuration atomically.
+ *
+ * Validates config against StoresConfigSchema before writing.
+ * Uses withLock(~/.ai-insights/) + atomicWriteJson.
+ * The lock directory is auto-created via mkdir recursive (safe on fresh installs).
+ *
+ * @param config     - Stores configuration to persist
+ * @param configPath - Absolute path to stores.json.
+ *   Defaults to resolveStoresConfigPath() (~/.ai-insights/stores.json).
+ * @throws ZodError if config fails StoresConfigSchema validation
+ * @throws Error if the atomic write fails
+ */
+function saveStoresConfig(config: StoresConfig, configPath?: string): Promise<void>;
+```
+
+**Locking strategy:** `saveStoresConfig()` acquires `withLock(~/.ai-insights/)` — the parent directory of `stores.json`. All user-level config writes to `~/.ai-insights/` should use this same lock dir for consistency.
+
+**Consumers:** Downstream WPs in the cross-device-ledger-sync plan that introduce multi-store routing will import these functions. `resolveGuiConfigPath()` is consumed by both `src/index.ts` (MCP server) and `gui/server.ts` (GUI server) to avoid circular imports.
+
+---
+
+### Store Router — `src/storage/store-router.ts`
+
+Class that routes read/write operations to the correct store by iterating per-store repository registries in config order. Introduced by the cross-device-ledger-sync plan (WP-003). Provides a legacy-mode fallback when no `StoresConfig` is available.
+
+```typescript
+// Exported from src/storage/store-router.ts
+
+/**
+ * Thrown by resolveStoreForWrite() when a repository is not registered in any
+ * configured store. Callers must discriminate via instanceof StoreNotRegisteredError
+ * rather than string-matching the .message property. The .message preserves the
+ * original "not registered in any store" text for backward compatibility with any
+ * existing message-based assertions.
+ */
+export class StoreNotRegisteredError extends Error {
+  readonly repoName: string;
+  constructor(repoName: string);
+}
+
+class StoreRouter {
+  constructor(config: StoresConfig | null);
+
+  /**
+   * Returns true when a multi-store config was provided at construction,
+   * false in single-store / legacy mode.
+   */
+  isMultiStoreMode(): boolean;
+
+  /**
+   * Returns the absolute path of the configured default store.
+   * - Legacy mode: delegates to resolveLedgerRoot().
+   * - Multi-store mode: returns the path of the store whose id matches
+   *   config.default_store (StoresConfigSchema guarantees this id exists).
+   */
+  resolveDefaultStore(): string;
+
+  /**
+   * Returns the absolute paths of all configured stores, in config order.
+   * - Legacy mode: returns a single-entry array wrapping resolveLedgerRoot().
+   * - Multi-store mode: returns paths in stores.json array order.
+   *   Array order defines resolution priority for resolveStoreForWrite().
+   */
+  getAllStorePaths(): string[];
+
+  /**
+   * Returns store metadata (id, path, label) for all configured stores, in
+   * priority order. Consumed by MultiStoreManager (WP-004) to iterate stores
+   * with full metadata.
+   * - Legacy mode: returns [ { id: 'default', path: resolveLedgerRoot(),
+   *   label: 'Default Store' } ].
+   * - Multi-store mode: returns one entry per configured store with its id,
+   *   expanded path, and label (falls back to id when no label is set).
+   */
+  getAllStores(): Array<{ id: string; path: string; label: string }>;
+
+  /**
+   * Looks up which store claims the given repository name.
+   * Iterates stores in config order and loads each store's .repositories.json.
+   * Returns { storePath, storeId } for the first matching store, or null if
+   * no store claims the repo. Does NOT throw on an unregistered repo.
+   * - Legacy mode: always returns null.
+   */
+  resolveStoreForRepo(
+    repoName: string
+  ): Promise<{ storePath: string; storeId: string } | null>;
+
+  /**
+   * Resolves which store to use for write operations on the given repository.
+   * - Legacy mode: returns resolveLedgerRoot() directly.
+   * - Multi-store mode: iterates stores in config order (first match wins),
+   *   returns the absolute path of the first store that has the repo registered.
+   * @throws {StoreNotRegisteredError} When the repo is not registered in any store
+   *   (multi-store mode only). Callers must use instanceof StoreNotRegisteredError
+   *   to discriminate this error from unexpected I/O failures.
+   */
+  resolveStoreForWrite(repoName: string): Promise<string>;
+}
+```
+
+**Constructor side effects:** On construction, every configured store path that does not yet exist on disk is created via `mkdirSync({ recursive: true })`. Paths that already exist are left untouched. This runs synchronously during construction, before any method calls.
+
+**Store priority:** The `stores.json` array order determines priority. When the same repository appears in multiple stores' `.repositories.json` files, the first matching store in config order wins. Users control priority by reordering the `stores` array in `stores.json`.
+
+**Legacy mode:** When `config` is `null` (i.e. `stores.json` does not exist, failed to parse, or failed schema validation), `StoreRouter` operates in legacy mode: `isMultiStoreMode()` returns `false`, all resolution methods delegate to `resolveLedgerRoot()` or return `null`, and no per-store registry I/O is performed.
+
+**Error contract:** `resolveStoreForWrite()` is the throwing variant — use it when a missing registration should be an error. It throws `StoreNotRegisteredError` (exported from the same module); callers must discriminate via `instanceof StoreNotRegisteredError` rather than string-matching `.message`. The `.message` property preserves `"not registered in any store"` for backward compatibility with existing message-based assertions, but `instanceof` is the canonical discrimination mechanism. `resolveStoreForRepo()` is the null-returning variant — use it for optional lookups.
+
+---
+
+### Multi-Store Manager — `src/storage/multi-store-manager.ts`
+
+Provides collated read-only operations across all stores registered in a `StoreRouter`. Introduced by the cross-device-ledger-sync plan (WP-004). All methods are read-only — write routing remains the responsibility of `StoreRouter.resolveStoreForWrite()`.
+
+```typescript
+// Exported from src/storage/multi-store-manager.ts
+
+/** ProjectMeta annotated with the store it belongs to.
+ *  store_path is required by handleListProjects to construct a per-store LedgerStore. */
+interface TaggedProjectMeta extends ProjectMeta {
+  store_id: string;
+  store_label: string;
+  store_path: string;
+}
+
+/** RepositoryEntry annotated with the store it belongs to. */
+interface TaggedRepositoryEntry extends RepositoryEntry {
+  store_id: string;
+}
+
+/** Conflict record for a repository id registered in more than one store.
+ *  winner_store_id is the first store in config order — consistent with
+ *  getMergedRegistry() priority. */
+interface RegistryConflict {
+  repo_name: string;
+  entries: Array<{ store_id: string; entry: RepositoryEntry }>;
+  winner_store_id: string;
+}
+
+/** Extends DetectProjectResult with a MULTI_STORE_AMBIGUOUS status returned
+ *  when the same cwd matches projects in more than one store. */
+type MultiStoreDetectResult =
+  | DetectProjectResult
+  | { status: 'MULTI_STORE_AMBIGUOUS'; candidates: TaggedProjectMeta[] };
+
+class MultiStoreManager {
+  constructor(router: StoreRouter);
+
+  /**
+   * Returns all projects across all stores tagged with store_id, store_label,
+   * and store_path. An optional status filter applies in-memory after loading.
+   */
+  listAllProjects(status?: string): Promise<TaggedProjectMeta[]>;
+
+  /**
+   * Detects which project owns cwdPath across all stores.
+   *
+   * Resolution rules (evaluated in store-array order):
+   * - Single FOUND across all stores: returns { status: 'FOUND', meta }.
+   *   Declared return type is ProjectMeta; the runtime object is a
+   *   TaggedProjectMeta (carrying store_id/label/path), but callers must
+   *   rely only on the declared ProjectMeta shape via the return type.
+   * - Multiple FOUNDs from different stores: returns MULTI_STORE_AMBIGUOUS
+   *   with the array of TaggedProjectMeta candidates in store order.
+   * - Intra-store AMBIGUOUS (no FOUND in any store): the first AMBIGUOUS
+   *   result encountered is forwarded as-is. Only reached when foundProjects
+   *   is empty — a valid FOUND from any store always takes priority.
+   * - No matches: returns { status: 'NOT_FOUND' }.
+   */
+  detectProjectByCwd(cwdPath: string): Promise<MultiStoreDetectResult>;
+
+  /**
+   * Merges all per-store repository registries with store-order priority.
+   * First store to claim a repo id wins; later stores' entries are suppressed.
+   * Each returned entry is tagged with store_id.
+   */
+  getMergedRegistry(): Promise<TaggedRepositoryEntry[]>;
+
+  /**
+   * Identifies repositories whose id appears in more than one store's registry.
+   * Returns an empty array when no cross-store duplicates exist.
+   */
+  getRegistryConflicts(): Promise<RegistryConflict[]>;
+
+  /**
+   * Searches insights across all stores, deduplicating by numeric insight id
+   * (first-seen in store-order wins).
+   *
+   * Pre-pagination semantics: limit/offset are forwarded to each per-store
+   * KnowledgeStoreManager.searchInsights() call before cross-store merge.
+   * limit/offset are withheld from per-store calls and applied globally after
+   * the full deduplicated merge (WP-009 rework-1). Callers receive at most
+   * `limit` items from the merged result set; filters (scope, repository_name,
+   * category, tags) are still forwarded per-store for efficient pre-filtering.
+   */
+  searchKnowledge(
+    query: string,
+    options?: {
+      scope?: InsightScope;
+      repository_name?: string;
+      category?: string;
+      tags?: string[];
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<Insight[]>;
+
+  /**
+   * Lists insights across all stores, deduplicating by numeric insight id
+   * (first-seen in store-order wins). limit/offset are applied globally after
+   * the full deduplicated merge — same post-merge pagination semantics as
+   * searchKnowledge() (WP-009 rework-1).
+   */
+  listKnowledge(
+    options?: {
+      scope?: InsightScope;
+      category?: string;
+      tags?: string[];
+      repository_name?: string;
+      limit?: number;
+      offset?: number;
+    }
+  ): Promise<Insight[]>;
+}
+```
+
+**Store priority:** All merge operations follow store-array order from `StoreRouter.getAllStores()`, mirroring the `stores.json` config order. The first store to claim a resource (repo id, insight id) wins.
+
+**Legacy-mode transparency:** When `StoreRouter` is in legacy mode (null config), `getAllStores()` returns a single entry with `id: 'default'`. All `MultiStoreManager` methods operate over one store and tag results with `store_id: 'default'` — no behaviour change for existing single-store setups.
+
+**Id collision note:** Independent stores start their insight `next_id` counter at 1. The same numeric id in two different stores refers to different insights; the first-seen-wins dedup rule is intentional and tested. A future scoped-id scheme would eliminate this ambiguity.
+
+---
+
+### Store Context Singleton — `src/storage/store-context.ts`
+
+Shared singleton accessor for the initialized `StoreRouter` and `MultiStoreManager` instances. Introduced by the cross-device-ledger-sync plan (WP-005). Follows the `client-info.ts` pattern (`setMcpServer()` / `getClientInfo()`).
+
+```typescript
+// Exported from src/storage/store-context.ts
+
+function setStoreContext(router: StoreRouter, manager: MultiStoreManager): void;
+function getStoreRouter(): StoreRouter;
+function getMultiStoreManager(): MultiStoreManager;
+function isStoreContextInitialized(): boolean;
+async function reloadStoreContext(configPath?: string): Promise<StoresConfig | null>;
+```
+
+**`reloadStoreContext(configPath?)`** — Re-reads `stores.json` via `loadStoresConfig()`, constructs fresh `StoreRouter(config, { skipDirCreate: true })` and `MultiStoreManager(router)` instances, and calls `setStoreContext()` to overwrite the module-level singletons. Returns the newly loaded `StoresConfig | null` (null when `stores.json` is absent, malformed, or schema-invalid — the server falls back to legacy single-store mode). Called by every write handler in `api-stores.ts` after a successful `saveStoresConfig()`. The `skipDirCreate: true` flag prevents `mkdirSync` from throwing when a store path is temporarily unavailable during a hot-reload (e.g. an unmounted drive) — directory creation is the responsibility of `handleAddStore`, not of reload. The optional `configPath` parameter is an **internal test hook** — it must not be forwarded from HTTP handlers or public API surfaces; GUI callers must invoke `reloadStoreContext()` with no arguments.
+
+**`isStoreContextInitialized()`** — Returns `true` when `setStoreContext()` has been called and the singleton references are populated; `false` otherwise. Used as a guard in tool handlers (e.g. `project-lifecycle.ts`) to prevent multi-store code paths from activating in test environments that do not call `setStoreContext()`. Introduced by WP-007.
+
+**`setStoreContext(router, manager)`** — Stores the initialized `StoreRouter` and `MultiStoreManager` instances. Must be called exactly once per process startup, before any tool file calls `getStoreRouter()` or `getMultiStoreManager()`. Subsequent calls overwrite the stored references (idempotent re-initialization; used by the test suite to reset singleton state between test cases).
+
+**`getStoreRouter()`** — Returns the initialized `StoreRouter` for the current process. In single-store / legacy mode the router delegates all resolution to `resolveLedgerRoot()`. In multi-store mode it routes by per-store registry lookup. Throws with a descriptive `[store-context]`-prefixed error message if called before `setStoreContext()`.
+
+**`getMultiStoreManager()`** — Returns the initialized `MultiStoreManager` for the current process. Provides collated read operations (`listAllProjects`, `detectProjectByCwd`, `getMergedRegistry`, `searchKnowledge`, etc.) across all configured stores. Throws with a `[store-context]`-prefixed error if called before `setStoreContext()`.
+
+**Two-process architecture rationale:** `src/index.ts` (MCP STDIO server) and `gui/server.ts` (HTTP GUI server) are separate OS processes. Module-level state exported from `index.ts` is inaccessible to `gui/server.ts`, and tool files importing from `index.ts` would create circular imports. The standalone `store-context.ts` module eliminates both problems: each process calls `setStoreContext()` independently during its own startup sequence, and tool files import from `store-context.ts` rather than `index.ts`.
+
+**Startup wiring in `src/index.ts`:** After `resolveLedgerRoot()` and `loadStoresConfig()`, the startup sequence constructs `new StoreRouter(storeConfig)` (auto-creates store directories) and `new MultiStoreManager(storeRouter)`, then calls `setStoreContext()`. Migration (`migrateToNamespacedLayout()`) and GUI config path resolution (`resolveGuiConfigPath()`) run after `setStoreContext()`. When `storeConfig` is `null` (no `stores.json`), single-store / legacy mode is used transparently — no behavior change for existing setups.
+
+**Consumers:** Tool files that need multi-store routing import `getStoreRouter()` or `getMultiStoreManager()` from this module. The GUI server (`gui/server.ts`) calls `setStoreContext()` with its own instances during its startup sequence.
 
 ---
 
@@ -2223,16 +2920,22 @@ interface RootIndex {
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
   outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
   project_summary?: string | null;    // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
-  ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
+  ledger_version?: string;            // Workflow spec version (SPEC_VERSION from shared/workflow-manifest.json) at the time this ledger was written; used for forward-compat checks; absent on legacy ledgers
+  server_version?: string;            // MCP server package version (SERVER_VERSION from package.json) at the time this ledger was written
+  runner?: 'vscode' | 'claude-code' | 'orchestrator' | 'standalone' | 'unknown'; // IDE/runtime that invoked the MCP server
+  runner_client?: string;             // Raw clientInfo.name from the MCP connection
+  runner_version?: string;            // Raw clientInfo.version from the MCP connection
 }
 
 interface WorkPackageSummary {
   work_package_id: string; // WP-### format
+  title?: string; // Human-readable WP title; absent on WPs created before this field was added
   status: WorkPackageStatus;
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
   file: string; // Path to detail file
   active_pipeline_stages?: string[] | null; // Cached subset from WP detail; null or absent means use DEFAULT_PIPELINE_STAGES
+  passed_stages?: number; // Count of completed pipeline stages; computed at write time
 }
 
 interface HandoffNote {
@@ -2245,6 +2948,8 @@ interface HandoffNote {
 interface WorkPackageDetail {
   work_package_id: string;
   work_package_file: string;
+  title?: string; // Human-readable WP title; absent on WPs created before this field was added
+  description?: string; // Full specification body (scope, deliverables, rationale, etc.); stored in detail only, not in summary
   status: WorkPackageStatus;
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
@@ -2396,17 +3101,37 @@ const workflowManifest: Manifest;
 
 ## Knowledge Accumulation Schema
 
+### `src/schema/common.ts` — Cross-domain shared schema constants
+
+Zero-import module containing constants that are reused across multiple schema domains. Placing shared constants here avoids coupling unrelated schema files (e.g. importing from `knowledge.ts` in order to validate a store ID) and eliminates any circular-import risk regardless of how many consumers are added.
+
+```typescript
+// Regex for valid slugs: must start with an alphanumeric character, followed by letters,
+// digits, underscores, or hyphens only. Rejects '/', '\\', '.', spaces, path traversal
+// sequences, and any character outside the explicit ASCII class.
+// Canonical source of truth — update here to change the slug policy everywhere simultaneously.
+export const SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+```
+
+**Importers of `SLUG_REGEX` (canonical — from `schema/common.ts`):**
+- `src/schema/knowledge.ts` — re-exports `SLUG_REGEX` with `@deprecated` tag to preserve backward compatibility for existing consumers
+- `src/schema/store-config.ts` — validates `StoreEntry.id`
+- `src/schema/repository-registry.ts` — validates `RepositoryEntry.id`
+- `gui/api-repos.ts` — validates repo IDs in REST handlers
+
+**Known migration candidates (still importing from `schema/knowledge.ts` re-export):**
+- `src/storage/knowledge-store.ts` — imports via the deprecated `knowledge.ts` re-export; functional, safe to migrate as follow-on work
+- `src/tools/knowledge.ts` — same; the re-export bridge keeps these consumers working indefinitely without behavioral change
+
+---
+
 ### `src/schema/knowledge.ts` — Insight and KnowledgeStore schemas
 
 Zod schemas and inferred TypeScript types for the knowledge accumulation system. All types are inferred via `z.infer<>` — no handwritten duplicate interfaces.
 
 ```typescript
-// Regex for valid slugs (repository names, plan slugs, etc.): must start with an alphanumeric
-// character, followed by letters, digits, underscores, or hyphens only. Rejects '/', '\\', '.',
-// spaces, and any character that could escape the .knowledge/ directory.
-// Single source of truth — used by InsightSchema.repository_name, InsightSchema.origin_plan,
-// and KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
-// in both places simultaneously.
+// Re-exports SLUG_REGEX from schema/common.ts for backward compatibility.
+// @deprecated — new consumers should import directly from '../schema/common.js'.
 export const SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
 
 // Scope enum: 'global' (applies across all codebases/repositories) | 'repository' (scoped to
@@ -2807,8 +3532,15 @@ function planFolderBasename(projectPath: string): string;
 //   0. If BOTH project_path and cwd_path are provided: throws Error(MUTUAL_EXCLUSIVITY_PATH_MSG).
 //      (Primary runtime guard — tool schemas are plain ZodObject; see constraint §57.)
 //   1. If project_path is provided: validates format via planFolderBasename(), returns it.
-//   2. If cwd_path is provided: calls LedgerStore.detectProjectByCwd(), returns plan_path on FOUND.
-//      Throws with a candidate list on AMBIGUOUS; throws on NOT_FOUND.
+//   2. If cwd_path is provided:
+//      a. Multi-store mode (isStoreContextInitialized() && isMultiStoreMode()):
+//         delegates to getMultiStoreManager().detectProjectByCwd(). Status handling:
+//           FOUND              → returns plan_path
+//           MULTI_STORE_AMBIGUOUS → throws with '[store_id: X] slug1, [store_id: Y] slug2' list
+//           AMBIGUOUS          → throws with formatCandidateList() output
+//           NOT_FOUND          → throws with 'Project not found for cwd_path' message
+//      b. Single-store / legacy mode: calls LedgerStore.detectProjectByCwd(), returns plan_path
+//         on FOUND. Throws with a candidate list on AMBIGUOUS; throws on NOT_FOUND.
 //   3. If neither is provided: throws 'Either project_path or cwd_path is required.'
 // Exported from src/utils/project-resolver.ts. Used by all tool handlers (except initializeProject).
 async function resolveProjectPath(args: {
@@ -3258,6 +3990,39 @@ Used by WP-006 (ledger_complete_synthesis enrichment) to populate `outcome_summa
 function parseOutcomeSummary(synthesisContent: string): string | null;
 ```
 
+### Store Resolution — `src/utils/store-resolution.ts`
+
+Shared utility for resolving the correct ledger root in multi-store mode. Extracted by the multi-store-ledger-root-fix plan (WP-001) to eliminate per-handler duplication of store-routing logic across MCP tool handlers and GUI handlers. Imports only `store-context.ts` and `ledger-root.ts` — no circular imports.
+
+```typescript
+// Guards against the MCP SDK injecting a RequestHandlerExtra object as the
+// second positional argument to handler functions (constraint 58).
+// Returns val as-is when it is a string, otherwise undefined.
+// Exported from src/utils/store-resolution.ts.
+function extractLedgerRoot(val: unknown): string | undefined;
+
+// Resolves the correct ledger root for a project in multi-store mode.
+//
+// Resolution order:
+//   1. testOverride is a string → return it directly (test injection; bypasses all store logic,
+//      preserving existing test behaviour).
+//   2. Store context not initialized → return undefined (single-store / test mode; caller falls
+//      through to LedgerStore default).
+//   3. Router not in multi-store mode → return undefined (LedgerStore default is correct).
+//   4. Cannot infer project root from plan path → return undefined (graceful fallback;
+//      avoids throwing for malformed paths).
+//   5. Owning store located via getStoreRouter().resolveStoreForRepo():
+//      - registered repo → return storePath
+//      - unregistered repo → return undefined (backward-compatible fallback to default store).
+//
+// Returning undefined in any fallback case signals "use LedgerStore default" to the caller.
+// Exported from src/utils/store-resolution.ts.
+async function resolveMultiStoreLedgerRoot(
+  projectPath: string,
+  testOverride?: unknown,  // raw value from a handler's _ledgerRoot param; string triggers test bypass
+): Promise<string | undefined>;
+```
+
 ---
 
 ## Internal Testing Utilities
@@ -3484,18 +4249,30 @@ export const _internal: {
   getRepositoryContext: (
     args: z.infer<typeof GetRepositoryContextSchema>
   ) => Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }>;
-  // Safely lists repository-scoped insights. Suppresses slug-validation errors
-  // (messages starting with "Invalid repository name:" or "'global' is a reserved name")
-  // and returns [] for those cases. All other errors (genuine I/O failures: EACCES, EIO,
-  // generic Error) are re-thrown. Exposed for direct unit testing of the narrowed catch logic.
+  // Safely lists repository-scoped insights (single-store / legacy mode).
+  // Suppresses slug-validation errors (messages starting with "Invalid repository name:"
+  // or "'global' is a reserved name") and returns [] for those cases.
+  // All other errors (genuine I/O failures: EACCES, EIO, generic Error) are re-thrown.
+  // Used when isStoreContextInitialized() is false. Exposed for direct unit testing.
   safeListRepositoryInsights: (
     manager: KnowledgeStoreManager,
+    repoName: string
+  ) => Promise<Insight[]>;
+  // Safely lists repository-scoped insights (multi-store mode, WP-008).
+  // Delegates to MultiStoreManager.listKnowledge() and applies identical error-handling
+  // semantics to safeListRepositoryInsights: slug-validation errors suppressed,
+  // I/O errors re-thrown. Used when isStoreContextInitialized() is true.
+  // Exposed for direct unit testing of the multi-store delegation path.
+  safeListAllStoreRepositoryInsights: (
+    manager: MultiStoreManager,
     repoName: string
   ) => Promise<Insight[]>;
 };
 ```
 
-> **Test-only boundary:** `_internal` must not be imported from production code. The `@internal` JSDoc tag on the export reinforces this. See §53 in `constraints.md` for the full `_internal` naming convention.
+> **Test-only boundary:** `_internal` must not be imported from production code.
+>
+> **Error-handling invariant:** Both `safeListRepositoryInsights` and `safeListAllStoreRepositoryInsights` share the same contract — suppress SlugValidationError, re-throw all other errors. Any new helper of this type (e.g. for a third store mode) must preserve both invariants. Do not add a helper that silently swallows I/O errors. The `@internal` JSDoc tag on the export reinforces this. See §53 in `constraints.md` for the full `_internal` naming convention.
 
 ---
 
@@ -4065,9 +4842,17 @@ All three guards apply identical rejection criteria: throw `ApiError` with code 
 
 ```typescript
 // Resolves a LedgerStore for URL-parameter-driven handlers.
-// Validates repoName (if provided) via assertSafeSlug, calls resolveProjectDir()
-// to locate the namespaced storageDir, reads .meta.json for plan_path, then
-// constructs LedgerStore(meta.plan_path, ledgerRoot).
+//
+// Multi-store mode (isStoreContextInitialized() && isMultiStoreMode()):
+//   Iterates all store paths from getAllStorePaths() in store-priority order.
+//   For each store path, calls resolveProjectDir() then reads .meta.json:
+//     - ENOENT or AMBIGUOUS → continue to the next store.
+//     - Corrupt JSON        → log to stderr + throw notFound() immediately.
+//   Throws notFound() after exhausting all stores without a match.
+//   Falls back to [ledgerRoot] (single-element array) in single-store mode.
+//
+// Single-store / legacy mode (isStoreContextInitialized() is false, or isMultiStoreMode() is false):
+//   Calls resolveProjectDir() on ledgerRoot directly, reads .meta.json, constructs LedgerStore.
 //
 // Security contract — AMBIGUOUS → NOT_FOUND downgrade:
 //   When resolveProjectDir() throws AMBIGUOUS (slug exists in multiple repos),
@@ -4168,6 +4953,7 @@ export interface WpPipelineStage {
 // Enriched work-package summary returned by handleGetWorkPackageOverview.
 export interface WpOverviewEntry {
   work_package_id: string;
+  title?: string;              // human-readable label; absent on legacy WPs without a title
   status: string;                // WP-level status
   assigned_to: string | null;    // current agent
   dependencies: string[];
@@ -4811,7 +5597,9 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 - `--port <n>` — listen port (default: `3420`)
 - `--ledger-dir <path>` — ledger root path; delegates to `resolveLedgerRoot()` which reads from `process.argv`
 
-**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `startAutoArchiveTimer(ledgerRoot)` → `createServer()` → `listen(port)`
+**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `loadStoresConfig()` → `new StoreRouter(storeConfig)` → `new MultiStoreManager(router)` → `setStoreContext(router, manager)` → `resolveGuiConfigPath(storeConfig, ledgerRoot)` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `startAutoArchiveTimer(ledgerRoot)` → `createServer()` → `listen(port)`
+
+> **Multi-store startup (WP-011):** The GUI server initializes `StoreRouter` and `MultiStoreManager` and calls `setStoreContext()` before any route handling begins — mirroring the MCP server (`src/index.ts`) startup pattern. After `setStoreContext()`, `isStoreContextInitialized()` always returns `true` for GUI-originated requests. The GUI config path is resolved via `resolveGuiConfigPath()`: `~/.ai-insights/gui-config.json` in multi-store mode, `{ledgerRoot}/gui-config.json` in single-store / legacy mode.
 
 **API route table:**
 
@@ -4854,6 +5642,14 @@ The server uses a unified routing architecture: all routes (body-free and body-p
 | POST | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` | `noBody: true`; `id` from named capture group, URL-decoded |
 | POST | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` | `noBody: true`; HTTP 204 No Content |
 | POST | `/api/orchestrator/delete/:id` | `handleOrchestratorDelete` | `noBody: true`; permanently deletes the log entry; HTTP 204 No Content |
+| POST | `/api/stores` | `handleAddStore` | Body-parsing route; returns `StoreListItem[]` |
+| POST | `/api/stores/import` | `handleImportStore` | Body-parsing route; returns `{ stores, warning? }` |
+| PUT | `/api/stores/order` | `handleReorderStores` | Body-parsing route; returns `StoreListItem[]` |
+| PUT | `/api/stores/:storeId` | `handleUpdateStore` | Body-parsing route; returns `StoreListItem[]` |
+| DELETE | `/api/stores/:storeId` | `handleRemoveStore` | `noBody: true`; returns `{ stores, warned }` |
+| POST | `/api/stores/:storeId/default` | `handleSetDefaultStore` | `noBody: true`; returns `StoreListItem[]` |
+| GET | `/api/stores/conflicts` | `handleGetStoreConflicts` | Returns `RegistryConflict[]`; always `[]` in single-store mode |
+| GET | `/api/stores` | `handleGetStoresEnriched` | Returns enriched `StoreListItem[]`; synthesized entry in legacy mode |
 | GET | `/api/knowledge` | `handleListKnowledge` | Optional: `?scope&category&tags&repository_name&query&limit&offset` |
 | DELETE | `/api/knowledge/:id` | `handleDeleteKnowledge` | Optional: `?scope&repository_name` |
 | POST | `/api/knowledge/:id/promote` | `handlePromoteKnowledge` | Optional: `?scope&repository_name` |
@@ -4911,9 +5707,17 @@ Maps an `ApiError` error code to its HTTP status code. Exported for unit testing
 
 #### `resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam): Promise<string>`
 
-Reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json` and returns the stored
-`repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or when
-the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+Reads `.meta.json` for the project identified by `repoUrlParam`/`slugUrlParam` and returns the
+stored `repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or
+when the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+
+**Multi-store mode** (`isStoreContextInitialized() && isMultiStoreMode()`): searches all store
+paths from `getAllStorePaths()` in store-priority order, reading
+`{storePath}/{repoUrlParam}/{slugUrlParam}/.meta.json` for each. Throws `ApiError NOT_FOUND`
+only after exhausting all stores without a match.
+
+**Single-store / legacy mode**: reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json`
+directly — behavior unchanged from the original implementation.
 
 Validates both `repoUrlParam` and `slugUrlParam` via the file-local `assertSafeSlug()` guard
 before any filesystem access. Throws `ApiError NOT_FOUND` for invalid segments and for missing
@@ -4945,7 +5749,7 @@ A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
 
 #### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
 
-Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. All closure variables required by route handlers are captured at construction time. Routes are organized into three sections: Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C.
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to seven non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildStoreRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. All closure variables required by route handlers are captured at construction time. Routes are organized into three sections: Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C.
 
 **Parameters:**
 - `ledgerRoot: string` — resolved ledger root directory path
@@ -5002,6 +5806,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/knowledge.js` | `renderKnowledge(app)` — Knowledge page; tab navigation between Global and Repository scopes; client-side filtering; card-level edit/delete/promote/move actions |
+| `views/strategy.js` | `renderStrategyList(app)` — Strategy page; fetches listRepos + getStores (then getStoreConflicts in multi-store mode only — WP-010 rework-1); repository list with "Show undeclared" toggle and Add Repository form; in multi-store mode: tab bar (Repositories / Conflicts), Store dropdown on Add form, Conflicts tab with winner/shadowed indicators and resolution actions |
 | `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
@@ -5044,6 +5849,12 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.pipeline-track-legend` | Optional small legend line below a `.pipeline-track`; `font-size: 11px`, muted colour |
 
 Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, `.stage-fail` are provided in a `[data-theme="dark"]` block immediately following the light-mode rules.
+
+**`styles.css` — WP table subtitle label class:**
+
+| Class | Role |
+|-------|------|
+| `.wp-title-label` | Subtitle line rendered below the WP ID link within the WP ID cell of the project detail WP table; `font-size: 12px; color: var(--color-text-muted); font-family: inherit; margin-top: 2px`; only rendered when the WP has a `title` field in its overview entry |
 
 **`styles.css` — Project reset modal classes:**
 
@@ -5168,7 +5979,7 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 | `.btn-resume:disabled` | Disabled state: `opacity: 0.6; cursor: not-allowed` — applied immediately on click to prevent double-submit; re-enabled on error |
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 40 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending); **Model Registry group** (all 8 methods carry `@throws {{ code: string, message: string }} On HTTP error responses.` JSDoc): `getModels()` → `GET /api/models` (auto-initialises `local.json` from `default.json` on first access); `saveModels(models)` → `PUT /api/models` (bulk save; entries missing `id` receive auto-assigned UUIDv4; returns `{ models }` or `{ conflict: true, referencedModels }` on 409); `loadDefaultModels()` → `POST /api/models/load-defaults` (merges `default.json` into `local.json` without overwriting; returns `{ models, conflicts }`); `getPersonas()` → `GET /api/personas` (returns empty array when `name-mapping.json` absent); `getAssignments()` → `GET /api/model-assignments` (enriched with a `stale` boolean indicating whether the persona build output may be out of date); `updateAssignments(data)` → `PUT /api/model-assignments` (validates all model UUIDs and persona keys before persisting); `replaceAssignedModel(oldModelId, newModelId)` → `POST /api/model-assignments/replace` (replaces all occurrences of one UUID across assignments; rejects when IDs are equal or `old_model_id` is not referenced); `rebuildPersonas()` → `POST /api/personas/rebuild` (spawns `node scripts/build-personas.js`; returns `{ success: true, output }` on exit 0 or `{ success: false, output, exitCode }` with HTTP 500; returns 409 when a build is already in progress)
+- **`API`** — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(repo, slug)` → `GET /api/projects/:repo/:slug/runs`; `getRunLogEntries(repo, slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getRunMetadata(slug)` → `GET /api/projects/:slug/run-metadata` (returns the parsed `.orchestrator-run.json` sidecar; used by the resume button to read `thread_id`, `dry_run`, and `result`; a namespaced server-side route `GET /api/projects/:repo/:slug/run-metadata` also exists and returns the same JSON shape — the GUI client does not yet call the namespaced variant directly, but the handler supports the optional `repoName` parameter for future use); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns `data.content` string extracted from the JSON response body via the shared `request()` helper — does not call `res.text()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToDialogue`); `getChunkStructured(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/{filename}/rendered?format=structured` (returns `{ blocks: DialogueBlock[] }` — structured dialogue blocks for frontend-controlled rendering; `DialogueBlock` is a discriminated union on `type`: `'text'` | `'tool-call'` | `'subagent-heading'` | `'checklist'` — see `@typedef DialogueBlock` in `api-client.js`); Repos group (`listRepos(includeUndeclared?)` → `GET /api/repos`; `getRepo(repoId)` → `GET /api/repos/{repoId}`; `createRepo(data)` → `POST /api/repos`; `updateRepo(repoId, data)` → `PUT /api/repos/{repoId}`; `deleteRepo(repoId)` → `DELETE /api/repos/{repoId}`; `moveRepo(repoId, targetStoreId)` → `POST /api/repos/{repoId}/move` with `{ target_store_id: targetStoreId }` — moves a repository entry between stores, multi-store only, rejects in single-store mode; all Repos methods URI-encode `repoId` via `encodeURIComponent` and carry `@throws {{ code: string, message: string }}` JSDoc); `getStores()` → `GET /api/stores` (returns store list with project and repository counts; single-store mode returns one entry); `getStoreConflicts()` → `GET /api/stores/conflicts` (returns cross-store repository conflicts with per-store entries and `winner_store_id`; empty array in single-store mode); `orchestratorStart(planPath, dryRun, resumeThreadId?)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (when `resumeThreadId` is defined, adds it to the request body as `resumeThreadId`; backward-compatible with existing two-argument callers); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending); **Model Registry group** (all 8 methods carry `@throws {{ code: string, message: string }} On HTTP error responses.` JSDoc): `getModels()` → `GET /api/models` (auto-initialises `local.json` from `default.json` on first access); `saveModels(models)` → `PUT /api/models` (bulk save; entries missing `id` receive auto-assigned UUIDv4; returns `{ models }` or `{ conflict: true, referencedModels }` on 409); `loadDefaultModels()` → `POST /api/models/load-defaults` (merges `default.json` into `local.json` without overwriting; returns `{ models, conflicts }`); `getPersonas()` → `GET /api/personas` (returns empty array when `name-mapping.json` absent); `getAssignments()` → `GET /api/model-assignments` (enriched with a `stale` boolean indicating whether the persona build output may be out of date); `updateAssignments(data)` → `PUT /api/model-assignments` (validates all model UUIDs and persona keys before persisting); `replaceAssignedModel(oldModelId, newModelId)` → `POST /api/model-assignments/replace` (replaces all occurrences of one UUID across assignments; rejects when IDs are equal or `old_model_id` is not referenced); `rebuildPersonas()` → `POST /api/personas/rebuild` (spawns `node scripts/build-personas.js`; returns `{ success: true, output }` on exit 0 or `{ success: false, output, exitCode }` with HTTP 500; returns 409 when a build is already in progress); **Knowledge group**: `getKnowledge(params)` → `GET /api/knowledge` (list or search insights; `params` may include `scope`, `repository_name`, `tag`, `search`, `limit`); `updateKnowledge(id, scope, repositoryName, data)` → `PATCH /api/knowledge/:id` (updates title, content, tags; `scope` and `repository_name` sent as body fields to locate the insight); `deleteKnowledge(id, scope, repositoryName)` → `DELETE /api/knowledge/:id` (scope/repositoryName passed as query params); `promoteKnowledge(id, scope, repositoryName)` → `POST /api/knowledge/:id/promote` (promotes a repository-scoped insight to global); `moveKnowledge(id, sourceScope, sourceRepositoryName, targetRepositoryName)` → `POST /api/knowledge/:id/move` (moves an insight between repositories or scopes); **Orchestrator group**: `orchestratorGetRunStatus(slug)` → `GET /api/orchestrator/run-status/:slug`; **Chunks group**: `getChunkText(repo, slug, filename)` → `GET /api/projects/:repo/:slug/chunks/:filename/text` (returns plain-text rendering of a chunk file)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
@@ -5241,20 +6052,21 @@ Dark mode via tokens (`--color-banner-stale-bg`: `#451a03` / `--color-banner-sta
 - **`_openDialogueModal(title, repo, slug, filename, useChunks)`** (private) — opens a full-screen overlay modal. **When `useChunks` is `true`:** calls `API.getChunkStructured()` → `buildDialogueHTML()` and registers a delegated click listener on the modal body for `.dialogue-tool-toggle` expand/collapse. **When `useChunks` is `false`:** calls `API.getDialogueContent()` → `marked.parse()` (legacy Markdown path — unchanged). Close paths: × button, backdrop click (`e.target === overlay`), Escape key.
 
 **`views/work-package.js`:**
-- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`
+- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getChunks(slug, wpId)` and `API.getDialogues(slug, wpId)` in parallel — **chunk files take priority over Markdown dialogue files** when both are present (`useChunks = chunks.length > 0`); if neither source returns entries the placeholder is filled with a "No dialogues available" message; entries are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches content via `API.getChunkRendered()` (chunks) or `API.getDialogueContent()` (dialogues) and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a list-fetch failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`; **page heading:** the `<h1>` renders `{WP-ID} — {title}` (em-dash `\u2014`) when `wp.title` is truthy, `{WP-ID}` alone when absent or empty — both values are passed through `escapeHtml()`; **description card:** a `UI.card('Description', ...)` card is rendered immediately after the info card when `wp.description` is present; content is rendered via `marked.parse()` with a `<pre>` block fallback on error (same trust model as plan/synthesis rendering — server-authored content, no additional HTML sanitization); card is omitted entirely when `wp.description` is absent; content is wrapped in a `<div class="dialogue-markdown">` container (reuses dialogue typography — low-priority style coupling noted in implementation; a future cleanup may introduce `.wp-description-markdown`)
 
 **`views/config.js`:**
 
-The configuration view is a three-tab SPA page: **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
+The configuration view is a four-tab SPA page: **Stores**, **General**, **Persona Models**, and **Model Registry**. Each tab has independent dirty-tracking via `configDirty.{tabName: boolean}`.
 
-**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, and `GET /api/assignments` in parallel, then delegates to `renderConfigPage`.
+**Entry point:** `renderConfig(app)` — loads `GET /api/config`, `GET /api/models`, `GET /api/personas`, `GET /api/assignments`, and `GET /api/stores` in parallel, then delegates to `renderConfigPage`.
 
-**`renderConfigPage(app, config, models, personas, assignments)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
+**`renderConfigPage(app, config, models, personas, assignments, stores)`** — resets all dirty flags and module-level state (`mrModels`, `mrOriginal`, `mrEditingId`, `pmModels`, `pmPersonas`, `pmAssignments`, `pmOriginal`, `pmIsBuilding`, `pmCollapsed`, `pmReplaceOpen`, and all `cs*` Stores state vars including `csClickHandler`) to ensure fresh data on every page entry. Renders the tab bar (`#config-tab-bar`) and active tab content. Wires tab-bar clicks with an unsaved-changes guard that prompts before discarding edits.
 
 **Tab system:**
 - **Active tab state:** `configActiveTab` (module-level string, default `'general'`) persists across tab switches within a page visit.
-- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset.
-- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments)` — renders into `#config-tab-content` and wires events for the active tab.
+- **Dirty tracking:** `configDirty` object (`{ general, personaModels, modelRegistry, stores }`) — when switching tabs with unsaved changes, a `confirm()` dialog gates the navigation. On discard, relevant tab state is reset. The Stores tab uses immediate writes and has no dirty state; its cleanup runs unconditionally on tab leave regardless of `configDirty.stores`.
+- **Tab dispatcher:** `renderConfigTabContent(config, models, personas, assignments, stores)` — renders into `#config-tab-content` and wires events for the active tab.
+- **Stores tab cleanup:** When leaving the Stores tab, `config.js` calls `config-tab-content.removeEventListener('click', csClickHandler)` **before** nulling `csClickHandler`. This is required because `config-tab-content` is a persistent DOM element — replacing its `innerHTML` does NOT remove event listeners registered directly on it; only an explicit `removeEventListener` call prevents stale handler accumulation across tab round-trips.
 
 **General tab** (`renderGeneralTab(config)` + `wireGeneralTabEvents()`):
 - Renders a form for `auto_handoff_enabled`, `max_handoff_depth`, `capture_dialogues`, `auto_archive_days`, and `ledger_root` (read-only). Save calls `PUT /api/config` with all four writable fields. Dirty tracking via both `change` and `input` listeners (required to cover checkboxes and text inputs).
@@ -5340,6 +6152,112 @@ Wired interactions:
 | `.pm-model-select` | Common class on all `<select>` elements in the Persona Models tab |
 | `.spinner` | Inline spinner used inside buttons during async operations (rebuild); `display: inline-block`, animated `border` rotation |
 
+---
+
+**`views/config-stores.js`:**
+
+Stores tab companion module for `config.js`. Must be loaded before `config.js` — `renderStoresTab` and `csWireEvents` are called from `renderConfigTabContent`.
+
+**Module-level state** (reset by `renderConfigPage` on each page entry and by the Stores tab cleanup in `config.js` on every tab leave):
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `csStores` | `StoreEntry[] \| null` | Working copy of the store list (from server) |
+| `csOriginal` | `StoreEntry[] \| null` | Snapshot at load time (structural parity; no dirty tracking — Stores tab uses immediate writes) |
+| `csReorderMode` | `boolean` | `true` when the reorder sub-view is active |
+| `csModalMode` | `'add' \| 'edit' \| null` | Current modal state; `null` when closed |
+| `csModalStoreId` | `string \| null` | ID of the store being edited; `null` in add mode |
+| `csModalCreateDir` | `boolean` | `true` = create new directory (Add mode); `false` = use existing (Import mode) |
+| `csClickHandler` | `function \| null` | Reference to the active delegated click handler on `config-tab-content`; stored to enable `removeEventListener` before re-wiring |
+
+**Rendering functions:**
+
+- **`renderStoresTab(stores)`** — Sets `csStores` and `csOriginal`. Returns HTML for the full Stores tab: a `.table-wrapper` 9-column table (Default ★, Label, ID, Path, Type, Projects, Repositories, Sync, Actions) when stores are present, or an empty-state block with an Add Store button. Preserves any existing `#cs-notification-banner` by re-inserting its `outerHTML` at the top of the rendered output.
+- **`csRenderReorderView(stores)`** — Returns HTML for the reorder sub-view (replaces the main table while `csReorderMode` is `true`); renders move-up/down buttons with edge-row buttons disabled.
+- **`csRenderStoreModal(mode, store)`** — Inserts the add/edit modal overlay (`#cs-modal-overlay`, `#cs-modal`) into `document.body`. **Add mode:** all fields editable (ID, Path, directory-mode radio toggle, Label). **Edit mode:** ID and Path are read-only; only Label is editable. Auto-focuses the first input. Calls `csWireModalEvents()` after insertion.
+- **`csTypeBadge(store)`** — Returns type badge HTML (`cs-type-git` or `cs-type-folder`); appends `cs-git-status` with ahead/behind arrows when `store.is_git` and counts are available.
+- **`csSyncCell(store)`** — Returns sync badge HTML with an `aria-describedby` popover (provider, remote_path, notes); returns an em dash when no sync metadata is present.
+- **`csPathCell(store)`** — Returns a `.cs-path-cell` with truncated path text and a clipboard copy button (`data-path` holds the full unescaped path).
+- **`csDefaultStar(store)`** — Returns a filled star (disabled) for the default store or an outline star (clickable) for non-default stores.
+
+**Event wiring:**
+
+- **`csWireEvents()`** — Removes stale listener via `contentEl.removeEventListener('click', csClickHandler)`, then assigns a new handler to `csClickHandler` and registers it on `config-tab-content`. Handles: Add Store, Reorder Stores, Done (reorder), Dismiss banner, Set Default star, Edit, Remove (with `confirm()` dialog and `repository_count` warning), Copy path (Clipboard API with `execCommand` fallback), Move Up, Move Down. Also registers individual `mouseenter`/`mouseleave`/`focus`/`blur` handlers on each `.cs-sync-badge` for popover visibility.
+- **`csWireModalEvents(overlay, modal)`** — Wires modal-specific events: overlay-click close, Escape key close, Tab/Shift+Tab focus trap, Close button, Cancel button, dir-mode radio toggle (shows/hides `#cs-modal-dir-note`), Enter-submits save, Save button (`csHandleModalSave`).
+
+**Validation:**
+
+| Function | Rule |
+|----------|------|
+| `csValidateId(id)` | Non-empty; matches `CS_SLUG_REGEX` (`/^[a-zA-Z0-9][a-zA-Z0-9_-]*/`); not in `CS_RESERVED_IDS` (`['import','order','conflicts']`) |
+| `csValidatePath(path)` | Non-empty; starts with `/` or `~/` |
+| `csValidateLabel(label)` | Passes when empty (field is optional); fails when non-empty and whitespace-only |
+| `csValidateModalFields()` | Calls all relevant validators and injects inline errors into `.cs-modal-field-error` spans; returns `true` when all pass |
+
+**Save logic (`csHandleModalSave()`):**
+
+Validates fields, disables Save button with "Saving…" text, then:
+- **Add mode:** calls `API.addStore(data)` or `API.importStore(data)` depending on `csModalCreateDir`; on success calls `csRefreshWithStores(stores, warning)` (warning extracted from import response).
+- **Edit mode:** empty label + store had no existing label → `csCloseModal()` (no-op). Empty label + store had a label → shows inline error on `#cs-modal-label-err`. Otherwise calls `API.updateStore(id, { label })`.
+
+**`csCloseModal()`** — removes `#cs-modal-overlay`, restores focus to the element that triggered the modal (`csTriggerElement`), then resets `csModalMode`/`csModalStoreId` and nulls `csTriggerElement`. Focus restoration is guarded (`typeof .focus === 'function'`) and is a no-op when `csTriggerElement` is `null` or a detached element. The trigger element is captured as `document.activeElement` at the start of `csRenderStoreModal()` before any DOM manipulation.
+
+**Refresh helpers:**
+
+- **`csRefreshTab()`** — Calls `API.getStores()` and re-renders the Stores tab with fresh server data.
+- **`csRefreshWithStores(stores, warning)`** — Re-renders from an already-fetched store list (avoids a round-trip). When `warning` is truthy, prepends a dismissible `.cs-notification-banner` above the table.
+
+**Reorder helpers:**
+
+- **`csFindStore(id)`** — Returns the matching entry from `csStores` or `null`.
+- **`csStoreIndex(id)`** — Returns the index of a store in `csStores` or `-1`.
+- **`csMoveStore(fromIdx, toIdx)`** — Swaps entries in `csStores`, re-renders the reorder view optimistically, then calls `API.reorderStores(order)`. On failure: reverts the optimistic swap, re-renders the reorder view (creating a fresh `#cs-reorder-error` target), then calls `csShowTableError()` — the user stays in reorder mode with the error visible.
+- **`csShowTableError(msg)`** — Injects an error banner into whichever error target is present in the DOM: `#cs-table-error` (main table view) or `#cs-reorder-error` (reorder sub-view). Uses `getElementById('cs-table-error') || getElementById('cs-reorder-error')`; silent no-op if neither element exists.
+
+**`styles.css` — Stores Tab classes (all `.cs-*` prefixed):**
+
+| Class | Role |
+|-------|------|
+| `.cs-default-star` | Icon button for the default-store star; `background:none`, `border:none`, `font-size:18px` |
+| `.cs-default-star.cs-star-filled` | Filled star — amber (`#f59e0b`), `cursor:default`, disabled |
+| `.cs-default-star.cs-star-outline` | Outline star — muted text color; turns amber on hover |
+| `.cs-type-badge` | Base pill for type badges; uppercase, `border-radius: var(--radius-pill)` |
+| `.cs-type-git` | Green-toned Git badge (uses `--color-badge-complete-*` tokens) |
+| `.cs-type-folder` | Neutral-toned Folder badge (uses `--color-badge-neutral-*` tokens) |
+| `.cs-git-status` | Container for ahead/behind arrow labels adjacent to the Git badge |
+| `.cs-git-ahead` | Upward arrow with count; `color: var(--color-complete)`, bold |
+| `.cs-git-behind` | Downward arrow with count; `color: var(--color-blocked)`, bold |
+| `.cs-path-cell` | `display:flex`, `align-items:center`, `max-width:280px` — truncated path + copy button |
+| `.cs-path-text` | Truncated monospace path text; `overflow:hidden`, `text-overflow:ellipsis` |
+| `.cs-copy-btn` | Clipboard copy button; borderless, muted until hover |
+| `.cs-sync-cell` | Table cell with `position:relative` for popover anchoring |
+| `.cs-sync-badge` | Blue-toned info pill; keyboard-focusable (`tabindex="0"`) for popover trigger |
+| `.cs-sync-popover` | Absolute-positioned tooltip card (`bottom: calc(100% + 6px)`); hidden by default |
+| `.cs-sync-popover-visible` | Added by `mouseenter`/`focus` handlers to show the popover |
+| `.cs-reorder-view` | Wrapper for the reorder sub-view |
+| `.cs-reorder-row` | Individual store row in reorder mode; bordered card with flex layout |
+| `.cs-reorder-label` | Truncated label+id display inside each reorder row |
+| `.cs-reorder-btns` | Button group for move-up/down arrows |
+| `.cs-move-disabled` | `opacity:0.35` applied to move buttons at list edges |
+| `.cs-notification-banner` | Warning banner for import result messages; flex layout with dismiss button |
+| `.cs-banner-close` | Dismiss button inside `.cs-notification-banner` |
+| `.cs-modal-overlay` | Fixed full-viewport overlay (`inset:0`, `z-index:1000`, semi-transparent backdrop) |
+| `.cs-modal` | Centered modal card; `max-width:480px`, `max-height:90vh`, flex column |
+| `.cs-modal-header` | Modal header with title and close ×; `border-bottom` separator |
+| `.cs-modal-title` | Modal title text; `font-weight:600` |
+| `.cs-modal-close` | × close button; muted, darkens on hover |
+| `.cs-modal-body` | Scrollable modal body; `overflow-y:auto` |
+| `.cs-modal-footer` | Modal footer with Save / Cancel buttons; `border-top` separator |
+| `.cs-modal-field-group` | Form field wrapper; `margin-bottom:14px` |
+| `.cs-modal-field-error` | Inline field validation error; `color: var(--color-blocked)`, `font-size:12px` |
+| `.cs-modal-readonly` | Styled read-only value block (ID and Path in edit mode) |
+| `.cs-modal-radio-group` | Wrapper for the directory-mode radio button group |
+| `.cs-radio-option` | Individual radio label+input row |
+| `.cs-modal-dir-note` | Info note shown when "Use existing directory" is selected |
+| `.cs-row-actions` | Table cell for action buttons; `white-space:nowrap` |
+
+> **Dark mode:** All `.cs-*` classes use CSS custom property tokens (`--color-*`, `--radius-*`, `--shadow`); no explicit `[data-theme="dark"]` overrides are needed.
+
 
 **`views/knowledge.js`:**
 - **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a Move to Repository inline slug input. Uses the CSS classes documented below.
@@ -5415,6 +6333,29 @@ Dark mode overrides (grouped at the bottom of the `/* Knowledge Page */` section
 > Token-based classes (`.knowledge-tabs`, `.knowledge-tab`, `.confidence-label`, `.knowledge-actions`, `.knowledge-move-input`) adapt automatically via CSS custom properties — no explicit `[data-theme="dark"]` override is needed for them.
 
 **XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
+
+**`views/strategy.js`:**
+- **`renderStrategyList(app)`** — Strategy page (`#/strategy`); fetches `listRepos` and `getStores` concurrently via `Promise.all`; in multi-store mode (`stores.length > 1`) chains an additional `getStoreConflicts()` call; in single-store mode skips `getStoreConflicts()` entirely and renders with an empty conflicts array (WP-010 rework-1). **Single-store mode:** renders a repository list with a "Show undeclared repositories" checkbox toggle + Add Repository form (ID, Label, Folder Names fields). **Multi-store mode (`stores.length > 1`):** additionally renders: (1) a tab bar ("Repositories" | "Conflicts") above the content; (2) a "Store" dropdown on the Add Repository form populated from `GET /api/stores`, injecting `store_id` into the `POST /api/repos` payload on submit; (3) a "Conflicts" tab with conflict cards, winner ("Active") / shadowed ("Shadowed") badges, and resolution action buttons. Tab switching preserves the Add Repository form DOM. All user-supplied values are XSS-escaped via `escapeHtml()`.
+
+  **Helper functions** (all closure-scoped within `renderStrategyList`):
+  - `buildToggleHtml(checked)` — renders the "Show undeclared" checkbox div
+  - `buildTableHtml(repos)` — renders the repository data table; undeclared rows render with a "Register" button that pre-fills the Add form fields
+  - `refreshTable(checked)` — re-renders only `#strategy-toggle-area` and `#strategy-table-area`, preserving the `#add-repo-form` DOM (form state is not disturbed on checkbox toggle)
+  - `sanitiseSlug(raw)` — transforms a raw filesystem directory name into a valid `SLUG_REGEX` slug (lowercase, replace non-`[a-z0-9_-]`, strip leading non-alphanumeric, collapse hyphens, fallback to `'repo'`)
+  - `wireRegisterButtons()` — attaches click handlers to "Register" buttons on undeclared rows; pre-fills ID, Label, and Folder Names form fields, then scrolls the form into view
+  - `wireToggle()` — attaches `change` handler to `#show-undeclared-cb` to call `refreshTable`
+  - `visionSummary(vision)` — returns first non-null horizon from `short_term | mid_term | long_term`; truncates to 60 chars (57 + `…` ellipsis)
+  - `buildConflictsHtml(conflicts, storeLabels)` — renders per-repository conflict cards; each card has a table of per-store rows (Store | Vision | Last Modified | Status | Actions); shadowed rows carry "Remove from Store" and "Move to Store" buttons; empty-state `<p>` when no conflicts
+  - `resolveConflict(conflict, targetStoreId, msgEl)` — resolves a conflict by sequentially deleting all N registry copies via `deleteAll()` recursive helper, then recreating in `targetStoreId` using the winner entry's data as canonical source; stops and shows an error banner if any delete fails mid-sequence
+  - `refreshConflicts()` — calls `getStores()` first; in single-store mode (`stores.length <= 1`) renders an empty conflicts tab and returns without calling `getStoreConflicts()` (guard prevents unnecessary API call in single-store setups); in multi-store mode chains `getStoreConflicts()` sequentially, then updates `conflictsIndex` and `storesSnapshot` caches, re-renders `#strategy-tab-conflicts`, calls `updateConflictBadge`, and re-wires action buttons via `wireConflictActions`
+  - `updateConflictBadge(count)` — shows/hides `#strategy-conflict-badge` on the Conflicts tab button; text set to `String(count)` when `count > 0`, hidden via `display:none` when zero
+  - `wireConflictActions(container)` — event delegation for "Remove from Store" (resolves by keeping the winner copy) and "Move to Store" (replaces the shadowed copy's `<td>` with an inline store picker; Move confirms via `resolveConflict`, Cancel calls `refreshConflicts`); must be called after each Conflicts tab HTML re-render
+
+  **Module-level state** (updated by both `renderList` on initial render and `refreshConflicts` on each tab reload):
+  - `conflictsIndex` (`{ [repo_name]: RegistryConflict }`) — O(1) conflict lookup by `data-resolve-remove` / `data-resolve-move` attribute value in event handlers
+  - `storesSnapshot` (`StoreListItem[]`) — used by the "Move to Store" picker to build store `<option>` elements (excludes the current shadowed store)
+
+  **Rendering model:** `#strategy-tab-repos` and `#strategy-tab-conflicts` are independent DOM subtrees. `#add-repo-form` is written once at initial render and never overwritten by `refreshTable()` or `refreshConflicts()`, so in-flight field values and validation messages are preserved across updates.
 
 ---
 
@@ -6259,6 +7200,86 @@ The `buildInProgress` module-level flag prevents concurrent builds. It is cleare
 
 ---
 
+### 1.8 Stores
+
+All handlers live in `gui/api-stores.ts`. Literal-path routes precede parameterized `:storeId` routes to prevent shadowing. All write handlers call `reloadStoreContext()` after a successful `saveStoresConfig()`.
+
+**Section A — body-parsing routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `POST` | `/api/stores` | `handleAddStore` | Add a new store. Creates directory + empty `.repositories.json`. |
+| `POST` | `/api/stores/import` | `handleImportStore` | Import an existing directory as a store. Preserves any existing `.repositories.json`. |
+| `PUT` | `/api/stores/order` | `handleReorderStores` | Reorder stores. Body: `{ order: string[] }`. |
+| `PUT` | `/api/stores/:storeId` | `handleUpdateStore` | Update store label. Body: `{ label?: string }`. |
+
+**Section B — body-free routes:**
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `DELETE` | `/api/stores/:storeId` | `handleRemoveStore` | Remove store from config (does NOT delete directory). |
+| `POST` | `/api/stores/:storeId/default` | `handleSetDefaultStore` | Set default store. |
+| `GET` | `/api/stores/conflicts` | `handleGetStoreConflicts` | Cross-store registry conflicts. Returns `RegistryConflict[]`; `[]` in legacy mode. |
+| `GET` | `/api/stores` | `handleGetStoresEnriched` | Enriched store list. Returns `StoreListItem[]`; synthesized single entry in legacy mode. |
+
+#### `StoreListItem` — Response Shape
+
+Defined in `src/schema/store-config.ts`:
+
+```typescript
+interface StoreListItem {
+  id: string;               // Store identifier
+  label: string;            // Display name (falls back to id when StoreEntry.label is absent)
+  path: string;             // Absolute path to the store's ledger root
+  project_count: number;    // Number of projects in this store
+  repository_count: number; // Number of registered repositories in this store
+  is_default: boolean;      // true when this store is the default_store in stores.json
+  is_git: boolean;          // true when the store path contains a .git directory
+  ahead?: number;           // Local commits ahead of remote (only when is_git && upstream configured)
+  behind?: number;          // Remote commits not yet pulled (only when is_git && upstream configured)
+  sync?: StoreSyncMeta;     // Informational sync metadata; undefined when absent
+}
+```
+
+> **is_git invariant:** When `is_git` is `false`, both `ahead` and `behind` are `undefined`. Git detection per store runs concurrently via `Promise.all` with a 5-second timeout per call. When `git` is not installed (`ENOENT`), all stores get `is_git: false`.
+
+#### `POST /api/stores` Validation Rules
+
+Body: `{ id: string, path: string, label?: string }`
+
+| Rule | Error |
+|------|-------|
+| ID must match `SLUG_REGEX` | 400 |
+| ID must not be `"import"`, `"order"`, or `"conflicts"` (reserved) | 400 |
+| Duplicate ID | 400 |
+| Duplicate expanded path | 409 |
+| `path` must be absolute (`/` or `~/`) — relative paths rejected | 400 |
+| `label`, if provided, must be non-empty after trimming | 400 |
+| Directory creation fails (`EACCES`/`EPERM`) | 500 |
+
+#### `POST /api/stores/import` Validation Rules
+
+Same rules as `POST /api/stores`, plus: the target directory **must already exist** (400 if absent). Never overwrites an existing `.repositories.json`. Returns `warning` in the response when the existing file fails schema validation.
+
+#### `PUT /api/stores/order` Validation Rules
+
+Body: `{ order: string[] }` — must contain exactly the current store IDs, no duplicates, no omissions (length check prevents `['a','a','b']` from passing a set-based comparison against `['a','b']`).
+
+#### Response Shapes
+
+| Handler | Success Response |
+|---------|-----------------|
+| `handleGetStoresEnriched` | `StoreListItem[]` |
+| `handleAddStore` | `StoreListItem[]` |
+| `handleImportStore` | `{ stores: StoreListItem[], warning?: string }` |
+| `handleUpdateStore` | `StoreListItem[]` |
+| `handleRemoveStore` | `{ stores: StoreListItem[], warned: boolean }` — `warned: true` when removed store had registered repositories |
+| `handleSetDefaultStore` | `StoreListItem[]` |
+| `handleReorderStores` | `StoreListItem[]` |
+| `handleGetStoreConflicts` | `RegistryConflict[]` |
+
+---
+
 ## 1.X Server-side TypeScript Modules
 
 ### `chunk-accumulator.ts` — Shared accumulation layer
@@ -6509,9 +7530,9 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Function | Description |
 |----------|-------------|
-| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, and `API.getAssignments()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist. |
-| `renderConfigPage(app, config, models, personas, assignments)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
-| `renderConfigTabContent(config, models, personas, assignments)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+| `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, `API.getAssignments()`, and `API.getStores()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist (`API.getStores` is guarded with a presence ternary for deployment safety). |
+| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
 
 **General tab functions:**
 
@@ -6577,8 +7598,8 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`). Persists across tab switches within a page visit. |
-| `configDirty` | `{ general, personaModels, modelRegistry: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. |
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
+| `configDirty` | `{ general, personaModels, modelRegistry, stores: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
 | `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
@@ -6586,18 +7607,19 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with three boolean keys — `general`, `personaModels`, and `modelRegistry`. It is declared and owned by `config.js` but mutated directly by all three tab modules:
+`configDirty` is a shared mutable object with four boolean keys — `general`, `personaModels`, `modelRegistry`, and `stores`. It is declared and owned by `config.js` but mutated directly by all four tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
 | `config.js` (General tab) | `.general` | `change`/`input` → `true`; successful form submit → `false` |
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
+| `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
-2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all three known keys on fresh load.
-3. **Load order** — `config-model-registry.js` and `config-persona-models.js` must load _before_ `config.js` (see `index.html`). Both files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all four known keys on fresh load.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, and `config-stores.js` must load _before_ `config.js` (see `index.html`). All three files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
 
 The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
 

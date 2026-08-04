@@ -32,22 +32,64 @@
  *   handlePromoteKnowledge and handleMoveKnowledge both delegate to
  *   KnowledgeStoreManager.moveInsight(), which performs an atomic cross-store
  *   read-modify-write. The insight is deleted from the source store and inserted
- *   into the target store with a **new numeric ID** assigned by the target store's
- *   `next_id` counter. The original ID is no longer valid after the operation.
- *   Frontend consumers that need to track the moved insight must capture the
- *   pre-operation ID before calling promote/move and match by that ID — not by
- *   the new ID returned in the response.
+ *   into the target store **with its UUID preserved** — the `id` field in the
+ *   response is identical to the pre-operation ID. The `next_id` counter no longer
+ *   exists. Frontend consumers can safely reference the pre-operation ID after
+ *   a promote or move operation — the UUID does not change.
  */
 
 import { z } from 'zod';
 import { ApiError } from '../src/gui/errors.js';
 import { KnowledgeStoreManager } from '../src/storage/knowledge-store.js';
 import { InsightScope, SLUG_REGEX } from '../src/schema/knowledge.js';
+import { isStoreContextInitialized, getStoreRouter, getMultiStoreManager } from '../src/storage/store-context.js';
 import type { Insight } from '../src/schema/knowledge.js';
 
 // Re-export ApiError so consumers of this module can catch typed errors without
 // importing from a separate path.
 export { ApiError };
+
+// ---------------------------------------------------------------------------
+// Multi-store helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Iterate-and-try helper for write operations that need to locate the owning
+ * store for a given insight. Tries `fn` against each configured store in
+ * priority order, skipping stores that throw a "not found" error. Throws
+ * NOT_FOUND when no store satisfies the operation.
+ *
+ * Falls back to a single `new KnowledgeStoreManager(ledgerRoot)` call in
+ * legacy single-store mode.
+ */
+async function withKnowledgeStore<T>(
+  ledgerRoot: string,
+  fn: (manager: KnowledgeStoreManager) => Promise<T>
+): Promise<T> {
+  if (isStoreContextInitialized()) {
+    const stores = getStoreRouter().getAllStores();
+    for (const store of stores) {
+      const manager = new KnowledgeStoreManager(store.path);
+      try {
+        return await fn(manager);
+      } catch (err) {
+        if ((err as Error).message.includes('not found')) continue;
+        throw err;
+      }
+    }
+    throw new ApiError('NOT_FOUND', 'Insight not found.');
+  }
+  // Legacy single-store path: wrap 'not found' as ApiError for consistent error shape.
+  try {
+    return await fn(new KnowledgeStoreManager(ledgerRoot));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('not found')) {
+      throw new ApiError('NOT_FOUND', 'Insight not found.');
+    }
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -80,7 +122,7 @@ export const KnowledgeUpdateBodySchema = z
     tags: z.array(z.string()).optional(),
     source: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
-    superseded_by: z.number().int().nullable().optional(),
+    superseded_by: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -112,30 +154,19 @@ export const KnowledgeMoveBodySchema = z
 // ---------------------------------------------------------------------------
 
 /**
- * Parses a raw string as a positive integer insight ID.
+ * Parses a raw string as a UUID insight ID.
  *
- * Rejects:
- * - Non-numeric strings (NaN after Number())
- * - Floating-point strings (any string containing '.', e.g. "1.5", "2.0")
- * - Zero or negative integers
- *
- * The decimal-point check is performed on the raw string before numeric
- * coercion so that "2.0" (which coerces to an integer) is still rejected.
+ * Accepts any well-formed UUID (8-4-4-4-12 hex groups, case-insensitive).
+ * Rejects anything that does not match the UUID format.
  *
  * @throws ApiError VALIDATION_ERROR for any rejected value.
  */
-export function parseKnowledgeId(raw: string): number {
-  // Reject strings containing a decimal point before numeric coercion —
-  // this catches "1.5" and also "2.0", both of which the caller must treat
-  // as non-integer IDs even though Number("2.0") === 2.
-  if (raw.includes('.')) {
+export function parseKnowledgeId(raw: string): string {
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(raw)) {
     throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
   }
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
-  }
-  return n;
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +209,6 @@ export async function handleListKnowledge(
   ledgerRoot: string,
   params: KnowledgeListParams = {}
 ): Promise<Insight[]> {
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
   // Validate scope — reject any non-nullish string that is not a valid InsightScope value.
   // Absent scope (undefined) means "no filter" and is always allowed.
   let scope: 'global' | 'repository' | undefined;
@@ -215,6 +244,14 @@ export async function handleListKnowledge(
   const offsetRaw = params.offset !== undefined ? Math.floor(Number(params.offset)) : NaN;
   const offset = !isNaN(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
+  if (isStoreContextInitialized()) {
+    if (params.query && params.query.trim().length > 0) {
+      return getMultiStoreManager().searchKnowledge(params.query.trim(), { scope, repository_name, category, tags, limit, offset });
+    }
+    return getMultiStoreManager().listKnowledge({ scope, category, tags, repository_name, limit, offset });
+  }
+
+  const manager = new KnowledgeStoreManager(ledgerRoot);
   if (params.query && params.query.trim().length > 0) {
     return manager.searchInsights(params.query.trim(), { scope, repository_name, category, tags, limit, offset });
   }
@@ -227,13 +264,12 @@ export async function handleListKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Updates an existing knowledge insight identified by its numeric ID.
+ * Updates an existing knowledge insight identified by its UUID.
  *
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
- * for non-integer, zero, or floating-point strings). Validates the request body
- * via `KnowledgeUpdateBodySchema` (throws VALIDATION_ERROR for unknown fields or
- * type mismatches). Extracts `scope` and `repository_name` discriminator fields to
- * scope the update to the correct store.
+ * for non-UUID strings). Validates the request body via `KnowledgeUpdateBodySchema`
+ * (throws VALIDATION_ERROR for unknown fields or type mismatches). Extracts `scope`
+ * and `repository_name` discriminator fields to scope the update to the correct store.
  *
  * `superseded_by: null` in the body is mapped to `undefined` so the field is
  * cleared (removed) on the stored insight.
@@ -241,7 +277,7 @@ export async function handleListKnowledge(
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
  * @param ledgerRoot  Absolute path to the central ledger root.
- * @param rawId       Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId       Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param body        Parsed request body (any shape — validated here).
  * @returns The updated Insight.
  */
@@ -265,17 +301,9 @@ export async function handleUpdateKnowledge(
     ...(superseded_by === null ? { superseded_by: undefined } : superseded_by !== undefined ? { superseded_by } : {}),
   };
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.updateInsight(id, updates, { scope, repository_name });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.updateInsight(id, updates, { scope, repository_name })
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -283,14 +311,13 @@ export async function handleUpdateKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Deletes an existing knowledge insight identified by its numeric ID.
+ * Deletes an existing knowledge insight identified by its UUID.
  *
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
- * for non-integer, zero, or floating-point strings). Requires `scope` as a
- * query parameter; when `scope === 'repository'`, `repository_name` is also required
- * (throws VALIDATION_ERROR if absent). Scopes the deletion to the correct store
- * to prevent accidental cross-scope deletion when the same numeric ID exists in
- * multiple stores.
+ * for non-UUID strings). Requires `scope` as a query parameter; when
+ * `scope === 'repository'`, `repository_name` is also required (throws
+ * VALIDATION_ERROR if absent). Scope discriminates between global and repository
+ * stores to ensure the deletion targets the correct store.
  *
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
@@ -300,7 +327,7 @@ export async function handleUpdateKnowledge(
  * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
- * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId           Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param scope           Required scope query parameter ('global' or 'repository').
  * @param repository_name Required when scope is 'repository'; the repository name.
  * @returns `null` — consistent with other delete handlers.
@@ -330,17 +357,9 @@ export async function handleDeleteKnowledge(
     validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    await manager.deleteInsight(id, { scope: validatedScope, repository_name });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  await withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.deleteInsight(id, { scope: validatedScope, repository_name })
+  );
 
   return null;
 }
@@ -353,9 +372,9 @@ export async function handleDeleteKnowledge(
  * Promotes a repository-scoped insight to global scope using the atomic
  * KnowledgeStoreManager.moveInsight() method.
  *
- * The returned insight is the newly created global-scoped copy — it has a
- * **different numeric ID** than the original (assigned by the global store's
- * `next_id` counter). The frontend must match by pre-promote ID, not the new ID.
+ * The returned insight is the global-scoped copy — its UUID is **preserved**
+ * from the original (the `id` in the response equals the pre-promote ID).
+ * Frontend consumers can continue to reference the same UUID after promotion.
  *
  * `repository_name` is validated against `SLUG_REGEX` at this handler level
  * (after the presence check) before being forwarded to the storage layer. A malformed
@@ -363,10 +382,10 @@ export async function handleDeleteKnowledge(
  * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
- * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId           Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param scope           Source scope — must be "repository" (global insights cannot be promoted).
  * @param repository_name Required when scope is "repository"; the source repository name.
- * @returns The newly created global Insight.
+ * @returns The promoted global Insight (same UUID as the original).
  * @throws ApiError VALIDATION_ERROR if scope is not "repository", insight is already global,
  *   or repository_name fails SLUG_REGEX validation.
  * @throws ApiError NOT_FOUND if no matching insight exists in the specified scope.
@@ -400,21 +419,9 @@ export async function handlePromoteKnowledge(
     validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.moveInsight(
-      id,
-      { scope: validatedScope, repository_name },
-      'global'
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.moveInsight(id, { scope: validatedScope, repository_name }, 'global')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -429,13 +436,14 @@ export async function handlePromoteKnowledge(
  * - global → repository: moves the global insight into a named repository store
  * - repository → repository: moves a repository insight to a different repository
  *
- * The returned insight is the newly created copy — it has a **different numeric
- * ID** (assigned by the target store's `next_id` counter).
+ * The returned insight's UUID is **preserved** — the `id` in the response equals
+ * the pre-move ID. Frontend consumers can continue to reference the same UUID
+ * after the move.
  *
  * @param ledgerRoot  Absolute path to the central ledger root.
- * @param rawId       Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId       Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param body        Parsed request body (validated against KnowledgeMoveBodySchema).
- * @returns The newly created Insight in the target repository store.
+ * @returns The moved Insight in the target repository store (same UUID as the original).
  * @throws ApiError VALIDATION_ERROR when source and destination are identical, body is invalid,
  *   or the destination name fails SLUG_REGEX.
  * @throws ApiError NOT_FOUND when no matching insight exists in the source scope.
@@ -465,20 +473,12 @@ export async function handleMoveKnowledge(
     validationError('Source and destination repository are identical; nothing to move.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.moveInsight(
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.moveInsight(
       id,
       { scope: source_scope, repository_name: source_repository_name },
       'repository',
       repository_name
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+    )
+  );
 }

@@ -161,6 +161,20 @@ On NOT_FOUND: Return error with guidance to initialize the project
 ```
 Agent → ledger_create_work_package(project_path, assigned_to, dependencies, ...)
   ↓
+resolveProjectPath() — resolve plan folder
+  ↓
+Store routing:
+  Multi-store mode (isStoreContextInitialized() && isMultiStoreMode()):
+    inferProjectRootFromPlanPath(projectPath) → projectRoot
+    deriveRepoName(projectPath, projectRoot) → repoName
+    getStoreRouter().resolveStoreForWrite(repoName)
+      → targetLedgerRoot   (repo registered) — continue
+      → StoreNotRegisteredError  (repo not registered) — return error response
+  Single-store / legacy mode:
+    resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot) → ledgerRoot
+  ↓
+new LedgerStore(projectPath, targetLedgerRoot | ledgerRoot)
+  ↓
 Pre-lock validation (outside lock scope):
   - Validate dependencies exist
   - Validate active_pipeline_stages if provided:
@@ -1346,6 +1360,80 @@ project.synthesis_generated === true?
 
 ---
 
+## Flow 17: Standalone Project Import (Multi-Store Routing)
+
+**Entry Point:** Agent invokes `ledger_import_standalone` or `ledger_update_synthesis` tool.
+
+### Flow 17a: Import a standalone plan (`importStandalone`)
+
+Write path — mirrors `initializeProject()` for multi-store routing.
+
+```
+Agent → ledger_import_standalone(plan_path, agent_role?, ...)
+  ↓
+importStandalone(args)
+  ↓
+Infer projectRoot = inferProjectRootFromPlanPath(planPath)   ← 4-level dirname walk
+derive repoName = deriveRepoName(planPath, projectRoot)
+  ↓
+Multi-store guard:
+  isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()?
+    YES → targetLedgerRoot = await getStoreRouter().resolveStoreForWrite(repoName)
+            resolveStoreForWrite finds the first store whose .repositories.json claims repoName
+            Unregistered repo (not in any store) → throw; caller returns structured error:
+              "Repository '{name}' is not registered in any store. Register it … before importing."
+            Registered repo → targetLedgerRoot = that store's path
+    NO  → targetLedgerRoot = undefined  (single-store: LedgerStore uses default)
+  ↓
+new LedgerStore(planPath, targetLedgerRoot)
+  → storageDir = path.join(targetLedgerRoot ?? resolveLedgerRoot(), repoName, slug)
+  ↓
+store.importStandaloneProject({ ... })  ← LedgerStore handles locking internally
+  ↓
+Return import result + archived_documents to agent
+```
+
+### Flow 17b: Update synthesis on an existing standalone project (`updateSynthesis`)
+
+Read-then-write path — uses `resolveMultiStoreLedgerRoot` (same as MCP tool handlers).
+
+```
+Agent → ledger_update_synthesis(plan_path, ...)
+  ↓
+updateSynthesis(args)
+  ↓
+ledgerRoot = await resolveMultiStoreLedgerRoot(planPath, undefined)
+  Resolution order (see api-surface.md §Store Resolution):
+    1. Store context not initialized → undefined  (single-store / test mode)
+    2. Router not in multi-store mode → undefined
+    3. Cannot infer project root → undefined  (graceful fallback)
+    4. Owning store located via resolveStoreForRepo() → storePath
+    5. Unregistered repo → undefined  (backward-compatible fallback)
+  ↓
+new LedgerStore(ledgerRoot ?? planPath)  ← resolves storageDir from correct store
+  ↓
+Pre-lock reads (fast-fail guards outside lock scope):
+  store.readRootIndex()   ← guard 1: project must exist in this store
+  Check project status !== COMPLETE or synthesis_generated !== true  ← guard 2
+  ↓
+withLock(store.storageDir, async () => {
+  store.readRootIndex()  ← re-read inside lock (TOCTOU safety)
+  Re-apply guards inside lock
+  store.writeRootIndex({ ...root, synthesis_generated: true, outcome_summary })
+  store.archiveDocuments([synthesis_file])  ← best-effort copy inside lock
+})
+  ↓
+Return update result + archived_documents to agent
+```
+
+**Key properties:**
+- `importStandalone` follows the exact same multi-store routing pattern as `initializeProject` — both call `resolveStoreForWrite(repoName)` for the write target.
+- `updateSynthesis` follows the MCP tool handler pattern — uses `resolveMultiStoreLedgerRoot(planPath, undefined)` (no `_ledgerRoot` parameter in this handler).
+- In single-store mode both handlers fall through to `new LedgerStore(planPath)` / `new LedgerStore(undefined ?? planPath)` — backward-compatible with no behavior change.
+- Unregistered repos in multi-store mode produce a structured, actionable error (not a crash or silent default-store write).
+
+---
+
 ## Flow 12: Auto-Archive Background Service
 
 **Entry Point:** `gui/server.ts` startup (and every 10 minutes thereafter)
@@ -1379,9 +1467,10 @@ auto_archive_days === 0?
   NO  →
     runAutoArchive(ledgerRoot, maxAgeDays)
       ↓
-      LedgerStore.listAllProjects(ledgerRoot)
-        → readdir(storage/ledger/)
-        → parse each .meta.json
+      isStoreContextInitialized()  ← guard activates multi-store scan
+        ? getMultiStoreManager().listAllProjects()  ← scans all configured store paths
+        : LedgerStore.listAllProjects(ledgerRoot)   ← single-store mode fallback
+        → readdir(storage/ledger/) for each active store, parse each .meta.json
       ↓
       For each ProjectMeta:
         status !== 'COMPLETE'? → skip
@@ -1480,7 +1569,10 @@ gui/server.ts
 gui/api.ts — handleListProjects processing pipeline:
 
   Step 1: Enrich all projects
-    LedgerStore.listAllProjects(ledgerRoot)   ← readdir + .meta.json parse
+    isStoreContextInitialized()
+      ? getMultiStoreManager().listAllProjects()  ← multi-store mode: scans all configured stores
+      : LedgerStore.listAllProjects(ledgerRoot)   ← single-store mode fallback
+    → readdir + .meta.json parse for each active store
     For each ProjectMeta (concurrent Promise.all):
       Cache fast-path (WP-006):
         meta.total_work_packages defined AND meta.project_name defined?
@@ -1917,6 +2009,102 @@ project-detail.js polls run queue every 3 s
 **Result:** The orchestrator process resumes the existing LangGraph thread identified by
 `resumeThreadId`, continuing from the last checkpoint. The GUI polls the queue until the
 new run entry appears, then re-renders the project detail view to reflect the active run.
+
+---
+
+## Flow P: Multi-Store Write Routing
+
+**Entry Point:** Any write operation that requires a store path — e.g. `ledger_initialize_project`, `ledger_create_work_package`, `ledger_claim_work_package`, GUI `POST /api/repos`.
+
+**Precondition:** `stores.json` is present (`setStoreContext()` produced a non-null `StoreRouter`).
+
+```
+Caller requests a write for repoName (derived from projectPath via deriveRepoName())
+  ↓
+StoreRouter.resolveStoreForWrite(repoName)
+  ↓
+  getStoreContext() → StoreConfig (from store-context.ts singleton)
+  If null (legacy mode):
+    → resolveLedgerRoot() → single store path
+    → DONE
+  ↓
+  Iterate stores in stores.json order:
+    for each StoreEntry { id, label, path }:
+      loadRegistry(storePath)           ← async, reads {storePath}/.repositories.json
+        → RepositoryRegistry (validated by RepositoryEntrySchema[])
+      findByFolderName(registry, repoName)
+        match?
+          YES → return storePath        ← first match wins (store-order priority)
+          NO  → continue to next store
+  ↓
+  No store claims the repo?
+    → throw Error("Repository 'X' is not registered in any store.
+                   Register it via the GUI or CLI before creating projects.")
+  ↓
+Caller uses returned storePath as the ledger root for the write operation
+  ↓
+LedgerStore(projectPath, storePath) → normal single-store write flow
+```
+
+**Key invariant:** Writes never span multiple stores. Each write lands in exactly one store (the first one in `stores.json` order whose registry claims the repo). `MultiStoreManager` is not consulted for writes.
+
+**Error case:** If `resolveStoreForWrite()` throws, the MCP tool returns a `VALIDATION_ERROR` and no write occurs. The user must register the repository before retrying.
+
+---
+
+## Flow Q: Multi-Store Read Collation
+
+**Entry Point:** Any read that must aggregate across all stores — e.g. `ledger_list_projects`, `ledger_detect_project`, `GET /api/repos`, `GET /api/stores/conflicts`.
+
+**Precondition:** `stores.json` is present (`setStoreContext()` produced a non-null `MultiStoreManager`).
+
+```
+Caller requests a cross-store read (e.g. list all repos)
+  ↓
+MultiStoreManager.getMergedRegistry()
+  ↓
+  getStoreContext() → StoreConfig (from store-context.ts singleton)
+  If null (legacy mode):
+    → loadRegistry(resolveLedgerRoot()) → single registry → DONE
+  ↓
+  seenRepoNames = new Set<string>()
+  mergedEntries = []
+  ↓
+  Iterate stores in stores.json order:
+    for each StoreEntry { id, label, path }:
+      loadRegistry(storePath)           ← async
+        → RegistryEntries[]
+      for each entry in RegistryEntries:
+        if seenRepoNames.has(entry.folder_name):
+          skip (store-order priority: first store wins)
+        else:
+          seenRepoNames.add(entry.folder_name)
+          mergedEntries.push({ ...entry, store_id: id })
+  ↓
+  return mergedEntries (tagged with store_id; deduplicated by store-order priority)
+
+Conflict detection (separate call: getRegistryConflicts()):
+  Same iteration as above, but KEEPS duplicates:
+    for each entry:
+      seen? → record conflict { repo_name, entries: [{ store_id, store_label, entry }], winner_store_id }
+    return ConflictEntry[]        ← consumed by GET /api/stores/conflicts
+
+For detectProjectByCwd(cwdPath):
+  Iterate stores in order:
+    LedgerStore.detectProjectByCwd(cwdPath, storePath)
+      FOUND?    → return { status: 'FOUND', meta, store_id }  (first match)
+      AMBIGUOUS?→ forward as-is (intra-store collision)
+      NOT_FOUND → continue to next store
+  If multiple stores each return FOUND:
+    → return { status: 'MULTI_STORE_AMBIGUOUS', candidates: [...] }
+  If none match:
+    → return { status: 'NOT_FOUND' }
+```
+
+**Key invariants:**
+- Store-order priority applies to both `getMergedRegistry()` and conflict detection: the first store in `stores.json` order is always `winner_store_id`.
+- All collation is read-only — no write occurs during a read collation pass.
+- `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).
 
 ```
 _SOURCE: GUI-layer data flows (server startup, request lifecycle, polling, DOM patching, orchestrator queue, run log streaming)_
@@ -2357,6 +2545,56 @@ Toggle IIFE (runs after innerHTML is set, targets #plan-synopsis):
 - The toggle IIFE applies to both rendering paths (both produce `#plan-synopsis` with `.plan-synopsis__body`); the DOM structure is identical regardless of whether `project_summary` or `extractSynopsis()` produced the content.
 - The `.outcome-synopsis` block has no toggle. Outcome summaries are expected to be concise (1–3 sentences from the Synthesis persona's `outcome_summary` field).
 - The `.outcome-synopsis` block uses `--color-complete` (green `#16a34a`) for its left-border accent, differentiating it from `.plan-synopsis` which uses `--color-ready` (blue `#2563eb`).
+
+---
+
+## 13. Store Management Data Flow
+
+All store write endpoints follow the same pattern: validate → load config → mutate → `saveStoresConfig()` → `reloadStoreContext()` → return updated list. The sequence below shows the full Add Store flow; all other write endpoints follow the same backend skeleton.
+
+```
+User clicks “Add Store” in config-stores.js Stores tab
+  │
+  ├── csWireEvents() captures click on Add Store button
+  │       └── csRenderStoreModal('add', null) → insertAdjacentHTML into document.body
+  │           └── Modal: ID + Path fields, Directory mode radio (Create / Use Existing), Label
+  │
+  ├── User fills form and clicks Save (or presses Enter)
+  │
+  ├── Client-side validation (SLUG_REGEX, absolute path, non-empty label)
+  │   └── On error → inline field error messages; button re-enabled
+  │
+  ├── API call (directory mode determines endpoint):
+  │   ├── “Create new directory” → API.addStore({ id, path, label })
+  │   └── “Use existing directory” → API.importStore({ id, path, label })
+  │
+  └── Backend (handleAddStore / handleImportStore in api-stores.ts):
+      ├── Server-side validation (reserved IDs, duplicate ID, duplicate path, directory exists)
+      │   └── On error → 400 / 409; modal re-enables Save button + shows inline error
+      ├── loadStoresConfig() → StoresConfig | null
+      ├── Mutate config: add new StoreEntry
+      ├── (handleAddStore only) mkdirSync(expandedPath, { recursive: true })
+      ├── (handleAddStore only) Create empty .repositories.json if absent
+      ├── saveStoresConfig(config)   ←── atomic write under file lock
+      └── reloadStoreContext()        ←── hot-reload: re-reads stores.json, constructs fresh
+          │                                    StoreRouter(config, { skipDirCreate: true })
+          │                                    and MultiStoreManager(router),
+          │                                    calls setStoreContext() — module singletons overwritten
+          └── handleGetStoresEnriched()  ←── build enriched response from updated context
+              └── return StoreListItem[]  ←── HTTP 200
+
+Frontend on success:
+  └── csRefreshTab(stores)   ←── re-render table from response
+      └── csCloseModal()
+          └── (importStore only) if response.warning: UI.banner('info', warning)
+```
+
+**Immediate-write pattern — key invariants:**
+- The Stores tab never accumulates pending changes. Every user action (add, import, update label, remove, set default, reorder) is a discrete API write followed by a full re-render from the server response.
+- `configDirty.stores` is always `false`. The `beforeTabSwitch` unsaved-changes guard is never triggered by the Stores tab.
+- Tab-switch cleanup runs **unconditionally** (not inside the `if (configDirty[configActiveTab])` guard) because the Stores tab has no pending state to lose.
+- `reloadStoreContext()` calls `setStoreContext()` with `skipDirCreate: true`. If a store path is temporarily unavailable (unmounted drive, offline NFS), the reload succeeds and the server continues in degraded mode — it does not throw a 500 that would leave the in-memory context stale.
+- `handleRemoveStore` uses `loadStoresConfig()` after `saveStoresConfig()` to rebuild the enriched list from the updated file, not from the stale pre-mutation snapshot.
 
 
 ```
