@@ -10,6 +10,19 @@
  *   AC-4: In single-store mode, store_id is optional and the single store is
  *         used implicitly.
  *
+ *   handleMoveRepo (WP-002 / WP-004):
+ *   AC-5: Happy path — entry moves between registries with last_modified updated.
+ *   AC-6: Same-store no-op — no registry writes when source and target are identical.
+ *   AC-7: Invalid target_store_id → VALIDATION_ERROR.
+ *   AC-8: Unknown repoId → NOT_FOUND.
+ *   AC-9: Single-store mode → VALIDATION_ERROR.
+ *   AC-10: ID conflict in target → VALIDATION_ERROR.
+ *   AC-11: folder_name conflict in target → VALIDATION_ERROR.
+ *
+ *   handleGetRepo enrichment (WP-004):
+ *   AC-12: Multi-store mode returns store_id matching the owning store.
+ *   AC-13: Single-store mode omits store_id from the response.
+ *
  * Approach:
  *   - vi.mock for store-context (controls isStoreContextInitialized / getStoreRouter /
  *     getMultiStoreManager).
@@ -18,6 +31,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { statSync } from 'node:fs';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -37,6 +51,7 @@ import {
   handleCreateRepo,
   handleDeleteRepo,
   handleGetRepo,
+  handleMoveRepo,
   ApiError,
 } from '../../gui/api-repos.js';
 import {
@@ -368,6 +383,7 @@ describe('WP-013: Store-aware repository management', () => {
 
       const result = await handleGetRepo(ledgerRoot, 'b-repo');
       expect(result.id).toBe('b-repo');
+      expect(result.store_id).toBe('store-b');
     });
 
     it('handleGetRepo throws NOT_FOUND when repo does not exist in any store', async () => {
@@ -390,6 +406,197 @@ describe('WP-013: Store-aware repository management', () => {
       await expect(handleDeleteRepo(ledgerRoot, 'missing-repo')).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+    });
+  });
+
+  // ── handleMoveRepo: 7 behavioral ACs ───────────────────────────────────
+
+  describe('handleMoveRepo', () => {
+    let storeA: string;
+    let storeB: string;
+
+    beforeEach(async () => {
+      storeA = await mkdtemp(join(tmpdir(), 'move-store-a-'));
+      storeB = await mkdtemp(join(tmpdir(), 'move-store-b-'));
+      mockIsInitialized.mockReturnValue(true);
+      mockGetStoreRouter.mockReturnValue({
+        isMultiStoreMode:    () => true,
+        getAllStores:        () => [
+          { id: 'store-a', path: storeA, label: 'Store A' },
+          { id: 'store-b', path: storeB, label: 'Store B' },
+        ],
+        resolveDefaultStore: () => storeA,
+      });
+    });
+
+    afterEach(async () => {
+      await rm(storeA, { recursive: true, force: true });
+      await rm(storeB, { recursive: true, force: true });
+    });
+
+    // AC-1: happy path move ─────────────────────────────────────────────
+
+    it('AC-1: moves the entry from source to target store with updated last_modified', async () => {
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'move-me', folder_names: ['mf'], store_id: 'store-a' }));
+
+      const result = await handleMoveRepo(ledgerRoot, 'move-me', { target_store_id: 'store-b' });
+
+      expect(result.id).toBe('move-me');
+      expect(result.store_id).toBe('store-b');
+
+      // Entry must exist in store-b
+      const targetReg = await readRegistry(storeB);
+      expect(targetReg.repositories.some((e) => e.id === 'move-me')).toBe(true);
+
+      // Entry must be absent from store-a
+      const sourceReg = await readRegistry(storeA);
+      expect(sourceReg.repositories.some((e) => e.id === 'move-me')).toBe(false);
+    });
+
+    it('AC-1: last_modified is updated after move', async () => {
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'ts-repo', folder_names: ['tr'], store_id: 'store-a' }));
+      const before = await handleGetRepo(ledgerRoot, 'ts-repo');
+
+      // Ensure at least 1 ms passes so last_modified can advance
+      await new Promise((r) => setTimeout(r, 2));
+
+      const result = await handleMoveRepo(ledgerRoot, 'ts-repo', { target_store_id: 'store-b' });
+      expect(new Date(result.last_modified).getTime()).toBeGreaterThanOrEqual(
+        new Date(before.last_modified).getTime()
+      );
+    });
+
+    // AC-2: same-store no-op ───────────────────────────────────────────
+
+    it('AC-2: same-store move returns the entry with store_id and makes no writes', async () => {
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'stay-here', folder_names: ['sh'], store_id: 'store-a' }));
+
+      // Capture registry mtime before call
+      const mtimeBefore = statSync(join(storeA, '.repositories.json')).mtimeMs;
+
+      const result = await handleMoveRepo(ledgerRoot, 'stay-here', { target_store_id: 'store-a' });
+
+      expect(result.id).toBe('stay-here');
+      expect(result.store_id).toBe('store-a');
+
+      // Registry file must not have been rewritten
+      const mtimeAfter = statSync(join(storeA, '.repositories.json')).mtimeMs;
+      expect(mtimeAfter).toBe(mtimeBefore);
+    });
+
+    // AC-3: invalid target_store_id ────────────────────────────────────
+
+    it('AC-3: invalid target_store_id returns VALIDATION_ERROR', async () => {
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'any-repo', folder_names: ['ar'], store_id: 'store-a' }));
+
+      await expect(
+        handleMoveRepo(ledgerRoot, 'any-repo', { target_store_id: 'ghost' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('AC-3: VALIDATION_ERROR message identifies the unknown store id', async () => {
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'any-repo2', folder_names: ['ar2'], store_id: 'store-a' }));
+
+      const err = await handleMoveRepo(ledgerRoot, 'any-repo2', { target_store_id: 'ghost' }).catch((e) => e);
+      expect((err as ApiError).message).toContain('ghost');
+    });
+
+    // AC-4: unknown repoId ─────────────────────────────────────────────
+
+    it('AC-4: unknown repoId returns NOT_FOUND', async () => {
+      await expect(
+        handleMoveRepo(ledgerRoot, 'no-such-repo', { target_store_id: 'store-b' })
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    // AC-5: single-store mode ──────────────────────────────────────────
+
+    it('AC-5: call in single-store mode returns VALIDATION_ERROR', async () => {
+      mockIsInitialized.mockReturnValue(false);
+
+      await expect(
+        handleMoveRepo(ledgerRoot, 'any', { target_store_id: 'store-b' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('AC-5: VALIDATION_ERROR when multi-store mode is false but context is initialized', async () => {
+      mockGetStoreRouter.mockReturnValue({
+        isMultiStoreMode: () => false,
+        getAllStores:      () => [],
+        resolveDefaultStore: () => storeA,
+      });
+
+      await expect(
+        handleMoveRepo(ledgerRoot, 'any', { target_store_id: 'store-b' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    // AC-6: ID conflict in target ──────────────────────────────────────
+
+    it('AC-6: ID conflict in target registry returns VALIDATION_ERROR', async () => {
+      // Create 'conflict-repo' in both stores
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'conflict-repo', folder_names: ['cf-a'], store_id: 'store-a' }));
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'conflict-repo', folder_names: ['cf-b'], store_id: 'store-b' }));
+
+      await expect(
+        handleMoveRepo(ledgerRoot, 'conflict-repo', { target_store_id: 'store-b' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    // AC-7: folder_name conflict in target ────────────────────────────
+
+    it('AC-7: folder name conflict in target registry returns VALIDATION_ERROR', async () => {
+      // Repo in store-a uses folder 'shared-folder'
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'src-repo', folder_names: ['shared-folder'], store_id: 'store-a' }));
+      // Different repo in store-b already claims the same folder name
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'occupant', folder_names: ['shared-folder'], store_id: 'store-b' }));
+
+      await expect(
+        handleMoveRepo(ledgerRoot, 'src-repo', { target_store_id: 'store-b' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+  });
+
+  // ── handleGetRepo store_id enrichment ──────────────────────────────────
+
+  describe('handleGetRepo store_id enrichment', () => {
+    let storeA: string;
+    let storeB: string;
+
+    beforeEach(async () => {
+      storeA = await mkdtemp(join(tmpdir(), 'getrepo-store-a-'));
+      storeB = await mkdtemp(join(tmpdir(), 'getrepo-store-b-'));
+    });
+
+    afterEach(async () => {
+      await rm(storeA, { recursive: true, force: true });
+      await rm(storeB, { recursive: true, force: true });
+    });
+
+    it('returns store_id matching the owning store in multi-store mode', async () => {
+      mockIsInitialized.mockReturnValue(true);
+      mockGetStoreRouter.mockReturnValue({
+        isMultiStoreMode:    () => true,
+        getAllStores:        () => [
+          { id: 'store-a', path: storeA, label: 'Store A' },
+          { id: 'store-b', path: storeB, label: 'Store B' },
+        ],
+        resolveDefaultStore: () => storeA,
+      });
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'enriched-repo', folder_names: ['er'], store_id: 'store-a' }));
+
+      const result = await handleGetRepo(ledgerRoot, 'enriched-repo');
+
+      expect(result.store_id).toBe('store-a');
+    });
+
+    it('omits store_id from the response in single-store mode', async () => {
+      mockIsInitialized.mockReturnValue(false);
+      await handleCreateRepo(ledgerRoot, makeBody({ id: 'single-repo', folder_names: ['sr'] }));
+
+      const result = await handleGetRepo(ledgerRoot, 'single-repo');
+
+      expect(result.store_id).toBeUndefined();
     });
   });
 });

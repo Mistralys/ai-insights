@@ -521,9 +521,8 @@ var API = (function () {
      *   - `#new-repo-folders` receives the raw `r.id` (unchanged).
      *
      * `sanitiseSlug` is a local function scoped inside `renderStrategyList` and
-     * is not accessible from `renderStrategyDetail` or other view functions. If
-     * slug sanitisation is ever needed elsewhere, the function must be duplicated
-     * or elevated to module scope. If the backend undeclared entry shape ever
+     * is not accessible from other view functions. If slug sanitisation is ever
+     * needed elsewhere, the function must be duplicated or elevated to module scope. If the backend undeclared entry shape ever
      * changes, the pre-fill logic in `wireRegisterButtons` must be updated
      * accordingly.
      *
@@ -579,6 +578,18 @@ var API = (function () {
      */
     deleteRepo: function (repoId) {
       return request('DELETE', '/repos/' + encodeURIComponent(repoId));
+    },
+
+    /**
+     * Move a repository entry to a different store.
+     *
+     * @param {string} repoId        - Repository ID (URI-encoded automatically).
+     * @param {string} targetStoreId - ID of the destination store.
+     * @returns {Promise<object>} Updated repository from `POST /api/repos/{repoId}/move`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    moveRepo: function (repoId, targetStoreId) {
+      return request('POST', '/repos/' + encodeURIComponent(repoId) + '/move', { target_store_id: targetStoreId });
     },
 
     // -- Stores --------------------------------------------------------

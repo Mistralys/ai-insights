@@ -687,7 +687,7 @@ function renderProjectDetail(app, repo, slug) {
           '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
           '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
           '<strong>Repository:</strong> ' + (repoData
-            ? '<a href="#/strategy/' + encodeURIComponent(repo) + '">' + escapeHtml(repoLabel) + '</a>'
+            ? '<a href="#/strategy">' + escapeHtml(repoLabel) + '</a>'
             : escapeHtml(repoLabel)) + '<br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
           (meta.runner_client || meta.runner
