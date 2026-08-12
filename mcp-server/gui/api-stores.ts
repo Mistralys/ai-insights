@@ -19,8 +19,9 @@
  * Validation rules:
  *   - `id`: must match SLUG_REGEX; must not be a reserved word ("import",
  *     "order", "conflicts"); must be unique.
- *   - `path`: must be absolute (/...) or home-relative (~/...); relative paths
- *     are rejected. Duplicate resolved paths are rejected with 409.
+ *   - `path`: must be absolute (/... or C:\... on Windows) or home-relative
+ *     (~/...); relative paths are rejected. Duplicate resolved paths are rejected
+ *     with 409.
  *   - `label`: optional; trimmed; whitespace-only rejected with 400.
  *
  * Git detection:
@@ -164,14 +165,19 @@ async function buildEnrichedMultiStoreList(config: StoresConfig): Promise<StoreL
   );
 }
 
+/** Returns true for Windows absolute paths like C:\ or C:/. */
+function isWindowsAbsolutePath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p);
+}
+
 /**
- * Rejects relative paths. Absolute paths start with '/' and home-relative
- * paths start with '~/' or are exactly '~'.
+ * Rejects relative paths. Accepts Unix absolute (/...), home-relative (~/...),
+ * and Windows absolute paths (C:\... or C:/...).
  */
 function assertAbsolutePath(rawPath: string): void {
-  if (!rawPath.startsWith('/') && !rawPath.startsWith('~/') && rawPath !== '~') {
+  if (!rawPath.startsWith('/') && !rawPath.startsWith('~/') && rawPath !== '~' && !isWindowsAbsolutePath(rawPath)) {
     validationError(
-      `Store path must be absolute (starting with /) or home-relative (starting with ~/). ` +
+      `Store path must be absolute (starting with / or a drive letter on Windows) or home-relative (starting with ~/). ` +
         `Relative paths are not supported.`
     );
   }

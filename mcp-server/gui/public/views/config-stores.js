@@ -50,7 +50,8 @@ function csValidateId(id) {
 function csValidatePath(path) {
   if (!path || !path.trim()) return 'Path is required.';
   var p = path.trim();
-  if (p.charAt(0) !== '/' && p.substring(0, 2) !== '~/') return 'Path must be an absolute path (starting with / or ~/).';
+  var isWinAbsolute = /^[A-Za-z]:[\\/]/.test(p);
+  if (p.charAt(0) !== '/' && p.substring(0, 2) !== '~/' && !isWinAbsolute) return 'Path must be an absolute path (starting with /, ~/, or a drive letter on Windows).';
   return '';
 }
 
