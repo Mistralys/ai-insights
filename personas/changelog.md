@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.30.1 - **WIP UNRELEASED**
+- Standalone: Git Committer adds "Verify before deleting after moves" safety constraint.
 - Standalone: Git Committer plan archival now includes `request.md` alongside `plan.md` and `synthesis.md`.
 - LedgerSupport: Knowledge Archiver philosophy rewritten with positive framing per design guide v2.3.
 - Ledger: Project Manager now uses the `ledger_ping` tool instead of `ledger_help`.

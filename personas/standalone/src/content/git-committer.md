@@ -175,6 +175,8 @@ After approval:
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) are permitted.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.
+- **Verify before deleting after moves.** `git mv` fails silently when the source file is untracked — the file is not move
+d, but no error is raised. Never follow a batch of `git mv` operations with a forced directory removal. If `git mv` silently failed, the originals still reside in the source directory and a blind delete permanently destroys them with no Git history to recover from. Safe procedure: use plain filesystem moves for untracked files (or `git add` them first so `git mv` can track them), then verify with `git status` that the destination files exist and are staged before removing the source directory.
 - **No date-only commits for generated files.** When a dynamically generated file's diff consists solely of a changed generation date, timestamp, or `generated-at` value, exclude it from staging. This applies to `.context/` artefacts and any other generated files where the tooling updates a date on every run. A CTX commit requires at least one file with substantive content changes beyond timestamps.
 
 ## Pre-Execution Checklist
