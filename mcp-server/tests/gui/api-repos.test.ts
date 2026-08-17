@@ -766,6 +766,134 @@ describe('WP-006 — handleListRepos: multi-store consolidated code path', () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// handleListRepos — include_undeclared in multi-store mode
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('handleListRepos — include_undeclared in multi-store mode', () => {
+  let tempDir: string;
+  let storeAPath: string;
+  let storeBPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'api-repos-undeclared-multi-'));
+    storeAPath = join(tempDir, 'store-a');
+    storeBPath = join(tempDir, 'store-b');
+    await mkdir(storeAPath, { recursive: true });
+    await mkdir(storeBPath, { recursive: true });
+  });
+
+  afterEach(async () => {
+    restoreStoreContextToLegacy();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  function initTwoStoreContext(): void {
+    const config = makeStoreConfig([
+      { id: 'store-a', path: storeAPath, label: 'Store A' },
+      { id: 'store-b', path: storeBPath, label: 'Store B' },
+    ]);
+    const router = new StoreRouter(config);
+    setStoreContext(router, new MultiStoreManager(router));
+  }
+
+  // AC-01: returns undeclared entries from each store with correct store_id
+  it('returns undeclared entries from each store with correct store_id', async () => {
+    await seedNamespaceProject(storeAPath, 'ns-a');
+    await seedNamespaceProject(storeBPath, 'ns-b');
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored', true);
+
+    const nsA = result.find((r) => r.id === 'ns-a');
+    const nsB = result.find((r) => r.id === 'ns-b');
+    expect(nsA).toBeDefined();
+    expect(nsA!.store_id).toBe('store-a');
+    expect(nsA!.declared).toBe(false);
+    expect(nsB).toBeDefined();
+    expect(nsB!.store_id).toBe('store-b');
+    expect(nsB!.declared).toBe(false);
+  });
+
+  // AC-02: undeclared entries have correct synthetic shape
+  it('undeclared entries have correct synthetic shape', async () => {
+    await seedNamespaceProject(storeAPath, 'my-ns');
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored', true);
+    const item = result.find((r) => r.id === 'my-ns');
+    expect(item).toBeDefined();
+    expect(item!.label).toBe('my-ns');
+    expect(item!.folder_names).toEqual(['my-ns']);
+    expect(item!.has_vision).toBe(false);
+    expect(item!.has_full_vision).toBe(false);
+    expect(item!.declared).toBe(false);
+    expect(typeof item!.created_at).toBe('string');
+    expect(typeof item!.last_modified).toBe('string');
+  });
+
+  // AC-03: cross-store dedup — folder_name declared in any store is excluded
+  it('namespace covered by declared folder_names in any store is excluded', async () => {
+    // 'shared-ns' is declared in store A but its directory exists in store B
+    const now = new Date().toISOString();
+    await saveRegistry(storeAPath, {
+      repositories: [{
+        id: 'repo-a',
+        label: 'Repo A',
+        folder_names: ['shared-ns'],
+        vision: { short_term: null, mid_term: null, long_term: null },
+        created_at: now,
+        last_modified: now,
+      }],
+    });
+    await seedNamespaceProject(storeBPath, 'shared-ns');
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored', true);
+    const undeclaredShared = result.filter((r) => r.id === 'shared-ns' && !r.declared);
+    expect(undeclaredShared).toHaveLength(0);
+  });
+
+  // AC-04: include_undeclared defaults to false — only declared entries returned
+  it('include_undeclared defaults to false in multi-store mode', async () => {
+    await seedNamespaceProject(storeAPath, 'hidden-ns');
+    const now = new Date().toISOString();
+    await saveRegistry(storeAPath, {
+      repositories: [{
+        id: 'declared-repo',
+        label: 'Declared Repo',
+        folder_names: ['declared-repo'],
+        vision: { short_term: null, mid_term: null, long_term: null },
+        created_at: now,
+        last_modified: now,
+      }],
+    });
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored');
+    expect(result.find((r) => r.id === 'hidden-ns')).toBeUndefined();
+    expect(result.find((r) => r.id === 'declared-repo')).toBeDefined();
+  });
+
+  // AC-05: dot-prefixed directories excluded in multi-store mode
+  it('dot-prefixed directories are excluded from undeclared results in multi-store mode', async () => {
+    await seedNamespaceProject(storeAPath, '.archive');
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored', true);
+    expect(result.find((r) => r.id === '.archive')).toBeUndefined();
+  });
+
+  // AC-05: namespaces without projects excluded in multi-store mode
+  it('empty namespaces (no projects) are excluded from undeclared results in multi-store mode', async () => {
+    await mkdir(join(storeAPath, 'empty-ns'), { recursive: true });
+    initTwoStoreContext();
+
+    const result = await handleListRepos('ignored', true);
+    expect(result.find((r) => r.id === 'empty-ns')).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WP-011: handleCreateRepo / handleUpdateRepo / handleDeleteRepo — multi-store
 //         routing (write handlers locate the correct store)
 // ─────────────────────────────────────────────────────────────────────────────

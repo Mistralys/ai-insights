@@ -10,8 +10,9 @@
  *                                    Query parameters:
  *                                      ?include_undeclared=true — also return filesystem-discovered
  *                                      namespace directories that are not covered by any declared
- *                                      repo's folder_names. Undeclared entries carry declared: false
- *                                      and a synthetic shape (see RepoListItem). Defaults to false,
+ *                                      repo's folder_names. Works in both single-store and multi-
+ *                                      store modes. Undeclared entries carry declared: false and a
+ *                                      synthetic shape (see RepoListItem). Defaults to false,
  *                                      preserving the original endpoint behaviour.
  *   GET    /api/repos/:repoId      — get a single repository entry or 404
  *   POST   /api/repos              — create a new repository entry
@@ -287,11 +288,49 @@ export async function handleListRepos(
   includeUndeclared = false
 ): Promise<RepoListItem[]> {
   // Multi-store mode: return a merged view from all stores, each entry tagged with store_id.
-  // `includeUndeclared` is not supported in multi-store mode (would require scanning every
-  // store's filesystem — left as a future enhancement; returns declared entries only).
   if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
     const tagged = await getMultiStoreManager().getMergedRegistry();
-    return tagged.map((entry) => toListItem(entry, entry.store_id));
+    const declared = tagged.map((entry) => toListItem(entry, entry.store_id));
+
+    if (!includeUndeclared) {
+      return declared;
+    }
+
+    // Collect all declared folder_names across all stores for cross-store dedup.
+    const allDeclaredFolderNames = new Set<string>(tagged.flatMap((e) => e.folder_names));
+
+    const undeclaredItems: RepoListItem[] = [];
+    for (const store of getStoreRouter().getAllStores()) {
+      let dirents: import('fs').Dirent[];
+      try {
+        dirents = await readdir(store.path, { withFileTypes: true });
+      } catch {
+        continue; // Unreadable store root — skip it
+      }
+
+      const undeclaredNamespaces = dirents
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !allDeclaredFolderNames.has(d.name))
+        .map((d) => d.name);
+
+      for (const namespace of undeclaredNamespaces) {
+        const projects = await LedgerStore.listProjectsByFolderNames([namespace], store.path);
+        if (projects.length === 0) continue;
+        const now = new Date().toISOString();
+        undeclaredItems.push({
+          id: namespace,
+          label: namespace,
+          folder_names: [namespace],
+          has_vision: false,
+          has_full_vision: false,
+          created_at: now,
+          last_modified: now,
+          declared: false,
+          store_id: store.id,
+        });
+      }
+    }
+
+    return [...declared, ...undeclaredItems];
   }
 
   // Single-store / legacy mode: existing behavior

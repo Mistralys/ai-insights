@@ -44,6 +44,8 @@ function renderStrategyList(app) {
   var storeLabels = {};
   var isMultiStore = false;
   var refreshSeq = 0;
+  var currentRepoSort = 'label';
+  var currentRepoDir = 'asc';
 
   Promise.all([
     API.listRepos(false),
@@ -88,7 +90,23 @@ function renderStrategyList(app) {
     if (!repos.length) {
       return '<p class="text-muted mt-16">No repositories declared yet. Use the Add Repository button to create one.</p>';
     }
-    var rows = repos.map(function (r) {
+
+    function thRepoSort(label, key) {
+      var isActive = currentRepoSort === key;
+      var cls = 'sortable' + (isActive ? ' sort-' + currentRepoDir : '');
+      var ariaSort = isActive ? (currentRepoDir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return '<th class="' + cls + '" data-repo-sort="' + key + '" aria-sort="' + ariaSort + '" tabindex="0" role="columnheader">' + label + '</th>';
+    }
+
+    var sorted = repos.slice().sort(function (a, b) {
+      var aVal = currentRepoSort === 'id' ? (a.id || '').toLowerCase() : (a.label || a.id || '').toLowerCase();
+      var bVal = currentRepoSort === 'id' ? (b.id || '').toLowerCase() : (b.label || b.id || '').toLowerCase();
+      if (aVal < bVal) return currentRepoDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return currentRepoDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    var rows = sorted.map(function (r) {
       var storeCell = isMultiStore ? '<td>' + escapeHtml(storeLabels[r.store_id] || r.store_id || '\u2014') + '</td>' : '';
       if (r.declared === false) {
         /* Undeclared (filesystem-discovered) entry — muted row with Register button */
@@ -101,7 +119,7 @@ function renderStrategyList(app) {
             '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
             storeCell +
             '<td>' +
-              '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '">Register</button>' +
+              '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '"' + (r.store_id ? ' data-register-store="' + escapeHtml(r.store_id) + '"' : '') + '>Register</button>' +
             '</td>' +
           '</tr>'
         );
@@ -118,14 +136,41 @@ function renderStrategyList(app) {
     return (
       '<table class="data-table">' +
         '<thead><tr>' +
-          '<th>Label</th>' +
-          '<th>ID</th>' +
+          thRepoSort('Label', 'label') +
+          thRepoSort('ID', 'id') +
           (isMultiStore ? '<th>Store</th>' : '') +
           '<th>Vision</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>'
     );
+  }
+
+  function wireRepoSortHandlers() {
+    var tableEl = document.getElementById('strategy-table-area');
+    if (!tableEl) return;
+    var thead = tableEl.querySelector('thead');
+    if (!thead) return;
+    function handleRepoSortAction(e) {
+      var th = e.target.closest('th[data-repo-sort]');
+      if (!th) return;
+      var key = th.getAttribute('data-repo-sort');
+      if (currentRepoSort === key) {
+        currentRepoDir = currentRepoDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentRepoSort = key;
+        currentRepoDir = 'asc';
+      }
+      var cb = document.getElementById('show-undeclared-cb');
+      var checked = !!(cb && cb.checked);
+      refreshTable(checked);
+    }
+    thead.addEventListener('click', handleRepoSortAction);
+    thead.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.key === ' ') e.preventDefault();
+      handleRepoSortAction(e);
+    });
   }
 
   /**
@@ -143,6 +188,7 @@ function renderStrategyList(app) {
       if (tableEl) tableEl.innerHTML = buildTableHtml(repos, isMultiStore);
       wireTableButtons();
       wireToggle();
+      wireRepoSortHandlers();
     }).catch(function (err) {
       if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
       wireToggle();
@@ -183,11 +229,10 @@ function renderStrategyList(app) {
     tableEl.querySelectorAll('[data-register-folder]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var folderName = btn.getAttribute('data-register-folder');
-        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, {
-          id: sanitiseSlug(folderName),
-          label: folderName,
-          folder_names: [folderName]
-        });
+        var storeId = btn.getAttribute('data-register-store');
+        var prefill = { id: sanitiseSlug(folderName), label: folderName, folder_names: [folderName] };
+        if (storeId) prefill.store_id = storeId;
+        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, prefill);
       });
     });
     tableEl.querySelectorAll('[data-edit-repo]').forEach(function (btn) {
@@ -490,6 +535,7 @@ function renderStrategyList(app) {
 
     wireTableButtons();
     wireToggle();
+    wireRepoSortHandlers();
 
     /* Wire tab switching in multi-store mode. */
     if (isMultiStore) {
@@ -616,7 +662,8 @@ function renderRepoModal(mode, repo, stores, onSaved, prefill) {
         '<label class="form-label" for="repo-modal-store">Store</label>' +
         '<select class="form-control" id="repo-modal-store">' +
           stores.map(function (s) {
-            var selected = (!isAdd && repo && repo.store_id === s.id) ? ' selected' : '';
+            var preselectedId = isAdd ? (prefill && prefill.store_id) : (repo && repo.store_id);
+            var selected = (preselectedId === s.id) ? ' selected' : '';
             return '<option value="' + escapeHtml(s.id) + '"' + selected + '>' + escapeHtml(s.label || s.id) + '</option>';
           }).join('') +
         '</select>' +
