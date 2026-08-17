@@ -1954,6 +1954,9 @@ var Router = (function () {
   function dispatch(hash) {
     clearPolling();
     var path = (hash || '').replace(/^#/, '') || '/';
+    // Strip query string before matching; project-list.js reads the hash directly.
+    var qIdx = path.indexOf('?');
+    if (qIdx !== -1) path = path.slice(0, qIdx) || '/';
     var app = document.getElementById('app');
     if (!app) return;
 
@@ -2354,7 +2357,7 @@ function breadcrumb() {
       return api;
     },
     repo: function (repoId, repoLabel) {
-      segments.push({ label: repoLabel || repoId, href: '#/strategy' });
+      segments.push({ label: repoLabel || repoId, href: '#/?repo=' + encodeURIComponent(repoId) });
       return api;
     },
     leaf: function (label) {
@@ -3707,7 +3710,8 @@ function csValidateId(id) {
 function csValidatePath(path) {
   if (!path || !path.trim()) return 'Path is required.';
   var p = path.trim();
-  if (p.charAt(0) !== '/' && p.substring(0, 2) !== '~/') return 'Path must be an absolute path (starting with / or ~/).';
+  var isWinAbsolute = /^[A-Za-z]:[\\/]/.test(p);
+  if (p.charAt(0) !== '/' && p.substring(0, 2) !== '~/' && !isWinAbsolute) return 'Path must be an absolute path (starting with /, ~/, or a drive letter on Windows).';
   return '';
 }
 
@@ -3881,6 +3885,12 @@ function csRenderStoreModal(mode, store) {
         '<label class="form-label" for="cs-modal-path">Path</label>' +
         '<input class="form-control" type="text" id="cs-modal-path" autocomplete="off" placeholder="e.g. /home/user/ledger">' +
         '<span class="cs-modal-field-error" id="cs-modal-path-err"></span>' +
+        '<div class="cs-modal-dir-note" id="cs-modal-dir-note-create" style="' + (csModalCreateDir ? '' : 'display:none') + '">' +
+          'The directory will be created at this path if it does not already exist.' +
+        '</div>' +
+        '<div class="cs-modal-dir-note" id="cs-modal-dir-note-existing" style="' + (csModalCreateDir ? 'display:none' : '') + '">' +
+          'The directory must already exist and be the root containing project folders and <code>.repositories.json</code>.' +
+        '</div>' +
       '</div>'
     : '<div class="cs-modal-field-group">' +
         '<label class="form-label">Path</label>' +
@@ -3896,9 +3906,6 @@ function csRenderStoreModal(mode, store) {
         '<label class="cs-radio-option">' +
           '<input type="radio" name="cs-dir-mode" value="existing" ' + (!csModalCreateDir ? 'checked' : '') + '> Use existing directory' +
         '</label>' +
-        '<div class="cs-modal-dir-note" id="cs-modal-dir-note" style="' + (csModalCreateDir ? 'display:none' : '') + '">' +
-          'The directory must already exist. Any existing <code>.repositories.json</code> will be preserved.' +
-        '</div>' +
       '</div>'
     : '';
 
@@ -3923,9 +3930,9 @@ function csRenderStoreModal(mode, store) {
         '</div>' +
         '<div class="cs-modal-body">' +
           idField +
-          pathField +
-          dirModeField +
           labelField +
+          dirModeField +
+          pathField +
           '<div id="cs-modal-error"></div>' +
         '</div>' +
         '<div class="cs-modal-footer">' +
@@ -3953,8 +3960,10 @@ function csRenderStoreModal(mode, store) {
   for (var i = 0; i < radios.length; i++) {
     radios[i].addEventListener('change', function () {
       csModalCreateDir = document.querySelector('input[name="cs-dir-mode"]:checked').value === 'create';
-      var note = document.getElementById('cs-modal-dir-note');
-      if (note) note.style.display = csModalCreateDir ? 'none' : '';
+      var noteCreate   = document.getElementById('cs-modal-dir-note-create');
+      var noteExisting = document.getElementById('cs-modal-dir-note-existing');
+      if (noteCreate)   noteCreate.style.display   = csModalCreateDir ? '' : 'none';
+      if (noteExisting) noteExisting.style.display = csModalCreateDir ? 'none' : '';
     });
   }
 
@@ -4426,8 +4435,8 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
     '<div class="config-tabs" id="config-tab-bar">' +
-      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
+      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
       '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
     '</div>' +
@@ -4599,9 +4608,9 @@ function renderKnowledge(app) {
   var filterCategory     = '';
   var filterRepository   = '';
   var filterQuery        = '';
-  var editingId       = null;       /* numeric id of card in edit mode */
-  var confirmDeleteId = null;       /* numeric id of card in delete-confirm mode */
-  var movingId        = null;       /* numeric id of card in move mode */
+  var editingId       = null;       /* UUID string id of card in edit mode */
+  var confirmDeleteId = null;       /* UUID string id of card in delete-confirm mode */
+  var movingId        = null;       /* UUID string id of card in move mode */
 
   /* ── formatConfidence ────────────────────────────────────── */
   function formatConfidence(value) {
@@ -4706,7 +4715,7 @@ function renderKnowledge(app) {
 
       /* ── Superseded-by notice ── */
       var supersededHtml = ins.superseded_by != null
-        ? '<p class="text-muted" style="font-size:12px">Superseded by KN-' + ins.superseded_by + '</p>'
+        ? '<p class="text-muted" style="font-size:12px">Superseded by ' + escapeHtml(String(ins.superseded_by)) + '</p>'
         : '';
 
       /* ── Inline edit form ── */
@@ -4889,6 +4898,9 @@ function renderKnowledge(app) {
   }
 
   /* ── wireEvents ──────────────────────────────────────────── */
+  /* data-id attributes carry UUID strings (not integers). Read them as raw
+     strings — do not coerce with parseInt. All state comparisons (editingId,
+     confirmDeleteId, movingId) and DOM element ID suffixes use string equality. */
   function wireEvents(fb) {
     /* Tab bar */
     var tabButtons = document.querySelectorAll('.knowledge-tab');
@@ -4934,7 +4946,7 @@ function renderKnowledge(app) {
 
       var action = btn.getAttribute('data-action');
       var rawId  = btn.getAttribute('data-id');
-      var id     = parseInt(rawId, 10);
+      var id     = rawId; // UUID string — do not coerce to int
 
       if (action === 'edit') {
         editingId       = id;
@@ -5032,7 +5044,7 @@ function renderKnowledge(app) {
       e.preventDefault();
 
       var formId = form.id.replace('kn-edit-form-', '');
-      var eid    = parseInt(formId, 10);
+      var eid    = formId; // UUID string — do not coerce to int
 
       /* Find insight to get scope/repository_name */
       var original = allInsights.find(function (ins) { return ins.id === eid; });
@@ -6239,6 +6251,7 @@ function _snapshotProjectState(project, overviewResult) {
     wpStatuses[wp.work_package_id] = {
       status: wp.status || '',
       pipelineStages: [],
+      assigned_to: wp.assigned_to || '',
     };
   });
 
@@ -6259,9 +6272,12 @@ function _snapshotProjectState(project, overviewResult) {
         : [];
       if (wpStatuses[id]) {
         wpStatuses[id].pipelineStages = stages;
+        if (entry.assigned_to !== undefined) {
+          wpStatuses[id].assigned_to = entry.assigned_to || '';
+        }
       } else {
         // Overview entry present without a matching WP in the main list.
-        wpStatuses[id] = { status: '', pipelineStages: stages };
+        wpStatuses[id] = { status: '', pipelineStages: stages, assigned_to: entry.assigned_to || '' };
       }
     });
   }
@@ -6349,6 +6365,10 @@ function _diffProjectState(prev, next) {
     var nextStagesStr = JSON.stringify(nextWp.pipelineStages || []);
     if (prevStagesStr !== nextStagesStr) {
       markData('wp.' + id + '.pipelineStages', prevWp.pipelineStages, nextWp.pipelineStages);
+    }
+
+    if (prevWp.assigned_to !== nextWp.assigned_to) {
+      markData('wp.' + id + '.assigned_to', prevWp.assigned_to, nextWp.assigned_to);
     }
   });
 
@@ -7286,12 +7306,13 @@ function _patchProjectStatus(newStatus) {
 
 /**
  * Update a single WP row's status badge and pipeline track cells in-place.
- * Leaves the WP ID and assigned-to cells untouched.
+ * Leaves the WP ID and assigned-to cells untouched unless newAssignedTo is provided.
  * @param {string} wpId             - Work package ID (e.g. 'WP-001').
  * @param {string} newStatus        - New WP status string.
  * @param {string} newPipelineTrack - New pipeline track HTML (from buildPipelineTrack).
+ * @param {string} [newAssignedTo]  - New assigned-to value; omit to leave cell unchanged.
  */
-function _patchWpRow(wpId, newStatus, newPipelineTrack) {
+function _patchWpRow(wpId, newStatus, newPipelineTrack, newAssignedTo) {
   var row = document.querySelector('tr[data-wp-id="' + escapeHtml(wpId) + '"]');
   if (!row) return;
 
@@ -7307,6 +7328,14 @@ function _patchWpRow(wpId, newStatus, newPipelineTrack) {
   if (pipelineCell) {
     if (pipelineCell.innerHTML !== newPipelineTrack) {
       pipelineCell.innerHTML = newPipelineTrack;
+    }
+  }
+
+  var assignedCell = row.querySelector('.wp-assigned-cell');
+  if (assignedCell && newAssignedTo !== undefined) {
+    var newAssignedHtml = escapeHtml(newAssignedTo || '\u2014');
+    if (assignedCell.innerHTML !== newAssignedHtml) {
+      assignedCell.innerHTML = newAssignedHtml;
     }
   }
 }
@@ -7527,12 +7556,13 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
     wpIds.forEach(function (id) {
       var statusChanged   = !!changes['wp.' + id + '.status'];
       var pipelineChanged = !!changes['wp.' + id + '.pipelineStages'];
-      if (statusChanged || pipelineChanged) {
+      var assignedChanged = !!changes['wp.' + id + '.assigned_to'];
+      if (statusChanged || pipelineChanged || assignedChanged) {
         var wpEntry = nextSnapshot.wpStatuses[id];
         // Re-build the pipeline track HTML from the new stages array.
         var fakeOverviewEntry = { pipeline_stages: wpEntry.pipelineStages };
         var newTrackHtml = buildPipelineTrack(fakeOverviewEntry);
-        _patchWpRow(id, wpEntry.status, newTrackHtml);
+        _patchWpRow(id, wpEntry.status, newTrackHtml, wpEntry.assigned_to);
       }
     });
 
@@ -7687,7 +7717,7 @@ function renderProjectDetail(app, repo, slug) {
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '" data-wp-id="' + escapeHtml(wp.work_package_id) + '">' +
         '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a>' + titleLabel + '</td>' +
         '<td class="wp-pipeline-track-cell">' + pipelineCell + '</td>' +
-        '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
+        '<td class="wp-assigned-cell">' + escapeHtml(wp.assigned_to || '\u2014') + '</td>' +
         '<td class="wp-status-cell">' + statusBadge(wp.status) + '</td>' +
       '</tr>';
     }).join('');
@@ -8325,6 +8355,23 @@ function renderProjectList(app) {
   var PAGE_LIMIT_STORAGE = 'mcp-page-limit';
   var STATUS_STORAGE = 'mcp-status-filter';
   var RUNNER_STORAGE = 'mcp-runner-filter';
+  var REPO_STORAGE   = 'mcp-repo-filter';
+
+  // Decode incoming ?repo= from the hash (written by breadcrumb repo links).
+  (function () {
+    var hash = window.location.hash || '';
+    var qIdx = hash.indexOf('?');
+    if (qIdx !== -1) {
+      var qs = hash.slice(qIdx + 1);
+      var params = new URLSearchParams(qs);
+      var repoParam = params.get('repo');
+      if (repoParam !== null) {
+        localStorage.setItem(REPO_STORAGE, repoParam);
+        // Strip the query from the hash so it doesn't persist on reload.
+        history.replaceState(null, '', window.location.pathname + '#/');
+      }
+    }
+  }());
 
   // --- Pagination / filter state (localStorage-persisted where noted) ---
   var currentPage = 1;
@@ -8334,6 +8381,7 @@ function renderProjectList(app) {
   }());
   var currentStatus = localStorage.getItem(STATUS_STORAGE) || 'ACTIVE';
   var currentRunner = localStorage.getItem(RUNNER_STORAGE) || '';
+  var currentRepo   = localStorage.getItem(REPO_STORAGE)   || '';
   var currentSearch = '';
   var currentSort = localStorage.getItem(SORT_KEY_STORAGE) || 'last_updated';
   var currentDir = localStorage.getItem(SORT_DIR_STORAGE) || 'desc';
@@ -8432,6 +8480,48 @@ function renderProjectList(app) {
       html += '<option value="' + escapeHtml(r) + '"' + sel + '>' + escapeHtml(label + cnt) + '</option>';
     });
 
+    return html;
+  }
+
+  // ── Build repo filter dropdown options ──
+  // Only includes repos that have at least one project (from repo_counts).
+  // Groups folder names that belong to the same registered repo into one entry
+  // (a repo can have multiple folder_names, e.g. dev-branch aliases).
+  // Option values are repo IDs (or raw folder names for undeclared repos).
+  function buildRepoOptions(repoCounts) {
+    var counts = repoCounts || {};
+
+    // Aggregate counts by repo ID; collect label in the same pass.
+    var idCounts = {};
+    var idLabels = {};
+    Object.keys(counts).forEach(function (folderName) {
+      var entry = repoFolderMap[folderName];
+      var id    = entry ? entry.id    : folderName;
+      var label = entry ? entry.label : folderName;
+      idCounts[id] = (idCounts[id] || 0) + (counts[folderName] || 0);
+      if (!idLabels[id]) idLabels[id] = label;
+    });
+
+    // Collect IDs that have at least one project, sorted by label.
+    var activeRepos = Object.keys(idCounts).filter(function (id) {
+      return idCounts[id] > 0;
+    }).sort(function (a, b) {
+      return (idLabels[a] || a).localeCompare(idLabels[b] || b);
+    });
+
+    // If the current selection is stale, keep it visible so the user can clear it.
+    if (currentRepo && idCounts[currentRepo] === undefined) {
+      activeRepos.push(currentRepo);
+    }
+
+    var allSel = currentRepo === '' ? ' selected' : '';
+    var html = '<option value=""' + allSel + '>All</option>';
+    activeRepos.forEach(function (id) {
+      var label = idLabels[id] || id;
+      var cnt   = idCounts[id] !== undefined ? ' (' + idCounts[id] + ')' : '';
+      var sel   = id === currentRepo ? ' selected' : '';
+      html += '<option value="' + escapeHtml(id) + '"' + sel + '>' + escapeHtml(label + cnt) + '</option>';
+    });
     return html;
   }
 
@@ -8592,6 +8682,7 @@ function renderProjectList(app) {
     var projects = envelope.projects;
     var statusCounts = envelope.status_counts || {};
     var runnerCounts = envelope.runner_counts || {};
+    var repoCounts   = envelope.repo_counts   || {};
 
     // Preserve search input focus state across DOM rebuild
     var searchHadFocus = false;
@@ -8607,6 +8698,7 @@ function renderProjectList(app) {
     var plFb = UI.filterBar('pl-filter-bar', [
       { type: 'text',   id: 'project-search', placeholder: 'Search projects\u2026', value: currentSearch },
       { type: 'select', id: 'status-filter',  label: 'Status:', optionsHtml: buildStatusOptions(statusCounts) },
+      { type: 'select', id: 'repo-filter',    label: 'Repository:', optionsHtml: buildRepoOptions(repoCounts) },
       { type: 'select', id: 'runner-filter',  label: 'Runner:', optionsHtml: buildRunnerOptions(runnerCounts) }
     ]);
 
@@ -8674,6 +8766,10 @@ function renderProjectList(app) {
       if (state['runner-filter'] !== currentRunner) {
         currentRunner = state['runner-filter'];
         localStorage.setItem(RUNNER_STORAGE, currentRunner);
+      }
+      if (state['repo-filter'] !== currentRepo) {
+        currentRepo = state['repo-filter'];
+        localStorage.setItem(REPO_STORAGE, currentRepo);
       }
       currentPage = 1;
       load();
@@ -8831,6 +8927,7 @@ function renderProjectList(app) {
         sort: currentSort,
         dir: currentDir,
         runner: currentRunner || undefined,
+        repository: currentRepo || undefined,
       }),
       API.listRepos().catch(function () { return []; }),
     ]).then(function (results) {
@@ -9436,6 +9533,8 @@ function renderStrategyList(app) {
   var storeLabels = {};
   var isMultiStore = false;
   var refreshSeq = 0;
+  var currentRepoSort = 'label';
+  var currentRepoDir = 'asc';
 
   Promise.all([
     API.listRepos(false),
@@ -9480,7 +9579,23 @@ function renderStrategyList(app) {
     if (!repos.length) {
       return '<p class="text-muted mt-16">No repositories declared yet. Use the Add Repository button to create one.</p>';
     }
-    var rows = repos.map(function (r) {
+
+    function thRepoSort(label, key) {
+      var isActive = currentRepoSort === key;
+      var cls = 'sortable' + (isActive ? ' sort-' + currentRepoDir : '');
+      var ariaSort = isActive ? (currentRepoDir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return '<th class="' + cls + '" data-repo-sort="' + key + '" aria-sort="' + ariaSort + '" tabindex="0" role="columnheader">' + label + '</th>';
+    }
+
+    var sorted = repos.slice().sort(function (a, b) {
+      var aVal = currentRepoSort === 'id' ? (a.id || '').toLowerCase() : (a.label || a.id || '').toLowerCase();
+      var bVal = currentRepoSort === 'id' ? (b.id || '').toLowerCase() : (b.label || b.id || '').toLowerCase();
+      if (aVal < bVal) return currentRepoDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return currentRepoDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    var rows = sorted.map(function (r) {
       var storeCell = isMultiStore ? '<td>' + escapeHtml(storeLabels[r.store_id] || r.store_id || '\u2014') + '</td>' : '';
       if (r.declared === false) {
         /* Undeclared (filesystem-discovered) entry — muted row with Register button */
@@ -9493,7 +9608,7 @@ function renderStrategyList(app) {
             '<td class="text-muted">' + escapeHtml(r.id) + '</td>' +
             storeCell +
             '<td>' +
-              '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '">Register</button>' +
+              '<button type="button" class="btn btn-secondary btn-sm" data-register-folder="' + escapeHtml(r.id) + '"' + (r.store_id ? ' data-register-store="' + escapeHtml(r.store_id) + '"' : '') + '>Register</button>' +
             '</td>' +
           '</tr>'
         );
@@ -9510,14 +9625,41 @@ function renderStrategyList(app) {
     return (
       '<table class="data-table">' +
         '<thead><tr>' +
-          '<th>Label</th>' +
-          '<th>ID</th>' +
+          thRepoSort('Label', 'label') +
+          thRepoSort('ID', 'id') +
           (isMultiStore ? '<th>Store</th>' : '') +
           '<th>Vision</th>' +
         '</tr></thead>' +
         '<tbody>' + rows + '</tbody>' +
       '</table>'
     );
+  }
+
+  function wireRepoSortHandlers() {
+    var tableEl = document.getElementById('strategy-table-area');
+    if (!tableEl) return;
+    var thead = tableEl.querySelector('thead');
+    if (!thead) return;
+    function handleRepoSortAction(e) {
+      var th = e.target.closest('th[data-repo-sort]');
+      if (!th) return;
+      var key = th.getAttribute('data-repo-sort');
+      if (currentRepoSort === key) {
+        currentRepoDir = currentRepoDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentRepoSort = key;
+        currentRepoDir = 'asc';
+      }
+      var cb = document.getElementById('show-undeclared-cb');
+      var checked = !!(cb && cb.checked);
+      refreshTable(checked);
+    }
+    thead.addEventListener('click', handleRepoSortAction);
+    thead.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.key === ' ') e.preventDefault();
+      handleRepoSortAction(e);
+    });
   }
 
   /**
@@ -9535,6 +9677,7 @@ function renderStrategyList(app) {
       if (tableEl) tableEl.innerHTML = buildTableHtml(repos, isMultiStore);
       wireTableButtons();
       wireToggle();
+      wireRepoSortHandlers();
     }).catch(function (err) {
       if (tableEl) showError(tableEl, 'Failed to load repositories: ' + (err.message || String(err)));
       wireToggle();
@@ -9575,11 +9718,10 @@ function renderStrategyList(app) {
     tableEl.querySelectorAll('[data-register-folder]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var folderName = btn.getAttribute('data-register-folder');
-        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, {
-          id: sanitiseSlug(folderName),
-          label: folderName,
-          folder_names: [folderName]
-        });
+        var storeId = btn.getAttribute('data-register-store');
+        var prefill = { id: sanitiseSlug(folderName), label: folderName, folder_names: [folderName] };
+        if (storeId) prefill.store_id = storeId;
+        renderRepoModal('add', null, currentStores, function () { renderStrategyList(app); }, prefill);
       });
     });
     tableEl.querySelectorAll('[data-edit-repo]').forEach(function (btn) {
@@ -9882,6 +10024,7 @@ function renderStrategyList(app) {
 
     wireTableButtons();
     wireToggle();
+    wireRepoSortHandlers();
 
     /* Wire tab switching in multi-store mode. */
     if (isMultiStore) {
@@ -10008,7 +10151,8 @@ function renderRepoModal(mode, repo, stores, onSaved, prefill) {
         '<label class="form-label" for="repo-modal-store">Store</label>' +
         '<select class="form-control" id="repo-modal-store">' +
           stores.map(function (s) {
-            var selected = (!isAdd && repo && repo.store_id === s.id) ? ' selected' : '';
+            var preselectedId = isAdd ? (prefill && prefill.store_id) : (repo && repo.store_id);
+            var selected = (preselectedId === s.id) ? ' selected' : '';
             return '<option value="' + escapeHtml(s.id) + '"' + selected + '>' + escapeHtml(s.label || s.id) + '</option>';
           }).join('') +
         '</select>' +

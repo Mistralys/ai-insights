@@ -192,7 +192,7 @@ _SOURCE: MCP server source directory tree_
         │   │   ├── create-namespaced-project.ts
         │   │   ├── make-project.ts
         │   ├── insights-knowledge-links.test.ts
-        │   ├── knowledge-api.test.ts
+        │   ├── knowledge-api-multi-store.test.ts
         │   ├── knowledge-repository-scope.test.ts
         │   ├── log-resolver.test.ts
         │   ├── model-registry.test.ts
@@ -213,6 +213,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── project-detail-wp-title.test.ts
         │   ├── project-list.test.ts
         │   ├── queue-ledger-status.test.ts
+        │   ├── queue-multi-store.test.ts
         │   ├── queue/
         │   │   ├── compute-effective-status.test.ts
         │   │   ├── format-progress-entry.test.ts

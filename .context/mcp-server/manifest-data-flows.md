@@ -1718,7 +1718,7 @@ Substring match (case-insensitive) against title, content, each tag
 Post-filter by tags array (AND semantics, if provided)
 Apply limit slice (if provided)
   ↓
-Return matched Insight[] (each augmented with formatted_id: 'KN-NNNN') to agent
+Return matched Insight[] to agent
 ```
 
 **Result:** Agent receives a list of matching insights. If a substantively similar insight exists, agent skips the commit (deduplication). If no match or a complementary match, agent proceeds to commit.
@@ -1739,15 +1739,14 @@ withLock(knowledgeDir(), async () => {        ← single lock scope for entire r
     ↓
   store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
     ↓
-  insight = { id: store.next_id, ...fields, created_at: now() }
+  insight = { id: randomUUID(), ...fields, created_at: now() }
   store.insights.push(insight)
-  store.next_id += 1
   store.last_updated = now()
     ↓
   await atomicWriteJson(storePath, store)      ← write-to-temp-then-rename
 })
   ↓
-Return { ...insight, formatted_id: 'KN-NNNN' } to agent
+Return insight to agent
 ```
 
 **Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{repository_name}-insights.json` (scope: repository). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
@@ -1792,7 +1791,7 @@ handleListKnowledge(ledgerRoot, params)
           (substring match → tag intersection filter → offset/limit pagination — all in searchInsights())
     NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, repository_name, limit, offset })
   ↓
-  Return Insight[] (each augmented with formatted_id)
+  Return Insight[]
   ↓
 gui/server.ts → HTTP 200 { data: Insight[] }
 ```
@@ -1816,7 +1815,7 @@ gui/server.ts dispatchRoute() → Route{ method:'DELETE', path:/^\/api\/knowledg
   ↓
 handleDeleteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
-  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-UUID-v4 strings
   InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'repository'
   repository_name required when scope === 'repository'  ← throws VALIDATION_ERROR if absent
   SLUG_REGEX.test(repository_name)  ← throws VALIDATION_ERROR for malformed slugs (WP-004)
@@ -1845,24 +1844,22 @@ gui/server.ts dispatchRoute() → Route{ method:'POST', path:/^\/api\/knowledge\
   ↓
 handlePromoteKnowledge(ledgerRoot, rawId, scope, repository_name)
   ↓
-  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-UUID-v4 strings
   scope must be 'repository'  ← scope='global' throws VALIDATION_ERROR ("already global")
   repository_name required    ← throws VALIDATION_ERROR if absent
   SLUG_REGEX.test(repository_name)  ← throws VALIDATION_ERROR for malformed slugs (WP-004)
   ↓
   KnowledgeStoreManager.moveInsight(id, { scope: 'repository', repository_name }, 'global')
     ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
-    → new insight assigned next_id from global store; new ID differs from original
-    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+    → original UUID preserved in moved insight
+    → throws 'Insight with id {uuid} not found' on miss (caught → ApiError NOT_FOUND)
   ↓
-  Return new global Insight (new numeric ID — NOT the original repository-scoped ID)
+  Return moved global Insight (same UUID as source)
   ↓
 gui/server.ts → HTTP 200 { data: Insight }
 ```
 
-**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote repository-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
-
-**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable.
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable. The original UUID is preserved — no ID change occurs on promote.
 
 ---
 
@@ -1882,7 +1879,7 @@ gui/server.ts handleRequest() special case
   ↓
 handleUpdateKnowledge(ledgerRoot, rawId, body)
   ↓
-  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-UUID-v4 strings
   KnowledgeUpdateBodySchema.safeParse(body)
     .strict() — unknown fields rejected
     scope required; repository_name required when scope === 'repository'
@@ -1920,7 +1917,7 @@ gui/server.ts handleRequest() special case
   ↓
 handleMoveKnowledge(ledgerRoot, rawId, body)
   ↓
-  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-UUID-v4 strings
   KnowledgeMoveBodySchema.safeParse(body)
     .strict() — unknown fields rejected
     source_scope required; source_repository_name required (handler-enforced) when source_scope === 'repository'
@@ -1930,10 +1927,10 @@ handleMoveKnowledge(ledgerRoot, rawId, body)
   ↓
   KnowledgeStoreManager.moveInsight(id, { scope: source_scope, repository_name: source_repository_name }, 'repository', repository_name)
     ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
-    → new insight assigned next_id from target store; new ID differs from original
-    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+    → original UUID preserved in moved insight
+    → throws 'Insight with id {uuid} not found' on miss (caught → ApiError NOT_FOUND)
   ↓
-  Return new target Insight (new numeric ID — NOT the original source ID)
+  Return moved target Insight (same UUID as source)
   ↓
 gui/server.ts → HTTP 200 { data: Insight }
 ```
@@ -1942,7 +1939,7 @@ gui/server.ts → HTTP 200 { data: Insight }
 - `global → repository`: moves a global insight into a named repository store.
 - `repository → repository`: moves a repository insight to a different repository (`source_repository_name !== repository_name` enforced).
 
-**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable. The original UUID is preserved — no ID change occurs on move.
 
 ---
 

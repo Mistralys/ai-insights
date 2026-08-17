@@ -257,7 +257,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── dispatch-route.test.ts
     │   │   ├── handoff-config-integration.test.ts
     │   │   ├── insights-knowledge-links.test.ts
-    │   │   ├── knowledge-api.test.ts
+    │   │   ├── knowledge-api-multi-store.test.ts
     │   │   ├── knowledge-repository-scope.test.ts
     │   │   ├── log-resolver.test.ts
     │   │   ├── model-registry.test.ts
@@ -278,6 +278,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── project-detail-wp-title.test.ts
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
+    │   │   ├── queue-multi-store.test.ts
     │   │   ├── route-structured-format.test.ts
     │   │   ├── route-table.test.ts
     │   │   ├── router-utils.test.ts
@@ -688,6 +689,7 @@ _SOURCE: Top-level directory tree_
     │   ├── persona-model-resolution.js
     │   ├── store-commands.js
     │   ├── yaml-utils.js
+    ├── migrate-knowledge-uuids.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js

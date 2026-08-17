@@ -60,6 +60,7 @@ vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
 changelog: |
+  1.3.0 (2026-08-04): Removed spec file creation and verification steps; protocol reduced from 7 to 5 steps; description promoted to required field in ledger_create_work_package
   1.2.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
   1.1.0 (2026-05-19): WP spec template carries all draft fields verbatim; no summarization
   1.0.0 (2026-03-16): Initial release — ledger WP initialization via MCP tools

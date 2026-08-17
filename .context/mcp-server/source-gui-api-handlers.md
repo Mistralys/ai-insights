@@ -53,22 +53,64 @@ _SOURCE: GUI REST route handlers: knowledge, queue, run-log, server bootstrap_
  *   handlePromoteKnowledge and handleMoveKnowledge both delegate to
  *   KnowledgeStoreManager.moveInsight(), which performs an atomic cross-store
  *   read-modify-write. The insight is deleted from the source store and inserted
- *   into the target store with a **new numeric ID** assigned by the target store's
- *   `next_id` counter. The original ID is no longer valid after the operation.
- *   Frontend consumers that need to track the moved insight must capture the
- *   pre-operation ID before calling promote/move and match by that ID — not by
- *   the new ID returned in the response.
+ *   into the target store **with its UUID preserved** — the `id` field in the
+ *   response is identical to the pre-operation ID. The `next_id` counter no longer
+ *   exists. Frontend consumers can safely reference the pre-operation ID after
+ *   a promote or move operation — the UUID does not change.
  */
 
 import { z } from 'zod';
 import { ApiError } from '../src/gui/errors.js';
 import { KnowledgeStoreManager } from '../src/storage/knowledge-store.js';
 import { InsightScope, SLUG_REGEX } from '../src/schema/knowledge.js';
+import { isStoreContextInitialized, getStoreRouter, getMultiStoreManager } from '../src/storage/store-context.js';
 import type { Insight } from '../src/schema/knowledge.js';
 
 // Re-export ApiError so consumers of this module can catch typed errors without
 // importing from a separate path.
 export { ApiError };
+
+// ---------------------------------------------------------------------------
+// Multi-store helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Iterate-and-try helper for write operations that need to locate the owning
+ * store for a given insight. Tries `fn` against each configured store in
+ * priority order, skipping stores that throw a "not found" error. Throws
+ * NOT_FOUND when no store satisfies the operation.
+ *
+ * Falls back to a single `new KnowledgeStoreManager(ledgerRoot)` call in
+ * legacy single-store mode.
+ */
+async function withKnowledgeStore<T>(
+  ledgerRoot: string,
+  fn: (manager: KnowledgeStoreManager) => Promise<T>
+): Promise<T> {
+  if (isStoreContextInitialized()) {
+    const stores = getStoreRouter().getAllStores();
+    for (const store of stores) {
+      const manager = new KnowledgeStoreManager(store.path);
+      try {
+        return await fn(manager);
+      } catch (err) {
+        if ((err as Error).message.includes('not found')) continue;
+        throw err;
+      }
+    }
+    throw new ApiError('NOT_FOUND', 'Insight not found.');
+  }
+  // Legacy single-store path: wrap 'not found' as ApiError for consistent error shape.
+  try {
+    return await fn(new KnowledgeStoreManager(ledgerRoot));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.toLowerCase().includes('not found')) {
+      throw new ApiError('NOT_FOUND', 'Insight not found.');
+    }
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Private helpers
@@ -101,7 +143,7 @@ export const KnowledgeUpdateBodySchema = z
     tags: z.array(z.string()).optional(),
     source: z.string().optional(),
     confidence: z.number().min(0).max(1).optional(),
-    superseded_by: z.number().int().nullable().optional(),
+    superseded_by: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -133,30 +175,19 @@ export const KnowledgeMoveBodySchema = z
 // ---------------------------------------------------------------------------
 
 /**
- * Parses a raw string as a positive integer insight ID.
+ * Parses a raw string as a UUID insight ID.
  *
- * Rejects:
- * - Non-numeric strings (NaN after Number())
- * - Floating-point strings (any string containing '.', e.g. "1.5", "2.0")
- * - Zero or negative integers
- *
- * The decimal-point check is performed on the raw string before numeric
- * coercion so that "2.0" (which coerces to an integer) is still rejected.
+ * Accepts any well-formed UUID (8-4-4-4-12 hex groups, case-insensitive).
+ * Rejects anything that does not match the UUID format.
  *
  * @throws ApiError VALIDATION_ERROR for any rejected value.
  */
-export function parseKnowledgeId(raw: string): number {
-  // Reject strings containing a decimal point before numeric coercion —
-  // this catches "1.5" and also "2.0", both of which the caller must treat
-  // as non-integer IDs even though Number("2.0") === 2.
-  if (raw.includes('.')) {
+export function parseKnowledgeId(raw: string): string {
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(raw)) {
     throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
   }
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) {
-    throw new ApiError('VALIDATION_ERROR', 'Invalid insight id.');
-  }
-  return n;
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -199,8 +230,6 @@ export async function handleListKnowledge(
   ledgerRoot: string,
   params: KnowledgeListParams = {}
 ): Promise<Insight[]> {
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
   // Validate scope — reject any non-nullish string that is not a valid InsightScope value.
   // Absent scope (undefined) means "no filter" and is always allowed.
   let scope: 'global' | 'repository' | undefined;
@@ -236,6 +265,14 @@ export async function handleListKnowledge(
   const offsetRaw = params.offset !== undefined ? Math.floor(Number(params.offset)) : NaN;
   const offset = !isNaN(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
 
+  if (isStoreContextInitialized()) {
+    if (params.query && params.query.trim().length > 0) {
+      return getMultiStoreManager().searchKnowledge(params.query.trim(), { scope, repository_name, category, tags, limit, offset });
+    }
+    return getMultiStoreManager().listKnowledge({ scope, category, tags, repository_name, limit, offset });
+  }
+
+  const manager = new KnowledgeStoreManager(ledgerRoot);
   if (params.query && params.query.trim().length > 0) {
     return manager.searchInsights(params.query.trim(), { scope, repository_name, category, tags, limit, offset });
   }
@@ -248,13 +285,12 @@ export async function handleListKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Updates an existing knowledge insight identified by its numeric ID.
+ * Updates an existing knowledge insight identified by its UUID.
  *
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
- * for non-integer, zero, or floating-point strings). Validates the request body
- * via `KnowledgeUpdateBodySchema` (throws VALIDATION_ERROR for unknown fields or
- * type mismatches). Extracts `scope` and `repository_name` discriminator fields to
- * scope the update to the correct store.
+ * for non-UUID strings). Validates the request body via `KnowledgeUpdateBodySchema`
+ * (throws VALIDATION_ERROR for unknown fields or type mismatches). Extracts `scope`
+ * and `repository_name` discriminator fields to scope the update to the correct store.
  *
  * `superseded_by: null` in the body is mapped to `undefined` so the field is
  * cleared (removed) on the stored insight.
@@ -262,7 +298,7 @@ export async function handleListKnowledge(
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
  * @param ledgerRoot  Absolute path to the central ledger root.
- * @param rawId       Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId       Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param body        Parsed request body (any shape — validated here).
  * @returns The updated Insight.
  */
@@ -286,17 +322,9 @@ export async function handleUpdateKnowledge(
     ...(superseded_by === null ? { superseded_by: undefined } : superseded_by !== undefined ? { superseded_by } : {}),
   };
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.updateInsight(id, updates, { scope, repository_name });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.updateInsight(id, updates, { scope, repository_name })
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -304,14 +332,13 @@ export async function handleUpdateKnowledge(
 // ---------------------------------------------------------------------------
 
 /**
- * Deletes an existing knowledge insight identified by its numeric ID.
+ * Deletes an existing knowledge insight identified by its UUID.
  *
  * Validates the raw ID string via `parseKnowledgeId` (throws VALIDATION_ERROR
- * for non-integer, zero, or floating-point strings). Requires `scope` as a
- * query parameter; when `scope === 'repository'`, `repository_name` is also required
- * (throws VALIDATION_ERROR if absent). Scopes the deletion to the correct store
- * to prevent accidental cross-scope deletion when the same numeric ID exists in
- * multiple stores.
+ * for non-UUID strings). Requires `scope` as a query parameter; when
+ * `scope === 'repository'`, `repository_name` is also required (throws
+ * VALIDATION_ERROR if absent). Scope discriminates between global and repository
+ * stores to ensure the deletion targets the correct store.
  *
  * Throws NOT_FOUND when no insight with the given ID exists in the specified scope.
  *
@@ -321,7 +348,7 @@ export async function handleUpdateKnowledge(
  * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
- * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId           Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param scope           Required scope query parameter ('global' or 'repository').
  * @param repository_name Required when scope is 'repository'; the repository name.
  * @returns `null` — consistent with other delete handlers.
@@ -351,17 +378,9 @@ export async function handleDeleteKnowledge(
     validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    await manager.deleteInsight(id, { scope: validatedScope, repository_name });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  await withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.deleteInsight(id, { scope: validatedScope, repository_name })
+  );
 
   return null;
 }
@@ -374,9 +393,9 @@ export async function handleDeleteKnowledge(
  * Promotes a repository-scoped insight to global scope using the atomic
  * KnowledgeStoreManager.moveInsight() method.
  *
- * The returned insight is the newly created global-scoped copy — it has a
- * **different numeric ID** than the original (assigned by the global store's
- * `next_id` counter). The frontend must match by pre-promote ID, not the new ID.
+ * The returned insight is the global-scoped copy — its UUID is **preserved**
+ * from the original (the `id` in the response equals the pre-promote ID).
+ * Frontend consumers can continue to reference the same UUID after promotion.
  *
  * `repository_name` is validated against `SLUG_REGEX` at this handler level
  * (after the presence check) before being forwarded to the storage layer. A malformed
@@ -384,10 +403,10 @@ export async function handleDeleteKnowledge(
  * `handleMoveKnowledge` and `handleUpdateKnowledge`.
  *
  * @param ledgerRoot      Absolute path to the central ledger root.
- * @param rawId           Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId           Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param scope           Source scope — must be "repository" (global insights cannot be promoted).
  * @param repository_name Required when scope is "repository"; the source repository name.
- * @returns The newly created global Insight.
+ * @returns The promoted global Insight (same UUID as the original).
  * @throws ApiError VALIDATION_ERROR if scope is not "repository", insight is already global,
  *   or repository_name fails SLUG_REGEX validation.
  * @throws ApiError NOT_FOUND if no matching insight exists in the specified scope.
@@ -421,21 +440,9 @@ export async function handlePromoteKnowledge(
     validationError('repository_name contains invalid characters. Use only alphanumerics, hyphens, and underscores.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.moveInsight(
-      id,
-      { scope: validatedScope, repository_name },
-      'global'
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.moveInsight(id, { scope: validatedScope, repository_name }, 'global')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -450,13 +457,14 @@ export async function handlePromoteKnowledge(
  * - global → repository: moves the global insight into a named repository store
  * - repository → repository: moves a repository insight to a different repository
  *
- * The returned insight is the newly created copy — it has a **different numeric
- * ID** (assigned by the target store's `next_id` counter).
+ * The returned insight's UUID is **preserved** — the `id` in the response equals
+ * the pre-move ID. Frontend consumers can continue to reference the same UUID
+ * after the move.
  *
  * @param ledgerRoot  Absolute path to the central ledger root.
- * @param rawId       Raw ID string from the URL parameter (e.g. "42").
+ * @param rawId       Raw UUID string from the URL parameter (e.g. "a1b2c3d4-e5f6-7890-abcd-ef1234567890").
  * @param body        Parsed request body (validated against KnowledgeMoveBodySchema).
- * @returns The newly created Insight in the target repository store.
+ * @returns The moved Insight in the target repository store (same UUID as the original).
  * @throws ApiError VALIDATION_ERROR when source and destination are identical, body is invalid,
  *   or the destination name fails SLUG_REGEX.
  * @throws ApiError NOT_FOUND when no matching insight exists in the source scope.
@@ -486,22 +494,14 @@ export async function handleMoveKnowledge(
     validationError('Source and destination repository are identical; nothing to move.');
   }
 
-  const manager = new KnowledgeStoreManager(ledgerRoot);
-
-  try {
-    return await manager.moveInsight(
+  return withKnowledgeStore(ledgerRoot, (manager) =>
+    manager.moveInsight(
       id,
       { scope: source_scope, repository_name: source_repository_name },
       'repository',
       repository_name
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes('not found')) {
-      throw new ApiError('NOT_FOUND', 'Insight not found.');
-    }
-    throw err;
-  }
+    )
+  );
 }
 
 ```
@@ -1159,8 +1159,9 @@ export function _resetBuildInProgress(): void {
  *                                    Query parameters:
  *                                      ?include_undeclared=true — also return filesystem-discovered
  *                                      namespace directories that are not covered by any declared
- *                                      repo's folder_names. Undeclared entries carry declared: false
- *                                      and a synthetic shape (see RepoListItem). Defaults to false,
+ *                                      repo's folder_names. Works in both single-store and multi-
+ *                                      store modes. Undeclared entries carry declared: false and a
+ *                                      synthetic shape (see RepoListItem). Defaults to false,
  *                                      preserving the original endpoint behaviour.
  *   GET    /api/repos/:repoId      — get a single repository entry or 404
  *   POST   /api/repos              — create a new repository entry
@@ -1436,11 +1437,49 @@ export async function handleListRepos(
   includeUndeclared = false
 ): Promise<RepoListItem[]> {
   // Multi-store mode: return a merged view from all stores, each entry tagged with store_id.
-  // `includeUndeclared` is not supported in multi-store mode (would require scanning every
-  // store's filesystem — left as a future enhancement; returns declared entries only).
   if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
     const tagged = await getMultiStoreManager().getMergedRegistry();
-    return tagged.map((entry) => toListItem(entry, entry.store_id));
+    const declared = tagged.map((entry) => toListItem(entry, entry.store_id));
+
+    if (!includeUndeclared) {
+      return declared;
+    }
+
+    // Collect all declared folder_names across all stores for cross-store dedup.
+    const allDeclaredFolderNames = new Set<string>(tagged.flatMap((e) => e.folder_names));
+
+    const undeclaredItems: RepoListItem[] = [];
+    for (const store of getStoreRouter().getAllStores()) {
+      let dirents: import('fs').Dirent[];
+      try {
+        dirents = await readdir(store.path, { withFileTypes: true });
+      } catch {
+        continue; // Unreadable store root — skip it
+      }
+
+      const undeclaredNamespaces = dirents
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !allDeclaredFolderNames.has(d.name))
+        .map((d) => d.name);
+
+      for (const namespace of undeclaredNamespaces) {
+        const projects = await LedgerStore.listProjectsByFolderNames([namespace], store.path);
+        if (projects.length === 0) continue;
+        const now = new Date().toISOString();
+        undeclaredItems.push({
+          id: namespace,
+          label: namespace,
+          folder_names: [namespace],
+          has_vision: false,
+          has_full_vision: false,
+          created_at: now,
+          last_modified: now,
+          declared: false,
+          store_id: store.id,
+        });
+      }
+    }
+
+    return [...declared, ...undeclaredItems];
   }
 
   // Single-store / legacy mode: existing behavior
@@ -1834,8 +1873,9 @@ export async function handleMoveRepo(
  * Validation rules:
  *   - `id`: must match SLUG_REGEX; must not be a reserved word ("import",
  *     "order", "conflicts"); must be unique.
- *   - `path`: must be absolute (/...) or home-relative (~/...); relative paths
- *     are rejected. Duplicate resolved paths are rejected with 409.
+ *   - `path`: must be absolute (/... or C:\... on Windows) or home-relative
+ *     (~/...); relative paths are rejected. Duplicate resolved paths are rejected
+ *     with 409.
  *   - `label`: optional; trimmed; whitespace-only rejected with 400.
  *
  * Git detection:
@@ -1979,14 +2019,19 @@ async function buildEnrichedMultiStoreList(config: StoresConfig): Promise<StoreL
   );
 }
 
+/** Returns true for Windows absolute paths like C:\ or C:/. */
+function isWindowsAbsolutePath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p);
+}
+
 /**
- * Rejects relative paths. Absolute paths start with '/' and home-relative
- * paths start with '~/' or are exactly '~'.
+ * Rejects relative paths. Accepts Unix absolute (/...), home-relative (~/...),
+ * and Windows absolute paths (C:\... or C:/...).
  */
 function assertAbsolutePath(rawPath: string): void {
-  if (!rawPath.startsWith('/') && !rawPath.startsWith('~/') && rawPath !== '~') {
+  if (!rawPath.startsWith('/') && !rawPath.startsWith('~/') && rawPath !== '~' && !isWindowsAbsolutePath(rawPath)) {
     validationError(
-      `Store path must be absolute (starting with /) or home-relative (starting with ~/). ` +
+      `Store path must be absolute (starting with / or a drive letter on Windows) or home-relative (starting with ~/). ` +
         `Relative paths are not supported.`
     );
   }
@@ -2790,6 +2835,8 @@ export interface ProjectListParams {
   dir?: string;
   /** Normalized runner filter ('orchestrator', 'vscode', 'claude-code', 'unknown'). Unrecognized values return empty results without a 500. */
   runner?: string;
+  /** Repository name filter (exact match on repository_name). */
+  repository?: string;
 }
 
 /** Paginated response envelope returned by handleListProjects. */
@@ -2803,6 +2850,8 @@ export interface ProjectListEnvelope {
   status_counts: Record<string, number>;
   /** Per-runner counts computed from the search-filtered set (before runner filter). 'unknown' for projects without a stored runner field. */
   runner_counts: Record<string, number>;
+  /** Per-repository counts computed from the search-filtered set (before status/runner/repository filters). */
+  repo_counts: Record<string, number>;
 }
 
 const SORT_FIELDS = new Set<ProjectSortField>([
@@ -2857,6 +2906,7 @@ export async function handleListProjects(
   // runner filter — undefined means no filter; any string value (including unrecognized ones) is accepted
   // so that unrecognized runners return an empty set rather than a 500 error.
   const runnerFilter: string | undefined = rawParams.runner;
+  const repositoryFilter: string | undefined = rawParams.repository;
 
   const allProjects: ProjectMeta[] = isStoreContextInitialized()
     ? await getMultiStoreManager().listAllProjects()
@@ -2977,10 +3027,14 @@ export async function handleListProjects(
   // --- Step 3: Compute status_counts and runner_counts from search-filtered set (before status/runner filter) ---
   const status_counts: Record<string, number> = {};
   const runner_counts: Record<string, number> = {};
+  const repo_counts: Record<string, number> = {};
   for (const p of searchFiltered) {
     status_counts[p.status] = (status_counts[p.status] ?? 0) + 1;
     const r = p.runner ?? 'unknown';
     runner_counts[r] = (runner_counts[r] ?? 0) + 1;
+    if (p.repository_name) {
+      repo_counts[p.repository_name] = (repo_counts[p.repository_name] ?? 0) + 1;
+    }
   }
 
   // --- Step 4a: Status filter ---
@@ -2992,10 +3046,33 @@ export async function handleListProjects(
         : searchFiltered.filter((p) => p.status === statusFilter);
 
   // --- Step 4b: Runner filter (applied after status filter; unrecognized values return empty set) ---
-  const filtered =
+  const runnerFiltered =
     runnerFilter !== undefined
       ? statusFiltered.filter((p) => (p.runner ?? 'unknown') === runnerFilter)
       : statusFiltered;
+
+  // --- Step 4c: Repository filter ---
+  // repositoryFilter may be a repo ID (from the GUI dropdown) or a raw folder name
+  // (fallback / backward-compatible legacy values). When it is a known repo ID,
+  // expand it to all folder_names so that multi-alias repos filter correctly.
+  let repoFolderNameSet: Set<string> | null = null;
+  if (repositoryFilter !== undefined && repositoryFilter !== '') {
+    const registryEntries = isStoreContextInitialized()
+      ? await getMultiStoreManager().getMergedRegistry()
+      : (await loadRegistry(ledgerRoot)).repositories;
+    const repoEntry = registryEntries.find((e) => e.id === repositoryFilter);
+    if (repoEntry) {
+      repoFolderNameSet = new Set(repoEntry.folder_names);
+    }
+  }
+  const filtered =
+    repositoryFilter !== undefined && repositoryFilter !== ''
+      ? runnerFiltered.filter((p) =>
+          repoFolderNameSet
+            ? p.repository_name != null && repoFolderNameSet.has(p.repository_name)
+            : p.repository_name === repositoryFilter
+        )
+      : runnerFiltered;
 
   // --- Step 5: Sort ---
   const sorted = [...filtered].sort((a, b) => {
@@ -3055,6 +3132,7 @@ export async function handleListProjects(
     total_pages,
     status_counts,
     runner_counts,
+    repo_counts,
   };
 }
 
@@ -7697,6 +7775,7 @@ function buildProjectRoutes(
           sort: query?.get('sort') ?? undefined,
           dir: query?.get('dir') ?? undefined,
           runner: query?.get('runner') ?? undefined,
+          repository: query?.get('repository') ?? undefined,
         };
         return handleListProjects(ledgerRoot, params);
       } },

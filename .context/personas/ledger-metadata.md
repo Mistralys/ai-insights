@@ -96,6 +96,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.8.0 (2026-08-04): Removed Spec File Verification protocol and AC fidelity check; WP specs now live exclusively in the ledger, no work/ directory
   3.7.7 (2026-07-24): Replace ledger_help with ledger_ping in mcp_tools for MCP server reachability preflight
   3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
   3.7.5 (2026-07-06): Extracted spec file verification into Operational Protocol to reduce workflow density
@@ -160,6 +161,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.7.2 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term stability over expediency, assume growth, completeness over deferral
   3.6.5 (2026-07-03): Added Verbatim AC Text constraint — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
@@ -227,6 +229,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.5.3 (2026-02-22): Simplified preflight and verbose sections
@@ -289,6 +292,7 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.6.5 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.4 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
   3.6.1 (2026-02-23): Initial release — OWASP A01–A10 coverage at pipeline position 5
@@ -348,6 +352,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
   3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.1 (2026-04-08): Gained ledger_search_insights for in-context lookups
@@ -412,6 +417,7 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.7.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.3 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.2 (2026-04-08): Updated release protocol and output format documentation
   3.7.0 (2026-04-08): Delegates changelog curation to Changelog Curator; delegates CTX updates
@@ -469,6 +475,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.7.3 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
   3.7.0 (2026-04-30): Delegates to CTX Architect sub-agent
@@ -536,6 +543,7 @@ id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 changelog: |
+  3.7.2 (2026-08-04): Split single Inputs item into separate Project Overview and Work Package Detail entries
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-06-05): Deferred items collection added to operational protocol
   3.6.0 (2026-05-29): Knowledge extraction delegated to Knowledge Archiver sub-agent
