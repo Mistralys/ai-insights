@@ -597,7 +597,7 @@
     "number": null,
     "id": "standalone-git-committer",
     "role": "Git Committer",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
