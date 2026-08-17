@@ -127,7 +127,7 @@ function breadcrumb() {
       return api;
     },
     repo: function (repoId, repoLabel) {
-      segments.push({ label: repoLabel || repoId, href: '#/strategy' });
+      segments.push({ label: repoLabel || repoId, href: '#/?repo=' + encodeURIComponent(repoId) });
       return api;
     },
     leaf: function (label) {

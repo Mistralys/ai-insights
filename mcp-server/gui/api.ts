@@ -276,6 +276,8 @@ export interface ProjectListParams {
   dir?: string;
   /** Normalized runner filter ('orchestrator', 'vscode', 'claude-code', 'unknown'). Unrecognized values return empty results without a 500. */
   runner?: string;
+  /** Repository name filter (exact match on repository_name). */
+  repository?: string;
 }
 
 /** Paginated response envelope returned by handleListProjects. */
@@ -289,6 +291,8 @@ export interface ProjectListEnvelope {
   status_counts: Record<string, number>;
   /** Per-runner counts computed from the search-filtered set (before runner filter). 'unknown' for projects without a stored runner field. */
   runner_counts: Record<string, number>;
+  /** Per-repository counts computed from the search-filtered set (before status/runner/repository filters). */
+  repo_counts: Record<string, number>;
 }
 
 const SORT_FIELDS = new Set<ProjectSortField>([
@@ -343,6 +347,7 @@ export async function handleListProjects(
   // runner filter — undefined means no filter; any string value (including unrecognized ones) is accepted
   // so that unrecognized runners return an empty set rather than a 500 error.
   const runnerFilter: string | undefined = rawParams.runner;
+  const repositoryFilter: string | undefined = rawParams.repository;
 
   const allProjects: ProjectMeta[] = isStoreContextInitialized()
     ? await getMultiStoreManager().listAllProjects()
@@ -463,10 +468,14 @@ export async function handleListProjects(
   // --- Step 3: Compute status_counts and runner_counts from search-filtered set (before status/runner filter) ---
   const status_counts: Record<string, number> = {};
   const runner_counts: Record<string, number> = {};
+  const repo_counts: Record<string, number> = {};
   for (const p of searchFiltered) {
     status_counts[p.status] = (status_counts[p.status] ?? 0) + 1;
     const r = p.runner ?? 'unknown';
     runner_counts[r] = (runner_counts[r] ?? 0) + 1;
+    if (p.repository_name) {
+      repo_counts[p.repository_name] = (repo_counts[p.repository_name] ?? 0) + 1;
+    }
   }
 
   // --- Step 4a: Status filter ---
@@ -478,10 +487,33 @@ export async function handleListProjects(
         : searchFiltered.filter((p) => p.status === statusFilter);
 
   // --- Step 4b: Runner filter (applied after status filter; unrecognized values return empty set) ---
-  const filtered =
+  const runnerFiltered =
     runnerFilter !== undefined
       ? statusFiltered.filter((p) => (p.runner ?? 'unknown') === runnerFilter)
       : statusFiltered;
+
+  // --- Step 4c: Repository filter ---
+  // repositoryFilter may be a repo ID (from the GUI dropdown) or a raw folder name
+  // (fallback / backward-compatible legacy values). When it is a known repo ID,
+  // expand it to all folder_names so that multi-alias repos filter correctly.
+  let repoFolderNameSet: Set<string> | null = null;
+  if (repositoryFilter !== undefined && repositoryFilter !== '') {
+    const registryEntries = isStoreContextInitialized()
+      ? await getMultiStoreManager().getMergedRegistry()
+      : (await loadRegistry(ledgerRoot)).repositories;
+    const repoEntry = registryEntries.find((e) => e.id === repositoryFilter);
+    if (repoEntry) {
+      repoFolderNameSet = new Set(repoEntry.folder_names);
+    }
+  }
+  const filtered =
+    repositoryFilter !== undefined && repositoryFilter !== ''
+      ? runnerFiltered.filter((p) =>
+          repoFolderNameSet
+            ? p.repository_name != null && repoFolderNameSet.has(p.repository_name)
+            : p.repository_name === repositoryFilter
+        )
+      : runnerFiltered;
 
   // --- Step 5: Sort ---
   const sorted = [...filtered].sort((a, b) => {
@@ -541,6 +573,7 @@ export async function handleListProjects(
     total_pages,
     status_counts,
     runner_counts,
+    repo_counts,
   };
 }
 

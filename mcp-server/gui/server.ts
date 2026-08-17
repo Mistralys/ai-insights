@@ -850,6 +850,7 @@ function buildProjectRoutes(
           sort: query?.get('sort') ?? undefined,
           dir: query?.get('dir') ?? undefined,
           runner: query?.get('runner') ?? undefined,
+          repository: query?.get('repository') ?? undefined,
         };
         return handleListProjects(ledgerRoot, params);
       } },

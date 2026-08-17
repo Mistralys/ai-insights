@@ -225,6 +225,12 @@ function csRenderStoreModal(mode, store) {
         '<label class="form-label" for="cs-modal-path">Path</label>' +
         '<input class="form-control" type="text" id="cs-modal-path" autocomplete="off" placeholder="e.g. /home/user/ledger">' +
         '<span class="cs-modal-field-error" id="cs-modal-path-err"></span>' +
+        '<div class="cs-modal-dir-note" id="cs-modal-dir-note-create" style="' + (csModalCreateDir ? '' : 'display:none') + '">' +
+          'The directory will be created at this path if it does not already exist.' +
+        '</div>' +
+        '<div class="cs-modal-dir-note" id="cs-modal-dir-note-existing" style="' + (csModalCreateDir ? 'display:none' : '') + '">' +
+          'The directory must already exist and be the root containing project folders and <code>.repositories.json</code>.' +
+        '</div>' +
       '</div>'
     : '<div class="cs-modal-field-group">' +
         '<label class="form-label">Path</label>' +
@@ -240,9 +246,6 @@ function csRenderStoreModal(mode, store) {
         '<label class="cs-radio-option">' +
           '<input type="radio" name="cs-dir-mode" value="existing" ' + (!csModalCreateDir ? 'checked' : '') + '> Use existing directory' +
         '</label>' +
-        '<div class="cs-modal-dir-note" id="cs-modal-dir-note" style="' + (csModalCreateDir ? 'display:none' : '') + '">' +
-          'The directory must already exist. Any existing <code>.repositories.json</code> will be preserved.' +
-        '</div>' +
       '</div>'
     : '';
 
@@ -267,9 +270,9 @@ function csRenderStoreModal(mode, store) {
         '</div>' +
         '<div class="cs-modal-body">' +
           idField +
-          pathField +
-          dirModeField +
           labelField +
+          dirModeField +
+          pathField +
           '<div id="cs-modal-error"></div>' +
         '</div>' +
         '<div class="cs-modal-footer">' +
@@ -297,8 +300,10 @@ function csRenderStoreModal(mode, store) {
   for (var i = 0; i < radios.length; i++) {
     radios[i].addEventListener('change', function () {
       csModalCreateDir = document.querySelector('input[name="cs-dir-mode"]:checked').value === 'create';
-      var note = document.getElementById('cs-modal-dir-note');
-      if (note) note.style.display = csModalCreateDir ? 'none' : '';
+      var noteCreate   = document.getElementById('cs-modal-dir-note-create');
+      var noteExisting = document.getElementById('cs-modal-dir-note-existing');
+      if (noteCreate)   noteCreate.style.display   = csModalCreateDir ? '' : 'none';
+      if (noteExisting) noteExisting.style.display = csModalCreateDir ? 'none' : '';
     });
   }
 

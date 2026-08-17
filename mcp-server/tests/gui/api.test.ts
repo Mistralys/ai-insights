@@ -788,6 +788,55 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ─── repository filter: multi-folder-name expansion ─────────────────────
+
+  describe('handleListProjects — repository filter with multi-folder repos', () => {
+    it('returns projects from all folder_names when filter matches a repo ID in the registry', async () => {
+      const planPathA = join(tmpdir(), 'folder-alias-a', 'docs', 'agents', 'plans', '2026-01-01-proj-filter-a');
+      await new LedgerStore(planPathA, ledgerRoot).writeRootIndex(makeRoot());
+
+      const planPathB = join(tmpdir(), 'folder-alias-b', 'docs', 'agents', 'plans', '2026-01-01-proj-filter-b');
+      await new LedgerStore(planPathB, ledgerRoot).writeRootIndex(makeRoot());
+
+      const planPathC = join(tmpdir(), 'other-repo', 'docs', 'agents', 'plans', '2026-01-01-proj-filter-c');
+      await new LedgerStore(planPathC, ledgerRoot).writeRootIndex(makeRoot());
+
+      await writeFile(
+        join(ledgerRoot, '.repositories.json'),
+        JSON.stringify({
+          repositories: [{
+            id: 'my-multi-repo',
+            label: 'Multi Repo',
+            folder_names: ['folder-alias-a', 'folder-alias-b'],
+            vision: { short_term: null, mid_term: null, long_term: null },
+            created_at: '2026-01-01T00:00:00.000Z',
+            last_modified: '2026-01-01T00:00:00.000Z',
+          }],
+        }),
+      );
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', repository: 'my-multi-repo' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-proj-filter-a');
+      expect(slugs).toContain('2026-01-01-proj-filter-b');
+      expect(slugs).not.toContain('2026-01-01-proj-filter-c');
+    });
+
+    it('falls back to exact folder name match when filter is not a known repo ID', async () => {
+      const planPathA = join(tmpdir(), 'folder-alias-a', 'docs', 'agents', 'plans', '2026-01-01-proj-fallback-a');
+      await new LedgerStore(planPathA, ledgerRoot).writeRootIndex(makeRoot());
+
+      const planPathB = join(tmpdir(), 'folder-alias-b', 'docs', 'agents', 'plans', '2026-01-01-proj-fallback-b');
+      await new LedgerStore(planPathB, ledgerRoot).writeRootIndex(makeRoot());
+
+      // No registry with 'folder-alias-a' as a repo ID — exact match fallback applies
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', repository: 'folder-alias-a' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-proj-fallback-a');
+      expect(slugs).not.toContain('2026-01-01-proj-fallback-b');
+    });
+  });
+
   // ─── title priority in handleListProjects ───────────────────────────────
 
   describe('handleListProjects — title priority', () => {

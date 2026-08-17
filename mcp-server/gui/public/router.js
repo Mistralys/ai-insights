@@ -30,6 +30,9 @@ var Router = (function () {
   function dispatch(hash) {
     clearPolling();
     var path = (hash || '').replace(/^#/, '') || '/';
+    // Strip query string before matching; project-list.js reads the hash directly.
+    var qIdx = path.indexOf('?');
+    if (qIdx !== -1) path = path.slice(0, qIdx) || '/';
     var app = document.getElementById('app');
     if (!app) return;
 

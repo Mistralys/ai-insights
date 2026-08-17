@@ -61,8 +61,8 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
     '<div class="config-tabs" id="config-tab-bar">' +
-      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
+      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
       '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
     '</div>' +

@@ -13,6 +13,23 @@ function renderProjectList(app) {
   var PAGE_LIMIT_STORAGE = 'mcp-page-limit';
   var STATUS_STORAGE = 'mcp-status-filter';
   var RUNNER_STORAGE = 'mcp-runner-filter';
+  var REPO_STORAGE   = 'mcp-repo-filter';
+
+  // Decode incoming ?repo= from the hash (written by breadcrumb repo links).
+  (function () {
+    var hash = window.location.hash || '';
+    var qIdx = hash.indexOf('?');
+    if (qIdx !== -1) {
+      var qs = hash.slice(qIdx + 1);
+      var params = new URLSearchParams(qs);
+      var repoParam = params.get('repo');
+      if (repoParam !== null) {
+        localStorage.setItem(REPO_STORAGE, repoParam);
+        // Strip the query from the hash so it doesn't persist on reload.
+        history.replaceState(null, '', window.location.pathname + '#/');
+      }
+    }
+  }());
 
   // --- Pagination / filter state (localStorage-persisted where noted) ---
   var currentPage = 1;
@@ -22,6 +39,7 @@ function renderProjectList(app) {
   }());
   var currentStatus = localStorage.getItem(STATUS_STORAGE) || 'ACTIVE';
   var currentRunner = localStorage.getItem(RUNNER_STORAGE) || '';
+  var currentRepo   = localStorage.getItem(REPO_STORAGE)   || '';
   var currentSearch = '';
   var currentSort = localStorage.getItem(SORT_KEY_STORAGE) || 'last_updated';
   var currentDir = localStorage.getItem(SORT_DIR_STORAGE) || 'desc';
@@ -120,6 +138,48 @@ function renderProjectList(app) {
       html += '<option value="' + escapeHtml(r) + '"' + sel + '>' + escapeHtml(label + cnt) + '</option>';
     });
 
+    return html;
+  }
+
+  // ── Build repo filter dropdown options ──
+  // Only includes repos that have at least one project (from repo_counts).
+  // Groups folder names that belong to the same registered repo into one entry
+  // (a repo can have multiple folder_names, e.g. dev-branch aliases).
+  // Option values are repo IDs (or raw folder names for undeclared repos).
+  function buildRepoOptions(repoCounts) {
+    var counts = repoCounts || {};
+
+    // Aggregate counts by repo ID; collect label in the same pass.
+    var idCounts = {};
+    var idLabels = {};
+    Object.keys(counts).forEach(function (folderName) {
+      var entry = repoFolderMap[folderName];
+      var id    = entry ? entry.id    : folderName;
+      var label = entry ? entry.label : folderName;
+      idCounts[id] = (idCounts[id] || 0) + (counts[folderName] || 0);
+      if (!idLabels[id]) idLabels[id] = label;
+    });
+
+    // Collect IDs that have at least one project, sorted by label.
+    var activeRepos = Object.keys(idCounts).filter(function (id) {
+      return idCounts[id] > 0;
+    }).sort(function (a, b) {
+      return (idLabels[a] || a).localeCompare(idLabels[b] || b);
+    });
+
+    // If the current selection is stale, keep it visible so the user can clear it.
+    if (currentRepo && idCounts[currentRepo] === undefined) {
+      activeRepos.push(currentRepo);
+    }
+
+    var allSel = currentRepo === '' ? ' selected' : '';
+    var html = '<option value=""' + allSel + '>All</option>';
+    activeRepos.forEach(function (id) {
+      var label = idLabels[id] || id;
+      var cnt   = idCounts[id] !== undefined ? ' (' + idCounts[id] + ')' : '';
+      var sel   = id === currentRepo ? ' selected' : '';
+      html += '<option value="' + escapeHtml(id) + '"' + sel + '>' + escapeHtml(label + cnt) + '</option>';
+    });
     return html;
   }
 
@@ -280,6 +340,7 @@ function renderProjectList(app) {
     var projects = envelope.projects;
     var statusCounts = envelope.status_counts || {};
     var runnerCounts = envelope.runner_counts || {};
+    var repoCounts   = envelope.repo_counts   || {};
 
     // Preserve search input focus state across DOM rebuild
     var searchHadFocus = false;
@@ -295,6 +356,7 @@ function renderProjectList(app) {
     var plFb = UI.filterBar('pl-filter-bar', [
       { type: 'text',   id: 'project-search', placeholder: 'Search projects\u2026', value: currentSearch },
       { type: 'select', id: 'status-filter',  label: 'Status:', optionsHtml: buildStatusOptions(statusCounts) },
+      { type: 'select', id: 'repo-filter',    label: 'Repository:', optionsHtml: buildRepoOptions(repoCounts) },
       { type: 'select', id: 'runner-filter',  label: 'Runner:', optionsHtml: buildRunnerOptions(runnerCounts) }
     ]);
 
@@ -362,6 +424,10 @@ function renderProjectList(app) {
       if (state['runner-filter'] !== currentRunner) {
         currentRunner = state['runner-filter'];
         localStorage.setItem(RUNNER_STORAGE, currentRunner);
+      }
+      if (state['repo-filter'] !== currentRepo) {
+        currentRepo = state['repo-filter'];
+        localStorage.setItem(REPO_STORAGE, currentRepo);
       }
       currentPage = 1;
       load();
@@ -519,6 +585,7 @@ function renderProjectList(app) {
         sort: currentSort,
         dir: currentDir,
         runner: currentRunner || undefined,
+        repository: currentRepo || undefined,
       }),
       API.listRepos().catch(function () { return []; }),
     ]).then(function (results) {

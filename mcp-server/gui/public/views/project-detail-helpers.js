@@ -145,6 +145,7 @@ function _snapshotProjectState(project, overviewResult) {
     wpStatuses[wp.work_package_id] = {
       status: wp.status || '',
       pipelineStages: [],
+      assigned_to: wp.assigned_to || '',
     };
   });
 
@@ -165,9 +166,12 @@ function _snapshotProjectState(project, overviewResult) {
         : [];
       if (wpStatuses[id]) {
         wpStatuses[id].pipelineStages = stages;
+        if (entry.assigned_to !== undefined) {
+          wpStatuses[id].assigned_to = entry.assigned_to || '';
+        }
       } else {
         // Overview entry present without a matching WP in the main list.
-        wpStatuses[id] = { status: '', pipelineStages: stages };
+        wpStatuses[id] = { status: '', pipelineStages: stages, assigned_to: entry.assigned_to || '' };
       }
     });
   }
@@ -255,6 +259,10 @@ function _diffProjectState(prev, next) {
     var nextStagesStr = JSON.stringify(nextWp.pipelineStages || []);
     if (prevStagesStr !== nextStagesStr) {
       markData('wp.' + id + '.pipelineStages', prevWp.pipelineStages, nextWp.pipelineStages);
+    }
+
+    if (prevWp.assigned_to !== nextWp.assigned_to) {
+      markData('wp.' + id + '.assigned_to', prevWp.assigned_to, nextWp.assigned_to);
     }
   });
 

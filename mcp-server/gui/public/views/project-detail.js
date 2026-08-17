@@ -228,12 +228,13 @@ function _patchProjectStatus(newStatus) {
 
 /**
  * Update a single WP row's status badge and pipeline track cells in-place.
- * Leaves the WP ID and assigned-to cells untouched.
+ * Leaves the WP ID and assigned-to cells untouched unless newAssignedTo is provided.
  * @param {string} wpId             - Work package ID (e.g. 'WP-001').
  * @param {string} newStatus        - New WP status string.
  * @param {string} newPipelineTrack - New pipeline track HTML (from buildPipelineTrack).
+ * @param {string} [newAssignedTo]  - New assigned-to value; omit to leave cell unchanged.
  */
-function _patchWpRow(wpId, newStatus, newPipelineTrack) {
+function _patchWpRow(wpId, newStatus, newPipelineTrack, newAssignedTo) {
   var row = document.querySelector('tr[data-wp-id="' + escapeHtml(wpId) + '"]');
   if (!row) return;
 
@@ -249,6 +250,14 @@ function _patchWpRow(wpId, newStatus, newPipelineTrack) {
   if (pipelineCell) {
     if (pipelineCell.innerHTML !== newPipelineTrack) {
       pipelineCell.innerHTML = newPipelineTrack;
+    }
+  }
+
+  var assignedCell = row.querySelector('.wp-assigned-cell');
+  if (assignedCell && newAssignedTo !== undefined) {
+    var newAssignedHtml = escapeHtml(newAssignedTo || '\u2014');
+    if (assignedCell.innerHTML !== newAssignedHtml) {
+      assignedCell.innerHTML = newAssignedHtml;
     }
   }
 }
@@ -469,12 +478,13 @@ function _pollProjectDetail(app, repo, slug, pollStateRef, pollController) {
     wpIds.forEach(function (id) {
       var statusChanged   = !!changes['wp.' + id + '.status'];
       var pipelineChanged = !!changes['wp.' + id + '.pipelineStages'];
-      if (statusChanged || pipelineChanged) {
+      var assignedChanged = !!changes['wp.' + id + '.assigned_to'];
+      if (statusChanged || pipelineChanged || assignedChanged) {
         var wpEntry = nextSnapshot.wpStatuses[id];
         // Re-build the pipeline track HTML from the new stages array.
         var fakeOverviewEntry = { pipeline_stages: wpEntry.pipelineStages };
         var newTrackHtml = buildPipelineTrack(fakeOverviewEntry);
-        _patchWpRow(id, wpEntry.status, newTrackHtml);
+        _patchWpRow(id, wpEntry.status, newTrackHtml, wpEntry.assigned_to);
       }
     });
 
@@ -629,7 +639,7 @@ function renderProjectDetail(app, repo, slug) {
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '" data-wp-id="' + escapeHtml(wp.work_package_id) + '">' +
         '<td class="monospace"><a href="#/projects/' + encodeURIComponent(repo) + '/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a>' + titleLabel + '</td>' +
         '<td class="wp-pipeline-track-cell">' + pipelineCell + '</td>' +
-        '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
+        '<td class="wp-assigned-cell">' + escapeHtml(wp.assigned_to || '\u2014') + '</td>' +
         '<td class="wp-status-cell">' + statusBadge(wp.status) + '</td>' +
       '</tr>';
     }).join('');
