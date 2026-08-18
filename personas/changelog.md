@@ -1,14 +1,15 @@
 # Personas Changelog
 
-## v3.30.1 - **WIP UNRELEASED**
-- Standalone: Git Committer adds "Verify before deleting after moves" safety constraint.
-- Standalone: Git Committer plan archival now includes `request.md` alongside `plan.md` and `synthesis.md`.
-- LedgerSupport: Knowledge Archiver philosophy rewritten with positive framing per design guide v2.3.
-- Ledger: Project Manager now uses the `ledger_ping` tool instead of `ledger_help`.
-- LedgerSupport: Bootstrapper removes spec file creation; protocol reduced from 7 to 5 steps.
-- Ledger: PM removes Spec File Verification protocol and AC fidelity cross-check.
-- Ledger: Agents 3–9 now source WP specs exclusively from `ledger_get_work_package`;
-  all `work/WP-###.md` file references removed.
+## v3.31.0 - Spec File Retirement and Tooling Updates
+
+- Ledger: Retired WP spec file mechanism; agents 3–9 now source specs
+  exclusively from the ledger tool.
+- Ledger: PM uses the ping tool for preflight instead of help.
+- LedgerSupport: Bootstrapper protocol reduced from 7 to 5 steps.
+- LedgerSupport: Knowledge Archiver philosophy rewritten per design guide v2.3.
+- Standalone: Git Committer gains delete guard, request.md archival support.
+- Build: Added agents-overview generator with overview metadata fields.
+- Build: Model assignments updated to claude-sonnet-4-6.
 
 ## v3.30.0 - New Personas and AX Feedback
 

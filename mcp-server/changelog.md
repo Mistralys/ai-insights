@@ -1,39 +1,30 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.8.0 - **WIP UNRELEASED**
+## v2.8.0 - Multi-Store Storage and Knowledge UUIDs
 
-**This release migrates knowledge insight IDs from auto-increment integers to UUID v4 strings.**
-Insights are now globally unique across all stores; cross-store deduplication no longer requires
-a collision note. `moveInsight()` preserves the original UUID, removing the ID-change
-semantics that previously complicated frontend tracking.
+**This release adds cross-device ledger storage with a multi-store architecture,
+letting users split repositories across multiple ledger roots.** Knowledge insight
+IDs migrate from auto-increment integers to UUID v4 for global uniqueness across
+stores. Work packages gain title and description fields, and the spec file
+mechanism is retired.
 
-- Knowledge: `InsightSchema.id` changed from `z.number().int()` to `z.string().uuid()`.
-- Knowledge: `KnowledgeStoreSchema` no longer has a `next_id` field; IDs are assigned
-  via `crypto.randomUUID()` in `KnowledgeStoreManager.addInsight()`.
-- Knowledge: `moveInsight()` preserves the original UUID when moving an insight across
-  stores (promote and move operations).
-- Knowledge: `formatInsightId()` removed; `parseKnowledgeId()` now validates UUID format.
-- Manifest: Updated all four manifest docs (`api-surface.md`, `constraints.md`,
-  `data-flows.md`, `file-tree.md`) to reflect UUID-based IDs.
-
-
-
-**This release reworks the model settings subsystem with a declarative route table and a
-three-tab config UI.** Repository display and breadcrumbs have been added to the project
-detail view, the Insights tab has been removed, and a new Text Only tab surfaces dialogue
-text from work-package panels.
-
-- Model Registry: Implemented declarative route table with domain sub-builders for
-  per-persona model assignment and target routing.
-- GUI: Three-tab model settings UI (General, Persona Models, Model Registry) with full
-  API client integration.
-- GUI: Added repository display and breadcrumbs to the project detail navigation.
-- GUI: Added Text Only tab to work-package dialogue panels via the extract-dialogue renderer.
-- GUI: Removed Insights tab; knowledge browsing moves to dedicated knowledge tools.
-- GUI: Synthesis summary now styled as a card on the project detail page.
-- GUI: Fixed dialogue rendering, plan path case sensitivity, and model naming issues.
-- GUI: Fixed repository settings input validation.
-- Tests: Added unit tests for dispatch-route, route-table, and model config helpers.
+- Storage: Added multi-store storage layer with store router, registry, and
+  manager for cross-device ledger sync.
+- Storage: Added store context and resolution utilities for scoped store access.
+- GUI: Added Stores CRUD tab with hot-reload backend for managing store configs.
+- GUI: Multi-store API handlers for repository and knowledge operations.
+- GUI: Sortable repository list, project filter, and breadcrumb navigation.
+- GUI: Replaced repository strategy detail page with a modal dialog.
+- GUI: Undeclared repo scanning now covers all configured stores.
+- GUI: Fixed Windows path handling in project resolution.
+- GUI: Project duration now derived from synthesis metadata.
+- Knowledge: Insight IDs migrated from integers to UUID v4.
+- Knowledge: Fixed pagination in multi-store context.
+- Tools: Added `ledger_ping` as a lightweight server health check.
+- Tools: Added `title` and `description` fields to work packages.
+- Tools: Removed `work_package_file` from schema, tools, and tests.
+- Tools: Repositories now sorted by ID in list responses.
+- Tests: Added multi-store and knowledge pagination coverage.
 
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 

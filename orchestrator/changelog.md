@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v1.4.0 - Multi-Store Resolution
+
+- Utils: Added store resolution utility for multi-store ledger root lookup.
+- Tests: Added multi-store resolution test coverage.
+- Tests: Prevented test files from persisting in live storage directories.
+
 ## v1.3.2 - Extended Persona YAML Glob
 
 - Utils: Extended persona YAML glob to support role numbers with two or more digits.
