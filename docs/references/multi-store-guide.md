@@ -158,6 +158,44 @@ The MCP server and GUI server both read `stores.json` at startup. Restart them t
 
 ---
 
+## GUI Store Management
+
+The GUI dashboard (`./menu.sh gui`) includes a **Stores** tab under Settings where you can manage stores visually:
+
+- **Add a store** — create a new store directory, or import an existing directory that already contains ledger data
+- **Edit** — rename a store's display label
+- **Remove** — deregister a store from `stores.json` (the directory stays on disk)
+- **Set default** — designate which store receives new repositories
+- **Reorder** — drag stores to change their priority order (first store wins in conflict resolution)
+
+Changes made through the GUI take effect immediately — the server hot-reloads `stores.json` after every mutation, so no restart is required.
+
+### Import vs. Add
+
+- **Add** creates a new empty directory and initializes an empty `.repositories.json`.
+- **Import** registers an existing directory. If the directory already has a `.repositories.json` (e.g. from a cloned store repo), its contents are preserved. A warning is shown if the existing registry file has schema issues.
+
+---
+
+## Store Priority and Reordering
+
+The array order of stores in `stores.json` determines **conflict-resolution priority**: when the same repository appears in multiple stores' `.repositories.json`, the first matching store in array order wins for all read and write operations.
+
+To change priority:
+
+- **GUI:** use the Stores tab → Reorder
+- **CLI:** edit `stores.json` directly and reorder the `stores` array, then restart the MCP server
+
+---
+
+## Orchestrator Integration
+
+The orchestrator automatically resolves which store to use for each repository. At launch, it reads `~/.ai-insights/stores.json` and each store's `.repositories.json` to determine the owning store for the current workspace. Log files and slug directories are written to the correct store — no manual configuration is needed.
+
+If `stores.json` is absent, the orchestrator falls back to the default single-store path (`mcp-server/storage/ledger/`).
+
+---
+
 ## FAQ
 
 **Can I use `~` in store paths?**  
@@ -173,7 +211,10 @@ No. `store remove` only removes the entry from `stores.json`. The directory and 
 Not directly — remove the old entry and add a new one, then update `default_store` if needed. The store directory itself is unchanged.
 
 **Do I need to restart the server after changing stores.json?**  
-Yes. Both the MCP server (`src/index.ts`) and GUI server (`gui/server.ts`) read `stores.json` once at startup.
+Changes made through the GUI take effect immediately (the server hot-reloads). If you edit `stores.json` by hand or via the CLI, restart the MCP server to pick up the changes.
 
 **What is `store status` for?**  
 It shows Git ahead/behind counts for stores that are Git repositories — useful when a store root is a synced Git repo (e.g. on a network drive or dotfiles repo). Stores that are not Git repos are listed as "not a git repo".
+
+**Can I manage stores from the GUI instead of the CLI?**  
+Yes. The GUI dashboard's Stores tab (under Settings) supports all store operations: add, import, edit, remove, reorder, and set default. Changes apply immediately without a server restart.
