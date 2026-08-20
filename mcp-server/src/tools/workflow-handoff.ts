@@ -1190,6 +1190,40 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
     );
   }
 
+  // PASS release engineering -> the next active pipeline stage. This is usually
+  // Documentation, but resolve it dynamically for custom stage configurations.
+  const wpsPassedRelease = releaseWps.filter(
+    (wp) =>
+      !isTerminalStatus(wp.status) &&
+      wp.pipelines.some((p) => p.type === 'release-engineering' && p.status === 'PASS')
+  );
+  const { ready: readyForNextStage, blocked: blockedForNextStage, nextStatus } =
+    partitionWpsAwaitingNextStage(wpsPassedRelease, 'release-engineering');
+  if (readyForNextStage.length > 0) {
+    const nextAgentNames = [...new Set(
+      readyForNextStage.map((wp) =>
+        resolveNextAgent(
+          'release-engineering',
+          (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES,
+        )
+      )
+    )];
+    const reason = nextAgentNames.length === 1
+      ? `${readyForNextStage.length} work package(s) have PASS release engineering and are ready for ${nextAgentNames[0]}.`
+      : `${readyForNextStage.length} WPs have PASS release engineering; routing to ${nextAgentNames[0]!} first - ${nextAgentNames.join(', ')} all need to run.`;
+    return buildHandoffResponse('Release Engineer', nextStatus!, reason, undefined, projectPath, store);
+  }
+  if (readyForNextStage.length === 0 && blockedForNextStage.length > 0) {
+    return buildHandoffResponse(
+      'Release Engineer',
+      'WAIT',
+      `${blockedForNextStage.length} work package(s) with PASS release engineering are dependency-blocked. Waiting for dependencies to resolve.`,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
   // Cross-WP dispatch — if a READY WP exists whose dependencies are satisfied,
   // route to the agent owning its first active pipeline stage. Prevents IDE stall
   // when Release Engineer's role-specific work is done but other WPs have not yet
