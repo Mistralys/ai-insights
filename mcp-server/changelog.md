@@ -1,5 +1,16 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.8.1 - Standalone Import Contract and Dependency Remediation
+
+- Tools: Standalone imports now optionally archive authored `usage-scenarios.md` while
+  excluding derived `scenario-coverage.md`.
+- Storage: Preserved locked, atomic archival and multi-store routing for the extended
+  import contract.
+- Dependencies: Updated `@modelcontextprotocol/sdk` and enforced patched transitive
+  versions for `fast-uri`, `hono`, and `ip-address`.
+- Tests: Added coverage for optional-file reporting, content preservation, exclusion,
+  duplicate/error paths, and multi-store routing.
+
 ## v2.8.0 - Multi-Store Storage and Knowledge UUIDs
 
 **This release adds cross-device ledger storage with a multi-store architecture,

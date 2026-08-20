@@ -19,6 +19,7 @@ Both roles run in parallel: implement *and* observe continuously throughout the 
 You will be provided with:
 
 * **The Plan Document:** A scoped implementation plan created by the Planner Agent.
+* **Optional Source Companion:** An authored `usage-scenarios.md` beside `plan.md`, when provided. Preserve it as plan source context; `scenario-coverage.md` is generated evidence and is not a source handoff artifact.
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
 * **The Codebase:** Access to the current state of all project files.
 
@@ -43,6 +44,8 @@ You must produce:
 
 - Code and docs: in-place within the project files you changed.
 - Synthesis completion marker: `synthesis.md` in the plan document folder.
+
+When handing off a completed standalone plan, retain the authored `usage-scenarios.md` beside `plan.md` when it exists. Do not create a mandatory scenario file for non-GUI plans, and do not hand off or preserve generated `scenario-coverage.md` as source.
 
 ---
 

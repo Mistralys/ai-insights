@@ -28,6 +28,7 @@ const SLUG = '2026-08-01-standalone-import-test';
 
 const PLAN_CONTENT = '# Standalone Test Plan\n\n## Summary\n\nA test plan for multi-store standalone import routing.\n';
 const SYNTHESIS_CONTENT = '# Synthesis\n\n## Outcome Summary\n\nAll tasks completed successfully.\n';
+const USAGE_SCENARIOS_CONTENT = '# Usage Scenarios\n\n- Route authored scenarios with the import.\n';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ beforeEach(async () => {
   await mkdir(planPath, { recursive: true });
   await writeFile(join(planPath, 'plan.md'), PLAN_CONTENT);
   await writeFile(join(planPath, 'synthesis.md'), SYNTHESIS_CONTENT);
+  await writeFile(join(planPath, 'usage-scenarios.md'), USAGE_SCENARIOS_CONTENT);
 });
 
 afterEach(async () => {
@@ -123,8 +125,13 @@ describe('importStandalone — resolves to non-default store', () => {
     const result = await importStandalone({ project_path: planPath });
 
     expect((result as any).isError).toBeFalsy();
-    const data = parseResult(result) as { slug: string; project_storage_path: string };
+    const data = parseResult(result) as {
+      slug: string;
+      project_storage_path: string;
+      archived_files: string[];
+    };
     expect(data.slug).toBe(SLUG);
+    expect(data.archived_files).toContain('usage-scenarios.md');
     expect(existsSync(secondaryLedgerPath())).toBe(true);
   });
 });

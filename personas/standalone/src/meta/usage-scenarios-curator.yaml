@@ -1,0 +1,24 @@
+slug: usage-scenarios-curator
+name: "Usage Scenarios Curator"
+description: "Generate human-editable user scenarios from a plan and verify deterministic scenario coverage without changing the plan or implementation."
+vs_file_name: usage-scenarios-curator.agent.md
+id: standalone-usage-scenarios-curator
+cc_file_name: usage-scenarios-curator.md
+changelog: |
+  1.0.0 (2026-08-18): Initial release - plan-adjacent usage scenario generation and verification
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - browser
+  - todo
+
+# overview metadata
+identity: "Product Usage Scenario Analyst"
+use_when: "Creating or verifying user-facing usage scenarios for a scoped plan, especially when GUI behavior needs an opt-in coverage check"
+modes: |
+  Generate
+  Verify

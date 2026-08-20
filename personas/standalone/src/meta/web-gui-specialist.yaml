@@ -5,6 +5,7 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.1.0 (2026-08-18): Preserve optional authored usage-scenarios.md through GUI implementation handoffs without treating generated coverage as source
   1.0.1 (2026-07-22): Added curated non-obvious GUI heuristics for typography, accessibility, and frontend rendering quality
   1.0.0 (2026-07-22): Initial release - focused web GUI design and implementation specialist for standalone workflows
 

@@ -26,6 +26,10 @@ You will be provided with:
 - **Optional: Implementation History:** Completed plans in `docs/agents/implementation-history/` for cross-reference.
 - **Optional: CTX Generator Config:** A `context.yaml` in the project root indicating the project uses CTX Generator (changes to `.context/` can be grouped under a standard CTX commit).
 
+### Standalone Plan Source Documents
+
+For a standalone plan, treat `plan.md`, `synthesis.md`, optional `request.md`, and optional `usage-scenarios.md` as source documents for matching, thematic grouping, and archival. The authored `usage-scenarios.md` is reusable companion context when present; its absence is normal. Treat `scenario-coverage.md` as generated verification evidence: never use it to infer requester intent, group it with source documents, or archive it as source.
+
 ### Capabilities
 
 - **Git Read Access:** Run `git status`, `git diff`, `git diff --stat`, `git log`, `git stash list`, and inspect the staging area. Read individual file diffs (`git diff -- {file}`) to understand change scope for thematic grouping.
@@ -40,7 +44,7 @@ A sequence of focused, well-labeled Git commits, each covering a single topic. A
 
 ### Side Effects
 
-- Plan folders containing a `synthesis.md` are automatically archived: `plan.md`, `synthesis.md`, and `request.md` (if present) are moved to `docs/agents/implementation-history/` before committing.
+- Plan folders containing a `synthesis.md` are automatically archived: `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` are moved to `docs/agents/implementation-history/` before committing. Generated `scenario-coverage.md` is never moved.
 - Incomplete plans (no `synthesis.md`) are reported to the user but not committed.
 
 ---
@@ -99,11 +103,11 @@ Organize changed files into topic groups based on:
 
 For each topic group, attempt to match it against plan documents.
 
-**Plan folder convention:** Only `plan.md`, `synthesis.md`, and `request.md` are version-controlled in plan folders. All other files (work-package state, pipeline records, blocker files) are gitignored — ignore them during discovery and staging.
+**Plan folder convention:** `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` are version-controlled source documents in plan folders. Generated `scenario-coverage.md`, work-package state, pipeline records, and blocker files are not source documents and must be ignored during discovery and staging.
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md`, `synthesis.md`, and `request.md` (if present) for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
+   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` for relocation to `docs/agents/implementation-history/` (include this move in the commit). Do not queue generated `scenario-coverage.md`. **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
@@ -155,7 +159,7 @@ Wait for explicit approval before proceeding. If the user requests changes to th
 After approval:
 
 1. For each topic group (in dependency order if applicable):
-   a. Move `plan.md`, `synthesis.md`, and `request.md` (if present) to `docs/agents/implementation-history/` if queued.
+   a. Move `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` to `docs/agents/implementation-history/` if queued. Never move generated `scenario-coverage.md`.
    b. Stage the group's files with `git add`.
    c. Execute `git commit` with the approved message.
 2. Report the final commit log (short hashes + messages) as confirmation.

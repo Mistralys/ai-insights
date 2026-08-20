@@ -1,5 +1,16 @@
 # Personas Changelog
 
+## v3.32.0 - Usage Scenarios Curator
+
+- Standalone: Added Usage Scenarios Curator for plan-derived scenario generation and deterministic,
+  read-only coverage verification.
+- Standalone: Plan Refiner now integrates opt-in post-convergence scenario verification with
+  GUI-scope exception handling, recorded verdicts, and one bounded integration re-check.
+- Standalone: Preserved optional authored `usage-scenarios.md` through Git Committer,
+  Standalone Archiver, Developer, and Web GUI Specialist handoffs; excluded generated
+  `scenario-coverage.md`.
+- Build: Regenerated standalone catalog, name mapping, and overview outputs.
+
 ## v3.31.0 - Spec File Retirement and Tooling Updates
 
 - Ledger: Retired WP spec file mechanism; agents 3–9 now source specs

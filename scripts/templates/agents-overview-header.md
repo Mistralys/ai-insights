@@ -20,7 +20,7 @@ The persona system is organized into three suites:
 | Suite | Count | Purpose |
 |-------|-------|---------|
 | **Ledger Pipeline** | 9 | The core 9-stage sequential development workflow. Each stage has a dedicated agent that processes Work Packages through the pipeline. |
-| **Standalone** | 22 | Independent utility agents invoked on demand for specific tasks (planning, code review, documentation, etc.). |
+| **Standalone** | 23 | Independent utility agents invoked on demand for specific tasks (planning, code review, documentation, etc.). |
 | **Ledger-Support** | 11 | Infrastructure agents that manage the ledger workflow itself — bootstrapping projects, sequencing dependencies, diagnosing issues, and archiving results. |
 
 ### How the Ledger Pipeline Works
