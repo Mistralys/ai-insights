@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, access, writeFile, mkdir } from 'fs/promises';
+import { mkdtemp, rm, access, writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -217,6 +217,42 @@ describe('gui/api.ts', () => {
       await expect(handleGetProject(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(handleGetProject(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(handleGetProject(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('uses the cached duration_ms from .meta.json when present (fast path, AC-04)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-10-cached-duration', {
+        synthesis_generated_at: now(),
+      });
+      await store.writeProjectMeta('plan.md', 'IN_PROGRESS', { duration_ms: 42000 });
+
+      const result = await handleGetProject(ledgerRoot, '2026-02-10-cached-duration');
+      expect(result.timing?.project_elapsed_ms).toBe(42000);
+    });
+
+    it('computes and self-heals duration_ms into .meta.json when missing but computable (AC-04a)', async () => {
+      await createProject(ledgerRoot, '2026-02-11-self-heal', {
+        date_created: '2026-02-11T10:00:00.000Z',
+        synthesis_generated_at: '2026-02-11T10:10:00.000Z',
+      });
+      // meta.duration_ms is absent at this point — writeRootIndex() only backfills it
+      // when synthesis_generated_at was present in the SAME write call, which it is here,
+      // so simulate the "un-backfilled legacy project" scenario by stripping it directly.
+      // Also align meta.date_created with the root index override above — writeProjectMeta()
+      // stamps its own date_created independently on first write (real "now"), so the fixture
+      // must patch it to match the fallback computation's expected inputs.
+      const store = new LedgerStore(join(tmpdir(), '2026-02-11-self-heal'), ledgerRoot);
+      const rawMeta = JSON.parse(await readFile(store.metaPath(), 'utf-8'));
+      delete rawMeta.duration_ms;
+      rawMeta.date_created = '2026-02-11T10:00:00.000Z';
+      await writeFile(store.metaPath(), JSON.stringify(rawMeta, null, 2) + '\n', 'utf-8');
+
+      const result = await handleGetProject(ledgerRoot, '2026-02-11-self-heal');
+      expect(result.timing?.project_elapsed_ms).toBe(10 * 60 * 1000);
+
+      // Allow the fire-and-forget self-heal write to settle, then verify persistence.
+      await new Promise((r) => setTimeout(r, 20));
+      const healedMeta = await store.readProjectMeta();
+      expect(healedMeta.duration_ms).toBe(10 * 60 * 1000);
     });
   });
 
@@ -1040,6 +1076,17 @@ describe('gui/api.ts', () => {
       await createProject(ledgerRoot, '2026-01-01-unknown-sort');
       const result = await handleListProjects(ledgerRoot, { sort: 'nonexistentfield' });
       expect(result.projects).toBeDefined();
+    });
+
+    it('sort=duration dir=asc puts projects without a measured duration first (AC-07)', async () => {
+      const storeShort = await createProject(ledgerRoot, '2026-01-01-short-duration');
+      await storeShort.writeProjectMeta('plan.md', 'IN_PROGRESS', { duration_ms: 5000 });
+      await createProject(ledgerRoot, '2026-01-02-unmeasured-duration');
+      // No duration_ms written — sentinel of -1 sorts before any real positive duration.
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', sort: 'duration', dir: 'asc' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs.indexOf('2026-01-02-unmeasured-duration')).toBeLessThan(slugs.indexOf('2026-01-01-short-duration'));
     });
   });
 

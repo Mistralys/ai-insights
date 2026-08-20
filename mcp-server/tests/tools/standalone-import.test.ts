@@ -194,6 +194,21 @@ describe('ledger_import_standalone — successful import', () => {
 
     expect(isError).toBe(false);
   });
+
+  it('persists duration_ms to .meta.json via the writeRootIndex() sync path', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const result = await importStandalone({ project_path: planDir });
+    const { isError } = parseResult(result);
+    expect(isError).toBe(false);
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const meta = await store.readProjectMeta();
+    // date_created is derived from plan.md's filesystem timestamp, so duration_ms is either
+    // a nonnegative gap or null (same-session import nulled out by writeRootIndex()).
+    expect(meta.duration_ms === null || (typeof meta.duration_ms === 'number' && meta.duration_ms >= 0)).toBe(true);
+  });
 });
 
 // ─── Validation errors ────────────────────────────────────────────────────

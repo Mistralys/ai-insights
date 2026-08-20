@@ -224,3 +224,68 @@ describe('RootIndexSchema — project_summary field', () => {
     expect(result.success).toBe(false);
   });
 });
+// ─── ProjectMetaSchema — duration_ms ─────────────────────────────────────────
+
+describe('ProjectMetaSchema — duration_ms field (AC-01)', () => {
+  it('accepts a nonnegative integer value', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: 1500,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.duration_ms).toBe(1500);
+    }
+  });
+
+  it('accepts null (unmeasurable duration)', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.duration_ms).toBeNull();
+    }
+  });
+
+  it('accepts absent field — backward compatibility', () => {
+    const result = ProjectMetaSchema.safeParse(BASE_META);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.duration_ms).toBeUndefined();
+    }
+  });
+
+  it('accepts zero', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a negative number', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a non-integer number', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: 12.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a string', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      duration_ms: '1500',
+    });
+    expect(result.success).toBe(false);
+  });
+});

@@ -31,6 +31,7 @@ import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
+import { listAllProjectDirs } from './ledger-dirs.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -277,29 +278,26 @@ export function storeRemove({ id, configPath } = {}) {
 /**
  * Returns a summary of all registered stores with repo and project counts.
  *
+ * Project counts are derived from `LedgerStore.listAllProjectDirs()` (via
+ * `scripts/lib/ledger-dirs.js`) — directory discovery is never re-implemented
+ * here.
+ *
  * @param {{ configPath?: string }} [opts]
- * @returns {{ ok: boolean, stores: Array, default_store?: string }}
+ * @returns {Promise<{ ok: boolean, stores: Array, default_store?: string }>}
  */
-export function storeList({ configPath } = {}) {
+export async function storeList({ configPath } = {}) {
   const cp = configPath ?? resolveConfigPath();
   const config = loadConfig(cp);
   if (!config) return { ok: true, stores: [] };
 
-  const stores = config.stores.map(s => {
+  const stores = await Promise.all(config.stores.map(async (s) => {
     const absPath  = expandPath(s.path);
     const registry = loadRegistry(absPath);
     const repoCount = registry.repositories.length;
 
-    // Two-level scan: {storePath}/{repoName}/{slug}/
     let projectCount = 0;
     try {
-      for (const repoEntry of fs.readdirSync(absPath, { withFileTypes: true })) {
-        if (!repoEntry.isDirectory() || repoEntry.name.startsWith('.')) continue;
-        const repoDir = join(absPath, repoEntry.name);
-        for (const slugEntry of fs.readdirSync(repoDir, { withFileTypes: true })) {
-          if (slugEntry.isDirectory()) projectCount++;
-        }
-      }
+      projectCount = (await listAllProjectDirs(absPath)).length;
     } catch { /* store path may not exist yet — skip silently */ }
 
     return {
@@ -310,7 +308,7 @@ export function storeList({ configPath } = {}) {
       repo_count:    repoCount,
       project_count: projectCount,
     };
-  });
+  }));
 
   return { ok: true, stores, default_store: config.default_store };
 }

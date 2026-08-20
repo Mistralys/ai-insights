@@ -2054,6 +2054,22 @@ describe('completeSynthesis — outcome_summary persistence (WP-004)', () => {
     expect(root.synthesis_generated).toBe(true);
     expect(root.status).toBe('COMPLETE');
   });
+
+  it('persists duration_ms to .meta.json via the writeRootIndex() sync path (AC-02)', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+
+    expect(result.isError).toBeUndefined();
+    const meta = await handle.store.readProjectMeta();
+    // date_created and synthesis_generated_at are both derived from now() within the
+    // same test run, so duration_ms is a small nonnegative number, never null/undefined.
+    expect(typeof meta.duration_ms).toBe('number');
+    expect(meta.duration_ms).toBeGreaterThanOrEqual(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ import fs from 'fs';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { pathToFileURL } from 'url';
+import { listAllProjectDirs } from './lib/ledger-dirs.js';
 
 // ---------------------------------------------------------------------------
 // 1. Resolve paths
@@ -103,37 +104,31 @@ function ensureDistFresh() {
 
 /**
  * Scans the ledger storage root and returns a Set of all known project slugs.
- * Handles both the legacy flat layout ({ledgerRoot}/{slug}/) and the
- * namespaced layout ({ledgerRoot}/{repoName}/{slug}/).
+ * Directory discovery (legacy flat layout vs. namespaced
+ * `{repoName}/{slug}/` layout) is delegated to the canonical
+ * `LedgerStore.listAllProjectDirs()` via `scripts/lib/ledger-dirs.js` —
+ * never re-implemented here.
  *
- * @returns {Set<string>}
+ * @returns {Promise<Set<string>>}
  */
-function collectKnownSlugs(verbose = false) {
-  if (!fs.existsSync(LEDGER_ROOT)) return new Set();
-
+async function collectKnownSlugs(verbose = false) {
   const slugs = new Set();
 
-  for (const entry of fs.readdirSync(LEDGER_ROOT, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+  let projectDirs;
+  try {
+    projectDirs = await listAllProjectDirs(LEDGER_ROOT);
+  } catch (err) {
+    console.warn(`  ⚠ Could not scan ${LEDGER_ROOT}: ${err.message}`);
+    if (verbose) {
+      console.warn(err.stack);
+    }
+    return slugs;
+  }
 
-    if (PLAN_SLUG_RE.test(entry.name)) {
-      // Legacy layout: slug at the ledger root.
-      slugs.add(entry.name);
-    } else {
-      // Namespaced layout: repoName/slug/
-      const repoDir = path.join(LEDGER_ROOT, entry.name);
-      try {
-        for (const slugEntry of fs.readdirSync(repoDir, { withFileTypes: true })) {
-          if (slugEntry.isDirectory() && PLAN_SLUG_RE.test(slugEntry.name)) {
-            slugs.add(slugEntry.name);
-          }
-        }
-      } catch (err) {
-        console.warn(`  ⚠ Could not read ${repoDir}: ${err.message}`);
-        if (verbose) {
-          console.warn(err.stack);
-        }
-      }
+  for (const dir of projectDirs) {
+    const slug = path.basename(dir);
+    if (PLAN_SLUG_RE.test(slug)) {
+      slugs.add(slug);
     }
   }
 
@@ -273,7 +268,7 @@ async function runBatch(importFn, scanRoot, dryRun, verbose = false) {
     return;
   }
 
-  const knownSlugs = collectKnownSlugs(verbose);
+  const knownSlugs = await collectKnownSlugs(verbose);
   const toImport       = candidates.filter(p => !knownSlugs.has(path.basename(p)));
   const alreadyTracked = candidates.filter(p =>  knownSlugs.has(path.basename(p)));
 

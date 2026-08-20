@@ -55,7 +55,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `limit` | number | 50 | Items per page (max 200). |
 | `status` | string | `'ACTIVE'` | `'ACTIVE'`, `'ALL'`, or a specific status value. |
 | `search` | string | — | Case-insensitive substring match on slug, name, repo. |
-| `sort` | string | `'last_updated'` | Column: `project`, `repository`, `status`, `total_work_packages`, `done`, `date_created`, `last_updated`, `runner`. |
+| `sort` | string | `'last_updated'` | Column: `project`, `repository`, `status`, `total_work_packages`, `done`, `date_created`, `last_updated`, `runner`, `duration`. |
 | `dir` | string | `'desc'` | `'asc'` or `'desc'`. |
 | `runner` | string | — | Filter: `'orchestrator'`, `'vscode'`, `'claude-code'`, `'unknown'`. |
 
