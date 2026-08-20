@@ -112,3 +112,16 @@ documents:
         description: "Root AGENTS.md (agent operating system for the workspace)"
         sourcePaths:
           - AGENTS.md
+
+  - description: 'AI Insights - GUI Usage Scenarios'
+    outputPath: gui-usage-scenarios.md
+    sources:
+      - type: text
+        content: |
+          # AI Insights - GUI Usage Scenarios
+          Design decision record for the standalone Usage Scenarios Curator, Plan Refiner integration, authored scenario archival boundary, and plan-blind Acceptance Verifier separation.
+      - type: file
+        description: "GUI usage-scenarios project decision record"
+        sourcePaths:
+          - docs/agents/projects
+        filePattern: "gui-usage-scenarios.md"
