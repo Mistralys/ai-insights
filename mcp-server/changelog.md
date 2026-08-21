@@ -1,7 +1,13 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.8.0 - **WIP UNRELEASED**
-
+## v2.9.0 - **WIP UNRELEASED**
+- Schema: Added `duration_ms` to project metadata for persisted project runtime.
+- Storage: Auto-computes and caches `duration_ms` on synthesis completion, import, and self-heal.
+- Storage: Centralized project-directory discovery into `LedgerStore.listAllProjectDirs()`.
+- GUI: Added sortable Duration column to the project list.
+- Scripts: Added `backfill-duration` one-time idempotent command (supports `--dry-run`).
+- Scripts: Added `scripts/lib/ledger-dirs.js` canonical helper for project-directory discovery.
+- Tests: Added coverage for schema, storage, project lifecycle, and GUI.
 - Storage: Added multi-store storage layer with store router, registry, and
   manager for cross-device ledger sync.
 - Storage: Added store context and resolution utilities for scoped store access.

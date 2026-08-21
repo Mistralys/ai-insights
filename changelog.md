@@ -3,7 +3,10 @@
 ## v2.9.0 - **WIP UNRELEASED**
 > mcp v2.8.0 · orchestrator v1.4.0 · personas v3.32.0
 
-
+- GUI: Added sortable Duration column to the project list.
+- MCP: Project duration is now cached in project metadata on synthesis completion.
+- Scripts: Added `backfill-duration` one-time command to populate duration for existing projects.
+- Scripts: Added canonical project-directory discovery helper consumed by all ledger scripts.
 - MCP: Multi-store storage layer with Stores CRUD tab in the GUI.
 - MCP: Knowledge insight IDs migrated from integers to UUID v4.
 - MCP: Work packages now carry title and description; spec files removed.
