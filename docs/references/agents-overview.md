@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-08-18
+> **Generated:** 2026-08-21
 > **Total Personas:** 43
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -371,7 +371,7 @@ Audit unit test coverage of specific codebase modules — identify untested path
 
 ---
 
-### Usage Scenarios Curator (v1.0.0)
+### Usage Scenarios Curator (v1.2.0)
 
 **Identity:** Product Usage Scenario Analyst
 
