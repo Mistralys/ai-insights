@@ -1,30 +1,26 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.8.0 - **WIP UNRELEASED**
+## v2.9.0 - **WIP UNRELEASED**
 
-- Storage: Added multi-store storage layer with store router, registry, and
-  manager for cross-device ledger sync.
-- Storage: Added store context and resolution utilities for scoped store access.
-- GUI: Added Stores CRUD tab with hot-reload backend for managing store configs.
-- GUI: Multi-store API handlers for repository and knowledge operations.
-- GUI: Sortable repository list, project filter, and breadcrumb navigation.
-- GUI: Replaced repository strategy detail page with a modal dialog.
-- GUI: Undeclared repo scanning now covers all configured stores.
+**This release adds a multi-store storage layer enabling cross-device ledger sync.**
+Project duration tracking, UUID-based insight IDs, and several tool improvements are also included.
+
+- Storage: Added multi-store layer with store router, registry, and manager.
+- Storage: Centralized project-directory discovery; store context and resolution utilities added.
+- GUI: Added Stores CRUD tab with hot-reload backend for managing store configurations.
+- GUI: Multi-store API handlers for repositories and knowledge operations.
+- GUI: Sortable repository list, project filter, and breadcrumb navigation added.
+- GUI: Strategy detail page replaced with a modal dialog.
 - GUI: Fixed Windows path handling in project resolution.
-- GUI: Project duration now derived from synthesis metadata.
-- Knowledge: Insight IDs migrated from integers to UUID v4.
-- Knowledge: Fixed pagination in multi-store context.
-- Tools: Added `ledger_ping` as a lightweight server health check.
-- Tools: Added `title` and `description` fields to work packages.
-- Tools: Removed `work_package_file` from schema, tools, and tests.
-- Tools: Repositories now sorted by ID in list responses.
-- Tools: Standalone imports now optionally archive authored `usage-scenarios.md`
-  while excluding derived `scenario-coverage.md`.
-- Tools: Fixed release engineering PASS routing to advance to the next active
-  pipeline stage, preventing IDE stalls on multi-stage pipelines.
-- Dependencies: Updated `@modelcontextprotocol/sdk` and enforced patched transitive
-  dependency versions.
-- Tests: Added multi-store, knowledge pagination, and standalone import coverage.
+- Schema: Added `duration_ms` to project metadata; auto-computed on synthesis and import.
+- Knowledge: Migrated insight IDs from integers to UUID v4; fixed multi-store pagination.
+- Tools: Added `ledger_ping` health-check, `title`/`description` fields on work packages.
+- Tools: Removed `work_package_file`; sorted repositories in list responses.
+- Tools: Fixed release engineering PASS routing stalling on multi-stage pipelines.
+- Tools: Standalone imports optionally archive `usage-scenarios.md`.
+- Scripts: Added `backfill-duration` command for populating duration on existing projects.
+- Dependencies: Updated `@modelcontextprotocol/sdk` with enforced patched transitive versions.
+- Tests: Added coverage for multi-store, duration, knowledge pagination, and import flows.
 
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 

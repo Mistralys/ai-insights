@@ -152,13 +152,13 @@ describe('store-commands', () => {
   // ─── storeList ─────────────────────────────────────────────────────────────
 
   describe('storeList', () => {
-    it('AC-4: returns all stores with repo and project counts', () => {
+    it('AC-4: returns all stores with repo and project counts', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
       storeAdd({ id: 'store-a', storePath: storeA, configPath });
       storeAdd({ id: 'store-b', storePath: storeB, configPath });
 
-      const result = storeList({ configPath });
+      const result = await storeList({ configPath });
       expect(result.ok).toBe(true);
       expect(result.stores).toHaveLength(2);
 
@@ -167,27 +167,27 @@ describe('store-commands', () => {
       expect(aRow.project_count).toBe(0);
     });
 
-    it('returns empty stores array when no stores.json exists', () => {
-      const result = storeList({ configPath });
+    it('returns empty stores array when no stores.json exists', async () => {
+      const result = await storeList({ configPath });
       expect(result.ok).toBe(true);
       expect(result.stores).toEqual([]);
     });
 
-    it('marks the default store correctly', () => {
+    it('marks the default store correctly', async () => {
       const storePath = path.join(tempDir, 'store-x');
       storeAdd({ id: 'store-x', storePath, configPath });
       storeSetDefault({ id: 'store-x', configPath });
 
-      const result = storeList({ configPath });
+      const result = await storeList({ configPath });
       expect(result.stores[0].is_default).toBe(true);
     });
 
-    it('reflects repo_count from .repositories.json', () => {
+    it('reflects repo_count from .repositories.json', async () => {
       const storePath = path.join(tempDir, 'store-r');
       storeAdd({ id: 'store-r', storePath, configPath });
       storeRepoAdd({ repoName: 'my-repo', storeId: 'store-r', configPath });
 
-      const result = storeList({ configPath });
+      const result = await storeList({ configPath });
       const row = result.stores.find(s => s.id === 'store-r');
       expect(row.repo_count).toBe(1);
     });

@@ -25,6 +25,7 @@ export interface MetaCacheUpdates {
   total_work_packages?: number;
   pending_work_packages?: number;
   progress_pct?: number;
+  duration_ms?: number | null;
   project_name?: string | null;
   repository_name?: string | null;
   outcome_summary?: string | null;
@@ -262,11 +263,25 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
+
+    // Compute duration_ms whenever synthesis_generated_at is set — the wall-clock
+    // gap between project creation and synthesis completion. Standalone imports
+    // with same-session import (synth === created) are nulled out to avoid a
+    // misleading "< 1s" duration in the GUI.
+    const durationMs = (() => {
+      if (!validated.synthesis_generated_at) return undefined; // no duration to sync
+      const created = new Date(validated.date_created).getTime();
+      const synth = new Date(validated.synthesis_generated_at).getTime();
+      if (isNaN(created) || isNaN(synth) || synth < created) return null;
+      return (synth === created && validated.runner === 'standalone') ? null : synth - created;
+    })();
+
     // Auto-sync .meta.json after every root index write — include WP counters, progress, runner metadata, and outcome_summary
     await this.writeProjectMeta('', validated.status, {
       total_work_packages: validated.total_work_packages,
       pending_work_packages: validated.pending_work_packages,
       progress_pct: computeProjectProgress(validated.work_packages),
+      ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
       ...(validated.runner !== undefined ? { runner: validated.runner } : {}),
       ...(validated.runner_client !== undefined ? { runner_client: validated.runner_client } : {}),
       ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
@@ -502,7 +517,7 @@ export class LedgerStore {
    * @param planFile     - Plan file name (used only on first write; ignored on updates)
    * @param status       - Optional status override; defaults to existing status or IN_PROGRESS
    * @param cacheUpdates - Optional enrichment fields to write into the cache. Supported keys:
-   *                       `total_work_packages`, `pending_work_packages`, `progress_pct` (numeric counters);
+   *                       `total_work_packages`, `pending_work_packages`, `progress_pct`, `duration_ms` (numeric counters);
    *                       `project_name`, `repository_name`, `outcome_summary`, `project_summary`
    *                       (nullable strings — use key-presence semantics: `'key' in cacheUpdates`
    *                       distinguishes an explicit `null` clear from an absent field that should be
@@ -545,6 +560,7 @@ export class LedgerStore {
       ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),
       ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
       ...(existing.progress_pct !== undefined ? { progress_pct: existing.progress_pct } : {}),
+      ...(existing.duration_ms !== undefined ? { duration_ms: existing.duration_ms } : {}),
       ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
       ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
       ...(existing.outcome_summary !== undefined ? { outcome_summary: existing.outcome_summary } : {}),
@@ -553,6 +569,7 @@ export class LedgerStore {
       ...(cacheUpdates?.total_work_packages !== undefined ? { total_work_packages: cacheUpdates.total_work_packages } : {}),
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
       ...(cacheUpdates?.progress_pct !== undefined ? { progress_pct: cacheUpdates.progress_pct } : {}),
+      ...(cacheUpdates !== undefined && 'duration_ms' in cacheUpdates ? { duration_ms: cacheUpdates.duration_ms } : {}),
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
       ...(cacheUpdates !== undefined && 'outcome_summary' in cacheUpdates ? { outcome_summary: cacheUpdates.outcome_summary } : {}),
@@ -824,12 +841,28 @@ export class LedgerStore {
   }
 
   /**
-   * Scans the central ledger root and returns metadata for all projects.
-   * Skips .archive/ and any entry where .meta.json is absent or invalid.
+   * Scans the central ledger root and returns the storage directory path for
+   * every project found, without reading or validating `.meta.json` contents.
+   *
+   * This is the **canonical directory-discovery primitive** for the ledger
+   * storage layout. It recognizes both the legacy flat layout
+   * (`{ledgerRoot}/{slug}/`) and the namespaced layout
+   * (`{ledgerRoot}/{repoName}/{slug}/`), classifying a depth-1 entry as a flat
+   * project directory purely based on the presence of a `.meta.json` file
+   * (existence check only — contents are not read here). Dot-prefixed entries
+   * are skipped at both depths (e.g. `.archive/`).
+   *
+   * All other project-directory discovery in this codebase — and in any
+   * root-level `scripts/` utility that needs to enumerate ledger projects —
+   * must call this method (via the compiled `mcp-server/dist/` output) rather
+   * than re-implementing depth-1/depth-2 layout detection. The two-level scan
+   * has changed shape multiple times as the storage layout evolved; a second,
+   * independently-maintained copy of this logic silently drifts out of sync.
    *
    * @param ledgerRoot - Optional override; defaults to resolveLedgerRoot()
+   * @returns Absolute paths to every discovered project storage directory.
    */
-  static async listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]> {
+  static async listAllProjectDirs(ledgerRoot?: string): Promise<string[]> {
     const root = ledgerRoot ?? resolveLedgerRoot();
     let dirents: import('fs').Dirent[];
 
@@ -839,7 +872,7 @@ export class LedgerStore {
       return [];
     }
 
-    const results: ProjectMeta[] = [];
+    const results: string[] = [];
 
     for (const dirent of dirents) {
       const entry = dirent.name;
@@ -858,16 +891,14 @@ export class LedgerStore {
       const depth1Dir = join(root, entry);
       const depth1MetaFile = join(depth1Dir, '.meta.json');
 
-      // First, try reading .meta.json directly at depth 1 (old flat layout).
+      // First, probe for .meta.json directly at depth 1 (old flat layout).
       let foundAtDepth1 = false;
       try {
-        const content = await readFile(depth1MetaFile, 'utf-8');
-        const data = JSON.parse(content);
-        const meta = ProjectMetaSchema.parse(data);
-        results.push(meta);
+        await access(depth1MetaFile, constants.F_OK);
+        results.push(depth1Dir);
         foundAtDepth1 = true;
       } catch {
-        // No valid .meta.json at depth 1 — treat entry as a repo-namespace directory
+        // No .meta.json at depth 1 — treat entry as a repo-namespace directory
         // and scan its children for project slug directories (new namespaced layout).
       }
 
@@ -884,23 +915,48 @@ export class LedgerStore {
           if (!subDirent.isDirectory()) continue;
           if (subEntry.startsWith('.')) continue;
 
-          const depth2MetaFile = join(depth1Dir, subEntry, '.meta.json');
+          const depth2Dir = join(depth1Dir, subEntry);
           try {
-            const content = await readFile(depth2MetaFile, 'utf-8');
-            const data = JSON.parse(content);
-            const meta = ProjectMetaSchema.parse(data);
-            results.push(meta);
-          } catch (err) {
-            // ENOENT simply means the subdirectory has no .meta.json — it is not a
-            // project directory and can be silently skipped.  Only log unexpected
-            // errors (e.g. permission denied, JSON parse failure) that indicate a
-            // real problem with an otherwise-valid project directory.
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-              process.stderr.write(
-                `[LedgerStore.listAllProjects] Skipping "${entry}/${subEntry}": ${(err as Error).message}\n`
-              );
-            }
+            await access(join(depth2Dir, '.meta.json'), constants.F_OK);
+            results.push(depth2Dir);
+          } catch {
+            // No .meta.json — not a project directory, skip silently.
           }
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Scans the central ledger root and returns metadata for all projects.
+   * Skips .archive/ and any entry where .meta.json is absent or invalid.
+   *
+   * Delegates directory discovery to {@link LedgerStore.listAllProjectDirs}.
+   *
+   * @param ledgerRoot - Optional override; defaults to resolveLedgerRoot()
+   */
+  static async listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]> {
+    const projectDirs = await LedgerStore.listAllProjectDirs(ledgerRoot);
+    const results: ProjectMeta[] = [];
+
+    for (const dir of projectDirs) {
+      try {
+        const content = await readFile(join(dir, '.meta.json'), 'utf-8');
+        const data = JSON.parse(content);
+        const meta = ProjectMetaSchema.parse(data);
+        results.push(meta);
+      } catch (err) {
+        // ENOENT would mean the file vanished between listAllProjectDirs()'s
+        // existence check and this read (race condition) — not a real problem.
+        // Any other error (malformed JSON, schema validation failure, permission
+        // denied) indicates a real problem with an otherwise-discovered project
+        // directory and is worth surfacing.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          process.stderr.write(
+            `[LedgerStore.listAllProjects] Skipping "${dir}": ${(err as Error).message}\n`
+          );
         }
       }
     }

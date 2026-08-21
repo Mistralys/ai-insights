@@ -149,6 +149,38 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
     expect(meta.project_summary).toBe('Updated summary.');
   });
 
+  it('writeProjectMeta with duration_ms persists and readProjectMeta returns it unchanged', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      duration_ms: 123456,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.duration_ms).toBe(123456);
+  });
+
+  it('writeProjectMeta with duration_ms: null persists an explicit null (unmeasurable duration)', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      duration_ms: null,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.duration_ms).toBeNull();
+  });
+
+  it('writeProjectMeta without duration_ms in cacheUpdates preserves existing value', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      duration_ms: 999,
+    });
+
+    // Subsequent write that omits duration_ms — the existing value must be preserved
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      total_work_packages: 2,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.duration_ms).toBe(999);
+  });
+
   it('updateWorkPackageWithSync auto-syncs .meta.json status', async () => {
     await store.writeRootIndex(makeRootIndex({
       status: 'IN_PROGRESS',

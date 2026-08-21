@@ -172,6 +172,61 @@ describe('LedgerStore', () => {
     });
   });
 
+  describe('writeRootIndex — duration_ms computation', () => {
+    it('does not write duration_ms to .meta.json when synthesis_generated_at is absent', async () => {
+      await store.writeRootIndex(makeRootIndex());
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBeUndefined();
+    });
+
+    it('computes duration_ms as the gap between date_created and synthesis_generated_at', async () => {
+      await store.writeRootIndex(makeRootIndex({
+        date_created: '2026-02-16T10:00:00.000Z',
+        synthesis_generated_at: '2026-02-16T10:05:00.000Z',
+      }));
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBe(5 * 60 * 1000);
+    });
+
+    it('sets duration_ms to null when timestamps are invalid/NaN', async () => {
+      await store.writeRootIndex(makeRootIndex({
+        date_created: 'not-a-date',
+        synthesis_generated_at: '2026-02-16T10:05:00.000Z',
+      }));
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBeNull();
+    });
+
+    it('sets duration_ms to null on clock skew (synthesis before creation)', async () => {
+      await store.writeRootIndex(makeRootIndex({
+        date_created: '2026-02-16T10:05:00.000Z',
+        synthesis_generated_at: '2026-02-16T10:00:00.000Z',
+      }));
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBeNull();
+    });
+
+    it('nulls out zero-duration standalone same-session imports', async () => {
+      await store.writeRootIndex(makeRootIndex({
+        date_created: '2026-02-16T10:00:00.000Z',
+        synthesis_generated_at: '2026-02-16T10:00:00.000Z',
+        runner: 'standalone',
+      }));
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBeNull();
+    });
+
+    it('preserves a zero-duration for non-standalone runners (edge case, not nulled)', async () => {
+      await store.writeRootIndex(makeRootIndex({
+        date_created: '2026-02-16T10:00:00.000Z',
+        synthesis_generated_at: '2026-02-16T10:00:00.000Z',
+        runner: 'vscode',
+      }));
+      const meta = await store.readProjectMeta();
+      expect(meta.duration_ms).toBe(0);
+    });
+  });
+
   describe('writeWorkPackage', () => {
     it('creates storageDir automatically', async () => {
       await store.writeWorkPackage('WP-001', makeWorkPackageDetail());

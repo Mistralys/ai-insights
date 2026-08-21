@@ -229,6 +229,8 @@ function renderProjectList(app) {
         repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
       }
 
+      var durationCellHtml = p.duration_ms != null ? escapeHtml(formatDuration(p.duration_ms)) : '\u2014';
+
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
         nameCell +
         repoCell +
@@ -236,6 +238,7 @@ function renderProjectList(app) {
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td>' + runnerBadge(p.runner) + '</td>' +
+        '<td class="text-muted">' + durationCellHtml + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +
@@ -255,6 +258,7 @@ function renderProjectList(app) {
         thSort('% Done', 'done') +
         thSort('Status', 'status') +
         thSort('Runner', 'runner') +
+        thSort('Duration', 'duration') +
         thSort('Created', 'date_created') +
         thSort('Updated', 'last_updated') +
         '<th>Actions</th>' +

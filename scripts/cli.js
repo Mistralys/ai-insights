@@ -575,6 +575,11 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdBackfillDuration(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'backfill-duration.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 // ─── Store command group ──────────────────────────────────────────────────────
 
 /**
@@ -594,7 +599,7 @@ function printStoreList(stores, defaultStore) {
   }
 }
 
-function cmdStore(args) {
+async function cmdStore(args) {
   const sub  = args[0];
   const rest = args.slice(1);
 
@@ -645,7 +650,7 @@ function cmdStore(args) {
     }
 
     case 'list': {
-      const result = storeList();
+      const result = await storeList();
       if (!result.ok) {
         log(`  ${C.red('✗')} Failed to load stores.json.`, 'red');
         process.exit(1);
@@ -1011,6 +1016,19 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdKillOrchestrator,
+  },
+  {
+    id:           'backfill-duration',
+    key:          null,
+    label:        'Backfill project duration',
+    category:     'MCP Server',
+    description:  'One-time backfill of duration_ms in .meta.json for existing projects',
+    helpVariants: [
+      ['backfill-duration --dry-run', 'Preview changes without writing'],
+      ['backfill-duration --verbose', 'Log each project processed'],
+    ],
+    helpHidden:   true,
+    run:          cmdBackfillDuration,
   },
   {
     id:           'doctor',

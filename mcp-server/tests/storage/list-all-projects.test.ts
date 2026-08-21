@@ -9,6 +9,9 @@
  *   - Empty namespace directories
  *   - Same slug in different repo namespaces (the key collision-prevention use case)
  *   - detectProjectByCwd() continues to work via delegation to listAllProjects()
+ *   - listAllProjectDirs() — the canonical directory-discovery primitive that
+ *     listAllProjects() delegates to (also consumed by root-level scripts/
+ *     utilities via scripts/lib/ledger-dirs.js)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -250,5 +253,66 @@ describe('LedgerStore.listAllProjects — two-level namespace scan', () => {
     if (result.status === 'FOUND') {
       expect(result.meta.slug).toBe(slug);
     }
+  });
+});
+
+describe('LedgerStore.listAllProjectDirs — canonical directory-discovery primitive', () => {
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'list-dirs-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('returns absolute directory paths for both flat and namespaced layouts', async () => {
+    await createFlatProject(tempLedgerRoot, '2026-01-01-flat');
+    await createNamespacedProject(tempLedgerRoot, 'repo-a', '2026-02-01-namespaced');
+
+    const dirs = await LedgerStore.listAllProjectDirs(tempLedgerRoot);
+
+    expect(dirs.sort()).toEqual(
+      [
+        join(tempLedgerRoot, '2026-01-01-flat'),
+        join(tempLedgerRoot, 'repo-a', '2026-02-01-namespaced'),
+      ].sort()
+    );
+  });
+
+  it('does not read or validate .meta.json contents — existence check only', async () => {
+    const dir = join(tempLedgerRoot, 'repo-a', '2026-03-01-bad-meta');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, '.meta.json'), '{ not valid json', 'utf-8');
+
+    const dirs = await LedgerStore.listAllProjectDirs(tempLedgerRoot);
+
+    expect(dirs).toEqual([dir]);
+  });
+
+  it('skips dot-prefixed entries at both depths', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'repo-a', '2026-04-01-visible');
+    await mkdir(join(tempLedgerRoot, '.archive'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'repo-a', '.hidden'), { recursive: true });
+
+    const dirs = await LedgerStore.listAllProjectDirs(tempLedgerRoot);
+
+    expect(dirs).toEqual([join(tempLedgerRoot, 'repo-a', '2026-04-01-visible')]);
+  });
+
+  it('returns an empty array when the ledger root does not exist', async () => {
+    const dirs = await LedgerStore.listAllProjectDirs(join(tempLedgerRoot, 'missing'));
+    expect(dirs).toEqual([]);
+  });
+
+  it('is used by listAllProjects() to discover directories (no duplicated logic)', async () => {
+    await createFlatProject(tempLedgerRoot, '2026-05-01-shared-logic');
+
+    const dirs = await LedgerStore.listAllProjectDirs(tempLedgerRoot);
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(dirs).toEqual([join(tempLedgerRoot, '2026-05-01-shared-logic')]);
+    expect(projects.map((p) => p.slug)).toEqual(['2026-05-01-shared-logic']);
   });
 });
