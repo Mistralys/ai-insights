@@ -861,7 +861,7 @@
     "number": null,
     "id": "standalone-usage-scenarios-curator",
     "role": "Usage Scenarios Curator",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
