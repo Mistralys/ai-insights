@@ -103,6 +103,8 @@ Only injected when `da_file_name` is present in the merged context. Personas wit
 | `{{da_tools_json}}` | `persona.da_tools` → fallback to `tools` | `['tool1', 'tool2']` (brackets included) |
 | `{{da_tools_block}}` | `persona.da_tools` → fallback to `tools` | YAML block sequence |
 
+> **These variables are currently unused in this workspace.** The `FRONTMATTER_DA` template (see `api-surface.md`) emits only `name` and `description`, and no persona content template references `{{da_tools_*}}`. Setting `da_tools:` in a persona YAML therefore has no effect on generated output. Tool availability for the Deep Agents target is determined at runtime by the orchestrator — see `orchestrator/docs/architecture.md` § Built-in Tool Suite. The variables remain available should a future `FRONTMATTER_DA` revision start emitting a tools field.
+
 ### Model Resolution (Ledger Suite)
 
 | Variable | Resolution Chain | Output Format |

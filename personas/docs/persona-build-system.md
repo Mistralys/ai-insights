@@ -700,6 +700,8 @@ description: '{{cc_description}}'
 ---
 ```
 
+> **No tools field.** The Deep Agents frontmatter emits only `name` and `description`. Tool availability for this target is determined at runtime by the orchestrator's `create_deep_agent()` call, not by persona YAML — see `orchestrator/docs/architecture.md` § Built-in Tool Suite.
+
 ---
 
 ## Common Editing Scenarios

@@ -56,6 +56,19 @@ The `pm` stage is the only stage that delegates sub-tasks to specialised subagen
 
 **To add a subagent to a stage:** Add the kebab-case slug to the `subagents` field in the stage's ledger persona YAML source (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). Rebuild personas with `node scripts/build-personas.js`. No Python changes required.
 
+### Built-in Tool Suite
+
+`create_deep_agent()` merges its own built-in tools into every agent it constructs. The `tools=` argument is **additive** — it never removes a built-in. As of `deepagents` 0.6.12 the built-in suite is:
+
+| Tool | Purpose |
+|------|---------|
+| `write_todos` | Manage a todo list |
+| `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep` | File operations (routed through the configured backend) |
+| `execute` | Run shell commands (requires a `SandboxBackendProtocol` backend) |
+| `task` | Invoke subagents |
+
+The orchestrator passes only wrapped MCP tools via `tools=`. Consequently every Deep Agents stage has the full built-in suite plus the ledger MCP tools, **irrespective of the persona's `tools:` / `cc_tools:` YAML fields** — those govern the VS Code and Claude Code targets only. To remove a built-in, register a `HarnessProfile` with `excluded_tools`; the orchestrator does not currently do this.
+
 ### Pipeline Rollback (Orphaned Pipeline Cleanup)
 
 When a stage node raises an exception *after* `ledger_begin_work` was called, the MCP ledger contains an orphaned `IN_PROGRESS` pipeline. Without cleanup, the next run attempt for the same WP receives a "duplicate in-progress pipeline" error from the MCP server.
