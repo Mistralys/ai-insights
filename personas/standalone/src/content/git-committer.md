@@ -28,7 +28,7 @@ You will be provided with:
 
 ### Standalone Plan Source Documents
 
-For a standalone plan, treat `plan.md`, `synthesis.md`, optional `request.md`, and optional `usage-scenarios.md` as source documents for matching, thematic grouping, and archival. The authored `usage-scenarios.md` is reusable companion context when present; its absence is normal. Treat `scenario-coverage.md` as generated verification evidence: never use it to infer requester intent, group it with source documents, or archive it as source.
+For a standalone plan, treat `plan.md`, `synthesis.md`, optional `request.md`, and optional `usage-scenarios.md` as source documents for matching, thematic grouping, and archival. The authored `usage-scenarios.md` is reusable companion context when present; its absence is normal. Treat `scenario-coverage.md` and `insights.jsonl` as generated evidence: never use them to infer requester intent, group them with source documents, or archive them as source.
 
 ### Capabilities
 
@@ -44,7 +44,7 @@ A sequence of focused, well-labeled Git commits, each covering a single topic. A
 
 ### Side Effects
 
-- Plan folders containing a `synthesis.md` are automatically archived: `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` are moved to `docs/agents/implementation-history/` before committing. Generated `scenario-coverage.md` is never moved.
+- Plan folders containing a `synthesis.md` are automatically archived: `plan.md`, `synthesis.md`, optional `request.md`, optional authored `usage-scenarios.md`, and `insights.jsonl` (if present) are moved to `docs/agents/implementation-history/` before committing. Generated `scenario-coverage.md` is never moved.
 - Incomplete plans (no `synthesis.md`) are reported to the user but not committed.
 
 ---
@@ -103,11 +103,11 @@ Organize changed files into topic groups based on:
 
 For each topic group, attempt to match it against plan documents.
 
-**Plan folder convention:** `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` are version-controlled source documents in plan folders. Generated `scenario-coverage.md`, work-package state, pipeline records, and blocker files are not source documents and must be ignored during discovery and staging.
+**Plan folder convention:** `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` are version-controlled source documents in plan folders. `insights.jsonl` is generated working evidence — relocate it with the plan folder but never treat it as a source document. Generated `scenario-coverage.md`, work-package state, pipeline records, and blocker files are not source documents and must be ignored during discovery and staging.
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` for relocation to `docs/agents/implementation-history/` (include this move in the commit). Do not queue generated `scenario-coverage.md`. **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
+   - **`synthesis.md` exists:** The plan is complete. Queue the plan's `plan.md`, `synthesis.md`, optional `request.md`, optional authored `usage-scenarios.md`, and `insights.jsonl` (if present) for relocation to `docs/agents/implementation-history/` (include this move in the commit). Do not queue generated `scenario-coverage.md`. **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
@@ -159,7 +159,7 @@ Wait for explicit approval before proceeding. If the user requests changes to th
 After approval:
 
 1. For each topic group (in dependency order if applicable):
-   a. Move `plan.md`, `synthesis.md`, optional `request.md`, and optional authored `usage-scenarios.md` to `docs/agents/implementation-history/` if queued. Never move generated `scenario-coverage.md`.
+   a. Move `plan.md`, `synthesis.md`, optional `request.md`, optional authored `usage-scenarios.md`, and `insights.jsonl` (if present) to `docs/agents/implementation-history/` if queued. Never move generated `scenario-coverage.md`.
    b. Stage the group's files with `git add`.
    c. Execute `git commit` with the approved message.
 2. Report the final commit log (short hashes + messages) as confirmation.
@@ -175,7 +175,7 @@ After approval:
 - **CTX grouping is mandatory.** If the project has a `context.yaml` in its root, all `.context/` changes must be grouped into a single commit labeled `CTX: Updated docs`. Do not scatter CTX changes across topic commits.
 - **No `.context/` commits in feature branches.** When the current branch is not the repository's default branch (e.g. `main`), exclude all `.context/` files from the commit plan by default. Only context files generated on the default branch should enter version control. If the user explicitly requests their inclusion, comply — but flag the deviation.
 - **One topic per commit.** Never mix unrelated changes in a single commit. If a file serves two topics, ask the user which group it belongs to.
-- **No confirmation for plan archival.** When a matched plan has a `synthesis.md`, move `plan.md`, `synthesis.md`, and `request.md` (if present) to `docs/agents/implementation-history/` as part of that commit without asking. This is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent).
+- **No confirmation for plan archival.** When a matched plan has a `synthesis.md`, move `plan.md`, `synthesis.md`, `request.md` (if present), and `insights.jsonl` (if present) to `docs/agents/implementation-history/` as part of that commit without asking. This is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent).
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) are permitted.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.

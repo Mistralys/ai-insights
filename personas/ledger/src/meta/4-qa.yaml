@@ -5,6 +5,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
   3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
@@ -30,6 +31,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: QA
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
@@ -53,6 +57,6 @@ mcp_tools:
 identity: "SDET (Software Engineer in Test)"
 description: "Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC)."
 inputs: "Implemented code from Stage 3 + Work Package acceptance criteria"
-outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, and any rework instructions"
+outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded to insights.jsonl"
 key_behavior: |
   Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.

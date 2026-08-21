@@ -19,15 +19,48 @@ Perform a structured Security Review using the following methodology:
    - **Data Handling:** PII and sensitive data stored only when necessary; encrypted at rest and in transit; proper data minimization.
    - **Dependency Audit:** Any new third-party library warrants a CVE check before approval.
    - **Auth/Authz Patterns:** Verify authentication and authorization are applied consistently at all access points.
-4. **Severity Classification:** Assign a severity to each finding:
+4. **Capture Non-Blocking Observations:** After each audit area, append any non-blocking observations (hardening opportunities, defence-in-depth suggestions) to `insights.jsonl` before moving to the next area.
+5. **Severity Classification:** Assign a severity to each finding:
    - **Critical** — Direct exploitation possible; data breach, system compromise imminent. **Always causes FAIL.**
    - **High** — Significant exploitable risk; probable compromise with moderate effort. **Always causes FAIL.**
    - **Medium** — Exploitable under specific conditions; track for near-term resolution. Does not block approval.
    - **Low** — Defence-in-depth improvement; low likelihood or limited impact. Record for awareness.
    - **Info** — Observation only; no immediate risk. Record as pipeline comment.
-5. **Evidence Requirements:** For every Critical or High finding, document:
+6. **Evidence Requirements:** For every Critical or High finding, document:
    - The **file path and line reference** where the vulnerability was observed.
    - A concise **description** of the vulnerability.
    - The **OWASP category** it maps to.
    - A concrete, actionable **remediation recommendation**.
-6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+7. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+
+---
+
+## Security Insight Observer
+
+While auditing, capture non-blocking observations — hardening opportunities and defence-in-depth suggestions that do not affect the PASS/FAIL verdict. Findings that affect the verdict (Critical, High, or Medium severity) are never routed through `insights.jsonl`; they go exclusively through the formal findings channel (`ledger_complete_pipeline` comments).
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Non-blocking hardening opportunities in audited files | Confirmed vulnerabilities and risks (formal findings channel) |
+| Defence-in-depth suggestions | Architectural security strategy |
+| Security-relevant conventions and patterns | Compliance certification |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `hardening` | A defence-in-depth improvement that does not address an active vulnerability. |
+| `info` | A security-relevant observation with no immediate risk. |
+| `improvement` | A general improvement that would strengthen the security posture. |
+
+### Priority Guidelines
+
+* **high** — The observation addresses a likely future attack surface.
+* **medium** — The observation improves security posture noticeably.
+* **low** — A nice-to-have hardening measure; safe to defer.
+
+{{> insight-capture}}

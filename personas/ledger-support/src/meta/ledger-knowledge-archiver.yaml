@@ -5,6 +5,7 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.8.0 (2026-08-21): Add insights.jsonl as optional low-priority source in both reading orders
   1.7.0 (2026-07-31): Philosophy rewritten with positive framing; constraint-like items moved to Strict Constraints
   1.6.0 (2026-06-09): Renamed to Ledger Knowledge Archiver; slug and name updated
   1.5.0 (2026-06-08): Gained local archiving task marker file support

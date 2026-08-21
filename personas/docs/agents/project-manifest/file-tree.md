@@ -111,6 +111,8 @@ personas/
         ├── docs-operational-protocol.md
         ├── docs-output-format.md
         ├── incident-logging.md
+        ├── insight-capture.md
+        ├── insight-compilation.md
         ├── planner-core-rules.md
         ├── planner-output-template.md
         ├── pm-output-format.md

@@ -5,6 +5,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Review Insight Observer section with positive split rule, action gate in Deep Dive step 2, compilation beside output-format
   3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
   3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
@@ -32,6 +33,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Reviewer
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`RUN_REVIEW`, `CLAIM_WP`, `CONTINUE_PIPELINE`, or `WAIT`)."
@@ -55,6 +59,6 @@ mcp_tools:
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
 inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded to insights.jsonl"
 key_behavior: |
   Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.

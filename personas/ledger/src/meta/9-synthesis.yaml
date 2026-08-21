@@ -5,6 +5,7 @@ id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl compilation — reads all agents' entries from sink, renders Code Insights section in synthesis.md, fixed project_storage_path derivation (= plan_path, no dirname)
   3.7.2 (2026-08-04): Split single Inputs item into separate Project Overview and Work Package Detail entries
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-06-05): Deferred items collection added to operational protocol
@@ -54,7 +55,7 @@ mcp_tools:
 # overview metadata
 identity: "Head of Operations (OPS)"
 description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
-inputs: "Complete project ledger with all WP results, code insights, and agent observations"
-outputs: "Project Status Report with achievements, metrics, code insights summary, and recommendations"
+inputs: "Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar"
+outputs: "Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations"
 key_behavior: |
   Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session

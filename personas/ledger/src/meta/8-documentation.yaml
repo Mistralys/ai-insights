@@ -5,6 +5,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Documentation Insight Observer section with scope boundaries, action gate in Update step 4, compilation beside output-format, rework continuation
   3.7.3 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
@@ -33,6 +34,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Documentation
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`WRITE_DOCS`, `REWORK`, `FINALIZE_WP`, `UPDATE_CRITERIA`, `CLAIM_WP`, or `WAIT`)."
@@ -58,6 +62,6 @@ mcp_tools:
 identity: "Technical Writing Manager"
 description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
 inputs: "Code changes from the Work Package + existing documentation"
-outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests)"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded to insights.jsonl"
 key_behavior: |
   Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code
