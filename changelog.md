@@ -1,19 +1,19 @@
 # AI Insights Changelog
 
-## v2.9.0 - Multi-Store Storage
-> mcp v2.8.0 · orchestrator v1.4.0 · personas v3.31.0
+## v2.9.0 - **WIP UNRELEASED**
+> mcp v2.8.0 · orchestrator v1.4.0 · personas v3.32.0
 
-**Ledger storage now supports multiple store roots, letting users split
-repositories across devices or drives.** Knowledge insight IDs are now globally unique, 
-work packages gain title and description fields, and the WP spec-file mechanism is 
-retired across all agents.
 
 - MCP: Multi-store storage layer with Stores CRUD tab in the GUI.
 - MCP: Knowledge insight IDs migrated from integers to UUID v4.
 - MCP: Work packages now carry title and description; spec files removed.
+- MCP: Standalone imports preserve authored usage scenario files.
+- MCP: Fixed release engineering PASS routing on multi-stage pipelines.
 - MCP: Added the ping tool as a lightweight server health check.
 - GUI: Sortable repos, project filter, breadcrumbs, and modal dialogs.
 - Orchestrator: Added store resolution utility for multi-store lookup.
+- Personas: Added Usage Scenarios Curator for scenario generation and coverage checks.
+- Personas: Plan Refiner gains opt-in scenario verification.
 - Personas: Retired WP spec file mechanism across all ledger agents.
 - Personas: Added agents-overview generator with overview metadata.
 - Scripts: Added store management CLI subcommands.
