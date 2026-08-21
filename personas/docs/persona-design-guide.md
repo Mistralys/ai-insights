@@ -2,14 +2,15 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.4
-**Last Updated:** 2026-07-15
+**Version:** 2.5
+**Last Updated:** 2026-08-21
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v2.5 - 2026-08-21: Added Pattern 15 (Trigger Anchoring — duty and constraint salience classes); expanded Pattern 6 with forcing functions and incremental capture; added Core Philosophy principle 6 (Salience Beats Volume); added related checklist items and pitfalls.
 - v2.4 - 2026-07-15: Added Pattern 14 (Task Separation); added workflow design rule, quality checklist item, and common pitfall for phase homogeneity.
 - v2.3 - 2026-07-13: Added positive-framing rule and litmus test to Operating Philosophy; added "Philosophy reads like constraints" pitfall; added checklist item for philosophy tone.
 - v2.2 - 2026-06-29: Added Markdown separator handling; added License, Author and Source metadata to the header.
@@ -33,6 +34,8 @@ Every persona in this system is built on five foundational principles:
 4. **Predictable, Machine-Readable Output.** Every persona produces structured output in a known format and ends with a standardized handoff block. This makes personas composable — one agent's output becomes the next agent's input without ambiguity.
 
 5. **Constraints Prevent Drift.** Agent behavior degrades when scope is implicit. Every persona includes explicit guardrails: what it must do, what it must not do, what it delegates. Constraints are not suggestions — they are load-bearing rules that prevent the agent from wandering.
+
+6. **Salience Beats Volume.** A persona's practical limit is not its word count — models recall long personas without difficulty. The limit is how many instructions must fire *spontaneously*, without a trigger, while the agent is absorbed in its primary task. What degrades in long sessions is not memory of an instruction but its *activation* at the moment it should apply. Therefore every duty and constraint is designed around an explicit trigger: an action, a workflow checkpoint, or an output slot. Pattern 15 defines the salience classes and their conversion rules.
 
 ---
 
@@ -518,6 +521,16 @@ This pattern works when:
 - The secondary output is structured (categories, priorities)
 - The secondary output feeds into a downstream agent (Reviewer reads Developer observations)
 
+**Why this pattern is fragile.** A side-channel is a *continuous, triggerless duty*: nothing in the session ever prompts the agent to perform it. It relies on the model spontaneously re-surfacing the instruction while deep in the primary task — and that is precisely the class of instruction that degrades first as sessions grow long (see Pattern 15). The failure is silent: the agent implements flawlessly and simply stops observing.
+
+**Two required mitigations.** Every side-channel must include both:
+
+1. **A forcing function.** A mandatory output slot that cannot be legitimately left empty — including an explicit nothing-found form: *"If you found nothing noteworthy, record a single observation stating that the touched files are clean."* This converts the continuous duty into a checkpoint duty: the slot is guaranteed to be filled at handoff time.
+
+2. **An incremental capture sink.** Instruct the agent to record each observation *the moment it occurs* — appended to a scratch file (e.g., `observations.md`) or the todo list — and have the synthesis step *compile from the sink* rather than write from recall. Without the sink, the forcing function alone produces **end-of-session reconstruction**: an agent that stopped observing mid-session will, at synthesis time, look back over its context and back-fill plausible observations. The result often looks acceptable but misses everything that was only salient in the moment (a test that was flaky on first run, a momentary confusion caused by a misleading name). The sink turns each observation into its own micro-checkpoint. It is the side-channel's analog of Pattern 14's research brief: a compact artifact that survives attention decay.
+
+**Limit: one side-channel per persona.** Each additional triggerless duty competes for the same scarce resource — spontaneous re-surfacing. A persona with one well-instrumented side-channel is reliable; a persona with three simultaneous "continuously watch for X" duties will silently convert most of them into end-of-session reconstruction, even on strong models. If a role seems to need more, the extra duties belong to a downstream agent (e.g., a Reviewer) or must be restructured as checkpoint duties.
+
 ### Pattern 7: Rework Handling
 
 Any persona that may receive bounced work needs a dedicated Rework section:
@@ -717,6 +730,31 @@ Apply this pattern when:
 
 > **Source:** [Why LLMs Make Mistakes — and How Task Separation Fixes It](../../docs/discussions/task-separation.md)
 
+### Pattern 15: Trigger Anchoring
+
+A persona's instructions do not degrade uniformly. What predicts whether an instruction survives a long session is not its position, phrasing, or importance — it is the instruction's **trigger structure**: what, if anything, in the session forces the model to check it at the right moment. Instructions with a concrete trigger fire reliably; instructions that depend on spontaneous recall while the agent is absorbed in its primary task degrade first, and degrade silently.
+
+**Salience classes**, from most to least durable:
+
+| Class | Trigger | Durability | Example |
+|---|---|---|---|
+| **Foreground task** | *Is* the task — carries the session's momentum | Never dropped | "Implement the plan" |
+| **Action-gated constraint** | The forbidden or required action itself | Very high — checked at the moment of the tool call | "No Git write operations" |
+| **Checkpoint duty** | A numbered workflow step with a mandatory output slot | High — the step and slot force the check | Handoff block; a feedback section emitted at a fixed step |
+| **Generation-time constraint** | Fires only while writing output, far from where it was stated | Medium — holds at the template, leaks into intermediate outputs | "No stale counts in summaries" |
+| **Rarely-fired conditional** | An uncommon input condition | Medium-low — no rehearsal; fumbled when it finally applies | "Preserve the optional companion file when present" |
+| **Continuous triggerless duty** | None | Lowest — depends entirely on spontaneous re-surfacing | "Actively watch for code smells while working" |
+
+**Design Rules:**
+
+- **Every duty must be foreground, action-gated, or checkpoint-slotted.** A duty that is none of these is a continuous triggerless duty and must be converted using Pattern 6's mitigations (forcing function + incremental capture sink) — or moved to a persona for which it *is* the foreground task.
+- **Restate generation-time constraints at the point where they fire.** The Constraints section may be dozens of tool calls behind by the time the agent writes its output; the Output Template is read at generation time. Embed the constraint as an authoring instruction inside the template slot itself — e.g., `{2–3 sentence summary — no numeric counts}` — in addition to stating it in Constraints. The template placement does the enforcing; the Constraints entry documents the rule.
+- **Give rarely-fired conditionals a checkpoint.** Do not rely on the agent remembering an "if present" rule when the condition finally holds. Add an explicit workflow step that forces the check: *"Step 2: Check whether `{COMPANION_FILE}` exists. If it does, …; if not, proceed."* The step fires every session, so the conditional is rehearsed even when it does not apply.
+- **Expect momentum conflicts and route the impulse.** Constraints that oppose the pull of helpfulness ("do not fix unrelated bugs") are under constant pressure and weaken as sessions lengthen. The existing boundary-plus-alternative rule is the mitigation — but ensure the alternative gives the impulse *somewhere to go* (record it in the side-channel), not merely a prohibition.
+- **Budget by session length, not persona length.** Reliability declines with tool-call count and context churn, not with persona word count. A persona whose sessions routinely run very long needs *mid-workflow checkpoints* (re-verification steps, incremental sinks), not additional constraint prose — more prose adds volume without adding triggers.
+
+**Relationship to other patterns:** Pattern 6 is the conversion procedure for the lowest salience class. Pattern 14 addresses the same underlying mechanics (attention decay, forward momentum) for *sequential* phases; Pattern 15 addresses them for *parallel* duties and constraints. Pattern 5 (Output Templates) is the delivery mechanism for generation-time constraint restatement.
+
 ---
 
 ## Quality Checklist
@@ -744,6 +782,10 @@ Before shipping a new persona, verify:
 - [ ] **Self-validation checklist is included** if the persona's output has no downstream agent to catch errors.
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
 - [ ] **Workflow respects task separation.** Research/gathering steps are separate from production/writing steps. No step combines fact-finding with deliverable production. (See Pattern 14.)
+- [ ] **Every duty is trigger-anchored.** Each duty is foreground, action-gated, or checkpoint-slotted. Any continuous side-channel duty has *both* a forcing function and an incremental capture sink. (See Patterns 6 and 15.)
+- [ ] **At most one continuous side-channel per persona.** Additional parallel observation duties are moved to a downstream persona or restructured as checkpoints.
+- [ ] **Generation-time constraints are restated in the output template.** Style rules that fire while writing (e.g., "no counts") appear as authoring instructions inside the relevant template slots, not only in the Constraints section.
+- [ ] **Rarely-fired conditionals have a workflow checkpoint.** Every "if present / if applicable" rule is backed by an explicit workflow step that forces the check each session.
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
 - [ ] **Language is imperative, not suggestive.** "Do X" not "You might consider X."
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
@@ -986,4 +1028,7 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
 | **Tool instructions mixed into workflow** | Agent confuses tool mechanics with task logic | Extract tool integration into its own section |
 | **Research and production in one step** | Agent commits to conclusions before gathering all facts; output quality degrades with context length | Split into separate phases: gather/verify first, then produce (Pattern 14) |
+| **Multiple triggerless background duties** | Side-channel output is thin, generic, or visibly reconstructed at handoff rather than gathered during work | Keep one side-channel maximum; equip it with a forcing function and an incremental capture sink (Patterns 6, 15) |
+| **Constraint stated far from where it fires** | Rule holds in the final templated output but is violated in intermediate outputs (e.g., counts appear in a mid-session summary) | Restate the constraint as an authoring instruction inside the output template slot where it applies (Pattern 15) |
+| **Conditional rule with no rehearsal** | "If present, do X" rules are skipped in the rare sessions where the condition actually holds | Add an explicit workflow step that performs the check every session (Pattern 15) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
