@@ -27,6 +27,10 @@ This document explains how the agentic workflow operates end-to-end: the role of
 - [How the Orchestrator Works Internally](#how-the-orchestrator-works-internally)
 - [Knowledge Flow Across Projects](#knowledge-flow-across-projects)
 - [Supporting Infrastructure](#supporting-infrastructure)
+  - [MCP Server (`central_pm`)](#mcp-server-central_pm)
+  - [GUI Dashboard](#gui-dashboard)
+  - [Ledger-Support Personas](#ledger-support-personas)
+  - [`.gitignore` Configuration](#gitignore-configuration)
 
 ---
 
@@ -389,3 +393,13 @@ Several support personas manage the workflow infrastructure rather than contribu
 | **Ledger Claude Coordinator** | Automates the VS Code Chat pipeline — dispatches agents in order based on ledger state |
 
 These personas are invoked as sub-agents by the main pipeline personas (PM, Synthesis) or by the user directly when workflow management is needed.
+
+### `.gitignore` Configuration
+
+The ledger workflow produces temporary files inside your project's `docs/agents/` directories during every run — work notes, research briefs, audit documents, design reviews, and orchestrator sidecars. These files are not meant to be committed.
+
+A ready-to-use template with all the recommended exclusion patterns is available at:
+
+**[docs/references/gitignore-template.txt](gitignore-template.txt)**
+
+Copy the contents into your project's `.gitignore` (or append them to an existing one) when first setting up the ledger workflow.
