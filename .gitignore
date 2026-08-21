@@ -10,6 +10,7 @@
 /docs/agents/**/audit.md
 /docs/agents/**/design-review.md
 /docs/agents/**/research-brief.md
+/docs/agents/insights/
 
 /mcp-server/dist/
 /personas/node_modules/

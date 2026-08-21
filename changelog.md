@@ -21,6 +21,9 @@
 - Personas: Added agents-overview generator with overview metadata.
 - Scripts: Added store management CLI subcommands.
 - Scripts: Added knowledge UUID migration script.
+- MCP: `ledger_get_next_action` now includes `plan_path` in responses.
+- Personas: Insight sidecar integration across all three persona suites.
+- Build: Added `insight_agent` field validation to the persona build system.
 
 ## v2.8.0 - Model Settings & GUI Improvements
 > mcp v2.7.0 · orchestrator v1.3.2 · personas v3.30.0
