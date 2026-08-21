@@ -1370,6 +1370,8 @@ new LedgerStore(planPath, targetLedgerRoot)
   → storageDir = path.join(targetLedgerRoot ?? resolveLedgerRoot(), repoName, slug)
   ↓
 store.importStandaloneProject({ ... })  ← LedgerStore handles locking internally
+    Archives plan.md and synthesis.md, plus usage-scenarios.md when present;
+    scenario-coverage.md is excluded as derived output.
   ↓
 Return import result + archived_documents to agent
 ```

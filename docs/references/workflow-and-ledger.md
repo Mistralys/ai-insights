@@ -368,6 +368,8 @@ The GUI (`./menu.sh gui`) provides a browser-based view of all ledger data:
 
 The GUI reads directly from the ledger store. It does not modify ledger data (except through the Orchestrator launch integration).
 
+For acceptance-verification scenarios covering all dashboard areas, see the [GUI Usage Scenarios](usage-scenarios/).
+
 ### Ledger-Support Personas
 
 Several support personas manage the workflow infrastructure rather than contributing to the product directly:

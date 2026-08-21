@@ -3067,6 +3067,27 @@ describe('Cross-WP dispatch from non-PM agents (findNextReadyDispatch)', () => {
     expect(result.next_agent).toBe('Developer');
   });
 
+  it('Release Engineer: PASS release engineering routes to Documentation', async () => {
+    const wpDetails = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'release-engineering', status: 'PASS' },
+      ]),
+      active_pipeline_stages: [
+        'implementation',
+        'qa',
+        'code-review',
+        'release-engineering',
+        'documentation',
+      ] as any,
+    }];
+    const result = await parseResult(getReleaseEngineerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(result.next_agent).toBe('Documentation');
+  });
+
   it('8. Custom active_pipeline_stages: WP-002 READY with stages ["qa","code-review"] → READY_FOR_QA', async () => {
     // WP-002's first active stage is "qa" → PIPELINE_AGENT_MAP["qa"] = "QA" → READY_FOR_QA.
     // Verifies findNextReadyDispatch respects wp.active_pipeline_stages.

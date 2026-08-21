@@ -22,6 +22,17 @@ const OUTPUT    = path.join(ROOT, 'docs', 'references', 'agents-overview.md');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function countYamlFiles(dir) {
+  return fs.readdirSync(dir).filter(file => file.endsWith('.yaml') && !file.startsWith('_')).length;
+}
+
+function suiteCounts() {
+  const ledger = countYamlFiles(path.join(ROOT, 'personas', 'ledger', 'src', 'meta'));
+  const standalone = countYamlFiles(path.join(ROOT, 'personas', 'standalone', 'src', 'meta'));
+  const support = countYamlFiles(path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'));
+  return { ledger, standalone, support, total: ledger + standalone + support };
+}
+
 function run(...args) {
   const result = spawnSync(process.execPath, [SCRIPT, ...args], {
     encoding: 'utf8',
@@ -54,8 +65,9 @@ describe('generate-agents-overview.js', () => {
     expect(content).toMatch(/> \*\*Generated:\*\* \d{4}-\d{2}-\d{2}/);
   });
 
-  it('reports total persona count of 42', () => {
-    expect(content).toContain('**Total Personas:** 42');
+  it('reports the generated total persona count from the metadata sources', () => {
+    const { total } = suiteCounts();
+    expect(content).toContain(`**Total Personas:** ${total}`);
   });
 
   it('contains all three suite section headings', () => {
@@ -101,11 +113,12 @@ describe('generate-agents-overview.js', () => {
     expect(content).toContain('### Ledger Standalone Archiver');
   });
 
-  it('contains the summary table with correct counts', () => {
-    expect(content).toMatch(/\| Ledger Pipeline \| 9 \|/);
-    expect(content).toMatch(/\| Standalone \| 22 \|/);
-    expect(content).toMatch(/\| Ledger-Support \| 11 \|/);
-    expect(content).toMatch(/\| \*\*Total\*\* \| \*\*42\*\* \|/);
+  it('contains the summary table with metadata-derived counts', () => {
+    const { ledger, standalone, support, total } = suiteCounts();
+    expect(content).toMatch(new RegExp(`\\| Ledger Pipeline \\| ${ledger} \\|`));
+    expect(content).toMatch(new RegExp(`\\| Standalone \\| ${standalone} \\|`));
+    expect(content).toMatch(new RegExp(`\\| Ledger-Support \\| ${support} \\|`));
+    expect(content).toMatch(new RegExp(`\\| \\*\\*Total\\*\\* \\| \\*\\*${total}\\*\\* \\|`));
   });
 
   it('contains the generated-by comment header', () => {

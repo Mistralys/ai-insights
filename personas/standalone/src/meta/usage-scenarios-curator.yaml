@@ -1,0 +1,34 @@
+slug: usage-scenarios-curator
+name: "Usage Scenarios Curator"
+description: "Generate human-editable user scenarios from a plan and verify deterministic scenario coverage without changing the plan or implementation."
+vs_file_name: usage-scenarios-curator.agent.md
+id: standalone-usage-scenarios-curator
+cc_file_name: usage-scenarios-curator.md
+changelog: |
+  1.2.0 (2026-08-20): Added Change Management for evolving GUI features: feature changes are scenario
+    changes first and the plan references scenarios by [SCnn] ID; materially changed approved
+    scenarios get a [MODIFIED] tag with both checkboxes unticked (the sole sanctioned untick), and
+    the Approval Gate now blocks verification on leftover [MODIFIED] tags as well as missing
+    approvals; removed scenarios are tombstoned to keep their IDs reserved.
+  1.1.0 (2026-08-20): Adopted self-contained [SCnn]/MSnn scenario format with human-owned lifecycle
+    checkboxes; added Scenario Authoring Conventions and an Approval Gate that blocks verification
+    until every scenario is spec-approved; Verify now flags human-vs-evidence checkbox mismatches.
+    Curated scenarios now live at docs/references/usage-scenarios.md (or a usage-scenarios/ directory
+    split by GUI area with a README index) as stable project documentation.
+  1.0.0 (2026-08-18): Initial release - plan-adjacent usage scenario generation and verification
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - browser
+  - todo
+
+# overview metadata
+identity: "Product Usage Scenario Analyst"
+use_when: "Creating or verifying user-facing usage scenarios for a scoped plan, especially when GUI behavior needs an opt-in coverage check"
+modes: |
+  Generate
+  Verify

@@ -18,6 +18,7 @@ import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
 /** Maximum age in days for a standalone project to be eligible for synthesis update. */
 const MAX_SYNTHESIS_UPDATE_AGE_DAYS = 90;
+const USAGE_SCENARIOS_ARCHIVE_FILENAME = 'usage-scenarios.md';
 
 // ─── Input Schema ─────────────────────────────────────────────────────────
 
@@ -168,6 +169,20 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
+  // Usage scenarios are an optional authored source document. Derived reports
+  // such as scenario-coverage.md are never included in the archive allowlist.
+  const usageScenariosFilePath = join(planPath, USAGE_SCENARIOS_ARCHIVE_FILENAME);
+  let hasUsageScenarios = false;
+  try {
+    await access(usageScenariosFilePath, constants.F_OK);
+    hasUsageScenarios = true;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
   // Build a LedgerStore routed to the correct store in multi-store mode.
   // Mirrors initializeProject() — derive repo name, resolve store, reject unregistered repos.
   let store: LedgerStore;
@@ -249,6 +264,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     archiveResult = await store.importStandaloneProject({
       planFile: PLAN_ARCHIVE_FILENAME,
       synthesisFile: SYNTHESIS_ARCHIVE_FILENAME,
+      ...(hasUsageScenarios ? { usageScenariosFile: USAGE_SCENARIOS_ARCHIVE_FILENAME } : {}),
       dateCreated,
       outcomeSummary,
       pipelineSummary:

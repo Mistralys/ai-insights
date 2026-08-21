@@ -45,6 +45,8 @@ export interface ImportStandaloneDetail {
   planFile: string;
   /** Synthesis file name to archive alongside the plan (e.g. `'synthesis.md'`). */
   synthesisFile: string;
+  /** Optional authored usage scenarios file to archive when present. */
+  usageScenariosFile?: string;
   /**
    * ISO 8601 UTC timestamp representing when the standalone plan was created /
    * executed.  Used as `date_created` on the root index and as `started_at` on
@@ -721,7 +723,8 @@ export class LedgerStore {
    *     pipeline at `PASS`.
    *   - `.meta.json`: auto-synced via `writeRootIndex()` inside the same lock
    *     scope.
-   *   - Archives `planFile` and `synthesisFile` from `planPath` to `storageDir`.
+  *   - Archives `planFile`, `synthesisFile`, and optional `usageScenariosFile`
+  *     from `planPath` to `storageDir`.
    *
    * Constraints satisfied:
    *   - **Constraint 1**: All JSON writes use `atomicWriteJson()` (via the
@@ -808,8 +811,13 @@ export class LedgerStore {
       await this.writeWorkPackage('WP-001', wpDetail);
       await this.writeRootIndex(rootIndex);
 
-      // Archive plan and synthesis documents inside the lock scope.
-      archiveResult = await this.archiveDocuments([detail.planFile, detail.synthesisFile]);
+      // Archive authored source documents inside the lock scope. Derived reports
+      // are intentionally excluded from this explicit allowlist.
+      const archiveFiles = [detail.planFile, detail.synthesisFile];
+      if (detail.usageScenariosFile !== undefined) {
+        archiveFiles.push(detail.usageScenariosFile);
+      }
+      archiveResult = await this.archiveDocuments(archiveFiles);
     });
 
     return archiveResult;

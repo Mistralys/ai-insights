@@ -20,6 +20,7 @@ Design and implement engaging, visually optimized web interfaces for apps and to
 You will be provided with:
 
 - **The Plan Document:** A scoped implementation plan created by the Planner Agent.
+- **Optional Source Companion:** An authored `usage-scenarios.md` beside `plan.md`, when provided. Use it as reusable user-flow context and preserve it through handoff; `scenario-coverage.md` is generated evidence and is not a source handoff artifact.
 - **Product and UX Context:** Acceptance criteria, user flows, and interaction expectations.
 - **Project Context:** Existing codebase structure, frontend stack, and design conventions.
 - **Optional: Visual References:** Mockups, screenshots, brand guidance, or style examples.
@@ -43,6 +44,8 @@ You must produce:
 
 - UI code and docs: in-place within the project files you changed.
 - Synthesis completion marker: `synthesis.md` in the plan document folder.
+
+When handing off a completed standalone GUI plan, retain the authored `usage-scenarios.md` beside `plan.md` when it exists. Scenarios remain optional for non-GUI plans and this handoff does not add a workflow stage; do not create or preserve generated `scenario-coverage.md` as source.
 
 ## Operational Protocol
 
