@@ -251,6 +251,8 @@ The workspace includes a browser-based dashboard for monitoring runs:
 
 The Orchestrator tab shows active and past runs, preflight status, and lets you browse JSONL logs — all without touching the command line.
 
+For a full reference of what each dashboard view supports, see the [GUI Usage Scenarios](usage-scenarios/).
+
 ### Heartbeat
 
 When `HEARTBEAT_INTERVAL_S` is set (default: 120 seconds), the orchestrator emits periodic heartbeat messages during long-running agent stages so you know the process is still alive.
@@ -275,7 +277,7 @@ This walkthrough shows a complete orchestrator run driven entirely through the G
 ./menu.sh gui
 ```
 
-The dashboard opens in your default browser at `http://localhost:3000`.
+The dashboard opens in your default browser at `http://localhost:3000`. For detailed acceptance criteria for each dashboard view used in this walkthrough, see the [GUI Usage Scenarios](usage-scenarios/).
 
 ### Step 1: Write the plan
 
