@@ -54,6 +54,7 @@ const SYNTHESIS_WITHOUT_OUTCOME = `
 `;
 
 const PLAN_CONTENT = `# Plan\n\nThis is the standalone plan.\n`;
+const USAGE_SCENARIOS_CONTENT = '# Usage Scenarios\n\n- Import a plan with authored scenarios.\n';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -172,6 +173,49 @@ describe('ledger_import_standalone — successful import', () => {
     expect(parsed.archived_files).toEqual(
       expect.arrayContaining(['plan.md', 'synthesis.md'])
     );
+  });
+
+  it('archives usage-scenarios.md when present and excludes scenario-coverage.md', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await writeFile(join(planDir, 'usage-scenarios.md'), USAGE_SCENARIOS_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'scenario-coverage.md'), '# Derived coverage report\n', 'utf-8');
+
+    const result = await importStandalone({ project_path: planDir });
+    const { parsed } = parseResult(result);
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+
+    expect(parsed.archived_files).toEqual(
+      expect.arrayContaining(['plan.md', 'synthesis.md', 'usage-scenarios.md'])
+    );
+    expect(parsed.archived_files).not.toContain('scenario-coverage.md');
+    await expect(readFile(join(store.storageDir, 'usage-scenarios.md'), 'utf-8'))
+      .resolves.toBe(USAGE_SCENARIOS_CONTENT);
+    await expect(readFile(join(store.storageDir, 'scenario-coverage.md'), 'utf-8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports only required files when usage-scenarios.md is absent', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const result = await importStandalone({ project_path: planDir });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.archived_files).toEqual(['plan.md', 'synthesis.md']);
+  });
+
+  it('surfaces non-ENOENT access failures for usage-scenarios.md', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await mkdir(join(planDir, 'usage-scenarios.md'), { recursive: true });
+
+    const result = await importStandalone({ project_path: planDir });
+    const { isError, text } = parseResult(result);
+
+    expect(isError).toBe(true);
+    expect(text).toContain('Import failed:');
+    expect(text).toMatch(/ENOTSUP|operation not supported|EISDIR/);
   });
 
   it('accepts cwd_path as a fallback when project_path is not provided', async () => {

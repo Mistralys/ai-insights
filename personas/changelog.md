@@ -1,13 +1,17 @@
 # Personas Changelog
 
-## v3.31.0 - Spec File Retirement and Tooling Updates
+## v3.32.0 - **WIP UNRELEASED**
 
-- Ledger: Retired WP spec file mechanism; agents 3–9 now source specs
-  exclusively from the ledger tool.
+- Standalone: Added Usage Scenarios Curator for plan scenario generation and
+  coverage verification.
+- Standalone: Plan Refiner gains opt-in scenario verification with a bounded
+  integration re-check.
+- Standalone: Key handoff agents now preserve usage-scenarios.md through handoffs.
+- Standalone: Git Committer gains delete guard and request.md archival support.
+- Ledger: Retired WP spec file mechanism; agents 3–9 now source specs from ledger.
 - Ledger: PM uses the ping tool for preflight instead of help.
 - LedgerSupport: Bootstrapper protocol reduced from 7 to 5 steps.
 - LedgerSupport: Knowledge Archiver philosophy rewritten per design guide v2.3.
-- Standalone: Git Committer gains delete guard, request.md archival support.
 - Build: Added agents-overview generator with overview metadata fields.
 - Build: Model assignments updated to claude-sonnet-4-6.
 

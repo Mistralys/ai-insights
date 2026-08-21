@@ -1,12 +1,6 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.8.0 - Multi-Store Storage and Knowledge UUIDs
-
-**This release adds cross-device ledger storage with a multi-store architecture,
-letting users split repositories across multiple ledger roots.** Knowledge insight
-IDs migrate from auto-increment integers to UUID v4 for global uniqueness across
-stores. Work packages gain title and description fields, and the spec file
-mechanism is retired.
+## v2.8.0 - **WIP UNRELEASED**
 
 - Storage: Added multi-store storage layer with store router, registry, and
   manager for cross-device ledger sync.
@@ -24,7 +18,13 @@ mechanism is retired.
 - Tools: Added `title` and `description` fields to work packages.
 - Tools: Removed `work_package_file` from schema, tools, and tests.
 - Tools: Repositories now sorted by ID in list responses.
-- Tests: Added multi-store and knowledge pagination coverage.
+- Tools: Standalone imports now optionally archive authored `usage-scenarios.md`
+  while excluding derived `scenario-coverage.md`.
+- Tools: Fixed release engineering PASS routing to advance to the next active
+  pipeline stage, preventing IDE stalls on multi-stage pipelines.
+- Dependencies: Updated `@modelcontextprotocol/sdk` and enforced patched transitive
+  dependency versions.
+- Tests: Added multi-store, knowledge pagination, and standalone import coverage.
 
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 

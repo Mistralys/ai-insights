@@ -147,13 +147,13 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 **Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
 
-**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives both source files, and auto-syncs `.meta.json`. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
+**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
 
 **Produced project record:**
 - `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
 - `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
-- `plan.md` and `synthesis.md` archived to `{ledgerRoot}/{repoName}/{slug}/`.
+- `plan.md` and `synthesis.md`, plus optional `usage-scenarios.md`, archived to `{ledgerRoot}/{repoName}/{slug}/`. Derived `scenario-coverage.md` is excluded.
 
 **Response shape (on success):**
 
@@ -161,7 +161,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 {
   slug: string;                // Plan folder basename (e.g. "2026-06-30-my-feature")
   outcome_summary: string | null; // Extracted from synthesis.md; null when not found
-  archived_files: string[];    // Filenames successfully copied to storage dir
+  archived_files: string[];    // Required files plus usage-scenarios.md when successfully copied
   project_storage_path: string; // Absolute path to the project storage directory
 }
 ```

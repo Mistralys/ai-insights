@@ -3,8 +3,8 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-08-17
-> **Total Personas:** 42
+> **Generated:** 2026-08-21
+> **Total Personas:** 43
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
 
@@ -28,7 +28,7 @@ The persona system is organized into three suites:
 | Suite | Count | Purpose |
 |-------|-------|---------|
 | **Ledger Pipeline** | 9 | The core 9-stage sequential development workflow. Each stage has a dedicated agent that processes Work Packages through the pipeline. |
-| **Standalone** | 22 | Independent utility agents invoked on demand for specific tasks (planning, code review, documentation, etc.). |
+| **Standalone** | 23 | Independent utility agents invoked on demand for specific tasks (planning, code review, documentation, etc.). |
 | **Ledger-Support** | 11 | Infrastructure agents that manage the ledger workflow itself — bootstrapping projects, sequencing dependencies, diagnosing issues, and archiving results. |
 
 ### How the Ledger Pipeline Works
@@ -221,7 +221,7 @@ Design, generate, and maintain CTX Generator context documentation configuration
 
 ---
 
-### Developer — Standalone (v1.4.0)
+### Developer — Standalone (v1.5.0)
 
 **Identity:** Staff Software Engineer
 
@@ -244,7 +244,7 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 ---
 
-### Git Committer (v1.5.0)
+### Git Committer (v1.6.0)
 
 **Identity:** Configuration Management Engineer
 
@@ -308,14 +308,14 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.3.0)
+### Plan Refiner (v1.4.0)
 
 **Identity:** Plan Quality Director
 
 Orchestrate iterative plan refinement: architectural review, finding integration, and repeated auditing until audit-clean or ceiling reached.
 
 - **Use When:** You want a plan to go through multiple rounds of review and refinement automatically
-- **Sub-agents:** Plan Architect Reviewer, Plan Auditor
+- **Sub-agents:** Plan Architect Reviewer, Plan Auditor, Usage Scenarios Curator
 
 ---
 
@@ -371,7 +371,18 @@ Audit unit test coverage of specific codebase modules — identify untested path
 
 ---
 
-### Web GUI Specialist (v1.0.1)
+### Usage Scenarios Curator (v1.2.0)
+
+**Identity:** Product Usage Scenario Analyst
+
+Generate human-editable user scenarios from a plan and verify deterministic scenario coverage without changing the plan or implementation.
+
+- **Modes:** Generate, Verify
+- **Use When:** Creating or verifying user-facing usage scenarios for a scoped plan, especially when GUI behavior needs an opt-in coverage check
+
+---
+
+### Web GUI Specialist (v1.1.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -513,7 +524,7 @@ Analyze a plan document and decompose it into atomic, actionable Work Package de
 
 ---
 
-### Ledger Standalone Archiver (v1.5.0)
+### Ledger Standalone Archiver (v1.6.0)
 
 **Identity:** Ledger Archivist
 
@@ -529,6 +540,6 @@ Import a completed standalone plan folder into the project ledger for archival a
 | Suite | Count | Description |
 |-------|-------|-------------|
 | Ledger Pipeline | 9 | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |
-| Standalone | 22 | On-demand utility agents for planning, documentation, code review, release management, and more |
+| Standalone | 23 | On-demand utility agents for planning, documentation, code review, release management, and more |
 | Ledger-Support | 11 | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |
-| **Total** | **42** | |
+| **Total** | **43** | |

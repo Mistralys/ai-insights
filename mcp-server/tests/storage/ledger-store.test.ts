@@ -795,6 +795,20 @@ describe('LedgerStore', () => {
       expect(synthesisContent).toBe('# Synthesis\nDone.');
     });
 
+    it('archives optional usage scenarios when supplied and preserves its content', async () => {
+      const usageFile = 'usage-scenarios.md';
+      const usageContent = '# Usage Scenarios\n\n- Preserve authored content.\n';
+      const { writeFile } = await import('fs/promises');
+      await writeFile(join(store.planPath, usageFile), usageContent, 'utf-8');
+
+      const result = await store.importStandaloneProject(
+        makeDetail({ usageScenariosFile: usageFile })
+      );
+
+      expect(result.archived).toEqual([PLAN_FILE, SYNTHESIS_FILE, usageFile]);
+      expect(await readFile(join(store.storageDir, usageFile), 'utf-8')).toBe(usageContent);
+    });
+
     it('returns synthesis in skipped[] when synthesis.md does not exist in planPath', async () => {
       // Remove synthesis file to simulate missing file
       const { rm: rmf } = await import('fs/promises');

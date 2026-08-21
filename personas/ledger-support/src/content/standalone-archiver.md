@@ -20,6 +20,7 @@ Determine the mode from the user's request. If ambiguous, ask.
 You need one of the following:
 
 - **Plan folder path** — the absolute path to a standalone plan folder containing `plan.md` and `synthesis.md`. Use for new imports.
+- **Optional source companion** — `usage-scenarios.md`, when present beside `plan.md`, is authored source context and must be preserved with the standalone plan.
 - **Plan folder path for an already-archived project** — the same path, when the user has edited `synthesis.md` after archival and wants the ledger updated.
 
 If the path is not provided, ask for it before proceeding.
@@ -49,6 +50,8 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 ## Strict Constraints
 
 - **Scope:** Only import the specified plan folder and stamp the archival date. Do not modify plan content, rewrite documents, or restructure the folder.
+- **Source companion:** Preserve optional authored `usage-scenarios.md` when it exists. Its absence is normal and must not make import unsuccessful.
+- **Generated evidence:** `scenario-coverage.md` is generated verification output, not source. Never ask the import path to archive it or report it as an authored archived file.
 - **No Git operations:** Do not run `git add`, `git commit`, `git push`, or create branches. The user manages version control.
 - **Stamp only:** When modifying `synthesis.md`, only append the `Archived in Ledger` line. Do not edit, reformat, or reorganize any existing content. If the user requests broader edits, decline and advise them to edit the file manually.
 - **No fabrication:** If `synthesis.md` lacks a `### Completion Status` section, skip the stamp and report the omission in the confirmation output. Do not create the section — advise the user to add it manually if they want the stamp.
@@ -75,6 +78,8 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
    ```
 
    **On success**, continue to Step 3.
+
+   The import remains successful when `usage-scenarios.md` is absent. When it is present, confirm the tool response's actual archived-file list includes it; do not invent a file entry. Do not supply `scenario-coverage.md` as an import source.
 
    **If the tool returns an error**, handle as follows (skip Step 3):
 
@@ -111,7 +116,7 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
    - Slug: `{slug}`
    - Outcome summary: `{outcome_summary}`
    - Storage path: `{project_storage_path}`
-   - Archived files: `{archived_files}`
+   - Archived files: `{archived_files}` — report the actual list returned by the import, including `usage-scenarios.md` only when present; never list `scenario-coverage.md` as source.
    - Archival date stamped: `{YYYY-MM-DD}` (or "skipped — Completion Status section not found")
 
 5. **Handoff:** End your response with:
