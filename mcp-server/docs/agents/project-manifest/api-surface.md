@@ -592,6 +592,7 @@ Reads root index and work package details to recommend the next action(s) for an
 
 - **Default (`max_results` omitted or `1`)**: Returns a single action object (early-return mode, backward-compatible).
 - **`max_results > 1`**: Switches to batch collector mode, returning up to `max_results` actions as an array under the `"actions"` key (`{ actions: [...], total: N }`). Useful for projects with many independent WPs that can be processed in parallel.
+- **`plan_path` key**: Every JSON response includes a top-level `plan_path` key equal to the resolved plan-folder path. Error responses (`isError: true`, plain text) are returned unchanged with no `plan_path`. Injected by the `injectPlanPath()` wrapper in `src/tools/workflow-next-action.ts`.
 - **`action: WAIT` responses**: Automatically include a top-level `handoff_status` key with the same payload as `ledger_get_handoff_status`. Use it directly — no separate call needed. If handoff computation fails, `handoff_status_error` is present instead, signalling a fallback to `ledger_get_handoff_status`.
 - **`action: INVOKE_AGENT` responses**: When the embedded `handoff_status` contains an `auto_handoff` entry, the action is **promoted from `WAIT` to `INVOKE_AGENT`**. This means the current agent's work is complete and it should immediately invoke the next agent using `auto_handoff.prompt`. Distinction: `WAIT` = genuinely blocked/waiting; `INVOKE_AGENT` = work complete, invoke next agent now. The promotion is performed by `embedHandoffStatusInWait()` in `src/tools/workflow-next-action-batch.ts`.
 

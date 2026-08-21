@@ -5,6 +5,7 @@
 **This release adds a multi-store storage layer enabling cross-device ledger sync.**
 Project duration tracking, UUID-based insight IDs, and several tool improvements are also included.
 
+- Tool: `ledger_get_next_action` now includes `plan_path` in every JSON response.
 - Storage: Added multi-store layer with store router, registry, and manager.
 - Storage: Centralized project-directory discovery; store context and resolution utilities added.
 - GUI: Added Stores CRUD tab with hot-reload backend for managing store configurations.

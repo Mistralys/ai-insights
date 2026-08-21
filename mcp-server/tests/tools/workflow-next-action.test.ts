@@ -2167,3 +2167,122 @@ describe('first-active-stage self-rework fallback — Security Auditor P4b (§21
     expect(result.reason).toContain('self-rework');
   });
 });
+// ---------------------------------------------------------------------------
+// plan_path injection
+// ---------------------------------------------------------------------------
+
+describe('getNextAction — plan_path injection', () => {
+  let handle: TempStoreHandle;
+  const planPath = join(tmpdir(), '2026-01-01-plan-path-test');
+
+  beforeEach(async () => {
+    handle = await createTempStore(planPath);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('includes plan_path on CLAIM_WP responses with project_path supplied', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'READY',
+      assigned_to: 'Developer',
+      pipelines: [],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, agent_role: 'Developer' })
+      );
+      expect(result.action).toBe('CLAIM_WP');
+      expect(result.plan_path).toBe(planPath);
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('includes plan_path on WAIT payloads alongside handoff_status', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      pipelines: [makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00')],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, agent_role: 'Developer' })
+      );
+      expect(result.action).toBe('WAIT');
+      expect(result.plan_path).toBe(planPath);
+      expect(result.handoff_status).toBeDefined();
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('includes plan_path on GENERATE_SYNTHESIS payloads', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      pipelines: [
+        makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+        makePipeline('documentation', 'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
+      ],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, agent_role: 'Synthesis' })
+      );
+      expect(result.action).toBe('GENERATE_SYNTHESIS');
+      expect(result.plan_path).toBe(planPath);
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('does not include plan_path on error responses', async () => {
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const rawResult = await _internal.getNextAction({ cwd_path: '/nonexistent/path/not/a/project', agent_role: 'Developer' });
+      expect((rawResult as any).isError).toBe(true);
+      // Error responses are plain text, not JSON — no plan_path
+      expect((rawResult as any).content[0].text).not.toContain('plan_path');
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('includes plan_path on batch-mode responses alongside the actions array', async () => {
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', assigned_to: 'Developer', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY', assigned_to: 'Developer', pipelines: [] }),
+    ];
+    await setupStore(handle, wps);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, agent_role: 'Developer', max_results: 2 })
+      );
+      expect(Array.isArray(result.actions)).toBe(true);
+      expect(result.plan_path).toBe(planPath);
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+});

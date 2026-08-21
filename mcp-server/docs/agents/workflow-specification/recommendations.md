@@ -10,6 +10,8 @@ Provides agents with actionable recommendations based on project state and their
 
 ### 14.1 Common Pre-checks
 
+Every JSON response from `getNextAction` includes a top-level `plan_path` key equal to the resolved plan-folder path. Error responses (plain text, `isError: true`) pass through unchanged with no `plan_path`. This key is injected after the core logic returns, via a post-processing wrapper.
+
 ```pseudocode
 function getNextAction(root, agentRole):
   // No WPs at all
