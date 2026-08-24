@@ -25,6 +25,7 @@
 - LedgerSupport: Archiver personas classify insight files at the archival
   boundary (captured vs. compiled).
 - Build: Added `insight_agent` field validation to `build-personas.js`.
+- Build: Fixed model assignment resolution to use model name instead of internal slug.
 
 ## v3.30.0 - New Personas and AX Feedback
 
