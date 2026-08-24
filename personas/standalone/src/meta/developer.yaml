@@ -5,6 +5,9 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.7.2 (2026-08-24): Added sink-compilation authoring instruction to Code Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
+  1.7.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  1.7.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each completed file edit (steps 4-5 loop)
   1.6.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial, compilation partial, action gate in inline Operational Protocol step 3, Code Insights compiled from sink
   1.5.0 (2026-08-18): Preserve optional authored usage-scenarios.md through standalone implementation handoffs without archiving generated coverage reports
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting

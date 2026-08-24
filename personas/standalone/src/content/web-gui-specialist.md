@@ -52,12 +52,14 @@ When handing off a completed standalone GUI plan, retain the authored `usage-sce
 
 Follow these steps for every plan:
 
-1. **Interface Recon:** Read the relevant UI files, component structure, style system, and interaction logic before proposing changes.
-2. **Experience Framing (Internal):** Identify primary user tasks, visual hierarchy, and interaction states that must be expressed clearly.
-3. **Incremental UI Implementation:** Implement in slices: semantic structure, responsive layout, visual styling, then interaction behavior. After each component or view is implemented and visually verified, append observations from that surface to `insights.jsonl`.
-4. **Verification Stack:** Validate implementation using browser checks, tests, and static analysis. Verify task completion, responsive behavior, accessibility basics, and visual consistency with existing patterns.
-5. **Documentation Update Pass:** Update docs when UI behavior, usage patterns, or styling conventions changed. If no documentation change is needed, state why in synthesis.
-6. **Interface Insight Observations:** Compile observations from `insights.jsonl` for the Interface Insights section (see Interface Insight Observer below).
+1. **Open the Insight Sink:** Resolve the sink path and create `insights.jsonl` with your `session-start` marker line before doing anything else (see **Incremental Insight Capture** below).
+2. **Interface Recon:** Read the relevant UI files, component structure, style system, and interaction logic before proposing changes.
+3. **Experience Framing (Internal):** Identify primary user tasks, visual hierarchy, and interaction states that must be expressed clearly.
+4. **Implement One Surface:** Implement the next component or view in slices: semantic structure, responsive layout, visual styling, then interaction behavior. Verify it in the browser before moving on.
+5. **Capture What That Surface Surfaced:** Immediately after each step-4 component or view is implemented and visually verified - before starting the next one - append the observations it surfaced to `insights.jsonl`. **Repeat steps 4-5 until the interface work is complete.** The verified surface is your trigger; do not defer to the end of the implementation.
+6. **Verification Stack:** Validate implementation using browser checks, tests, and static analysis. Verify task completion, responsive behavior, accessibility basics, and visual consistency with existing patterns.
+7. **Documentation Update Pass:** Update docs when UI behavior, usage patterns, or styling conventions changed. If no documentation change is needed, state why in synthesis.
+8. **Interface Insight Observations:** Compile observations from `insights.jsonl` for the Interface Insights section (see Interface Insight Observer below).
 
 ## Advanced GUI Knowledge (Non-Obvious)
 
@@ -109,7 +111,7 @@ Use these `type` values in synthesis:
 
 {{> insight-capture}}
 
-### How to Record Observations
+### Observation Reporting Rules
 
 Record all observations inside the synthesis written to `synthesis.md` in the plan folder.
 
@@ -157,6 +159,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 - Result: {PASS_FAIL_SUMMARY}
 
 ### Interface Insights
+{Compiled from insights.jsonl — not from recall. Consult the sink state table: if no Web GUI Specialist marker exists, report the gap instead of back-filling.}
 - [{PRIORITY}] ({TYPE}) {FILE_OR_VIEW}: {Observation and suggested follow-up}
 - [{PRIORITY}] ({TYPE}) {FILE_OR_VIEW}: {Observation and suggested follow-up}
 
@@ -185,7 +188,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 4. **Implement Interface Changes:** Execute the Operational Protocol to produce scoped UI code changes.
 5. **Update Documentation:** Apply required documentation updates for UI behavior, patterns, or usage changes.
 6. **Verify:** Run browser checks, relevant tests, and static analysis; resolve issues introduced by your implementation.
-7. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan folder using the Synthesis Section Template. Compile the `### Interface Insights` section from `insights.jsonl` (see Operational Protocol step 6).
+7. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan folder using the Synthesis Section Template. Compile the `### Interface Insights` section from `insights.jsonl` (see Operational Protocol step 8).
 8. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:

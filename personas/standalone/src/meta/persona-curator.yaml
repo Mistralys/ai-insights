@@ -5,6 +5,7 @@ vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
 changelog: |
+  1.4.0 (2026-08-24): Replaced "Imperative, Not Suggestive" philosophy with Tone Stratification; updated audit and quality checklist items to enforce two-register tone rule
   1.3.0 (2026-06-13): Updated Create workflow + Version bookkeeping constraint to use changelog: block scalar; prohibit standalone version: and last_updated: fields
   1.2.0 (2026-06-13): Changelog entries now recorded in persona YAML metadata instead of personas/changelog.md
   1.1.0 (2026-04-29): Improved mission statement and operational protocol

@@ -1,9 +1,10 @@
 ## Operational Protocol
 
-1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions. As you review, append each Gold Nugget or out-of-scope pattern to `insights.jsonl` at the moment you notice it — not at the end of the dive.
-3. **Capture Insights:** Compile Gold Nuggets and out-of-scope patterns from `insights.jsonl`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items are pipeline comments only and are never routed through the sink.
-4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
+1. **Open the Insight Sink:** Resolve the sink path and create `insights.jsonl` with your `session-start` marker line before beginning the review (see **Incremental Insight Capture** below).
+2. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
+3. **The "Deep Dive":** Review the code file by file against the Review Dimensions. Immediately after finishing each file — before opening the next one — append every Gold Nugget and out-of-scope pattern that file surfaced to `insights.jsonl`. The finished file is your trigger; do not carry observations forward to the end of the dive.
+4. **Capture Insights:** Compile Gold Nuggets and out-of-scope patterns from `insights.jsonl`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items are pipeline comments only and are never routed through the sink.
+5. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
 
 ### Feedback Tiers
 
