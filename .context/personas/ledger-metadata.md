@@ -161,6 +161,9 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
+  3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.9.0 (2026-08-24): Sink opened at session start with marker line; capture split into its own protocol step gated on each completed file edit (steps 4-5 loop); rework continuation re-gated per file
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial after Priority Guidelines, compilation partial beside output-format, action gate in Operational Protocol step 3, rework continuation in step 6
   3.7.2 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
@@ -233,6 +236,8 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.8.0 (2026-08-24): Sink opened at session start with marker line as Verification Stack step 1; capture gated on each completed verification layer; rework continuation re-gated per re-verification
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
   3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
@@ -300,6 +305,8 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.8.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture gated on each completed audit category; protocol renumbered
   3.7.1 (2026-08-21): Removed incorrect REWORK action from workflow step 6 and tool purpose — security-audit re-engagement uses RUN_SECURITY_AUDIT
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Security Insight Observer section with non-blocking-only vocabulary, action gate in audit-pass step 4, compilation beside output-format
   3.6.5 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
@@ -365,6 +372,8 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; Deep Dive capture gated per reviewed file instead of per noticed pattern; protocol renumbered
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Review Insight Observer section with positive split rule, action gate in Deep Dive step 2, compilation beside output-format
   3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
@@ -492,6 +501,8 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each saved document (steps 5-6 loop); rework continuation re-gated per document
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Documentation Insight Observer section with scope boundaries, action gate in Update step 4, compilation beside output-format, rework continuation
   3.7.3 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
@@ -563,7 +574,13 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
+insight_agent: Synthesis
+insight_report_target: "the Code Insights section of `synthesis.md`"
+insight_consumer_only: true
+
 changelog: |
+  3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
+  3.9.0 (2026-08-24): Excludes session-start markers from rendered insights and uses them to distinguish agents that captured nothing from agents that never captured
   3.8.0 (2026-08-21): Integrated insights.jsonl compilation — reads all agents' entries from sink, renders Code Insights section in synthesis.md, fixed project_storage_path derivation (= plan_path, no dirname)
   3.7.2 (2026-08-04): Split single Inputs item into separate Project Overview and Work Package Detail entries
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
