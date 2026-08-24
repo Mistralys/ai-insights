@@ -244,6 +244,9 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.7.2 (2026-08-24): Added sink-compilation authoring instruction to Code Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
+  1.7.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  1.7.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each completed file edit (steps 4-5 loop)
   1.6.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial, compilation partial, action gate in inline Operational Protocol step 3, Code Insights compiled from sink
   1.5.0 (2026-08-18): Preserve optional authored usage-scenarios.md through standalone implementation handoffs without archiving generated coverage reports
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
@@ -446,6 +449,7 @@ vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
 changelog: |
+  1.4.0 (2026-08-24): Replaced "Imperative, Not Suggestive" philosophy with Tone Stratification; updated audit and quality checklist items to enforce two-register tone rule
   1.3.0 (2026-06-13): Updated Create workflow + Version bookkeeping constraint to use changelog: block scalar; prohibit standalone version: and last_updated: fields
   1.2.0 (2026-06-13): Changelog entries now recorded in persona YAML metadata instead of personas/changelog.md
   1.1.0 (2026-04-29): Improved mission statement and operational protocol
@@ -799,6 +803,9 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.3.2 (2026-08-24): Added sink-compilation authoring instruction to Interface Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
+  1.3.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  1.3.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each verified surface (steps 4-5 loop)
   1.2.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial, compilation partial, How to Record subsection, action gate in step 3, Interface Insights compiled from sink, added improvement type
   1.1.0 (2026-08-18): Preserve optional authored usage-scenarios.md through GUI implementation handoffs without treating generated coverage as source
   1.0.1 (2026-07-22): Added curated non-obvious GUI heuristics for typography, accessibility, and frontend rendering quality

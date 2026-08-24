@@ -3,13 +3,14 @@
 > Reference specification for the shared `insights.jsonl` sidecar file, and integration
 > instructions for adding Incremental Capture to all insight-gathering personas.
 
-**Version:** 1.2
-**Last Updated:** 2026-08-21
+**Version:** 1.3
+**Last Updated:** 2026-08-24
 **Author:** Sebastian Mordziol
 **Applies to:** Developer, QA, Reviewer, Security Auditor, Documentation, Web GUI Specialist agents and synthesis consumers (and any future persona with an observation side-channel)
 
 **Changelog**
 
+- v1.3 - 2026-08-24: Added the `session-start` marker and session-start sink creation (replacing the no-pre-creation rule); re-keyed all action gates to observable actions with own-step placement; split the forcing function by liveness so "found nothing" is distinguishable from "never ran".
 - v1.2 - 2026-08-21: Resolved all placeholder rows in the integration table; split integration template into append-time and report-time blocks; replaced mixed JSON/placeholder schema with concrete example plus field table; added Step 1b (action gate), Step 6 (Rework Handling), Consumption subsection, verdict-affecting findings rule, and Location subsection with two-rung ladder; extended Curator Verification Checklist; added Web GUI Specialist, ledger Synthesis, and standalone Developer rows.
 - v1.1 - 2026-08-21: Switched sink format from markdown lines to JSONL (flat, string-only schema); added lenient-consumption rule; added corroboration semantics for cross-agent duplicates.
 - v1.0 - 2026-08-21: Initial release (markdown line format).
@@ -78,6 +79,30 @@ end of the file. Example:
   objects on one line.
 - **Optional `wp` field** (string) may be added in work-package contexts to record
   the WP identifier. No other extensions without updating this reference.
+
+### The `session-start` Marker
+
+The reserved type `session-start` is bookkeeping, not an observation. Each producing
+persona appends exactly one marker line as the first step of its Operational
+Protocol, before beginning its primary task:
+
+```jsonl
+{"agent": "Developer", "type": "session-start", "priority": "low", "loc": "-", "text": "Sink opened - insight capture active."}
+```
+
+It serves two purposes:
+
+1. **Removes setup cost from the working phase.** The path is resolved and the file
+   exists before the primary task starts, so each gate is a bare one-line append —
+   no path resolution, no create-or-append decision mid-task.
+2. **Provides a liveness signal.** It makes an empty sink diagnosable: marker
+   present with no further entries for that agent means capture ran and found
+   nothing; no marker means capture never ran. Without this distinction a forgotten
+   duty and a clean codebase produce identical reports.
+
+Markers are never rendered as insights by any consumer — not by the producing
+persona compiling its own section, and not by synthesis consumers reading all
+agents' entries.
 
 **Example file state after two stages:**
 
@@ -160,6 +185,8 @@ sections. Other agents' entries are read-only context.
 **Synthesis consumers** (ledger Synthesis, standalone Developer, Web GUI Specialist
 at report time) read **all agents' entries**, grouped by agent and ordered by
 priority. Cross-agent duplicates are surfaced as corroboration, not deduplicated.
+`session-start` entries are excluded from output but used to distinguish agents that
+captured nothing from agents that never captured.
 
 ## Verdict-Affecting Findings
 
@@ -199,23 +226,29 @@ The block must include:
 - Append-only rule, cross-agent duplicate rule, non-blocking fallback, and
   generated-evidence retention note.
 
-**Step 1b — Add an action gate.** Bind the append duty to a named step of the
-persona's own Operational Protocol. The capture partial in the observation section
-*describes* the sink; the action gate *triggers* appends at the point where
-observations actually occur. Without an action gate, the capture instruction is a
-triggerless duty — the same failure mode the sidecar exists to fix.
+**Step 1b — Add an action gate bound to an observable action.** Bind the append
+duty to its own numbered step of the persona's own Operational Protocol. The
+capture partial in the observation section *describes* the sink; the action gate
+*triggers* appends at the point where observations actually occur. Without an
+action gate, the capture instruction is a triggerless duty — the same failure mode
+the sidecar exists to fix.
 
-Each persona's gate must name a real, numbered protocol step and state when to
-append. Examples:
+The gate must name something that **visibly happens** — a file edited, a test run,
+a document saved, a category finished. Never gate on an agent-judged boundary
+("after each chunk", "at a natural stopping point"): those boundaries never
+announce themselves while the agent is absorbed in the primary task, so the duty
+silently reverts to end-of-session reconstruction despite reading like a gated
+instruction. Where the work is a loop, the capture step is its own numbered step
+and the loop is stated explicitly ("repeat steps 4–5 until complete").
 
-| Persona | Gate location | Gate substance |
+| Persona | Gate location | Observable trigger |
 |---|---|---|
-| Developer | Step 3 (Incremental Implementation) | After each implementation chunk, append observations from that chunk before starting the next. |
-| QA | Verification Stack step (after Edge-Case Stress Test) | After each verification layer, append observations that layer surfaced. |
-| Security Auditor | Audit pass step | After each audit area, append non-blocking observations before moving to the next area. |
-| Reviewer | Step 2 (The Deep Dive) | Append each Gold Nugget or out-of-scope pattern as it is noticed, not at the end of the dive. |
-| Documentation | Documentation pass step | After each document updated, append any gap or staleness noticed in adjacent documentation. |
-| Web GUI Specialist | Implementation step | After each component or view is implemented and visually verified, append observations from that surface. |
+| Developer | Own step, paired with the implement step in a stated 4–5 loop | Each completed file edit — append before opening the next file. |
+| QA | Own step, after the four verification layers | Each completed verification layer — append before starting the next. |
+| Security Auditor | Own step, after the OWASP and additional-check steps | Each completed audit category — append before starting the next. |
+| Reviewer | Inside the Deep Dive step | Each reviewed file — append before opening the next file. |
+| Documentation | Own step, paired with the update step in a stated 5–6 loop | Each saved document — append before opening the next. |
+| Web GUI Specialist | Own step, paired with the implement step in a stated 4–5 loop | Each implemented and visually verified surface. |
 
 **Step 2 — Insert the report-time compilation block** beside the persona's
 output-format / report-template section. This block carries the rules that fire
@@ -230,8 +263,12 @@ The block must include:
 - Curate own entries only; other agents' entries are read-only context.
 - Note cross-agent corroboration where entries overlap.
 - Lenient consumption: salvage unparseable lines as free text.
-- Forcing function: if no own-agent entries exist (or the file is absent), record
-  a single `improvement` observation confirming the material was clean.
+- `session-start` markers are never reported as observations.
+- Forcing function, split by liveness: own `session-start` marker present with no
+  other own entries → record a single `improvement` observation confirming the
+  material was clean. No own marker at all (or file absent) → state explicitly that
+  incremental capture did not run and the insights are incomplete; never back-fill
+  observations from recall and present them as captured findings.
 
 **Step 3 — Rekey the forcing function.** Locate the persona's existing
 "always record at least one observation" rule and rephrase it to reference the
@@ -257,9 +294,13 @@ so the rework section must independently state that appending continues. Exempt
 personas that have no `REWORK` action (currently: Security Auditor and Reviewer —
 their re-entry paths re-run the full protocol including the action gate).
 
-**Step 7 — Do not add lifecycle duties.** No persona creates the file ahead of
-time (first append creates it), rotates it, or cleans it up. Archival is handled
-by the existing archiver flow, which takes the plan folder wholesale.
+**Step 7 — Open the sink at session start; add no other lifecycle duties.** Every
+producing persona creates the file (or appends a marker to an existing one) as the
+first step of its Operational Protocol, writing a single `session-start` marker
+line. This removes setup cost from the working phase and provides the liveness
+signal the forcing function needs. No persona rotates the file, truncates it, or
+cleans it up. Archival is handled by the existing archiver flow, which takes the
+plan folder wholesale.
 
 ## Curator Verification Checklist
 
@@ -271,18 +312,24 @@ After modifying each persona, verify:
 - [ ] Report-time compilation block present (via `insight-compilation` partial),
       placed beside the output-format section — not in the same location as the
       capture block.
-- [ ] Action gate present: names a real, numbered step of the persona's own
-      Operational Protocol and states when to append.
+- [ ] Sink opened at session start: the first step of the persona's Operational
+      Protocol resolves the path and writes a `session-start` marker line.
+- [ ] Action gate present: occupies its own numbered step of the persona's own
+      Operational Protocol, names an **observable** trigger (file edited, test run,
+      document saved, category finished) — never an agent-judged boundary such as
+      "after each chunk" — and states the loop where the work repeats.
 - [ ] Cross-agent duplicate rule present: append regardless of other agents'
       entries; corroboration noted at report time, never deduped away.
 - [ ] Lenient consumption rule present: unparseable lines salvaged as free-text,
       never discarded.
-- [ ] Forcing function rekeyed to the sink (no own-agent entries, or file absent),
-      with the persona's nothing-found type named.
+- [ ] Forcing function split by liveness: marker-present-but-empty reports the
+      persona's nothing-found type; missing marker reports that capture did not run.
+      Back-filling from recall is explicitly ruled out.
 - [ ] Report workflow step compiles the insight section from the sink, filtered
       to the persona's own entries, noting corroboration.
 - [ ] Non-blocking fallback stated; sink failure cannot gate the primary task.
-- [ ] No mid-session curation, no cross-agent edits, no file lifecycle duties added.
+- [ ] No mid-session curation, no cross-agent edits, no rotation or cleanup duties;
+      an existing sink is appended to, never truncated.
 - [ ] Persona's own type vocabulary unchanged (or defined, if the persona lacked one).
 - [ ] Scope & Boundaries table present with three or four rows defining the
       persona's observation territory — not a clone of another persona's table.

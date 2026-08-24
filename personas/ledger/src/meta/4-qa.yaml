@@ -5,6 +5,8 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.8.0 (2026-08-24): Sink opened at session start with marker line as Verification Stack step 1; capture gated on each completed verification layer; rework continuation re-gated per re-verification
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
   3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning

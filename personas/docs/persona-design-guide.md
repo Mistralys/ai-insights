@@ -2,14 +2,17 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.5
-**Last Updated:** 2026-08-21
+**Version:** 2.8
+**Last Updated:** 2026-08-24
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v2.8 - 2026-08-24: Added design rule for self-contained sub-sections: reusable partials and dedicated procedure blocks consolidate their constraints into their own Constraints heading rather than scattering them inline.
+- v2.7 - 2026-08-24: Added Core Philosophy principle 7 (Tone Stratification); reserved imperative voice for Rules & Constraints only; rewrote checklist tone item to enforce stratification; added "All-imperative monotone" pitfall; fixed Mission template wording.
+- v2.6 - 2026-08-24: Added Pattern 15 rules for observable-action gating, own-step placement, and skipped-duty visibility; expanded Pattern 6 with session-start sink opening and liveness markers; added related checklist items and two pitfalls.
 - v2.5 - 2026-08-21: Added Pattern 15 (Trigger Anchoring — duty and constraint salience classes); expanded Pattern 6 with forcing functions and incremental capture; added Core Philosophy principle 6 (Salience Beats Volume); added related checklist items and pitfalls.
 - v2.4 - 2026-07-15: Added Pattern 14 (Task Separation); added workflow design rule, quality checklist item, and common pitfall for phase homogeneity.
 - v2.3 - 2026-07-13: Added positive-framing rule and litmus test to Operating Philosophy; added "Philosophy reads like constraints" pitfall; added checklist item for philosophy tone.
@@ -36,6 +39,8 @@ Every persona in this system is built on five foundational principles:
 5. **Constraints Prevent Drift.** Agent behavior degrades when scope is implicit. Every persona includes explicit guardrails: what it must do, what it must not do, what it delegates. Constraints are not suggestions — they are load-bearing rules that prevent the agent from wandering.
 
 6. **Salience Beats Volume.** A persona's practical limit is not its word count — models recall long personas without difficulty. The limit is how many instructions must fire *spontaneously*, without a trigger, while the agent is absorbed in its primary task. What degrades in long sessions is not memory of an instruction but its *activation* at the moment it should apply. Therefore every duty and constraint is designed around an explicit trigger: an action, a workflow checkpoint, or an output slot. Pattern 15 defines the salience classes and their conversion rules.
+
+7. **Tone Stratification Creates Signal.** A persona uses two distinct registers: *descriptive prose* for sections that teach the agent its role (Mission, Philosophy, Inputs, Workflow), and *imperative commands* reserved exclusively for the Rules & Constraints section. This separation is load-bearing. If the entire document is written in imperative voice ("Do X", "Never Y", "Must Z"), the constraints section loses its visual and cognitive weight — it sounds the same as everything else, so nothing reads as especially important. The imperative register works precisely *because* the rest of the document does not use it. Descriptive sections explain, describe, and guide; constraint sections command. When a model encounters a shift from explanatory prose to terse imperatives, it treats the imperatives as hard boundaries — which is exactly the intent.
 
 ---
 
@@ -114,7 +119,7 @@ The Mission is the persona's identity card. It answers: *Who is this agent, and 
 
 **Identity: {PROFESSIONAL_TITLE}.**
 
-{1–3 sentences describing the core responsibility. Focus on the outcome the agent produces, not the mechanics of how it works. Use active, imperative language.}
+{1–3 sentences describing the core responsibility. Focus on the outcome the agent produces, not the mechanics of how it works. Lead with an active verb.}
 ```
 
 **Design Rules:**
@@ -330,7 +335,8 @@ Choose the style that matches the persona's nature. Action-oriented roles benefi
 
 **Design Rules:**
 
-- **Frame as imperatives.** "Do not fix bugs unrelated to your task" is clearer than "Bugs unrelated to the task should generally be left alone."
+- **Imperative voice is reserved for this section.** The Rules & Constraints section is the only part of a persona that uses imperative commands ("Do not", "Never", "Must"). All other sections — Mission, Philosophy, Inputs, Workflow — use descriptive, explanatory prose. This tonal contrast is what gives constraints their weight: a shift from explanatory prose to terse imperatives signals "these are hard boundaries." If the whole persona reads as a list of commands, constraints become invisible. See Core Philosophy §7 (Tone Stratification).
+- **Frame each constraint as a direct command.** "Do not fix bugs unrelated to your task" is clearer than "Bugs unrelated to the task should generally be left alone."
 - **Include the *why* when it's not obvious.** "No Git write operations — the user manages version control" explains the rationale.
 - **Be specific: state the boundary + the alternative action.** Every strong constraint tells the agent what it *cannot* do *and* what it *should* do instead:
 
@@ -353,6 +359,7 @@ Choose the style that matches the persona's nature. Action-oriented roles benefi
 | **Hallucination prevention** | Do not invent libraries or APIs that do not exist. |
 
 - **Constraints that apply to multiple personas should be extracted into shared partials** (or equivalent reusable blocks) rather than duplicated.
+- **Self-contained sub-sections consolidate their own constraints.** When a persona includes a reusable sub-section (a shared partial or a dedicated procedure block), that sub-section collects its constraints into its own Constraints heading rather than scattering them as inline asides across procedural steps. Workflow steps describe the positive action; the constraints block lists the prohibitions. This mirrors the full persona's structure at sub-section scale and gives agents a single scannable block for "what am I not allowed to do" within that sub-task.
 
 ---
 
@@ -528,6 +535,13 @@ This pattern works when:
 1. **A forcing function.** A mandatory output slot that cannot be legitimately left empty — including an explicit nothing-found form: *"If you found nothing noteworthy, record a single observation stating that the touched files are clean."* This converts the continuous duty into a checkpoint duty: the slot is guaranteed to be filled at handoff time.
 
 2. **An incremental capture sink.** Instruct the agent to record each observation *the moment it occurs* — appended to a scratch file (e.g., `observations.md`) or the todo list — and have the synthesis step *compile from the sink* rather than write from recall. Without the sink, the forcing function alone produces **end-of-session reconstruction**: an agent that stopped observing mid-session will, at synthesis time, look back over its context and back-fill plausible observations. The result often looks acceptable but misses everything that was only salient in the moment (a test that was flaky on first run, a momentary confusion caused by a misleading name). The sink turns each observation into its own micro-checkpoint. It is the side-channel's analog of Pattern 14's research brief: a compact artifact that survives attention decay.
+
+**Two properties the sink must have.** A sink that is merely *described* still fails; these two properties are what make it fire:
+
+- **Open it at session start, before the primary task begins.** Have the agent resolve the path and create the file immediately — with a `session-start` marker line, even though it has no observations yet. This removes every trace of setup cost from the working phase (no path resolution, no create-or-append decision, no first-use hesitation while mid-task), leaving only a one-line append at each gate. A sink the agent must first *set up* while absorbed in the primary task is a sink it will defer.
+- **Make the marker a liveness signal.** The start marker converts an ambiguous empty sink into a diagnosable one: marker present with no observations means capture ran and genuinely found nothing; no marker means capture never ran. Require the report to distinguish these two cases explicitly (see Pattern 15's visibility rule). Without the distinction, a forgotten duty and a clean codebase produce identical reports, and the mechanism can never detect its own failure.
+
+**Gate the appends on observable actions.** Bind each append to something that visibly happens — a file edited, a test run, a document saved — never to an agent-judged boundary like "after each chunk." See Pattern 15 for the full rule; it is the single most common reason a well-designed sink still ends up written from recall.
 
 **Limit: one side-channel per persona.** Each additional triggerless duty competes for the same scarce resource — spontaneous re-surfacing. A persona with one well-instrumented side-channel is reliable; a persona with three simultaneous "continuously watch for X" duties will silently convert most of them into end-of-session reconstruction, even on strong models. If a role seems to need more, the extra duties belong to a downstream agent (e.g., a Reviewer) or must be restructured as checkpoint duties.
 
@@ -748,6 +762,9 @@ A persona's instructions do not degrade uniformly. What predicts whether an inst
 **Design Rules:**
 
 - **Every duty must be foreground, action-gated, or checkpoint-slotted.** A duty that is none of these is a continuous triggerless duty and must be converted using Pattern 6's mitigations (forcing function + incremental capture sink) — or moved to a persona for which it *is* the foreground task.
+- **Gate on an observable action, never on an agent-defined boundary.** This is the difference between a real action gate and one that only looks like an action gate. "After each chunk of work", "once you have enough to report", "at a natural stopping point" all delegate the trigger back to the agent's own judgment — and that judgment is exactly what the primary task has captured. Such boundaries never announce themselves, so the duty silently reverts to the lowest salience class despite reading like a gated instruction. Bind the duty to something that visibly happens: a file edited, a test run, a document saved, a category completed. Compare: "after each chunk, append your observations" (agent-defined — degrades) vs. "after each file edit, before opening the next file, append your observations" (observable — fires).
+- **Split the gated duty into its own numbered step.** A duty appended as a trailing sub-clause to a step whose headline is the primary task inherits that step's momentum and is skipped with it. Give the duty its own numbered step and, where the pair repeats, state the loop explicitly: *"Repeat steps 4–5 until complete."* The numbered step is re-read on every pass; a sub-clause is read once.
+- **Make skipped duties visible, not absorbable.** A forcing function that accepts the same output for "did the work and found nothing" and "never did the work" cannot detect its own failure — the agent fills the slot either way and the omission is invisible. Give the mechanism a cheap liveness signal (an opened sink, a start marker, an initialized artifact) and require the report to distinguish the two cases. Without this, the only thing standing between a silent process failure and the user is the agent volunteering that it forgot.
 - **Restate generation-time constraints at the point where they fire.** The Constraints section may be dozens of tool calls behind by the time the agent writes its output; the Output Template is read at generation time. Embed the constraint as an authoring instruction inside the template slot itself — e.g., `{2–3 sentence summary — no numeric counts}` — in addition to stating it in Constraints. The template placement does the enforcing; the Constraints entry documents the rule.
 - **Give rarely-fired conditionals a checkpoint.** Do not rely on the agent remembering an "if present" rule when the condition finally holds. Add an explicit workflow step that forces the check: *"Step 2: Check whether `{COMPANION_FILE}` exists. If it does, …; if not, proceed."* The step fires every session, so the conditional is rehearsed even when it does not apply.
 - **Expect momentum conflicts and route the impulse.** Constraints that oppose the pull of helpfulness ("do not fix unrelated bugs") are under constant pressure and weaken as sessions lengthen. The existing boundary-plus-alternative rule is the mitigation — but ensure the alternative gives the impulse *somewhere to go* (record it in the side-channel), not merely a prohibition.
@@ -783,11 +800,15 @@ Before shipping a new persona, verify:
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
 - [ ] **Workflow respects task separation.** Research/gathering steps are separate from production/writing steps. No step combines fact-finding with deliverable production. (See Pattern 14.)
 - [ ] **Every duty is trigger-anchored.** Each duty is foreground, action-gated, or checkpoint-slotted. Any continuous side-channel duty has *both* a forcing function and an incremental capture sink. (See Patterns 6 and 15.)
+- [ ] **Every gate names an observable action.** No duty is gated on an agent-defined boundary ("after each chunk", "when you have enough"). Each names something that visibly happens: a file edited, a test run, a document saved. (See Pattern 15.)
+- [ ] **Gated duties occupy their own numbered step.** The duty is not a trailing sub-clause on a primary-task step, and any repeating pair states its loop ("repeat steps N–M").
+- [ ] **Incremental sinks are opened at session start.** The persona creates the sink artifact with a liveness marker before the primary task begins, so the working phase carries no setup cost.
+- [ ] **Skipped duties are visible, not absorbable.** The report distinguishes "ran and found nothing" from "never ran"; the forcing function cannot be satisfied identically by both.
 - [ ] **At most one continuous side-channel per persona.** Additional parallel observation duties are moved to a downstream persona or restructured as checkpoints.
 - [ ] **Generation-time constraints are restated in the output template.** Style rules that fire while writing (e.g., "no counts") appear as authoring instructions inside the relevant template slots, not only in the Constraints section.
 - [ ] **Rarely-fired conditionals have a workflow checkpoint.** Every "if present / if applicable" rule is backed by an explicit workflow step that forces the check each session.
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
-- [ ] **Language is imperative, not suggestive.** "Do X" not "You might consider X."
+- [ ] **Tone is stratified: descriptive prose for content sections, imperative commands for constraints only.** Mission, Philosophy, Inputs, Workflow, and Operational Protocol use explanatory language. Only Rules & Constraints use imperative voice ("Do not", "Never", "Must"). If the whole persona reads like a list of commands, the constraints section loses its signal. See Core Philosophy §7.
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
@@ -1024,11 +1045,14 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Shared content is copy-pasted** | Inconsistencies creep in across personas when one is updated | Extract shared instructions into reusable partials |
 | **No Operating Philosophy** | Agent makes inconsistent judgment calls across sessions | Add named guiding principles that encode how to think |
 | **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive values ("Prefer X over Y"); move prohibitions into Rules & Constraints |
+| **All-imperative monotone** | Every section — Mission, Philosophy, Inputs, Workflow — uses command voice ("Do X", "Never Y"), making the Constraints section indistinguishable from the rest of the document | Reserve imperative language for Rules & Constraints only. Rewrite other sections in descriptive, explanatory prose: explain *what* and *why*, not *must* and *must not*. The tonal contrast is what makes constraints visible. See Core Philosophy §7 (Tone Stratification) |
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
 | **Tool instructions mixed into workflow** | Agent confuses tool mechanics with task logic | Extract tool integration into its own section |
 | **Research and production in one step** | Agent commits to conclusions before gathering all facts; output quality degrades with context length | Split into separate phases: gather/verify first, then produce (Pattern 14) |
 | **Multiple triggerless background duties** | Side-channel output is thin, generic, or visibly reconstructed at handoff rather than gathered during work | Keep one side-channel maximum; equip it with a forcing function and an incremental capture sink (Patterns 6, 15) |
+| **Pseudo action gate** | A duty is gated on an agent-defined boundary ("after each chunk", "at a natural pause") and reads as gated, but the sink stays empty until handoff | Re-gate on an observable action — a file edited, a test run, a document saved (Pattern 15) |
+| **Self-absorbing forcing function** | "Found nothing" and "forgot to look" produce identical reports, so the mechanism never surfaces its own failure | Add a liveness marker at session start and require the report to distinguish the two cases (Patterns 6, 15) |
 | **Constraint stated far from where it fires** | Rule holds in the final templated output but is violated in intermediate outputs (e.g., counts appear in a mid-session summary) | Restate the constraint as an authoring instruction inside the output template slot where it applies (Pattern 15) |
 | **Conditional rule with no rehearsal** | "If present, do X" rules are skipped in the rare sessions where the condition actually holds | Add an explicit workflow step that performs the check every session (Pattern 15) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |

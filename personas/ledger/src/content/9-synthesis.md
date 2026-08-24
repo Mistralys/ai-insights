@@ -43,6 +43,8 @@ You will be provided with:
 
 {{> synthesis-operational-protocol}}
 
+{{> insight-compilation}}
+
 ---
 
 ## Knowledge Collection

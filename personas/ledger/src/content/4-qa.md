@@ -64,7 +64,7 @@ When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted c
 2. **Narrow your focus:** Re-verify only the previously-failed ACs and any code directly affected by the Developer's fixes. Do not re-run the full Verification Stack from scratch.
 3. **Regression pass:** Run a targeted regression check to ensure the fixes did not introduce new issues.
 4. **Reference your original feedback:** In your `ledger_complete_pipeline` call, explicitly note which previously-failed ACs now pass and whether any remain unresolved.
-5. **Observations still apply:** Continue appending to `insights.jsonl` throughout the rework session.
+5. **Observations still apply:** Open the sink with a fresh `session-start` marker line at the top of the rework session, then append after each re-verification you run. The narrower scope does not exempt you from incremental capture.
 
 ---
 

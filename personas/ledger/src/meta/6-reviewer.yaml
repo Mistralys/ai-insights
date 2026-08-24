@@ -5,6 +5,8 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; Deep Dive capture gated per reviewed file instead of per noticed pattern; protocol renumbered
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Review Insight Observer section with positive split rule, action gate in Deep Dive step 2, compilation beside output-format
   3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design

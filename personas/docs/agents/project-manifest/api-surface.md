@@ -563,7 +563,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `developer-operational-protocol.md` | Agent 3 | *(none)* |
 | `developer-strict-constraints.md` | Agent 3 | Embeds `{{> incident-logging}}` — resolves via ledger override layer; requires a stub in `shared/` for non-ledger suites |
 | `insight-capture.md` | Agents 3–6, 8; standalone Developer, Web GUI Specialist | `{{insight_agent}}`; placement: inside the observation section, after type/priority definitions. Contains the two-rung sink location ladder (resolve-once), flat JSONL schema with a concrete example line, append-only rules, non-blocking fallback, and retention note. |
-| `insight-compilation.md` | Agents 3–6, 8; standalone Developer, Web GUI Specialist; Agent 9 (Synthesis) | `{{insight_agent}}`, `{{insight_report_target}}`; placement: beside the output-format / report-template section. Contains compile-from-sink instructions, curate-own-entries rule, cross-agent corroboration note, lenient consumption, and forcing function (nothing-found type `improvement` hardcoded). |
+| `insight-compilation.md` | Agents 3–6, 8; standalone Developer, Web GUI Specialist | `{{insight_agent}}`, `{{insight_report_target}}`; placement: beside the output-format / report-template section. Contains compile-from-sink instructions (all entries, never filtered by `agent`), cross-agent corroboration note, lenient consumption, and forcing function (nothing-found type `improvement` hardcoded). |
 | `developer-output-format.md` | Agent 3 | *(none)* |
 | `qa-operational-protocol.md` | Agent 4 | *(none)* |
 | `qa-output-format.md` | Agent 4 | *(none)* |

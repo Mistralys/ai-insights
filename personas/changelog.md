@@ -2,6 +2,35 @@
 
 ## v3.32.0 - **WIP UNRELEASED**
 
+- Shared: Insight-compilation partial gains `insight_consumer_only` conditional —
+  switches grouping to by-agent and replaces the producer sink-state table with
+  per-agent marker checking for consumer-only compilers (e.g. Synthesis)
+- Synthesis: Delegates insight curation to the shared insight-compilation partial
+  with `insight_consumer_only: true`, gaining deduplication, priority elevation,
+  no-backfill, and no-empty-sections constraints natively
+- Shared: Insight compilation now reads every sink entry regardless of `agent`
+  instead of filtering to the compiling persona's own entries, which silently
+  dropped contributions no persona matched. The `session-start` marker is retained
+  as the per-agent liveness signal.
+- Shared: Reworded insight compilation to drop residual "your own entries" framing
+  that contradicted the read-all-entries rule.
+- Shared: Condensed the insight-capture partial (~16% shorter) by removing
+  design-guide rationale; all operative rules and the JSONL schema are unchanged.
+- Shared: Insight sinks are now opened at session start with a `session-start`
+  marker line, removing setup cost from the working phase.
+- Shared: Insight capture is re-gated on observable actions (file edited, test run,
+  document saved) instead of agent-judged "chunk" boundaries, and occupies its own
+  numbered protocol step.
+- Shared: Insight forcing function now distinguishes "captured nothing" from
+  "never captured" via the marker, instead of absorbing both into one report line.
+- Docs: Persona Design Guide v2.7 — Tone Stratification (Core Philosophy §7);
+  imperative voice reserved for Rules & Constraints only; checklist and pitfalls
+  updated.
+- Standalone: Persona Curator v1.4.0 — replaced "Imperative, Not Suggestive"
+  philosophy with Tone Stratification; updated audit and quality checklist items.
+- Docs: Persona Design Guide v2.6 — Pattern 15 gains observable-action gating,
+  own-step placement and skipped-duty visibility rules; Pattern 6 gains
+  session-start sink opening.
 - Ledger: Security Auditor — removed incorrect REWORK action from workflow and
   tool purpose; re-engagement uses RUN_SECURITY_AUDIT.
 - Standalone: Added Usage Scenarios Curator for plan scenario generation and

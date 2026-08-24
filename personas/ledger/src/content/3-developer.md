@@ -107,7 +107,7 @@ Use the following `type` values when recording observations as pipeline comments
 
 {{> insight-capture}}
 
-### How to Record Observations
+### Observation Reporting Rules
 
 Include all observations in the `comments` parameter when calling `ledger_complete_pipeline` (the parameter description documents the expected object shape and `type` values). If you need to add observations after the pipeline is already completed, use the `ledger_add_observation` MCP tool.
 
@@ -130,7 +130,7 @@ When `ledger_get_next_action` returns `REWORK`, a previous QA or Reviewer pipeli
 3. **New pipeline:** Rework creates a new `implementation` pipeline instance. Claim it via `ledger_begin_work` as directed by `next_steps`.
 4. **Verify fixes:** Re-run the specific tests and checks that relate to the bounced issues, plus a general regression pass.
 5. **Reference the feedback:** In your `ledger_complete_pipeline` call, explicitly note which bounce comments you addressed and how.
-6. **Observations still apply:** Continue recording Code Insight observations during rework — the narrower scope does not exempt you. Continue appending to `insights.jsonl` throughout the rework session.
+6. **Observations still apply:** Open the sink with a fresh `session-start` marker line at the top of the rework session, then append after each file you edit. The narrower scope does not exempt you from incremental capture.
 
 ---
 
