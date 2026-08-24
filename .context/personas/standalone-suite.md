@@ -78,7 +78,7 @@ Each step is a separate agent invocation. The PM passes structured output from o
 
 ## Persona Catalog
 
-All 19 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
+All 23 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 
 > **Note:** Ledger workflow utility agents previously listed here (PM sub-agent cluster, ledger-doctor, etc.) have moved to `personas/ledger-support/`. See [ledger-support/README.md](../ledger-support/README.md).
 
@@ -88,15 +88,27 @@ All 19 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 |------|------|-------------|-------------|-----------------|
 | `agents-md-curator` | AGENTS.md Curator | Generate, update, and maintain AGENTS.md files — the operating manual for AI agents entering a codebase. | `agents-md-curator.agent.md` | `agents-md-curator.md` |
 | `changelog-curator` | Changelog Curator | Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style. | `changelog-curator.agent.md` | `changelog-curator.md` |
+| `comms-curator` | Communications Curator | Produce clear, engaging, audience-appropriate content from technical source material — release notes, user responses, stakeholder briefs, and presentation slides. | `comms-curator.agent.md` | `comms-curator.md` |
 | `composer-curator` | Composer Curator | Verify that the project's composer.json file is set up correctly for agentic coding. | `composer-curator.agent.md` | `composer-curator.md` |
 | `ctx-architect` | CTX Architect | Design, generate, and maintain CTX Generator context documentation configurations — from root project setup to per-module configs. | `ctx-architect.agent.md` | `ctx-architect.md` |
+| `developer-standalone` | Developer (Standalone) | Implement scoped plan documents without ledger workflow, including code insights, a `synthesis.md` output, and optional archival. | `developer-standalone.agent.md` | `developer-standalone.md` |
+| `documentation-curator` | Documentation (Standalone) | Analyze codebase changes, identify documentation gaps, and update READMEs, API references, and architecture guides. | `documentation-curator.agent.md` | `documentation-curator.md` |
+| `git-committer` | Git Committer | Analyze uncommitted changes and organize them into comprehensive, categorized commits with plan traceability. | `git-committer.agent.md` | `git-committer.md` |
 | `manifest-curator` | Manifest Curator | Create, update, and audit project manifests — the source of truth for AI agent sessions. | `manifest-curator.agent.md` | `manifest-curator.md` |
 | `module-intent-architect` | Module Intent Architect | Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source. | `module-intent-architect.agent.md` | `module-intent-architect.md` |
+| `persona-curator` | Persona Curator | Create, audit, and maintain AI agent personas according to the Persona Design Guide. | `persona-curator.agent.md` | `persona-curator.md` |
+| `plan-architect-reviewer` | Plan Architect Reviewer | Review technical plans at decision level against named alternatives. | `plan-architect-reviewer.agent.md` | `plan-architect-reviewer.md` |
+| `plan-auditor` | Plan Auditor | Audit technical plans for hallucinated references, missing steps, infeasible sequencing, and pattern inconsistencies. | `plan-auditor.agent.md` | `plan-auditor.md` |
+| `plan-refiner` | Plan Refiner | Orchestrate iterative plan refinement through architectural review and technical auditing. | `plan-refiner.agent.md` | `plan-refiner.md` |
+| `planner` | Planner (Standalone) | Produce clear, actionable, technically sound plans from feature requests or task descriptions. | `planner.agent.md` | `planner.md` |
 | `readme-curator` | README Curator | Produces a human-optimized README.md that follows a landing-page funnel: Hook → Features → Requirements → Quick Start → Learn More. | `readme-curator.agent.md` | `readme-curator.md` |
+| `recipe-curator` | Recipe Curator | Curate, adapt, and compose recipes tailored to a home kitchen that values fresh, seasonal, and predominantly organic ingredients. | `recipe-curator.agent.md` | `recipe-curator.md` |
 | `researcher` | Researcher | Research solutions to complex problems through known patterns or creative thinking. | `researcher.agent.md` | `researcher.md` |
-| `developer-standalone` | Developer (Standalone) | Implement scoped plan documents without ledger workflow, including code insights, a `synthesis.md` output in the plan folder, and optional archival to the project ledger via the Standalone Archiver subagent. | `developer-standalone.agent.md` | `developer-standalone.md` |
 | `unit-test-auditor` | Unit Test Auditor | Audit specific codebase parts. | `unit-test-auditor.agent.md` | `unit-test-auditor.md` |
+| `usage-scenarios-curator` | Usage Scenarios Curator | Generate human-editable user scenarios from a plan and verify deterministic scenario coverage without changing the plan or implementation. | `usage-scenarios-curator.agent.md` | `usage-scenarios-curator.md` |
+| `web-gui-specialist` | Web GUI Specialist | Design and implement engaging, visually optimized web app and tool interfaces with strong UX, accessibility, and frontend performance discipline. | `web-gui-specialist.agent.md` | `web-gui-specialist.md` |
 | `whatsnew-curator` | WHATSNEW Curator | Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only. | `whatsnew-curator.agent.md` | `whatsnew-curator.md` |
+| `workspace-architect` | Workspace Architect | Onboard and maintain development repositories for the AI Insights persona ecosystem. | `workspace-architect.agent.md` | `workspace-architect.md` |
 
 ---
 

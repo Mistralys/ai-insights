@@ -5,8 +5,8 @@ YAML metadata for all standalone personas: shared defaults (_shared.yaml) and pe
 
 </INSTRUCTION>
 ------------------------------------------------------------
-_SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-persona overrides)_
-# YAML metadata for all 19 standalone personas (shared defaults + per-persona overrides)
+_SOURCE: YAML metadata for standalone personas (shared defaults + per-persona overrides)_
+# YAML metadata for standalone personas (shared defaults + per-persona overrides)
 ```
 // Structure of documents
 └── personas/
@@ -33,6 +33,7 @@ _SOURCE: YAML metadata for all 19 standalone personas (shared defaults + per-per
                 └── recipe-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
+                └── usage-scenarios-curator.yaml
                 └── web-gui-specialist.yaml
                 └── whatsnew-curator.yaml
                 └── workspace-architect.yaml
@@ -243,6 +244,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.6.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial, compilation partial, action gate in inline Operational Protocol step 3, Code Insights compiled from sink
+  1.5.0 (2026-08-18): Preserve optional authored usage-scenarios.md through standalone implementation handoffs without archiving generated coverage reports
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.1 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
   1.3.0 (2026-07-06): New step 1 renames plan folder date prefix to today before implementation
@@ -269,6 +272,9 @@ cc_tools:
   - Grep
   - TodoRead
   - TodoWrite
+
+insight_agent: Developer
+insight_report_target: "the **Code Insights** section of `synthesis.md`"
 
 subagents:
   - standalone-archiver
@@ -321,6 +327,8 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.7.0 (2026-08-21): Classify insights.jsonl as generated evidence — relocate with plan folder but never group as source
+  1.6.0 (2026-08-18): Treat optional usage-scenarios.md as authored standalone-plan source and exclude generated scenario-coverage.md from grouping and archival
   1.5.0 (2026-08-12): Added "Verify before deleting after moves" constraint — guards against silent git mv failures on untracked files followed by destructive directory removal
   1.4.0 (2026-08-04): Plan archival now includes request.md (if present) alongside plan.md and synthesis.md — supports post-project acceptance verification
   1.3.0 (2026-07-13): Added date-only CTX filtering — excludes generated files whose only change is a timestamp, and drops the entire CTX group when no substantive content changes remain
@@ -543,6 +551,7 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.4.0 (2026-08-18): Added opt-in post-convergence usage scenario verification with GUI-scope exception handling and a bounded integration re-check
   1.3.0 (2026-07-21): Moved research brief handling to sub-agent personas — Auditor and Architect Reviewer now self-manage brief usage; simplified dispatch prompts and removed Sub-Agent Brief Enrichment protocol and brief size guard from Refiner
   1.2.1 (2026-07-21): Operating Philosophy rewrite — replaced constraint-like prohibitions with positive value statements; removed items already covered by Strict Constraints
   1.2.0 (2026-07-21): Refiner-as-Enricher — brief enrichment phase, enriched sub-agent dispatch prompts with research brief references, incremental re-audit for cycles 2+, sub-agent brief enrichment with provenance markers, brief size guard
@@ -565,6 +574,7 @@ tools:
 subagents:
   - plan-architect-reviewer
   - plan-auditor
+  - usage-scenarios-curator
 
 # overview metadata
 identity: "Plan Quality Director"
@@ -741,6 +751,44 @@ identity: "Lead QA Auditor & Test Architect"
 use_when: "Auditing test coverage of specific modules to find the most impactful missing tests"
 
 ```
+###  Path: `/personas/standalone/src/meta/usage-scenarios-curator.yaml`
+
+```yaml
+slug: usage-scenarios-curator
+name: "Usage Scenarios Curator"
+description: "Generate human-editable user scenarios from a plan and verify deterministic scenario coverage without changing the plan or implementation."
+vs_file_name: usage-scenarios-curator.agent.md
+id: standalone-usage-scenarios-curator
+cc_file_name: usage-scenarios-curator.md
+changelog: |
+  1.2.0 (2026-08-20): Added Change Management for evolving GUI features: feature changes are scenario
+    changes first and the plan references scenarios by [SCnn] ID; materially changed approved
+    scenarios get a [MODIFIED] tag with both checkboxes unticked (the sole sanctioned untick), and
+    the Approval Gate now blocks verification on leftover [MODIFIED] tags as well as missing
+    approvals; removed scenarios are tombstoned to keep their IDs reserved.
+  1.1.0 (2026-08-20): Adopted self-contained [SCnn]/MSnn scenario format with human-owned lifecycle
+    checkboxes; added Scenario Authoring Conventions and an Approval Gate that blocks verification
+    until every scenario is spec-approved; Verify now flags human-vs-evidence checkbox mismatches.
+    Curated scenarios now live at docs/references/usage-scenarios.md (or a usage-scenarios/ directory
+    split by GUI area with a README index) as stable project documentation.
+  1.0.0 (2026-08-18): Initial release - plan-adjacent usage scenario generation and verification
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - browser
+  - todo
+
+# overview metadata
+identity: "Product Usage Scenario Analyst"
+use_when: "Creating or verifying user-facing usage scenarios for a scoped plan, especially when GUI behavior needs an opt-in coverage check"
+modes: |
+  Generate
+  Verify
+```
 ###  Path: `/personas/standalone/src/meta/web-gui-specialist.yaml`
 
 ```yaml
@@ -751,6 +799,8 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.2.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial, compilation partial, How to Record subsection, action gate in step 3, Interface Insights compiled from sink, added improvement type
+  1.1.0 (2026-08-18): Preserve optional authored usage-scenarios.md through GUI implementation handoffs without treating generated coverage as source
   1.0.1 (2026-07-22): Added curated non-obvious GUI heuristics for typography, accessibility, and frontend rendering quality
   1.0.0 (2026-07-22): Initial release - focused web GUI design and implementation specialist for standalone workflows
 
@@ -763,6 +813,9 @@ tools:
   - browser
   - agent
   - todo
+
+insight_agent: Web GUI Specialist
+insight_report_target: "the **Interface Insights** section of `synthesis.md`"
 
 subagents:
   - standalone-archiver

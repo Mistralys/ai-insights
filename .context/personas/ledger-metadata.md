@@ -161,6 +161,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial after Priority Guidelines, compilation partial beside output-format, action gate in Operational Protocol step 3, rework continuation in step 6
   3.7.2 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term stability over expediency, assume growth, completeness over deferral
@@ -189,6 +190,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Developer
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get the recommended action for your role (which WP to implement, or WAIT)."
@@ -214,7 +218,7 @@ mcp_tools:
 identity: "Staff Software Engineer"
 description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
 inputs: "Work Package with acceptance criteria and implementation notes"
-outputs: "Implemented code changes + code insight observations recorded to the ledger"
+outputs: "Implemented code changes + code insight observations recorded to the ledger and insights.jsonl sidecar"
 key_behavior: |
   Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation
 
@@ -229,6 +233,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
   3.6.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.3 (2026-07-03): Added Verbatim AC Text step to Verification Stack — copy criterion strings verbatim from ledger_get_work_package when populating acceptance_criteria_updates; exact-match comparison, phantom duplicate warning
   3.6.2 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
@@ -254,6 +259,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: QA
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
@@ -277,7 +285,7 @@ mcp_tools:
 identity: "SDET (Software Engineer in Test)"
 description: "Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC)."
 inputs: "Implemented code from Stage 3 + Work Package acceptance criteria"
-outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, and any rework instructions"
+outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded to insights.jsonl"
 key_behavior: |
   Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.
 
@@ -292,6 +300,8 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.7.1 (2026-08-21): Removed incorrect REWORK action from workflow step 6 and tool purpose — security-audit re-engagement uses RUN_SECURITY_AUDIT
+  3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Security Insight Observer section with non-blocking-only vocabulary, action gate in audit-pass step 4, compilation beside output-format
   3.6.5 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.4 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
@@ -314,9 +324,12 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Security Auditor
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_SECURITY_AUDIT`, `REWORK`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_SECURITY_AUDIT`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `security-audit` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
@@ -337,7 +350,7 @@ mcp_tools:
 identity: "Security Auditor"
 description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
 inputs: "Code changes from the current Work Package"
-outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info)"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded to insights.jsonl"
 key_behavior: |
   Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
 
@@ -352,6 +365,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Review Insight Observer section with positive split rule, action gate in Deep Dive step 2, compilation beside output-format
   3.7.1 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term lens, challenge expediency, reward durable design
   3.6.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
@@ -379,6 +393,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Reviewer
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`RUN_REVIEW`, `CLAIM_WP`, `CONTINUE_PIPELINE`, or `WAIT`)."
@@ -402,7 +419,7 @@ mcp_tools:
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
 inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded to insights.jsonl"
 key_behavior: |
   Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
 
@@ -475,6 +492,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Documentation Insight Observer section with scope boundaries, action gate in Update step 4, compilation beside output-format, rework continuation
   3.7.3 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.2 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.1 (2026-06-17): Added no-stale-counts quality guideline via shared docs-operational-protocol partial
@@ -503,6 +521,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Documentation
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get your next task (`WRITE_DOCS`, `REWORK`, `FINALIZE_WP`, `UPDATE_CRITERIA`, `CLAIM_WP`, or `WAIT`)."
@@ -528,7 +549,7 @@ mcp_tools:
 identity: "Technical Writing Manager"
 description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
 inputs: "Code changes from the Work Package + existing documentation"
-outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests)"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded to insights.jsonl"
 key_behavior: |
   Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code
 
@@ -543,6 +564,7 @@ id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl compilation — reads all agents' entries from sink, renders Code Insights section in synthesis.md, fixed project_storage_path derivation (= plan_path, no dirname)
   3.7.2 (2026-08-04): Split single Inputs item into separate Project Overview and Work Package Detail entries
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-06-05): Deferred items collection added to operational protocol
@@ -592,8 +614,8 @@ mcp_tools:
 # overview metadata
 identity: "Head of Operations (OPS)"
 description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
-inputs: "Complete project ledger with all WP results, code insights, and agent observations"
-outputs: "Project Status Report with achievements, metrics, code insights summary, and recommendations"
+inputs: "Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar"
+outputs: "Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations"
 key_behavior: |
   Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
 

@@ -20,6 +20,8 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── docs-operational-protocol.md
             └── docs-output-format.md
             └── incident-logging.md
+            └── insight-capture.md
+            └── insight-compilation.md
             └── pm-output-format.md
             └── pm-subagent-roster.md
             └── qa-operational-protocol.md
@@ -71,7 +73,7 @@ Follow these steps for every Work Package:
 
 1. **Contextual Analysis:** Read the relevant files in the codebase. Do not assume the PM's plan perfectly matches the current state of the code.
 2. **Technical Design (Internal):** Before writing code, outline the specific changes you will make (which functions to modify, which files to create).
-3. **Incremental Implementation:** Write the code in logical chunks.
+3. **Incremental Implementation:** Write the code in logical chunks. After each chunk, before starting the next, append any observations from that chunk to `insights.jsonl`.
 4. **Verify & Refine:** After implementation, run the project's build/install step if dependencies changed (e.g., `npm install`, `pip install -e .`, `composer dumpautoload`, `go mod tidy`). Run the existing test suite to confirm no regressions and write new tests to satisfy the **Acceptance Criteria** (follow the project's test conventions; if none exist, prefer co-located unit tests). Run the project's static analysis tool (e.g., `eslint`, `phpstan`) and fix any issues you introduced — pre-existing warnings outside your modified files are out of scope. Ensure your code follows the project's style guide and best practices (DRY, SOLID).
 5. **Code Insight Observations:** Compile the observations you gathered while working (see the **Code Insight Observer** section below). Every work package must produce an observations section in the ledger—even if only to confirm that no issues were found.
 
@@ -110,11 +112,45 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 1. **Change Analysis:** Specifically look at the **Implementation** pipeline entries retrieved via `ledger_get_work_package`.
 2. **Check Reviewer Forwards:** Examine the **Code-Review** pipeline comments for items tagged `documentation-forward`. These are documentation gaps the Reviewer identified during code review — treat them as additional inputs alongside the implementation artifacts. Address each forwarded item or explain in your pipeline comments why it was not applicable.
 3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
-4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
+4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs. After each document updated, append any gap or staleness noticed in adjacent documentation to `insights.jsonl`.
 5. **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include documentation files, READMEs, and any other files touched during this pipeline, even ancillary changes.
 6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
 **Documentation Quality — No Stale Counts:** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
+
+---
+
+## Documentation Insight Observer
+
+While updating documentation, capture observations about gaps and staleness in adjacent files that fall outside the current work package's scope.
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Documentation gaps in adjacent files you read | Code quality and refactoring proposals |
+| Stale documentation that no longer matches the codebase | Test coverage |
+| Inconsistent terminology across documentation files | Architectural decisions |
+| Missing cross-references between related docs | Release notes content |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `doc-gap` | A feature, API, or configuration is undocumented or has missing sections. |
+| `doc-stale` | Documentation describes behaviour that no longer matches the code. |
+| `doc-inconsistency` | Terminology, naming, or structure differs between related documents. |
+| `improvement` | A general documentation improvement (e.g., better examples, clearer structure). |
+
+### Priority Guidelines
+
+* **high** — The gap or staleness is likely to mislead users or agents.
+* **medium** — The documentation is incomplete but not actively misleading.
+* **low** — A nice-to-have improvement; safe to defer.
+
+{{> insight-capture}}
 
 ```
 ###  Path: `/personas/shared/partials/docs-output-format.md`
@@ -129,6 +165,49 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 
 ```md
 If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), note it clearly in your response and describe any workaround you found. Do not investigate root causes beyond what is needed to continue.
+```
+###  Path: `/personas/shared/partials/insight-capture.md`
+
+```md
+### Incremental Insight Capture
+
+Resolve the sink path **once** at session start, then use it for the entire session:
+
+1. If the session is plan-driven (`plan.md` is present in the working folder, or a plan folder path was supplied by the pre-flight), write to `{plan folder}/insights.jsonl`.
+2. Otherwise, write to `docs/agents/insights/{YYYY-MM-DD}-{slug}.jsonl` relative to the repository root (create the directory if absent). Derive `{slug}` from the same source you use to title your report — never invent a new slug.
+
+**Entry format** — append exactly one flat JSON line per observation, at the moment you notice it:
+
+```jsonl
+{"agent": "{{insight_agent}}", "priority": "medium", "type": "code-smell", "loc": "src/utils/parser.ts", "text": "Parser mixes validation and transformation — extract a validate() step."}
+```
+
+| Field | Type | Allowed values |
+|---|---|---|
+| `agent` | string | `{{insight_agent}}` (always use this value) |
+| `priority` | string | `high` / `medium` / `low` |
+| `type` | string | From your observation type vocabulary (lowercase kebab-case) |
+| `loc` | string | File path, module, or component the observation concerns |
+| `text` | string | Specific and actionable — state what could be done |
+
+**Rules:** Append-only — never re-read, edit, or reorganise the file mid-session. Duplicates across agents are welcome (independent corroboration). If an append fails, continue working and capture observations in your report instead — never let the sink block your primary task. The file is generated working evidence; retain it in the plan folder after your report is written.
+
+```
+###  Path: `/personas/shared/partials/insight-compilation.md`
+
+```md
+### Compiling from the Insight Sink
+
+When writing your report, read `insights.jsonl` from the resolved sink path and filter to entries where `agent` equals `{{insight_agent}}`. Compile {{insight_report_target}} from these entries — do not write from recall.
+
+**Curation rules:**
+
+- Deduplicate your own repeats, refine wording, and confirm priorities.
+- Entries from other agents are read-only context: never modify, remove, or re-report them — but note corroboration where your entry overlaps (e.g., "also flagged by QA").
+- Consume leniently: treat any line that fails to parse as a free-text observation and salvage its content. Never silently discard unparseable lines.
+
+**Forcing function:** If your `{{insight_agent}}` entries are absent or the file does not exist, record a single `improvement` observation confirming that the material you touched was clean. This proves you actively looked — an empty section is not acceptable.
+
 ```
 ###  Path: `/personas/shared/partials/pm-output-format.md`
 
@@ -182,7 +261,43 @@ You must execute the following "Verification Stack" in order:
 2. **AC Verification:** Systematically check every single **Acceptance Criteria** in the Work Package. For each AC, perform a manual or automated test.
 3. **Regression Testing:** Run the existing test suite for the entire module to ensure the new changes didn't break legacy functionality.
 4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
-5. **Verbatim AC Text:** When populating `acceptance_criteria_updates`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+5. **Capture Observations:** After each verification layer, append any observations that layer surfaced to `insights.jsonl`.
+6. **Verbatim AC Text:** When populating `acceptance_criteria_updates`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+
+---
+
+## Test Insight Observer
+
+While running the Verification Stack you will encounter test-related issues — coverage gaps, flaky tests, missing fixtures, harness friction. Capture these observations incrementally.
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Test-coverage gaps in the areas you verified | Production code architecture and refactoring proposals |
+| Flaky or order-dependent tests encountered | Documentation quality |
+| Missing edge-case fixtures | Release readiness |
+| Test-harness friction (slow setup, unclear helpers) | Overall configuration strategy |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `bug` | You found a defect in the implementation. |
+| `regression` | A previously-passing test or behaviour now fails. |
+| `edge-case` | An untested or under-tested boundary condition. |
+| `coverage-gap` | A meaningful code path has no test coverage. |
+| `improvement` | A small enhancement that would improve test quality or harness ergonomics. |
+
+### Priority Guidelines
+
+* **high** — The issue is likely to cause bugs, security problems, or significant maintenance burden if left unaddressed.
+* **medium** — The issue degrades code quality or developer experience noticeably; should be tackled soon.
+* **low** — A nice-to-have improvement; safe to defer.
+
+{{> insight-capture}}
 
 ```
 ###  Path: `/personas/shared/partials/qa-output-format.md`
@@ -254,8 +369,8 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 ## Operational Protocol
 
 1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions.
-3. **Capture Insights:** Identify "Gold Nuggets" — valuable patterns or suggestions the Developer surfaced that are outside the current scope. Record WP-scoped insights as comments in `ledger_complete_pipeline`; record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6).
+2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions. As you review, append each Gold Nugget or out-of-scope pattern to `insights.jsonl` at the moment you notice it — not at the end of the dive.
+3. **Capture Insights:** Compile Gold Nuggets and out-of-scope patterns from `insights.jsonl`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items are pipeline comments only and are never routed through the sink.
 4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
 
 ### Feedback Tiers
@@ -284,6 +399,42 @@ Eligible fixes — all must be **non-behavioral** (QA's validation remains intac
 **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail.
 
 After applying each fix, record it as a pipeline comment with type `reviewer-applied-fix` and a brief description of what you changed and why. This maintains a full audit trail.
+
+---
+
+## Review Insight Observer
+
+While reviewing, capture Gold Nuggets and out-of-scope observations. Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments — they are never routed through `insights.jsonl`.
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Gold Nuggets — valuable patterns worth reusing | Blocking findings (pipeline comments) |
+| Out-of-scope improvements noticed during the dive | Fix-Forward records (`reviewer-applied-fix` comments) |
+| Cross-cutting maintainability themes | `documentation-forward` items (pipeline comments) |
+| | Implementation decisions inside the WP scope |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `gold-nugget` | A valuable pattern or technique worth reusing in other parts of the codebase. |
+| `architecture` | An architectural observation about structure, layering, or module boundaries. |
+| `maintainability` | A maintainability concern or improvement opportunity. |
+| `performance` | A performance-related observation that does not block approval. |
+| `convention` | An inconsistency with project conventions or patterns. |
+| `improvement` | A general improvement opportunity. |
+
+### Priority Guidelines
+
+* **high** — The pattern is widely applicable or the issue affects multiple modules.
+* **medium** — The observation is valuable for the immediate area.
+* **low** — A nice-to-have improvement; safe to defer.
+
+{{> insight-capture}}
 
 #### Tier 3 — Documentation-Forward Rules
 
@@ -353,18 +504,51 @@ Perform a structured Security Review using the following methodology:
    - **Data Handling:** PII and sensitive data stored only when necessary; encrypted at rest and in transit; proper data minimization.
    - **Dependency Audit:** Any new third-party library warrants a CVE check before approval.
    - **Auth/Authz Patterns:** Verify authentication and authorization are applied consistently at all access points.
-4. **Severity Classification:** Assign a severity to each finding:
+4. **Capture Non-Blocking Observations:** After each audit area, append any non-blocking observations (hardening opportunities, defence-in-depth suggestions) to `insights.jsonl` before moving to the next area.
+5. **Severity Classification:** Assign a severity to each finding:
    - **Critical** — Direct exploitation possible; data breach, system compromise imminent. **Always causes FAIL.**
    - **High** — Significant exploitable risk; probable compromise with moderate effort. **Always causes FAIL.**
    - **Medium** — Exploitable under specific conditions; track for near-term resolution. Does not block approval.
    - **Low** — Defence-in-depth improvement; low likelihood or limited impact. Record for awareness.
    - **Info** — Observation only; no immediate risk. Record as pipeline comment.
-5. **Evidence Requirements:** For every Critical or High finding, document:
+6. **Evidence Requirements:** For every Critical or High finding, document:
    - The **file path and line reference** where the vulnerability was observed.
    - A concise **description** of the vulnerability.
    - The **OWASP category** it maps to.
    - A concrete, actionable **remediation recommendation**.
-6. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+7. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
+
+---
+
+## Security Insight Observer
+
+While auditing, capture non-blocking observations — hardening opportunities and defence-in-depth suggestions that do not affect the PASS/FAIL verdict. Findings that affect the verdict (Critical, High, or Medium severity) are never routed through `insights.jsonl`; they go exclusively through the formal findings channel (`ledger_complete_pipeline` comments).
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Non-blocking hardening opportunities in audited files | Confirmed vulnerabilities and risks (formal findings channel) |
+| Defence-in-depth suggestions | Architectural security strategy |
+| Security-relevant conventions and patterns | Compliance certification |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `hardening` | A defence-in-depth improvement that does not address an active vulnerability. |
+| `info` | A security-relevant observation with no immediate risk. |
+| `improvement` | A general improvement that would strengthen the security posture. |
+
+### Priority Guidelines
+
+* **high** — The observation addresses a likely future attack surface.
+* **medium** — The observation improves security posture noticeably.
+* **low** — A nice-to-have hardening measure; safe to defer.
+
+{{> insight-capture}}
 
 ```
 ###  Path: `/personas/shared/partials/security-auditor-output-format.md`
@@ -491,6 +675,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** comments from the ledger (added by Reviewers/Validators).
 3. **Deferred & Follow-Up Items:** Scan all WP comments, project comments, and pipeline comments for items explicitly marked as deferred, out-of-scope, or flagged for follow-up by any agent. Collect these into a dedicated list so they are not lost between cycles. Include: the source WP (if applicable), the originating agent, a brief description, and any stated priority or rationale.
 4. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
+5. **Code Insights Compilation:** Read `insights.jsonl` from the plan folder. If the file is absent, this is normal and non-blocking — skip the Code Insights section. If present, parse each line as JSON (treat unparseable lines as free-text observations and salvage their content). Group entries by `agent`, order by priority within each group, and note cross-agent corroboration where multiple agents flagged the same area or pattern.
 
 ```
 ###  Path: `/personas/shared/partials/synthesis-output-format.md`
@@ -502,6 +687,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     * **Executive Summary:** What was built.
     * **Metrics:** Tests passed, coverage, clean code scores.
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
+    * **Code Insights:** Observations compiled from `insights.jsonl`, grouped by agent. Omit this section if the file was absent.
     * **Deferred & Follow-Up Items:** Items explicitly deferred, marked out-of-scope, or flagged for follow-up during the project. For each item list: source (WP ID or project-level), originating agent, description, and priority/rationale if stated. Mark items clearly as either **deferred** (intentionally postponed) or **out-of-scope** (beyond this plan's boundaries). The Planner uses this section to seed the next cycle's plan.
     * **Next Steps:** What should the Planner/Manager focus on next?
 

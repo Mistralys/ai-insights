@@ -103,6 +103,8 @@ _SOURCE: Top-level directory tree_
     ├── references/
     │   └── agents-overview.md
     │   └── development.md
+    │   └── gitignore-template.txt
+    │   └── insights-sidecar-reference.md
     │   └── menu-guide.md
     │   └── multi-store-guide.md
     │   └── orchestrator-user-guide.md
@@ -110,6 +112,17 @@ _SOURCE: Top-level directory tree_
     │   └── persona-quickstart-web.md
     │   └── persona-quickstart.md
     │   └── project-overview.md
+    │   └── usage-scenarios/
+    │       ├── README.md
+    │       ├── configuration.md
+    │       ├── documents.md
+    │       ├── knowledge.md
+    │       ├── orchestrator.md
+    │       ├── project-detail.md
+    │       ├── projects.md
+    │       ├── shell.md
+    │       ├── strategy.md
+    │       ├── work-packages.md
     │   └── workflow-and-ledger.md
 └── mcp-server/
     ├── AGENTS.md
@@ -585,6 +598,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── docs-operational-protocol.md
     │   │   └── docs-output-format.md
     │   │   └── incident-logging.md
+    │   │   └── insight-capture.md
+    │   │   └── insight-compilation.md
     │   │   └── pm-output-format.md
     │   │   └── pm-subagent-roster.md
     │   │   └── qa-operational-protocol.md
@@ -621,6 +636,7 @@ _SOURCE: Top-level directory tree_
     │       ├── recipe-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
+    │       ├── usage-scenarios-curator.md
     │       ├── web-gui-specialist.md
     │       ├── whatsnew-curator.md
     │       ├── workspace-architect.md
@@ -644,6 +660,7 @@ _SOURCE: Top-level directory tree_
     │       ├── recipe-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
+    │       ├── usage-scenarios-curator.md
     │       ├── web-gui-specialist.md
     │       ├── whatsnew-curator.md
     │       ├── workspace-architect.md
@@ -667,10 +684,12 @@ _SOURCE: Top-level directory tree_
     │       └── recipe-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
+    │       └── usage-scenarios-curator.agent.md
     │       └── web-gui-specialist.agent.md
     │       └── whatsnew-curator.agent.md
     │       └── workspace-architect.agent.md
 └── scripts/
+    ├── backfill-duration.js
     ├── build-personas.js
     ├── build-skills.js
     ├── bundle-docs.js
@@ -686,6 +705,8 @@ _SOURCE: Top-level directory tree_
     ├── kill-orchestrator.js
     ├── lib/
     │   ├── health-checks.js
+    │   ├── insight-validation.js
+    │   ├── ledger-dirs.js
     │   ├── persona-model-resolution.js
     │   ├── store-commands.js
     │   ├── yaml-utils.js
@@ -709,6 +730,7 @@ _SOURCE: Top-level directory tree_
     │   ├── build-personas-model-resolution.test.js
     │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
+    │   ├── insight-validation.test.js
     │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
     │   ├── publish-skills.test.js

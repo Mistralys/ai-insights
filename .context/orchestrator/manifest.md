@@ -1311,7 +1311,15 @@ the folder already has a current date prefix (it was renamed on the first run), 
 again would be incorrect.
 
 **Source:** `orchestrator/src/cli.py` — `_maybe_rename_plan_dir()`, `_SLUG_DATE_RE`.
+---
 
+### 28. Deep Agents Tool Set Is Runtime-Determined, Not Persona-Declared
+
+**Rule:** Any change to persona tool declarations (`tools:`, `cc_tools:`, `da_tools:` in YAML) must not be assumed to affect the Deep Agents target. The `deep-agents` frontmatter template emits only `name` and `description` — no tools field. `create_deep_agent()` merges a built-in tool suite (see `orchestrator/docs/architecture.md` § Built-in Tool Suite) additively into every agent; the `tools=` argument passed by the orchestrator contains only wrapped MCP tools. To restrict Deep Agents tooling, use `HarnessProfile.excluded_tools` — persona YAML has no effect.
+
+**Rationale:** This decouples tool governance per target: VS Code tools are declared in `tools:`, Claude Code in `cc_tools:`, and Deep Agents tools are a runtime concern of `create_deep_agent()`. A plan that assumes `da_tools:` restricts or configures Deep Agents tooling will produce incorrect instructions.
+
+**Source:** `orchestrator/src/nodes/__init__.py` → `create_deep_agent()` call site; `deepagents` library → `graph.py` built-in tool merge.
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`
 

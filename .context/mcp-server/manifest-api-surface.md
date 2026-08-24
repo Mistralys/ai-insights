@@ -166,13 +166,13 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 **Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
 
-**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives both source files, and auto-syncs `.meta.json`. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
+**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
 
 **Produced project record:**
 - `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
 - `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
-- `plan.md` and `synthesis.md` archived to `{ledgerRoot}/{repoName}/{slug}/`.
+- `plan.md` and `synthesis.md`, plus optional `usage-scenarios.md`, archived to `{ledgerRoot}/{repoName}/{slug}/`. Derived `scenario-coverage.md` is excluded.
 
 **Response shape (on success):**
 
@@ -180,7 +180,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 {
   slug: string;                // Plan folder basename (e.g. "2026-06-30-my-feature")
   outcome_summary: string | null; // Extracted from synthesis.md; null when not found
-  archived_files: string[];    // Filenames successfully copied to storage dir
+  archived_files: string[];    // Required files plus usage-scenarios.md when successfully copied
   project_storage_path: string; // Absolute path to the project storage directory
 }
 ```
@@ -611,6 +611,7 @@ Reads root index and work package details to recommend the next action(s) for an
 
 - **Default (`max_results` omitted or `1`)**: Returns a single action object (early-return mode, backward-compatible).
 - **`max_results > 1`**: Switches to batch collector mode, returning up to `max_results` actions as an array under the `"actions"` key (`{ actions: [...], total: N }`). Useful for projects with many independent WPs that can be processed in parallel.
+- **`plan_path` key**: Every JSON response includes a top-level `plan_path` key equal to the resolved plan-folder path. Error responses (`isError: true`, plain text) are returned unchanged with no `plan_path`. Injected by the `injectPlanPath()` wrapper in `src/tools/workflow-next-action.ts`.
 - **`action: WAIT` responses**: Automatically include a top-level `handoff_status` key with the same payload as `ledger_get_handoff_status`. Use it directly — no separate call needed. If handoff computation fails, `handoff_status_error` is present instead, signalling a fallback to `ledger_get_handoff_status`.
 - **`action: INVOKE_AGENT` responses**: When the embedded `handoff_status` contains an `auto_handoff` entry, the action is **promoted from `WAIT` to `INVOKE_AGENT`**. This means the current agent's work is complete and it should immediately invoke the next agent using `auto_handoff.prompt`. Distinction: `WAIT` = genuinely blocked/waiting; `INVOKE_AGENT` = work complete, invoke next agent now. The promotion is performed by `embedHandoffStatusInWait()` in `src/tools/workflow-next-action-batch.ts`.
 
@@ -1987,6 +1988,10 @@ class LedgerStore {
   // which bootstraps a standalone project from scratch inside LedgerStore and manages its own
   // lock scope. Tool code outside LedgerStore must still use a sync method instead.
   // Use updateWorkPackageWithSync, createWorkPackageWithSync, or batchUpdateWorkPackagesWithSync.
+  // Also computes duration_ms (synthesis_generated_at - date_created, in ms) whenever
+  // synthesis_generated_at is set, and syncs it into .meta.json. Standalone same-session
+  // imports (zero-duration, runner: 'standalone') and invalid/skewed timestamps (synth < created,
+  // NaN) are nulled out. Absent synthesis_generated_at leaves duration_ms untouched (undefined skip).
   writeRootIndex(data: RootIndex, options?: { preserveLastUpdated?: boolean }): Promise<void>; // @internal — auto-syncs .meta.json
   writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;                      // @internal — zero external callers post-WP-002
 
@@ -2076,11 +2081,13 @@ class LedgerStore {
     cacheUpdates?: {
       total_work_packages?: number;
       pending_work_packages?: number;
+      duration_ms?: number | null;      // wall-clock ms from date_created to synthesis_generated_at; uses key-presence semantics
       project_name?: string | null;
       repository_name?: string | null;
       outcome_summary?: string | null;  // 2–3 sentence synthesis summary; uses key-presence semantics
       project_summary?: string | null;  // Project intent description set at initialization; uses key-presence semantics
-    }
+    },
+    options?: { preserveLastUpdated?: boolean }
   ): Promise<void>;
   // Sets the user-visible display title. Reads current meta, updates `title`
   // while preserving `last_updated` unchanged, validates with ProjectMetaSchema,
@@ -2109,12 +2116,29 @@ class LedgerStore {
     ledgerRoot?: string
   ): Promise<ProjectMeta[]>;
 
-  // listAllProjects() — canonical entry point for slug-to-path resolution.
-  // Performs a two-level scan of the ledger root:
-  //   Level 1 (flat layout, backward compat): {ledgerRoot}/{slug}/.meta.json
-  //   Level 2 (namespaced layout, current):   {ledgerRoot}/{repoName}/{slug}/.meta.json
+  // listAllProjectDirs() — canonical directory-discovery primitive.
+  // Performs a two-level scan of the ledger root and returns absolute storage
+  // directory paths only (existence-checks .meta.json; does not read or
+  // validate its contents):
+  //   Level 1 (flat layout, backward compat): {ledgerRoot}/{slug}/
+  //   Level 2 (namespaced layout, current):   {ledgerRoot}/{repoName}/{slug}/
   // Dot-prefixed entries (e.g. .archive) are skipped at both levels.
-  // Unreadable depth-2 .meta.json entries are logged to stderr and skipped;
+  //
+  // This is the single source of truth for ledger project-directory discovery.
+  // listAllProjects() (below) delegates to it. Root-level scripts/ utilities
+  // that need to enumerate ledger projects (e.g. scripts/backfill-duration.js,
+  // scripts/import-standalone.js, scripts/lib/store-commands.js) MUST call this
+  // method — via the compiled mcp-server/dist/ output, loaded through
+  // scripts/lib/ledger-dirs.js — rather than re-implementing depth-1/depth-2
+  // layout detection. The two-level scan has changed shape multiple times as
+  // the storage layout evolved; a second, independently-maintained copy
+  // silently drifts out of sync.
+  static listAllProjectDirs(ledgerRoot?: string): Promise<string[]>;
+
+  // listAllProjects() — canonical entry point for slug-to-path resolution.
+  // Delegates directory discovery to listAllProjectDirs(), then reads and
+  // validates each directory's .meta.json.
+  // Unreadable or invalid .meta.json entries are logged to stderr and skipped;
   //   the scan continues — errors here are non-fatal.
   //
   // ARCHITECTURAL CONSTRAINT: Any code that receives only a slug (not a plan_path)
@@ -2849,6 +2873,7 @@ interface ProjectMeta {
   // Enrichment cache fields (all optional — absent in legacy .meta.json files)
   total_work_packages?: number;   // Synced by writeRootIndex, createWorkPackageWithSync, and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
+  duration_ms?: number | null;    // Wall-clock ms from date_created to synthesis_generated_at; synced by writeRootIndex whenever synthesis_generated_at is set. null when unmeasurable (clock skew, zero-duration standalone import); absent for un-backfilled legacy projects (see scripts/backfill-duration.js) or projects still in progress.
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived via deriveRepoName(plan_path) at initializeProject; 'unknown' when not detectable. Legacy records may hold null.
   outcome_summary?: string | null; // 2–3 sentence summary written by the Synthesis agent; null/absent before synthesis runs
@@ -4849,24 +4874,32 @@ export class ApiError extends Error {
 
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
-// bad project never breaks the full response.
+// bad project never breaks the full response. duration_ms is inherited from ProjectMeta unchanged
+// (number | null | undefined) — no separate override field, since it flows straight through .meta.json.
 export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;   // from root index; defaults to 0 on read failure
   pending_work_packages: number; // from root index; defaults to 0 on read failure
+  progress_pct: number;          // from root index computeProjectProgress(); defaults to 0 on read failure
   project_name: string | null;   // from package.json → composer.json → pyproject.toml; null on failure
   repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
 }
 
+// Fields the project list can be sorted by (GET /api/projects ?sort=).
+export type ProjectSortField =
+  | 'project' | 'repository' | 'status' | 'total_work_packages' | 'done'
+  | 'date_created' | 'last_updated' | 'runner' | 'duration';
+
 // Validated query parameters for GET /api/projects.
 // All fields are optional — unrecognised or missing values fall back to listed defaults.
-export type ProjectSortField = 'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done';
 export interface ProjectListParams {
   page?: number | string;          // default 1; clamped >=1
   limit?: number | string;         // default 50; clamped [1,200]; 0 treated as 1
   status?: string;                  // 'ACTIVE' (default) | 'ALL' | any ProjectStatus value
   search?: string;                  // case-insensitive substring match on slug, project_name, repository_name
-  sort?: ProjectSortField;          // default 'last_updated'
-  dir?: 'asc' | 'desc';            // default 'desc'
+  sort?: string;                    // default 'last_updated'; unrecognized values fall back to 'last_updated'
+  dir?: string;                     // 'asc' | 'desc'; default 'desc'
+  runner?: string;                  // normalized runner filter; unrecognized values return an empty set (no 500)
+  repository?: string;              // exact match on repository_name
 }
 
 // Paginated response envelope for GET /api/projects.
@@ -4876,16 +4909,19 @@ export interface ProjectListEnvelope {
   page: number;                     // current page number (1-based)
   limit: number;                    // effective page size
   total_pages: number;              // Math.max(1, Math.ceil(total/limit))
-  status_counts: Record<string, number>; // per-status counts computed from search-filtered set BEFORE status filter
+  status_counts: Record<string, number>;  // per-status counts computed from search-filtered set BEFORE status filter
+  runner_counts: Record<string, number>;  // per-runner counts computed from search-filtered set BEFORE runner filter
+  repo_counts: Record<string, number>;    // per-repository counts computed from search-filtered set BEFORE status/runner/repository filters
 }
 
 // GET /api/projects — returns a paginated envelope of enriched project summaries.
 // Processing pipeline (in order):
-//   1. Enrich all projects (WP counters, project_name, repository_name)
+//   1. Enrich all projects (WP counters, progress_pct, project_name, repository_name)
 //   2. Apply search filter (case-insensitive substring on slug, project_name, repository_name)
 //   3. Compute status_counts from search-filtered set (BEFORE status filter — supports badge counts)
 //   4. Apply status filter (ACTIVE excludes only ARCHIVED; ALL includes everything; specific status = exact match)
-//   5. Sort by sort+dir
+//   5. Sort by sort+dir. 'duration' sorts on duration_ms, with a -1 sentinel for missing/null values
+//      so unmeasured projects sort before any real positive duration.
 //   6. Paginate: page/limit → return projects slice + envelope metadata
 // Cache fast-path: if meta.total_work_packages !== undefined && meta.project_name !== undefined,
 // the handler skips per-project root index + manifest file reads. Falls back to I/O for legacy .meta.json.
@@ -4897,9 +4933,12 @@ export async function handleListProjects(
 // GET /api/projects/:slug — returns combined root index + meta + optional timing aggregate
 // ProjectDetail = RootIndex & { meta: ProjectMeta; project_name: string | null;
 //   timing?: { project_elapsed_ms: number | null; total_active_ms: number; pipeline_runs: number }; }
-// timing is computed server-side: project_elapsed_ms = last_updated - date_created (ms);
+// project_elapsed_ms fast path: reads meta.duration_ms directly when present (no recomputation).
+// Fallback (un-backfilled legacy projects): computed as (synthesis_generated_at ?? last_updated) - date_created,
+// nulled out for zero-duration standalone imports; the computed value is then written back to .meta.json
+// as a fire-and-forget lazy self-heal (preserveLastUpdated: true) so future reads hit the fast path.
 // total_active_ms = sum of duration_ms across all WP pipelines; pipeline_runs = count of pipelines with duration_ms set.
-export async function handleGetProject(ledgerRoot: string, slug: string): Promise<ProjectDetail>;
+export async function handleGetProject(ledgerRoot: string, slug: string, repoName?: string): Promise<ProjectDetail>;
 
 // GET /api/projects/:slug/work-packages — returns WP summary array
 export async function handleListWorkPackages(
@@ -6974,7 +7013,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `limit` | number | 50 | Items per page (max 200). |
 | `status` | string | `'ACTIVE'` | `'ACTIVE'`, `'ALL'`, or a specific status value. |
 | `search` | string | — | Case-insensitive substring match on slug, name, repo. |
-| `sort` | string | `'last_updated'` | Column: `project`, `repository`, `status`, `total_work_packages`, `done`, `date_created`, `last_updated`, `runner`. |
+| `sort` | string | `'last_updated'` | Column: `project`, `repository`, `status`, `total_work_packages`, `done`, `date_created`, `last_updated`, `runner`, `duration`. |
 | `dir` | string | `'desc'` | `'asc'` or `'desc'`. |
 | `runner` | string | — | Filter: `'orchestrator'`, `'vscode'`, `'claude-code'`, `'unknown'`. |
 

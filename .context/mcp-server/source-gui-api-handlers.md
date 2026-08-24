@@ -2819,7 +2819,8 @@ export type ProjectSortField =
   | 'done'
   | 'date_created'
   | 'last_updated'
-  | 'runner';
+  | 'runner'
+  | 'duration';
 
 /** Raw query parameters accepted by GET /api/projects. */
 export interface ProjectListParams {
@@ -2863,6 +2864,7 @@ const SORT_FIELDS = new Set<ProjectSortField>([
   'date_created',
   'last_updated',
   'runner',
+  'duration',
 ]);
 
 const VALID_STATUS_FILTERS = new Set([
@@ -3107,6 +3109,11 @@ export async function handleListProjects(
         aVal = (a.runner ?? 'unknown').toLowerCase();
         bVal = (b.runner ?? 'unknown').toLowerCase();
         break;
+      case 'duration':
+        // Projects without a measured duration sort before any real positive duration.
+        aVal = a.duration_ms ?? -1;
+        bVal = b.duration_ms ?? -1;
+        break;
       case 'last_updated':
       default:
         aVal = a.last_updated ?? '';
@@ -3215,20 +3222,34 @@ export async function handleGetProject(
         }
       }
     }
-    const createdAt = meta.date_created ? new Date(meta.date_created).getTime() : NaN;
-    // Prefer synthesis_generated_at as the end-time for completed projects: it is set
-    // once by ledger_complete_synthesis and never bumped by post-run operations, making
-    // it a reliable wall-clock end marker regardless of runner (MCP or orchestrator).
-    // synthesis_generated_at lives on the root index, not on ProjectMeta — use rootIndex.
-    // Fall back to last_updated for in-progress projects that have not yet synthesised.
-    const endTimeStr = rootIndex.synthesis_generated_at ?? meta.last_updated;
-    const endAt = endTimeStr ? new Date(endTimeStr).getTime() : NaN;
-    const rawElapsedMs = (!isNaN(createdAt) && !isNaN(endAt)) ? endAt - createdAt : null;
-    // For standalone projects, date_created and synthesis_generated_at are both written
-    // during archival (same moment), so elapsed = 0. Null it out so the UI can show
-    // "Not measured" rather than "< 1s".
-    const project_elapsed_ms =
-      rawElapsedMs === 0 && rootIndex.runner === 'standalone' ? null : rawElapsedMs;
+    // Prefer the cached duration_ms from .meta.json (fast path — no recomputation).
+    let project_elapsed_ms: number | null;
+    if (meta.duration_ms !== undefined && meta.duration_ms !== null) {
+      project_elapsed_ms = meta.duration_ms;
+    } else {
+      const createdAt = meta.date_created ? new Date(meta.date_created).getTime() : NaN;
+      // Prefer synthesis_generated_at as the end-time for completed projects: it is set
+      // once by ledger_complete_synthesis and never bumped by post-run operations, making
+      // it a reliable wall-clock end marker regardless of runner (MCP or orchestrator).
+      // synthesis_generated_at lives on the root index, not on ProjectMeta — use rootIndex.
+      // Fall back to last_updated for in-progress projects that have not yet synthesised.
+      const endTimeStr = rootIndex.synthesis_generated_at ?? meta.last_updated;
+      const endAt = endTimeStr ? new Date(endTimeStr).getTime() : NaN;
+      const rawElapsedMs = (!isNaN(createdAt) && !isNaN(endAt)) ? endAt - createdAt : null;
+      // For standalone projects, date_created and synthesis_generated_at are both written
+      // during archival (same moment), so elapsed = 0. Null it out so the UI can show
+      // "Not measured" rather than "< 1s".
+      project_elapsed_ms =
+        rawElapsedMs === 0 && rootIndex.runner === 'standalone' ? null : rawElapsedMs;
+
+      // Lazy self-heal: persist the computed duration to .meta.json for future fast-path
+      // reads. Fire-and-forget — a failed write is harmless (the next detail view retries).
+      // preserveLastUpdated avoids distorting project-list sort order on a mere cache refresh.
+      if (project_elapsed_ms !== null && rootIndex.synthesis_generated_at) {
+        store.writeProjectMeta('', undefined, { duration_ms: project_elapsed_ms },
+          { preserveLastUpdated: true }).catch(() => {});
+      }
+    }
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
     return { ...rootIndex, meta, project_name, timing };

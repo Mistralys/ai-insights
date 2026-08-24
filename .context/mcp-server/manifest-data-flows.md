@@ -1244,6 +1244,8 @@ withLock(store.storageDir, async () => {
     ↓
   LedgerStore.writeRootIndex(updatedRoot)
     propagates outcome_summary to .meta.json via 'outcome_summary' in validated check
+    computes duration_ms = synthesis_generated_at - date_created and syncs it to .meta.json
+      (null on clock skew/NaN timestamps, or on zero-duration standalone same-session imports)
     ↓
   store.archiveDocuments([synthesis_file])  — best-effort; inside lock scope
     ↓
@@ -1257,7 +1259,35 @@ withLock(store.storageDir, async () => {
 Return result + { outcome_summary, archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `outcome_summary` field (required, non-nullable in the input schema) is persisted to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, and echoed in the success response. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `outcome_summary` field (required, non-nullable in the input schema) is persisted to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, and echoed in the success response. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. `duration_ms` (wall-clock project duration) is computed and cached in `.meta.json` as a side effect of the same `writeRootIndex()` call — see [Flow 14b](#flow-14b-project-duration-caching) below. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+
+---
+
+## Flow 14b: Project Duration Caching
+
+**Entry Point:** Any call to `LedgerStore.writeRootIndex()` where the root index has `synthesis_generated_at` set (synthesis completion, standalone import, or the legacy `synthesis_generated_at` self-heal repair in `getProjectStatus()`).
+
+```
+LedgerStore.writeRootIndex(validated)
+  ↓
+atomicWriteJson(project-ledger.json)
+  ↓
+if (!validated.synthesis_generated_at) → durationMs = undefined (skip sync entirely)
+else:
+  created = new Date(validated.date_created).getTime()
+  synth   = new Date(validated.synthesis_generated_at).getTime()
+  if (isNaN(created) || isNaN(synth) || synth < created) → durationMs = null   (invalid/clock-skew)
+  else if (synth === created && validated.runner === 'standalone') → durationMs = null  (same-session import)
+  else → durationMs = synth - created
+  ↓
+store.writeProjectMeta('', validated.status, { ...counters, duration_ms: durationMs, ... })
+```
+
+**GUI read path (`handleGetProject`):** Prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file). When absent but computable from the loaded root index, computes it inline, returns it in `timing.project_elapsed_ms`, and fires a **non-blocking** `writeProjectMeta(..., { preserveLastUpdated: true })` self-heal write so the next read hits the fast path. `preserveLastUpdated: true` is mandatory here — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order.
+
+**One-time backfill (`scripts/backfill-duration.js`):** For projects created before this field existed, a root-level script scans every project directory, reads `date_created` / `synthesis_generated_at`, applies the same computation, and patches `.meta.json` directly (bypassing `writeRootIndex()` since it operates outside the running server process). Idempotent — skips projects that already have a non-null `duration_ms`. Supports `--dry-run` and `--verbose`; invokable via `node scripts/cli.js backfill-duration`.
+
+**GUI list/sort (`handleListProjects`):** `duration_ms` flows through `ProjectSummary` automatically (spread from `meta`). The `duration` sort field uses `-1` as a sentinel for missing/null values so unmeasured projects sort before any real positive duration.
 
 ---
 
@@ -1389,6 +1419,8 @@ new LedgerStore(planPath, targetLedgerRoot)
   → storageDir = path.join(targetLedgerRoot ?? resolveLedgerRoot(), repoName, slug)
   ↓
 store.importStandaloneProject({ ... })  ← LedgerStore handles locking internally
+    Archives plan.md and synthesis.md, plus usage-scenarios.md when present;
+    scenario-coverage.md is excluded as derived output.
   ↓
 Return import result + archived_documents to agent
 ```
