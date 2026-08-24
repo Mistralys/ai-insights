@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial after Priority Guidelines, compilation partial beside output-format, action gate in Operational Protocol step 3, rework continuation in step 6
   3.7.2 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   3.7.0 (2026-07-16): Added Operating Philosophy — long-term stability over expediency, assume growth, completeness over deferral
@@ -33,6 +34,9 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Developer
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
     purpose: "Get the recommended action for your role (which WP to implement, or WAIT)."
@@ -58,6 +62,6 @@ mcp_tools:
 identity: "Staff Software Engineer"
 description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
 inputs: "Work Package with acceptance criteria and implementation notes"
-outputs: "Implemented code changes + code insight observations recorded to the ledger"
+outputs: "Implemented code changes + code insight observations recorded to the ledger and insights.jsonl sidecar"
 key_behavior: |
   Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation

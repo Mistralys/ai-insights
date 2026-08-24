@@ -1,8 +1,8 @@
 ## Operational Protocol
 
 1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions.
-3. **Capture Insights:** Identify "Gold Nuggets" — valuable patterns or suggestions the Developer surfaced that are outside the current scope. Record WP-scoped insights as comments in `ledger_complete_pipeline`; record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6).
+2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions. As you review, append each Gold Nugget or out-of-scope pattern to `insights.jsonl` at the moment you notice it — not at the end of the dive.
+3. **Capture Insights:** Compile Gold Nuggets and out-of-scope patterns from `insights.jsonl`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items are pipeline comments only and are never routed through the sink.
 4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
 
 ### Feedback Tiers
@@ -31,6 +31,42 @@ Eligible fixes — all must be **non-behavioral** (QA's validation remains intac
 **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail.
 
 After applying each fix, record it as a pipeline comment with type `reviewer-applied-fix` and a brief description of what you changed and why. This maintains a full audit trail.
+
+---
+
+## Review Insight Observer
+
+While reviewing, capture Gold Nuggets and out-of-scope observations. Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments — they are never routed through `insights.jsonl`.
+
+### Scope & Boundaries
+
+| In Scope (Your observations) | Out of Scope |
+|---|---|
+| Gold Nuggets — valuable patterns worth reusing | Blocking findings (pipeline comments) |
+| Out-of-scope improvements noticed during the dive | Fix-Forward records (`reviewer-applied-fix` comments) |
+| Cross-cutting maintainability themes | `documentation-forward` items (pipeline comments) |
+| | Implementation decisions inside the WP scope |
+
+### Observation Categories
+
+Use the following `type` values when recording observations:
+
+| Type | Use when… |
+|---|---|
+| `gold-nugget` | A valuable pattern or technique worth reusing in other parts of the codebase. |
+| `architecture` | An architectural observation about structure, layering, or module boundaries. |
+| `maintainability` | A maintainability concern or improvement opportunity. |
+| `performance` | A performance-related observation that does not block approval. |
+| `convention` | An inconsistency with project conventions or patterns. |
+| `improvement` | A general improvement opportunity. |
+
+### Priority Guidelines
+
+* **high** — The pattern is widely applicable or the issue affects multiple modules.
+* **medium** — The observation is valuable for the immediate area.
+* **low** — A nice-to-have improvement; safe to defer.
+
+{{> insight-capture}}
 
 #### Tier 3 — Documentation-Forward Rules
 

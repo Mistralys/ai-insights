@@ -219,7 +219,7 @@ function ledgerPlugin(options) {
       function resolveFromSlug(slug) {
         const entry = _slugToEntry.get(slug) || null;
         return {
-          model:      entry ? entry.slug : slug,
+          model:      entry ? entry.name : slug,
           model_slug: slug,
           cc_model:   (entry && entry.cc_model) ? entry.cc_model : 'inherit',
         };
@@ -263,8 +263,8 @@ function ledgerPlugin(options) {
           // Use the slug as the VS Code model identifier
           const entry     = _slugToEntry.get(sharedSlug) || null;
           const modelName = entry
-            ? entry.slug
-            : sharedSlug;
+            ? entry.name
+            : (updated['default_model'] || sharedSlug);
           resolved = {
             model:      modelName,
             model_slug: sharedSlug,

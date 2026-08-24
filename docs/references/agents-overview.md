@@ -79,50 +79,50 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.7.2)
+### Stage 3 — Developer (v3.8.0)
 
 **Identity:** Staff Software Engineer
 
 Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel.
 
 - **Inputs:** Work Package with acceptance criteria and implementation notes
-- **Outputs:** Implemented code changes + code insight observations recorded to the ledger
+- **Outputs:** Implemented code changes + code insight observations recorded to the ledger and insights.jsonl sidecar
 - **Key Behavior:** Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation
 
 ---
 
-### Stage 4 — QA (v3.6.4)
+### Stage 4 — QA (v3.7.0)
 
 **Identity:** SDET (Software Engineer in Test)
 
 Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC).
 
 - **Inputs:** Implemented code from Stage 3 + Work Package acceptance criteria
-- **Outputs:** QA verdict (PASS/FAIL) with test results, edge-case analysis, and any rework instructions
+- **Outputs:** QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded to insights.jsonl
 - **Key Behavior:** Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.
 
 ---
 
-### Stage 5 — Security Auditor (v3.6.5)
+### Stage 5 — Security Auditor (v3.7.1)
 
 **Identity:** Security Auditor
 
 Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure.
 
 - **Inputs:** Code changes from the current Work Package
-- **Outputs:** Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info)
+- **Outputs:** Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded to insights.jsonl
 - **Key Behavior:** Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
 
 ---
 
-### Stage 6 — Reviewer (v3.7.1)
+### Stage 6 — Reviewer (v3.8.0)
 
 **Identity:** Principal Systems Architect
 
 Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices.
 
 - **Inputs:** Implemented code + QA results + Security audit results
-- **Outputs:** Review verdict (APPROVE/REQUEST CHANGES) with detailed findings
+- **Outputs:** Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded to insights.jsonl
 - **Key Behavior:** Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
 
 ---
@@ -139,27 +139,27 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.7.3)
+### Stage 8 — Documentation (v3.8.0)
 
 **Identity:** Technical Writing Manager
 
 Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality.
 
 - **Inputs:** Code changes from the Work Package + existing documentation
-- **Outputs:** Updated documentation files (READMEs, API docs, architecture guides, project manifests)
+- **Outputs:** Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded to insights.jsonl
 - **Key Behavior:** Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code
 - **Sub-agents:** CTX Architect
 
 ---
 
-### Stage 9 — Synthesis (v3.7.2)
+### Stage 9 — Synthesis (v3.8.0)
 
 **Identity:** Head of Operations (OPS)
 
 Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome.
 
-- **Inputs:** Complete project ledger with all WP results, code insights, and agent observations
-- **Outputs:** Project Status Report with achievements, metrics, code insights summary, and recommendations
+- **Inputs:** Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar
+- **Outputs:** Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations
 - **Key Behavior:** Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
 - **Sub-agents:** Ledger Knowledge Archiver
 
@@ -221,7 +221,7 @@ Design, generate, and maintain CTX Generator context documentation configuration
 
 ---
 
-### Developer — Standalone (v1.5.0)
+### Developer — Standalone (v1.6.0)
 
 **Identity:** Staff Software Engineer
 
@@ -244,7 +244,7 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 ---
 
-### Git Committer (v1.6.0)
+### Git Committer (v1.7.0)
 
 **Identity:** Configuration Management Engineer
 
@@ -382,7 +382,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.1.0)
+### Web GUI Specialist (v1.2.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -460,7 +460,7 @@ Audit and repair ledger workflow projects: diagnose deadlocks, fix state corrupt
 
 ---
 
-### Ledger Knowledge Archiver (v1.7.0)
+### Ledger Knowledge Archiver (v1.8.0)
 
 **Identity:** Head of Operations — Retrospective Knowledge Analyst
 
@@ -524,7 +524,7 @@ Analyze a plan document and decompose it into atomic, actionable Work Package de
 
 ---
 
-### Ledger Standalone Archiver (v1.6.0)
+### Ledger Standalone Archiver (v1.7.0)
 
 **Identity:** Ledger Archivist
 

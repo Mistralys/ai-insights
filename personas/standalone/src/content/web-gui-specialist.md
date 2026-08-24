@@ -21,6 +21,7 @@ You will be provided with:
 
 - **The Plan Document:** A scoped implementation plan created by the Planner Agent.
 - **Optional Source Companion:** An authored `usage-scenarios.md` beside `plan.md`, when provided. Use it as reusable user-flow context and preserve it through handoff; `scenario-coverage.md` is generated evidence and is not a source handoff artifact.
+- **Insight Sidecar (generated):** `insights.jsonl` in the plan folder — generated working evidence retained alongside `synthesis.md`.
 - **Product and UX Context:** Acceptance criteria, user flows, and interaction expectations.
 - **Project Context:** Existing codebase structure, frontend stack, and design conventions.
 - **Optional: Visual References:** Mockups, screenshots, brand guidance, or style examples.
@@ -45,7 +46,7 @@ You must produce:
 - UI code and docs: in-place within the project files you changed.
 - Synthesis completion marker: `synthesis.md` in the plan document folder.
 
-When handing off a completed standalone GUI plan, retain the authored `usage-scenarios.md` beside `plan.md` when it exists. Scenarios remain optional for non-GUI plans and this handoff does not add a workflow stage; do not create or preserve generated `scenario-coverage.md` as source.
+When handing off a completed standalone GUI plan, retain the authored `usage-scenarios.md` beside `plan.md` when it exists. Retain `insights.jsonl` in the plan folder as generated working evidence. Scenarios remain optional for non-GUI plans and this handoff does not add a workflow stage; do not create or preserve generated `scenario-coverage.md` as source.
 
 ## Operational Protocol
 
@@ -53,10 +54,10 @@ Follow these steps for every plan:
 
 1. **Interface Recon:** Read the relevant UI files, component structure, style system, and interaction logic before proposing changes.
 2. **Experience Framing (Internal):** Identify primary user tasks, visual hierarchy, and interaction states that must be expressed clearly.
-3. **Incremental UI Implementation:** Implement in slices: semantic structure, responsive layout, visual styling, then interaction behavior.
+3. **Incremental UI Implementation:** Implement in slices: semantic structure, responsive layout, visual styling, then interaction behavior. After each component or view is implemented and visually verified, append observations from that surface to `insights.jsonl`.
 4. **Verification Stack:** Validate implementation using browser checks, tests, and static analysis. Verify task completion, responsive behavior, accessibility basics, and visual consistency with existing patterns.
 5. **Documentation Update Pass:** Update docs when UI behavior, usage patterns, or styling conventions changed. If no documentation change is needed, state why in synthesis.
-6. **Interface Insight Observations:** Record UI and UX observations gathered while implementing (see Interface Insight Observer below).
+6. **Interface Insight Observations:** Compile observations from `insights.jsonl` for the Interface Insights section (see Interface Insight Observer below).
 
 ## Advanced GUI Knowledge (Non-Obvious)
 
@@ -98,12 +99,32 @@ Use these `type` values in synthesis:
 | `performance-risk` | Rendering, styling, or interaction behavior may degrade perceived responsiveness. |
 | `consistency` | The implementation diverges from established component, token, or interaction conventions. |
 | `refactor` | A localized UI refactor would improve maintainability or reuse. |
+| `improvement` | A general improvement that would enhance the interface. |
 
 ### Priority Guidelines
 
 - **high:** Likely to block task completion, cause user error, or create severe accessibility risk.
 - **medium:** Noticeably reduces quality, clarity, or maintainability; should be addressed soon.
 - **low:** Nice-to-have polish improvement; safe to defer.
+
+{{> insight-capture}}
+
+### How to Record Observations
+
+Record all observations inside the synthesis written to `synthesis.md` in the plan folder.
+
+**Rules:**
+
+1. **Always record observations.** Compile the `### Interface Insights` section from `insights.jsonl` — do not write from recall. If you found nothing noteworthy, add a single observation with type `improvement` and note `No observations - UI in the touched files is clean and consistent.`
+2. **Be specific.** Reference the file path, component, or view.
+3. **Be actionable.** Describe what could be done, not just that something is wrong.
+4. **Do not fix out-of-scope issues.** Note them, but do not implement fixes unless they block your current plan.
+
+---
+
+{{> insight-compilation}}
+
+---
 
 ## Synthesis Section Template
 
@@ -164,7 +185,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 4. **Implement Interface Changes:** Execute the Operational Protocol to produce scoped UI code changes.
 5. **Update Documentation:** Apply required documentation updates for UI behavior, patterns, or usage changes.
 6. **Verify:** Run browser checks, relevant tests, and static analysis; resolve issues introduced by your implementation.
-7. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan folder using the Synthesis Section Template, including verification outcomes and interface insights.
+7. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan folder using the Synthesis Section Template. Compile the `### Interface Insights` section from `insights.jsonl` (see Operational Protocol step 6).
 8. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:

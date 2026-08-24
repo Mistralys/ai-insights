@@ -828,8 +828,8 @@ export class LedgerStore {
       await this.writeWorkPackage('WP-001', wpDetail);
       await this.writeRootIndex(rootIndex);
 
-      // Archive authored source documents inside the lock scope. Derived reports
-      // are intentionally excluded from this explicit allowlist.
+      // Archive authored source documents inside the lock scope. Derived
+      // artefacts (scenario-coverage.md, insights.jsonl) are excluded.
       const archiveFiles = [detail.planFile, detail.synthesisFile];
       if (detail.usageScenariosFile !== undefined) {
         archiveFiles.push(detail.usageScenariosFile);

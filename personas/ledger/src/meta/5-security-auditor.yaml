@@ -5,6 +5,8 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.7.1 (2026-08-21): Removed incorrect REWORK action from workflow step 6 and tool purpose — security-audit re-engagement uses RUN_SECURITY_AUDIT
+  3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Security Insight Observer section with non-blocking-only vocabulary, action gate in audit-pass step 4, compilation beside output-format
   3.6.5 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.6.4 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.6.3 (2026-05-29): Gained ledger_search_insights for in-context lookups; gained browser tool
@@ -27,9 +29,12 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
+insight_agent: Security Auditor
+insight_report_target: "your `ledger_complete_pipeline` comments"
+
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_SECURITY_AUDIT`, `REWORK`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_SECURITY_AUDIT`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `security-audit` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
@@ -50,6 +55,6 @@ mcp_tools:
 identity: "Security Auditor"
 description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
 inputs: "Code changes from the current Work Package"
-outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info)"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded to insights.jsonl"
 key_behavior: |
   Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.

@@ -64,6 +64,8 @@ You will be provided with:
 
 {{> security-auditor-output-format}}
 
+{{> insight-compilation}}
+
 ---
 
 ## Workflow
@@ -71,9 +73,9 @@ You will be provided with:
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the security-audit pipeline. Read the specific modified source files.
-4. **Execute Security Review:** Perform the structured OWASP-based review (as defined in Operational Protocol).
+4. **Execute Security Review:** Perform the structured OWASP-based review (as defined in Operational Protocol). Append non-blocking observations to `insights.jsonl` after each audit area.
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
-6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_SECURITY_AUDIT` (full review), `REWORK` (re-audit after Developer remediation), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
+6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_SECURITY_AUDIT` (full review or re-audit after Developer remediation), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 7. {{> handoff-block-vscode}}
 {{else if target_claude_code}}

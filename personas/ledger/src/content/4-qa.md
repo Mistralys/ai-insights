@@ -64,6 +64,7 @@ When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted c
 2. **Narrow your focus:** Re-verify only the previously-failed ACs and any code directly affected by the Developer's fixes. Do not re-run the full Verification Stack from scratch.
 3. **Regression pass:** Run a targeted regression check to ensure the fixes did not introduce new issues.
 4. **Reference your original feedback:** In your `ledger_complete_pipeline` call, explicitly note which previously-failed ACs now pass and whether any remain unresolved.
+5. **Observations still apply:** Continue appending to `insights.jsonl` throughout the rework session.
 
 ---
 
@@ -76,6 +77,8 @@ When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted c
 
 {{> qa-output-format}}
 
+{{> insight-compilation}}
+
 ---
 
 ## Workflow
@@ -83,7 +86,7 @@ When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted c
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the QA pipeline.
-4. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases).
+4. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases). Append observations to `insights.jsonl` incrementally after each verification layer.
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
 6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_QA` (full Verification Stack), `REWORK_QA` (focus on previously-failed ACs), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}

@@ -82,6 +82,43 @@ const GetNextActionSchema = z.object({
 });
 
 async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
+  const result = await getNextActionCore(args);
+  return injectPlanPath(result, args);
+}
+
+/**
+ * Post-processes an MCP result from getNextActionCore: parses the JSON payload,
+ * injects `plan_path`, and re-serialises. Error responses (`isError: true`) and
+ * non-JSON payloads pass through unchanged.
+ */
+async function injectPlanPath(
+  mcpResult: { content: Array<{ type: string; text: string }>; isError?: boolean },
+  args: z.infer<typeof GetNextActionSchema>,
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  if ((mcpResult as any).isError) return mcpResult;
+
+  const text = mcpResult.content[0]?.text;
+  if (!text) return mcpResult;
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return mcpResult;
+  }
+
+  try {
+    payload['plan_path'] = await resolveProjectPath(args);
+  } catch {
+    return mcpResult;
+  }
+
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+  };
+}
+
+async function getNextActionCore(args: z.infer<typeof GetNextActionSchema>) {
   let projectPath: string;
   try {
     projectPath = await resolveProjectPath(args);

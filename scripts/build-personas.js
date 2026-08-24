@@ -12,6 +12,7 @@ import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
+import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -446,6 +447,24 @@ if (!CHECK) {
 
   if (errors.length > 0) {
     console.error('\n[ERROR] agent_slug cross-reference check failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+// Always: validate insight_agent / insight_report_target pairing and role match.
+{
+  const suiteMetas = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
+  ];
+
+  const errors = validateInsightFieldsInDirs(suiteMetas);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] insight_agent validation failed:\n');
     for (const err of errors) {
       console.error('  ' + err);
     }

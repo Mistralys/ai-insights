@@ -29,7 +29,7 @@ Extract and commit reusable insights from completed ledger projects. Work from e
 
 ### Mode A — Live (Subagent)
 
-Triggered by the Synthesis agent. The Synthesis agent provides `cwd_path` (workspace root) and `project_storage_path` (= `dirname(plan_path)`). Use MCP tools (`ledger_get_project_status`, `ledger_list_work_packages`, `ledger_get_work_package`) for project and WP data. `synthesis.md` is guaranteed to exist on disk at `project_storage_path`. Knowledge tools (`ledger_search_insights`, `ledger_add_insight`) are used for deduplication and committing.
+Triggered by the Synthesis agent. The Synthesis agent provides `cwd_path` (workspace root) and `project_storage_path` (= `plan_path`). Use MCP tools (`ledger_get_project_status`, `ledger_list_work_packages`, `ledger_get_work_package`) for project and WP data. `synthesis.md` is guaranteed to exist on disk at `project_storage_path`. Knowledge tools (`ledger_search_insights`, `ledger_add_insight`) are used for deduplication and committing.
 
 ### Mode B — Archive (Retrospective)
 
@@ -44,7 +44,7 @@ Triggered manually with an absolute path to a completed ledger storage folder. U
 You will be provided with:
 
 - **`cwd_path`:** The workspace root directory — provided by the Synthesis agent.
-- **`project_storage_path`:** The project storage directory (= `dirname(plan_path)`, derived from the Synthesis agent's pre-flight `plan_path` value). `synthesis.md` is guaranteed to exist on disk at this path.
+- **`project_storage_path`:** The project storage directory (= `plan_path`, the plan folder path returned by `ledger_get_next_action`). `synthesis.md` is guaranteed to exist on disk at this path.
 
 ### Mode B — Archive (Retrospective)
 
@@ -61,6 +61,7 @@ You will be provided with:
 | `plan.md` | Preferred | Original plan — provides requirement and design context |
 | `project-ledger.json` | Yes | Full project ledger state: WP statuses, comments, metrics |
 | `WP-###.json` | Preferred | Per-WP pipeline data, agent comments, and failure notes |
+| `insights.jsonl` | Optional | Incremental observation sidecar — low-priority supplement when `synthesis.md` coverage is thin |
 | `orchestrator/chunks/*.jsonl` | Optional | Per-stage agent outputs (deep analysis only) |
 
 ### Capabilities
@@ -108,7 +109,8 @@ Read in this order:
 1. **MCP project data** — Call `ledger_get_project_status` to load the project overview, WP summaries, and any project-level comments.
 2. **`synthesis.md`** — Read from disk at `project_storage_path`. This is the highest-value source.
 3. **WP detail** — Call `ledger_get_work_package` for each WP to load pipeline data, agent comments, and failure notes.
-4. **`orchestrator/chunks/*.jsonl` (optional)** — Only scan chunk logs on disk if you need deeper evidence for a specific candidate or if `synthesis.md` coverage is thin.
+4. **`insights.jsonl` (optional)** — Read from `project_storage_path` only if `synthesis.md` coverage is thin. Contains raw incremental observations from multiple agents — useful for surfacing patterns not captured in the curated synthesis.
+5. **`orchestrator/chunks/*.jsonl` (optional)** — Only scan chunk logs on disk if you need deeper evidence for a specific candidate or if `synthesis.md` coverage is thin.
 
 ### Mode B — Archive (Retrospective)
 
@@ -119,7 +121,8 @@ Read archive files in this order to maximize context-building efficiency:
 3. **`plan.md`** — Read the original plan to understand requirements, architectural decisions, and design rationale. Use this to contextualize candidates found in the synthesis.
 4. **`project-ledger.json`** — Read the ledger root for overall project status, WP summaries, and any project-level comments left by agents.
 5. **`WP-###.json` (each file)** — For each work package, read pipeline data, agent comments, and any recorded failures. Look for patterns or pitfalls not already captured in `synthesis.md`.
-6. **`orchestrator/chunks/*.jsonl` (optional)** — Only scan chunk logs if you need deeper evidence for a specific candidate or if `synthesis.md` is absent. These are verbose; extract targeted observations, not bulk content.
+6. **`insights.jsonl` (optional)** — Read only if `synthesis.md` coverage is thin. Contains raw incremental observations — useful for surfacing patterns not already captured in the curated synthesis.
+7. **`orchestrator/chunks/*.jsonl` (optional)** — Only scan chunk logs if you need deeper evidence for a specific candidate or if `synthesis.md` is absent. These are verbose; extract targeted observations, not bulk content.
 
 ---
 

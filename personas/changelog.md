@@ -2,6 +2,8 @@
 
 ## v3.32.0 - **WIP UNRELEASED**
 
+- Ledger: Security Auditor — removed incorrect REWORK action from workflow and
+  tool purpose; re-engagement uses RUN_SECURITY_AUDIT.
 - Standalone: Added Usage Scenarios Curator for plan scenario generation and
   coverage verification.
 - Standalone: Plan Refiner gains opt-in scenario verification with a bounded
@@ -14,6 +16,16 @@
 - LedgerSupport: Knowledge Archiver philosophy rewritten per design guide v2.3.
 - Build: Added agents-overview generator with overview metadata fields.
 - Build: Model assignments updated to claude-sonnet-4-6.
+- Shared: Added insight-capture and insight-compilation partials for sidecar
+  integration across all three suites.
+- Ledger: Developer, QA, Security Auditor, Reviewer, Documentation, and
+  Synthesis personas now write to `insights.jsonl` via shared sidecar partials.
+- Standalone: Developer, Web GUI Specialist, and Git Committer gain sidecar
+  insight capture.
+- LedgerSupport: Archiver personas classify insight files at the archival
+  boundary (captured vs. compiled).
+- Build: Added `insight_agent` field validation to `build-personas.js`.
+- Build: Fixed model assignment resolution to use model name instead of internal slug.
 
 ## v3.30.0 - New Personas and AX Feedback
 

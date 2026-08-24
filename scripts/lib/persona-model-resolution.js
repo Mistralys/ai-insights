@@ -132,7 +132,7 @@ export function resolveModel(
       if (slug && slug !== 'inherit') {
         const entry = entryForSlug(slug);
         return {
-          model:      entry ? entry.slug : slug,
+          model:      entry ? entry.name : slug,
           model_slug: slug,
           cc_model:   entry ? entry.cc_model : 'inherit',
         };
@@ -145,7 +145,7 @@ export function resolveModel(
   if (yamlModelSlug && yamlModelSlug !== 'inherit') {
     const entry = entryForSlug(yamlModelSlug);
     return {
-      model:      entry ? entry.slug : yamlModelSlug,
+      model:      entry ? entry.name : yamlModelSlug,
       model_slug: yamlModelSlug,
       cc_model:   entry ? entry.cc_model : 'inherit',
     };
@@ -157,7 +157,7 @@ export function resolveModel(
     if (slug && slug !== 'inherit') {
       const entry = entryForSlug(slug);
       return {
-        model:      entry ? entry.slug : slug,
+        model:      entry ? entry.name : slug,
         model_slug: slug,
         cc_model:   entry ? entry.cc_model : 'inherit',
       };
@@ -169,7 +169,7 @@ export function resolveModel(
   if (sharedModelSlug && sharedModelSlug !== 'inherit') {
     const entry = entryForSlug(sharedModelSlug);
     return {
-      model:      entry ? entry.slug : sharedModelSlug,
+      model:      entry ? entry.name : (sharedModelName || sharedModelSlug),
       model_slug: sharedModelSlug,
       cc_model:   entry ? entry.cc_model : 'inherit',
     };
