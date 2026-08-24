@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.8.0)
+### Stage 3 — Developer (v3.9.2)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.7.0)
+### Stage 4 — QA (v3.8.1)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.7.1)
+### Stage 5 — Security Auditor (v3.8.1)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.8.0)
+### Stage 6 — Reviewer (v3.9.1)
 
 **Identity:** Principal Systems Architect
 
@@ -139,7 +139,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.8.0)
+### Stage 8 — Documentation (v3.9.1)
 
 **Identity:** Technical Writing Manager
 
@@ -152,7 +152,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.8.0)
+### Stage 9 — Synthesis (v3.10.0)
 
 **Identity:** Head of Operations (OPS)
 
@@ -221,7 +221,7 @@ Design, generate, and maintain CTX Generator context documentation configuration
 
 ---
 
-### Developer — Standalone (v1.6.0)
+### Developer — Standalone (v1.7.2)
 
 **Identity:** Staff Software Engineer
 
@@ -275,7 +275,7 @@ Infers and documents the purpose, role, and dependencies of specific code module
 
 ---
 
-### Persona Curator (v1.3.0)
+### Persona Curator (v1.4.0)
 
 **Identity:** Agent Design Architect
 
@@ -382,7 +382,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.2.0)
+### Web GUI Specialist (v1.3.2)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
