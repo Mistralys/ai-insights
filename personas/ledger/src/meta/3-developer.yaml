@@ -5,6 +5,9 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
+  3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.9.0 (2026-08-24): Sink opened at session start with marker line; capture split into its own protocol step gated on each completed file edit (steps 4-5 loop); rework continuation re-gated per file
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — capture partial after Priority Guidelines, compilation partial beside output-format, action gate in Operational Protocol step 3, rework continuation in step 6
   3.7.2 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.1 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting

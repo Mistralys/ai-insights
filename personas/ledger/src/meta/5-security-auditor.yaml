@@ -5,6 +5,8 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
+  3.8.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture gated on each completed audit category; protocol renumbered
   3.7.1 (2026-08-21): Removed incorrect REWORK action from workflow step 6 and tool purpose — security-audit re-engagement uses RUN_SECURITY_AUDIT
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Security Insight Observer section with non-blocking-only vocabulary, action gate in audit-pass step 4, compilation beside output-format
   3.6.5 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
