@@ -1,6 +1,6 @@
 # Personas Changelog
 
-## v3.31.0 - **WIP UNRELEASED** Insight Channel Consolidation and Usage Scenarios Curator
+## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 
 **Ledger agents now route code observations through `ledger_add_observation` instead of writing
 to a local sidecar file, giving each observation permanent storage and an optional `loc` field

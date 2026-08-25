@@ -1,6 +1,6 @@
 # AI Insights Changelog
 
-## v2.9.0 - **WIP UNRELEASED** Multi-Store Ledger and Insight Channel Consolidation
+## v2.9.0 - Multi-Store Ledger and Insight Channel Consolidation
 > mcp v2.8.0 · orchestrator v1.4.0 · personas v3.31.0
 
 **This release ships the multi-store storage layer, enabling cross-device ledger sync by

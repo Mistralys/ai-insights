@@ -1,6 +1,6 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.8.0 - **WIP UNRELEASED** Multi-Store Ledger and Observation Routing
+## v2.8.0 - Multi-Store Ledger and Observation Routing
 
 **This release introduces the multi-store storage layer, allowing users to register multiple
 ledger roots for cross-device sync via the new Stores GUI tab.** Knowledge insight IDs are
