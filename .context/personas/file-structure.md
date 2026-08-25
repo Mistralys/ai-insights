@@ -182,28 +182,12 @@ _SOURCE: Directory tree_
         ├── partials/
         │   └── agent-roster.md
         │   └── ax-feedback.md
-        │   └── developer-operational-protocol.md
-        │   └── developer-output-format.md
-        │   └── developer-strict-constraints.md
-        │   └── docs-operational-protocol.md
-        │   └── docs-output-format.md
         │   └── incident-logging.md
         │   └── insight-capture.md
         │   └── insight-compilation.md
-        │   └── pm-output-format.md
+        │   └── mcp-insight-capture.md
         │   └── pm-subagent-roster.md
-        │   └── qa-operational-protocol.md
-        │   └── qa-output-format.md
-        │   └── release-engineer-operational-protocol.md
-        │   └── release-engineer-output-format.md
-        │   └── reviewer-operational-protocol.md
-        │   └── reviewer-output-format.md
-        │   └── security-auditor-operational-protocol.md
-        │   └── security-auditor-output-format.md
         │   └── summary-crafting-guide.md
-        │   └── synthesis-knowledge-collection.md
-        │   └── synthesis-operational-protocol.md
-        │   └── synthesis-output-format.md
     └── standalone/
         └── README.md
         └── claude-code/

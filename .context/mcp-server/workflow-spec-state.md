@@ -655,6 +655,7 @@ PipelineComment {
   priority:  "low" | "medium" | "high"
   timestamp: timestamp
   note:      string
+  loc:       string?             // File path, module, or component the observation concerns
 }
 
 IncidentContext {

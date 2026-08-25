@@ -161,6 +161,8 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata still referencing insights.jsonl sidecar
+  3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; observation reporting and rework handling retargeted to ledger calls
   3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.9.0 (2026-08-24): Sink opened at session start with marker line; capture split into its own protocol step gated on each completed file edit (steps 4-5 loop); rework continuation re-gated per file
@@ -193,8 +195,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: Developer
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: implementation
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -208,7 +209,7 @@ mcp_tools:
   - tool: ledger_add_project_comment
     purpose: "Add a project-level comment (e.g., incident reports)."
   - tool: ledger_add_observation
-    purpose: "Add a Code Insight observation to a completed pipeline (use when you discover something after calling `ledger_complete_pipeline`)."
+    purpose: "Record a Code Insight observation with `loc` (file path) during implementation, or add one after calling `ledger_complete_pipeline`."
   - tool: ledger_get_work_package
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
   - tool: ledger_search_insights
@@ -221,7 +222,7 @@ mcp_tools:
 identity: "Staff Software Engineer"
 description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
 inputs: "Work Package with acceptance criteria and implementation notes"
-outputs: "Implemented code changes + code insight observations recorded to the ledger and insights.jsonl sidecar"
+outputs: "Implemented code changes + code insight observations recorded to the ledger via ledger_add_observation"
 key_behavior: |
   Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation
 
@@ -236,6 +237,8 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Test Insight Observer
+  3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.8.0 (2026-08-24): Sink opened at session start with marker line as Verification Stack step 1; capture gated on each completed verification layer; rework continuation re-gated per re-verification
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
@@ -264,8 +267,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: QA
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: qa
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -276,6 +278,8 @@ mcp_tools:
     purpose: Read WP detail including implementation artifacts and AC.
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, metrics, comments, AC updates, and handoff notes for the next agent."
+  - tool: ledger_add_observation
+    purpose: "Record a QA observation (edge case, coverage gap, regression risk) with `loc` after each test area."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
@@ -290,7 +294,7 @@ mcp_tools:
 identity: "SDET (Software Engineer in Test)"
 description: "Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC)."
 inputs: "Implemented code from Stage 3 + Work Package acceptance criteria"
-outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded to insights.jsonl"
+outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded via ledger_add_observation"
 key_behavior: |
   Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.
 
@@ -305,6 +309,8 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Security Insight Observer
+  3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; capture steps and verdict-affecting rule retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.8.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture gated on each completed audit category; protocol renumbered
   3.7.1 (2026-08-21): Removed incorrect REWORK action from workflow step 6 and tool purpose — security-audit re-engagement uses RUN_SECURITY_AUDIT
@@ -331,8 +337,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: Security Auditor
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: security-audit
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -343,6 +348,8 @@ mcp_tools:
     purpose: Read WP detail including implementation and QA pipeline artifacts.
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, security findings, and handoff notes for the next agent."
+  - tool: ledger_add_observation
+    purpose: "Record a non-blocking security observation (hardening, defence-in-depth) with `loc` after each audit area."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
@@ -357,7 +364,7 @@ mcp_tools:
 identity: "Security Auditor"
 description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
 inputs: "Code changes from the current Work Package"
-outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded to insights.jsonl"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded via ledger_add_observation"
 key_behavior: |
   Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
 
@@ -372,6 +379,8 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
+  3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; Deep Dive and capture steps retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; Deep Dive capture gated per reviewed file instead of per noticed pattern; protocol renumbered
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Review Insight Observer section with positive split rule, action gate in Deep Dive step 2, compilation beside output-format
@@ -402,8 +411,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: Reviewer
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: code-review
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -414,6 +422,8 @@ mcp_tools:
     purpose: Read WP detail including implementation and QA pipeline artifacts.
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, metrics, comments, and handoff notes for the next agent."
+  - tool: ledger_add_observation
+    purpose: "Record a Gold Nugget or out-of-scope pattern with `loc` after each reviewed file."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
@@ -428,7 +438,7 @@ mcp_tools:
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
 inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded to insights.jsonl"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded via ledger_add_observation"
 key_behavior: |
   Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
 
@@ -501,6 +511,8 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Documentation Insight Observer
+  3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each saved document (steps 5-6 loop); rework continuation re-gated per document
   3.8.0 (2026-08-21): Integrated insights.jsonl sidecar — Documentation Insight Observer section with scope boundaries, action gate in Update step 4, compilation beside output-format, rework continuation
@@ -532,8 +544,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: Documentation
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: documentation
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -546,6 +557,8 @@ mcp_tools:
     purpose: List WP summaries, optionally filtered by status.
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, comments, and handoff notes. When `status: PASS` and all acceptance criteria are met, the WP is automatically transitioned to `COMPLETE` — no separate call needed."
+  - tool: ledger_add_observation
+    purpose: "Record a documentation observation (gap, inconsistency, staleness) with `loc` after each document reviewed."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_update_work_package_status
@@ -560,7 +573,7 @@ mcp_tools:
 identity: "Technical Writing Manager"
 description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
 inputs: "Code changes from the Work Package + existing documentation"
-outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded to insights.jsonl"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded via ledger_add_observation"
 key_behavior: |
   Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code
 
@@ -574,11 +587,9 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-insight_agent: Synthesis
-insight_report_target: "the Code Insights section of `synthesis.md`"
-insight_consumer_only: true
 
 changelog: |
+  3.11.0 (2026-08-24): Output format references ledger_add_observation instead of insights.jsonl; sidecar compilation removed
   3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
   3.9.0 (2026-08-24): Excludes session-start markers from rendered insights and uses them to distinguish agents that captured nothing from agents that never captured
   3.8.0 (2026-08-21): Integrated insights.jsonl compilation — reads all agents' entries from sink, renders Code Insights section in synthesis.md, fixed project_storage_path derivation (= plan_path, no dirname)
@@ -631,8 +642,8 @@ mcp_tools:
 # overview metadata
 identity: "Head of Operations (OPS)"
 description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
-inputs: "Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar"
-outputs: "Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations"
+inputs: "Complete project ledger with all WP results, pipeline observations, and agent-recorded code insights"
+outputs: "Project Status Report with achievements, metrics, code insights compiled from pipeline observations, and recommendations"
 key_behavior: |
   Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
 

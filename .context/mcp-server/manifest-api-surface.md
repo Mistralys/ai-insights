@@ -488,6 +488,7 @@ Starts a new pipeline for a work package. The `type` field is validated by `Pipe
     priority: 'low' | 'medium' | 'high';
     timestamp?: string; // optional — auto-filled with server time if omitted
     note: string;
+    loc?: string; // file path, module, or component the observation concerns
   }>;
   acceptance_criteria_updates?: Array<{
     criterion: string;
@@ -565,6 +566,7 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
   type: string; // e.g., "code-smell", "refactor", "debt"
   priority: 'low' | 'medium' | 'high';
   note: string;
+  loc?: string; // file path, module, or component the observation concerns
 }) => Promise<MCPResult>
 ```
 
