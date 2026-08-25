@@ -330,6 +330,7 @@ const CompletePipelineSchema = z.object({
         priority: z.enum(['low', 'medium', 'high']),
         timestamp: z.string().optional(),
         note: z.string(),
+        loc: z.string().optional().describe('File path, module, or component the observation concerns'),
       }).passthrough()
     )
     .optional()

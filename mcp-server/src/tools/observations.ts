@@ -30,6 +30,7 @@ const AddObservationSchema = z.object({
     ),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   note: z.string().describe('Detailed description of the observation'),
+  loc: z.string().optional().describe('File path, module, or component the observation concerns'),
 });
 
 async function addObservation(args: z.infer<typeof AddObservationSchema>) {
@@ -65,6 +66,7 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
         priority: args.priority,
         timestamp: now(),
         note: args.note,
+        ...(args.loc ? { loc: args.loc } : {}),
       };
 
       // 3. Initialize comments array if needed
