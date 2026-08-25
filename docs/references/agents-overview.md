@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.9.2)
+### Stage 3 — Developer (v3.10.0)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.8.1)
+### Stage 4 — QA (v3.9.0)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.8.1)
+### Stage 5 — Security Auditor (v3.9.0)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.9.1)
+### Stage 6 — Reviewer (v3.10.0)
 
 **Identity:** Principal Systems Architect
 
@@ -139,7 +139,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.9.1)
+### Stage 8 — Documentation (v3.10.0)
 
 **Identity:** Technical Writing Manager
 
@@ -152,14 +152,14 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.10.0)
+### Stage 9 — Synthesis (v3.11.0)
 
 **Identity:** Head of Operations (OPS)
 
 Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome.
 
-- **Inputs:** Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar
-- **Outputs:** Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations
+- **Inputs:** Complete project ledger with all WP results, pipeline observations, and agent-recorded code insights
+- **Outputs:** Project Status Report with achievements, metrics, code insights compiled from pipeline observations, and recommendations
 - **Key Behavior:** Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
 - **Sub-agents:** Ledger Knowledge Archiver
 

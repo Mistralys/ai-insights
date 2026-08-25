@@ -5,6 +5,8 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Test Insight Observer
+  3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.8.0 (2026-08-24): Sink opened at session start with marker line as Verification Stack step 1; capture gated on each completed verification layer; rework continuation re-gated per re-verification
   3.7.0 (2026-08-21): Integrated insights.jsonl sidecar — Test Insight Observer section with scope boundaries, action gate in Verification Stack step 5, compilation beside output-format, rework continuation
@@ -33,8 +35,7 @@ has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
 
-insight_agent: QA
-insight_report_target: "your `ledger_complete_pipeline` comments"
+insight_pipeline_type: qa
 
 mcp_tools:
   - tool: ledger_get_next_action
@@ -45,6 +46,8 @@ mcp_tools:
     purpose: Read WP detail including implementation artifacts and AC.
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, metrics, comments, AC updates, and handoff notes for the next agent."
+  - tool: ledger_add_observation
+    purpose: "Record a QA observation (edge case, coverage gap, regression risk) with `loc` after each test area."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
@@ -59,6 +62,6 @@ mcp_tools:
 identity: "SDET (Software Engineer in Test)"
 description: "Be the final gatekeeper for code quality. Do not trust code just because it was written; verify it through execution, edge-case analysis, and strict adherence to the Work Package Acceptance Criteria (AC)."
 inputs: "Implemented code from Stage 3 + Work Package acceptance criteria"
-outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded to insights.jsonl"
+outputs: "QA verdict (PASS/FAIL) with test results, edge-case analysis, rework instructions, and test insight observations recorded via ledger_add_observation"
 key_behavior: |
   Runs existing tests, writes new tests for untested paths, performs edge-case analysis. Can bounce work back to the Developer if AC are not met.

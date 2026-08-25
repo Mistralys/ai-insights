@@ -6,7 +6,7 @@
 **Version:** 1.3
 **Last Updated:** 2026-08-24
 **Author:** Sebastian Mordziol
-**Applies to:** Developer, QA, Reviewer, Security Auditor, Documentation, Web GUI Specialist agents and synthesis consumers (and any future persona with an observation side-channel)
+**Applies to:** Standalone personas only (Developer, Web GUI Specialist) and their synthesis consumers. Ledger personas (agents 3–6, 8) route observations through `ledger_add_observation` with the `loc` field; see `personas/shared/partials/mcp-insight-capture.md`.
 
 **Changelog**
 
@@ -178,15 +178,19 @@ fallback for sessions with no plan document.
 
 ## Consumption
 
-**Producing personas** (Developer, QA, Security Auditor, Reviewer, Documentation,
-Web GUI Specialist) filter to their own `agent` value when compiling report
-sections. Other agents' entries are read-only context.
+**Producing personas** (standalone Developer, Web GUI Specialist) filter to their
+own `agent` value when compiling report sections. Other agents' entries are
+read-only context.
 
-**Synthesis consumers** (ledger Synthesis, standalone Developer, Web GUI Specialist
-at report time) read **all agents' entries**, grouped by agent and ordered by
-priority. Cross-agent duplicates are surfaced as corroboration, not deduplicated.
+**Synthesis consumers** (standalone Developer, Web GUI Specialist at report time)
+read **all agents' entries**, grouped by agent and ordered by priority.
+Cross-agent duplicates are surfaced as corroboration, not deduplicated.
 `session-start` entries are excluded from output but used to distinguish agents that
 captured nothing from agents that never captured.
+
+> **Ledger personas** route observations through `ledger_add_observation` with the
+> `loc` field instead of writing to `insights.jsonl`. Their observations are
+> persisted in the pipeline comments and compiled via `ledger_complete_pipeline`.
 
 ## Verdict-Affecting Findings
 
@@ -203,14 +207,8 @@ type vocabulary differ per persona; the mechanics do not.
 
 | Persona | Insight section to modify | Report destination |
 |---|---|---|
-| Developer (ledger) | Code Insight Observer | `ledger_complete_pipeline` comments |
 | Developer (standalone) | Code Insight Observer | `synthesis.md` → Code Insights |
-| QA | Test Insight Observer | `ledger_complete_pipeline` comments |
-| Reviewer | Review Insight Observer | `ledger_complete_pipeline` comments |
-| Security Auditor | Security Insight Observer | `ledger_complete_pipeline` comments |
-| Documentation | Documentation Insight Observer | `ledger_complete_pipeline` comments |
 | Web GUI Specialist | Interface Insight Observer | `synthesis.md` → Interface Insights |
-| Synthesis (ledger) | *(consumer only — no observer section)* | `synthesis.md` → Code Insights |
 
 **Step 1a — Insert the append-time capture block** into the persona's insight
 section, after its type/priority definitions. This block carries the rules that

@@ -4,11 +4,9 @@ vs_file_name: 9-synthesis.agent.md
 id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
-insight_agent: Synthesis
-insight_report_target: "the Code Insights section of `synthesis.md`"
-insight_consumer_only: true
 
 changelog: |
+  3.11.0 (2026-08-24): Output format references ledger_add_observation instead of insights.jsonl; sidecar compilation removed
   3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
   3.9.0 (2026-08-24): Excludes session-start markers from rendered insights and uses them to distinguish agents that captured nothing from agents that never captured
   3.8.0 (2026-08-21): Integrated insights.jsonl compilation — reads all agents' entries from sink, renders Code Insights section in synthesis.md, fixed project_storage_path derivation (= plan_path, no dirname)
@@ -61,7 +59,7 @@ mcp_tools:
 # overview metadata
 identity: "Head of Operations (OPS)"
 description: "Consolidate the results of the development cycle into a coherent Project Status Report. Analyze the Project Ledger to extract achievements, metrics, and strategic insights left by other agents, ensuring the user has a clear view of the session's outcome."
-inputs: "Complete project ledger with all WP results, code insights, agent observations, and insights.jsonl sidecar"
-outputs: "Project Status Report with achievements, metrics, code insights compiled from insights.jsonl, and recommendations"
+inputs: "Complete project ledger with all WP results, pipeline observations, and agent-recorded code insights"
+outputs: "Project Status Report with achievements, metrics, code insights compiled from pipeline observations, and recommendations"
 key_behavior: |
   Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session

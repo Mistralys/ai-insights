@@ -36,7 +36,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_complete_pipeline | cwd_path or project_path, work_package_id, type, status, summary | Complete a pipeline |
 | ledger_cancel_pipeline | cwd_path or project_path, work_package_id, type, reason | Cancel a stale IN_PROGRESS pipeline (sets to FAIL) |
 | ledger_update_pipeline_progress | cwd_path or project_path, work_package_id, type, summary | Update summary of IN_PROGRESS pipeline without completing it |
-| ledger_add_observation | cwd_path or project_path, work_package_id, pipeline_type, type, priority, note | Add observation to pipeline |
+| ledger_add_observation | cwd_path or project_path, work_package_id, pipeline_type, type, priority, note, loc (optional) | Add observation to pipeline |
 | ledger_add_project_comment | cwd_path or project_path, type, priority, agent, note | Add project-level comment |
 | ledger_get_next_action | cwd_path or project_path, agent_role | Get next recommended action (optional: max_results for batch mode) |
 | ledger_get_handoff_status | cwd_path or project_path, current_agent | Check handoff status |
@@ -519,6 +519,7 @@ ${PROJECT_PATH_PARAM}
 - **type** (string): Category — "code-smell", "refactor", "improvement", "debt", "convention"
 - **priority** (string): "low", "medium", or "high"
 - **note** (string): Description of the observation
+- **loc** (string, optional): File path, module, or component the observation concerns
 
 ## Example
 \`\`\`json
@@ -528,7 +529,8 @@ ${PROJECT_PATH_PARAM}
   "pipeline_type": "code-review",
   "type": "code-smell",
   "priority": "medium",
-  "note": "Function exceeds 50 lines, consider splitting"
+  "note": "Function exceeds 50 lines, consider splitting",
+  "loc": "src/utils/parser.ts"
 }
 \`\`\`
 `,

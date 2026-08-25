@@ -67,6 +67,7 @@ export const PipelineCommentSchema = z.object({
   timestamp: z.string(),
   note: z.string(),
   context: IncidentContextSchema.optional(),
+  loc: z.string().optional(),
 });
 export type PipelineComment = z.infer<typeof PipelineCommentSchema>;
 
