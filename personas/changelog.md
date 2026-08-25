@@ -17,6 +17,7 @@ scenario generation and deterministic coverage checks.
   action-gating and pipeline-completion fallback for failed calls.
 - Shared: Insight compilation partial gains `insight_consumer_only` mode; reads all sink
   entries regardless of author for accurate cross-agent compilation.
+- Shared: Re-integrated all single-use partials into their respective ledger personas.
 - Standalone: Developer, Web GUI Specialist, and Git Committer gain sidecar insight capture.
 - LedgerSupport: Archiver personas classify insight files at the archival boundary.
 - Standalone: Added Usage Scenarios Curator for plan scenario generation and coverage checks.
