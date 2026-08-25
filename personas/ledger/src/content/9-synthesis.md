@@ -43,8 +43,6 @@ You will be provided with:
 
 {{> synthesis-operational-protocol}}
 
-{{> insight-compilation}}
-
 ---
 
 ## Knowledge Collection
@@ -68,7 +66,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 3. **Read Project Overview:** Call `ledger_get_project_status` to load the root index with project overview, WP summaries, and comments.
 4. **Read All Work Packages:** Call `ledger_get_work_package` for each WP to load pipeline data, metrics, and comments.
 5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 9 to obtain the handoff block from the ledger.
-6. **Generate Report:** Write the `synthesis.md` file to the plan folder. Compile the Code Insights section from `insights.jsonl` (see Operational Protocol step 5).
+6. **Generate Report:** Write the `synthesis.md` file to the plan folder from the ledger data gathered in steps 3–5.
 7. **Cross-cutting Observations:** Add any cross-cutting synthesis observations via `ledger_add_project_comment`.
 8. **Knowledge Collection:** Invoke the Knowledge Archiver:
 {{#if target_vscode}}

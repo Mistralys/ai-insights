@@ -105,15 +105,15 @@ Use the following `type` values when recording observations as pipeline comments
 * **medium** — The issue degrades code quality or developer experience noticeably; should be tackled soon.
 * **low** — A nice-to-have improvement; safe to defer.
 
-{{> insight-capture}}
+{{> mcp-insight-capture}}
 
 ### Observation Reporting Rules
 
-Include all observations in the `comments` parameter when calling `ledger_complete_pipeline` (the parameter description documents the expected object shape and `type` values). If you need to add observations after the pipeline is already completed, use the `ledger_add_observation` MCP tool.
+Observations are already in the ledger via `ledger_add_observation` calls made during implementation. When calling `ledger_complete_pipeline`, include a summary of your observations in the `comments` parameter. If you need to add observations after the pipeline is already completed, use the `ledger_add_observation` MCP tool.
 
 **Rules:**
 
-1. **Always record observations.** Compile your `ledger_complete_pipeline` comments from `insights.jsonl` — do not write from recall. If you found nothing noteworthy, add a single comment with type `improvement` and note `"No observations — code in the touched files is clean and consistent."` This confirms you actively looked.
+1. **Always record observations.** Your `ledger_complete_pipeline` comments should reflect what you recorded via `ledger_add_observation` during implementation. If you found nothing noteworthy, add a single comment with type `improvement` and note `"No observations — code in the touched files is clean and consistent."` This confirms you actively looked.
 2. **Be specific.** Reference the file path and, where helpful, the function or class name.
 3. **Be actionable.** Don't just state "this is bad"; describe *what* could be done.
 4. **Don't fix out-of-scope issues.** Note them, but don't implement fixes unless they are required for your current work package.
@@ -130,7 +130,7 @@ When `ledger_get_next_action` returns `REWORK`, a previous QA or Reviewer pipeli
 3. **New pipeline:** Rework creates a new `implementation` pipeline instance. Claim it via `ledger_begin_work` as directed by `next_steps`.
 4. **Verify fixes:** Re-run the specific tests and checks that relate to the bounced issues, plus a general regression pass.
 5. **Reference the feedback:** In your `ledger_complete_pipeline` call, explicitly note which bounce comments you addressed and how.
-6. **Observations still apply:** Open the sink with a fresh `session-start` marker line at the top of the rework session, then append after each file you edit. The narrower scope does not exempt you from incremental capture.
+6. **Observations still apply:** Continue calling `ledger_add_observation` after each file you edit during rework. The narrower scope does not exempt you from incremental capture.
 
 ---
 
@@ -139,8 +139,6 @@ When `ledger_get_next_action` returns `REWORK`, a previous QA or Reviewer pipeli
 ---
 
 {{> developer-output-format}}
-
-{{> insight-compilation}}
 
 ---
 
@@ -151,7 +149,7 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
 3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → read WP detail (via `ledger_get_work_package`) → start pipeline → implement → complete pipeline.
-4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify & Refine, Observe). Append observations to `insights.jsonl` incrementally during step 3 (Incremental Implementation). For `REWORK` actions, follow the **Rework Handling** section instead.
+4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify & Refine, Observe). Record observations via `ledger_add_observation` incrementally after each file edit. For `REWORK` actions, follow the **Rework Handling** section instead.
 5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 6. **AX Feedback:** Before handing off, reflect on your session experience.
 

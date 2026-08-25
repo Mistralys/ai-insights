@@ -113,6 +113,7 @@ personas/
         ├── incident-logging.md
         ├── insight-capture.md
         ├── insight-compilation.md
+        ├── mcp-insight-capture.md
         ├── planner-core-rules.md
         ├── planner-output-template.md
         ├── pm-output-format.md

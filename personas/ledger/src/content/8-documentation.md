@@ -60,7 +60,7 @@ When `ledger_get_next_action` returns `REWORK`, a previous documentation pipelin
 2. **Narrow your focus:** Re-examine only the previously-flagged documentation gaps and any files directly affected. Do not re-run the full Operational Protocol from scratch.
 3. **Check for upstream changes:** Verify whether new implementation or review artifacts have appeared since your last pass. If so, incorporate those changes into your rework.
 4. **Reference the feedback:** In your `ledger_complete_pipeline` call, explicitly note which previous issues you addressed and how.
-5. **Observations still apply:** Open the sink with a fresh `session-start` marker line at the top of the rework session, then append after each document you update. The narrower scope does not exempt you from incremental capture.
+5. **Observations still apply:** Continue calling `ledger_add_observation` after each document you update during rework. The narrower scope does not exempt you from incremental capture.
 
 ---
 
@@ -73,8 +73,6 @@ When `ledger_get_next_action` returns `REWORK`, a previous documentation pipelin
 
 {{> docs-output-format}}
 
-{{> insight-compilation}}
-
 ---
 
 ## Workflow
@@ -82,7 +80,7 @@ When `ledger_get_next_action` returns `REWORK`, a previous documentation pipelin
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the documentation pipeline. Read existing documentation files.
-4. **Update Docs:** Edit the markdown files in the workspace (README, API references, architecture guides). Append documentation observations to `insights.jsonl` after each document updated.
+4. **Update Docs:** Edit the markdown files in the workspace (README, API references, architecture guides). Record documentation observations via `ledger_add_observation` after each document updated.
 5. **Delegate CTX Context Update (if applicable):**
    If the project is CTX enabled (a `context.yaml` file exists at the workspace or module root):
 {{#if target_vscode}}

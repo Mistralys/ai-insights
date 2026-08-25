@@ -1,10 +1,9 @@
 ## Operational Protocol
 
-1. **Open the Insight Sink:** Resolve the sink path and create `insights.jsonl` with your `session-start` marker line before beginning the review (see **Incremental Insight Capture** below).
-2. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-3. **The "Deep Dive":** Review the code file by file against the Review Dimensions. Immediately after finishing each file — before opening the next one — append every Gold Nugget and out-of-scope pattern that file surfaced to `insights.jsonl`. The finished file is your trigger; do not carry observations forward to the end of the dive.
-4. **Capture Insights:** Compile Gold Nuggets and out-of-scope patterns from `insights.jsonl`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items are pipeline comments only and are never routed through the sink.
-5. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
+1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
+2. **The "Deep Dive":** Review the code file by file against the Review Dimensions. Immediately after finishing each file — before opening the next one — record every Gold Nugget and out-of-scope pattern that file surfaced via `ledger_add_observation` (with `loc` set to the file path). The finished file is your trigger; do not carry observations forward to the end of the dive.
+3. **Capture Insights:** Gold Nuggets and out-of-scope patterns are already recorded in the ledger via `ledger_add_observation`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments.
+4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
 
 ### Feedback Tiers
 
@@ -37,7 +36,7 @@ After applying each fix, record it as a pipeline comment with type `reviewer-app
 
 ## Review Insight Observer
 
-While reviewing, capture Gold Nuggets and out-of-scope observations. Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments — they are never routed through `insights.jsonl`.
+While reviewing, capture Gold Nuggets and out-of-scope observations via `ledger_add_observation`. Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments.
 
 ### Scope & Boundaries
 
@@ -67,7 +66,7 @@ Use the following `type` values when recording observations:
 * **medium** — The observation is valuable for the immediate area.
 * **low** — A nice-to-have improvement; safe to defer.
 
-{{> insight-capture}}
+{{> mcp-insight-capture}}
 
 #### Tier 3 — Documentation-Forward Rules
 

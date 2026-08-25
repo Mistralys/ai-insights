@@ -82,8 +82,6 @@ Evaluate the submission based on these four criteria:
 
 {{> reviewer-output-format}}
 
-{{> insight-compilation}}
-
 ---
 
 ## Workflow
@@ -93,7 +91,7 @@ Evaluate the submission based on these four criteria:
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the code-review pipeline. Read the specific modified source files.
 4. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
-6. **Cross-Cutting Insights:** Compile Gold Nuggets and out-of-scope observations from `insights.jsonl` into your pipeline comments. If you identified architectural patterns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
+6. **Cross-Cutting Insights:** Review observations recorded via `ledger_add_observation` during the review. If you identified architectural patterns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_REVIEW` (full review), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 8. {{> handoff-block-vscode}}
