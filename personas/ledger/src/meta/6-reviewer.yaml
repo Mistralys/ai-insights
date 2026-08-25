@@ -5,6 +5,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; Deep Dive and capture steps retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; Deep Dive capture gated per reviewed file instead of per noticed pattern; protocol renumbered
@@ -63,6 +64,6 @@ mcp_tools:
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
 inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded to insights.jsonl"
+outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded via ledger_add_observation"
 key_behavior: |
   Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.

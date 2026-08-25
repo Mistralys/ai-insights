@@ -9,6 +9,10 @@ scenario generation and deterministic coverage checks.
 
 - Ledger: Developer, QA, Security Auditor, Reviewer, Documentation, and Synthesis now
   capture observations via `ledger_add_observation` with per-persona `insight_pipeline_type`.
+- Ledger: Fixed stale `outputs` metadata in 5 personas still referencing insights.jsonl.
+- Shared: Reviewer Deep Dive split into review + capture loop for Pattern 15 compliance.
+- Shared: Added nothing-found forcing functions to QA, Security Auditor, Reviewer, and
+  Documentation observer sections (Pattern 6 parity with Developer).
 - Shared: Added `mcp-insight-capture` partial; drives per-action MCP observation calls with
   action-gating and pipeline-completion fallback for failed calls.
 - Shared: Insight compilation partial gains `insight_consumer_only` mode; reads all sink

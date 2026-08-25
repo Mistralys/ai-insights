@@ -5,6 +5,7 @@ id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
 changelog: |
+  3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Security Insight Observer
   3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; capture steps and verdict-affecting rule retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.8.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture gated on each completed audit category; protocol renumbered
@@ -59,6 +60,6 @@ mcp_tools:
 identity: "Security Auditor"
 description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
 inputs: "Code changes from the current Work Package"
-outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded to insights.jsonl"
+outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded via ledger_add_observation"
 key_behavior: |
   Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.

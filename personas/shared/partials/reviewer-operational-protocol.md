@@ -1,9 +1,10 @@
 ## Operational Protocol
 
 1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-2. **The "Deep Dive":** Review the code file by file against the Review Dimensions. Immediately after finishing each file — before opening the next one — record every Gold Nugget and out-of-scope pattern that file surfaced via `ledger_add_observation` (with `loc` set to the file path). The finished file is your trigger; do not carry observations forward to the end of the dive.
-3. **Capture Insights:** Gold Nuggets and out-of-scope patterns are already recorded in the ledger via `ledger_add_observation`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments.
-4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
+2. **Review One File:** Evaluate the next file against the Review Dimensions. Note blocking findings, Fix-Forward candidates, and Documentation-Forward items as you go.
+3. **Capture What That File Surfaced:** Immediately after finishing each step-2 file — before opening the next one — call `ledger_add_observation` for every Gold Nugget and out-of-scope pattern that file surfaced (with `loc` set to the file path). The finished file is your trigger; do not carry observations forward to the end of the dive. **Repeat steps 2–3 until the dive is complete.**
+4. **Capture Insights:** Gold Nuggets and out-of-scope patterns are already recorded in the ledger via `ledger_add_observation`. Record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6). Blocking findings, `reviewer-applied-fix` records, and `documentation-forward` items go exclusively through pipeline comments.
+5. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
 
 ### Feedback Tiers
 
@@ -67,6 +68,8 @@ Use the following `type` values when recording observations:
 * **low** — A nice-to-have improvement; safe to defer.
 
 {{> mcp-insight-capture}}
+
+**Nothing-found rule:** If no Gold Nuggets or out-of-scope patterns surfaced during the entire review, record a single observation with type `improvement` and note `"No review observations — code in the reviewed files follows established patterns consistently."` This confirms you actively looked.
 
 #### Tier 3 — Documentation-Forward Rules
 

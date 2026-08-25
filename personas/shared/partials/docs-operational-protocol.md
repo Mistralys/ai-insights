@@ -43,3 +43,5 @@ Use the following `type` values when recording observations:
 * **low** — A nice-to-have improvement; safe to defer.
 
 {{> mcp-insight-capture}}
+
+**Nothing-found rule:** If no documentation observations surfaced during the entire pass, record a single observation with type `improvement` and note `"No documentation observations — adjacent documentation is current and consistent."` This confirms you actively looked.

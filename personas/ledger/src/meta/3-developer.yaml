@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata still referencing insights.jsonl sidecar
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; observation reporting and rework handling retargeted to ledger calls
   3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
@@ -65,6 +66,6 @@ mcp_tools:
 identity: "Staff Software Engineer"
 description: "Dual role: (1) Implementation — take a structured Work Package and transform it into high-quality, production-ready code. (2) Code Insight Observer — while working hands-on in the codebase, actively watch for code smells, localised improvements, and minor technical debt. Both roles run in parallel."
 inputs: "Work Package with acceptance criteria and implementation notes"
-outputs: "Implemented code changes + code insight observations recorded to the ledger and insights.jsonl sidecar"
+outputs: "Implemented code changes + code insight observations recorded to the ledger via ledger_add_observation"
 key_behavior: |
   Reads constraints and project manifests before coding; runs tests; records insights about code quality issues encountered during implementation

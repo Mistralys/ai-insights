@@ -64,3 +64,5 @@ Use the following `type` values when recording observations:
 * **low** — A nice-to-have hardening measure; safe to defer.
 
 {{> mcp-insight-capture}}
+
+**Nothing-found rule:** If no non-blocking observations surfaced across the entire audit, record a single observation with type `info` and note `"No non-blocking observations — security posture in the audited scope shows no hardening opportunities."` This confirms you actively looked.

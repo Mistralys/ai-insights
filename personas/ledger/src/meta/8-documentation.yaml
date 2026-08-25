@@ -5,6 +5,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Documentation Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   3.9.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each saved document (steps 5-6 loop); rework continuation re-gated per document
@@ -66,6 +67,6 @@ mcp_tools:
 identity: "Technical Writing Manager"
 description: "Ensure the project documentation stays synchronized with the codebase. Do not write code; analyze changes and update README.md, API references, and architecture guides to reflect the new reality."
 inputs: "Code changes from the Work Package + existing documentation"
-outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded to insights.jsonl"
+outputs: "Updated documentation files (READMEs, API docs, architecture guides, project manifests) and documentation insight observations recorded via ledger_add_observation"
 key_behavior: |
   Identifies documentation gaps created by code changes; updates only what needs updating; never writes application code

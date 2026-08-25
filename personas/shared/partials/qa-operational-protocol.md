@@ -43,3 +43,5 @@ Use the following `type` values when recording observations:
 * **low** — A nice-to-have improvement; safe to defer.
 
 {{> mcp-insight-capture}}
+
+**Nothing-found rule:** If no test observations surfaced across all four verification layers, record a single observation with type `improvement` and note `"No test observations — test infrastructure and coverage are adequate for the verified scope."` This confirms you actively looked.
