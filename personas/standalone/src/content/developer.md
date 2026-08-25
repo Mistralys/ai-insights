@@ -54,12 +54,14 @@ When handing off a completed standalone plan, retain the authored `usage-scenari
 
 Follow these steps for every plan:
 
-1. **Contextual Analysis:** Read the relevant files in the codebase. Do not assume the plan perfectly matches the current state of the code.
-2. **Technical Design (Internal):** Before writing code, outline the specific changes you will make (which functions to modify, which files to create).
-3. **Incremental Implementation:** Write the code in logical chunks. After each chunk, before starting the next, append any observations from that chunk to `insights.jsonl`.
-4. **Verify & Refine:** After implementation, run the project's build/install step if dependencies changed (e.g., `npm install`, `pip install -e .`, `composer dumpautoload`, `go mod tidy`). Run the existing test suite to confirm no regressions and write new tests to satisfy the acceptance criteria (follow the project's test conventions; if none exist, prefer co-located unit tests). Run the project's static analysis tool (e.g., `eslint`, `phpstan`) and fix any issues you introduced - pre-existing warnings outside your modified files are out of scope. Ensure your code follows the project's style guide and best practices (DRY, SOLID).
-5. **Documentation Update Pass:** Update project documentation as applicable to reflect your implementation. If no documentation change is needed, explicitly state why in the synthesis section.
-6. **Code Insight Observations:** Compile the observations you gathered while working (see the **Code Insight Observer** section below).
+1. **Open the Insight Sink:** Resolve the sink path and create `insights.jsonl` with your `session-start` marker line before doing anything else (see **Incremental Insight Capture** below).
+2. **Contextual Analysis:** Read the relevant files in the codebase. Do not assume the plan perfectly matches the current state of the code.
+3. **Technical Design (Internal):** Before writing code, outline the specific changes you will make (which functions to modify, which files to create).
+4. **Implement One Edit:** Apply the next file edit (or the tightly-coupled group of edits to a single file) called for by your design.
+5. **Capture What That Edit Surfaced:** Immediately after each step-4 edit - before opening the next file - append any observations that edit surfaced to `insights.jsonl`. **Repeat steps 4-5 until the implementation is complete.** The completed edit is your trigger: do not defer this to a later "chunk boundary", because no such boundary ever announces itself mid-implementation.
+6. **Verify & Refine:** After implementation, run the project's build/install step if dependencies changed (e.g., `npm install`, `pip install -e .`, `composer dumpautoload`, `go mod tidy`). Run the existing test suite to confirm no regressions and write new tests to satisfy the acceptance criteria (follow the project's test conventions; if none exist, prefer co-located unit tests). Run the project's static analysis tool (e.g., `eslint`, `phpstan`) and fix any issues you introduced - pre-existing warnings outside your modified files are out of scope. Ensure your code follows the project's style guide and best practices (DRY, SOLID).
+7. **Documentation Update Pass:** Update project documentation as applicable to reflect your implementation. If no documentation change is needed, explicitly state why in the synthesis section.
+8. **Code Insight Observations:** Compile the observations you gathered while working (see the **Code Insight Observer** section below).
 
 ---
 
@@ -102,7 +104,7 @@ Use the following `type` values when recording observations in your synthesis:
 
 {{> insight-capture}}
 
-### How to Record Observations
+### Observation Reporting Rules
 
 Record all observations inside the synthesis written to `synthesis.md` in the plan folder.
 
@@ -150,6 +152,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 - Result: {PASS_FAIL_SUMMARY}
 
 ### Code Insights
+{Compiled from insights.jsonl — not from recall. Consult the sink state table: if no Developer marker exists, report the gap instead of back-filling.}
 - [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
 - [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
 
@@ -179,7 +182,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 3. **Implement:** Execute the **Operational Protocol** to produce code changes and tests.
 4. **Update Documentation:** Apply documentation updates as applicable to the implemented changes.
 5. **Verify:** Run build/tests/static analysis as needed and resolve implementation-introduced issues.
-6. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section. Compile the `### Code Insights` section from `insights.jsonl` (see Operational Protocol step 6).
+6. **Write Synthesis:** Create or overwrite `synthesis.md` in the plan document folder with the **Synthesis** section. Compile the `### Code Insights` section from `insights.jsonl` (see Operational Protocol step 8).
 7. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:

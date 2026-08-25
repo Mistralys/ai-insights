@@ -197,6 +197,7 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.8.0 (2026-08-21): Add insights.jsonl as optional low-priority source in both reading orders
   1.7.0 (2026-07-31): Philosophy rewritten with positive framing; constraint-like items moved to Strict Constraints
   1.6.0 (2026-06-09): Renamed to Ledger Knowledge Archiver; slug and name updated
   1.5.0 (2026-06-08): Gained local archiving task marker file support
@@ -381,6 +382,8 @@ vs_file_name: standalone-archiver.agent.md
 id: ledger-support-standalone-archiver
 cc_file_name: standalone-archiver.md
 changelog: |
+  1.7.0 (2026-08-21): Exclude insights.jsonl from import sources and archived-file reporting alongside scenario-coverage.md
+  1.6.0 (2026-08-18): Preserve optional usage-scenarios.md source companions while excluding generated scenario-coverage.md from standalone archival
   1.5.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
   1.4.0 (2026-07-13): Audit compliance — added Operating Modes section (Import/Update); split workflow into mode-specific sections; added constraint alternatives; renamed MCP Tools to MCP Server Tools
   1.3.0 (2026-07-13): Added ledger_update_synthesis tool for updating synthesis after post-import edits

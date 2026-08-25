@@ -1,30 +1,37 @@
 # Personas Changelog
 
-## v3.32.0 - **WIP UNRELEASED**
+## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 
-- Ledger: Security Auditor — removed incorrect REWORK action from workflow and
-  tool purpose; re-engagement uses RUN_SECURITY_AUDIT.
-- Standalone: Added Usage Scenarios Curator for plan scenario generation and
-  coverage verification.
-- Standalone: Plan Refiner gains opt-in scenario verification with a bounded
-  integration re-check.
-- Standalone: Key handoff agents now preserve usage-scenarios.md through handoffs.
+**Ledger agents now route code observations through `ledger_add_observation` instead of writing
+to a local sidecar file, giving each observation permanent storage and an optional `loc` field
+for file-level context.** A new Usage Scenarios Curator joins the standalone roster for plan
+scenario generation and deterministic coverage checks.
+
+- Ledger: Developer, QA, Security Auditor, Reviewer, Documentation, and Synthesis now
+  capture observations via `ledger_add_observation` with per-persona `insight_pipeline_type`.
+- Ledger: Fixed stale `outputs` metadata in 5 personas still referencing insights.jsonl.
+- Shared: Reviewer Deep Dive split into review + capture loop for Pattern 15 compliance.
+- Shared: Added nothing-found forcing functions to QA, Security Auditor, Reviewer, and
+  Documentation observer sections (Pattern 6 parity with Developer).
+- Shared: Added `mcp-insight-capture` partial; drives per-action MCP observation calls with
+  action-gating and pipeline-completion fallback for failed calls.
+- Shared: Insight compilation partial gains `insight_consumer_only` mode; reads all sink
+  entries regardless of author for accurate cross-agent compilation.
+- Shared: Re-integrated all single-use partials into their respective ledger personas.
+- Standalone: Developer, Web GUI Specialist, and Git Committer gain sidecar insight capture.
+- LedgerSupport: Archiver personas classify insight files at the archival boundary.
+- Standalone: Added Usage Scenarios Curator for plan scenario generation and coverage checks.
+- Standalone: Plan Refiner gains opt-in scenario verification with a bounded re-check.
+- Standalone: Key handoff agents preserve usage-scenarios.md through handoffs.
 - Standalone: Git Committer gains delete guard and request.md archival support.
-- Ledger: Retired WP spec file mechanism; agents 3–9 now source specs from ledger.
+- Ledger: Retired WP spec file mechanism; agents 3–9 now source specs from the ledger.
 - Ledger: PM uses the ping tool for preflight instead of help.
+- Ledger: Security Auditor — removed incorrect REWORK action from the workflow.
 - LedgerSupport: Bootstrapper protocol reduced from 7 to 5 steps.
-- LedgerSupport: Knowledge Archiver philosophy rewritten per design guide v2.3.
+- Docs: Persona Design Guide v2.7 — Tone Stratification added to Core Philosophy.
+- Standalone: Persona Curator v1.4.0 — updated to reflect Tone Stratification.
 - Build: Added agents-overview generator with overview metadata fields.
-- Build: Model assignments updated to claude-sonnet-4-6.
-- Shared: Added insight-capture and insight-compilation partials for sidecar
-  integration across all three suites.
-- Ledger: Developer, QA, Security Auditor, Reviewer, Documentation, and
-  Synthesis personas now write to `insights.jsonl` via shared sidecar partials.
-- Standalone: Developer, Web GUI Specialist, and Git Committer gain sidecar
-  insight capture.
-- LedgerSupport: Archiver personas classify insight files at the archival
-  boundary (captured vs. compiled).
-- Build: Added `insight_agent` field validation to `build-personas.js`.
+- Build: Model assignments updated to claude-sonnet-4-6; added `insight_agent` validation.
 - Build: Fixed model assignment resolution to use model name instead of internal slug.
 
 ## v3.30.0 - New Personas and AX Feedback

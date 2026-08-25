@@ -127,7 +127,11 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 
 Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
 
-**Unconditional (both real builds and `--check`):** A cross-reference validation step scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML. Errors accumulate across all personas before a single `[ERROR]` block is printed and `process.exit(1)` is called. Personas with no `{{agent_slug_*}}` references pass silently. The internal helper `extractSubagentsList(text, key)` parses flat dash-prefixed YAML block lists (strips inline comments and surrounding quotes); it is local to the validation block and is not exported.
+**Unconditional (both real builds and `--check`):** Two validation steps run after every build:
+
+1. **Subagent cross-reference:** Scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML. Errors accumulate across all personas before a single `[ERROR]` block is printed and `process.exit(1)` is called. Personas with no `{{agent_slug_*}}` references pass silently. The internal helper `extractSubagentsList(text, key)` parses flat dash-prefixed YAML block lists (strips inline comments and surrounding quotes); it is local to the validation block and is not exported.
+
+2. **`insight_agent` field validation:** Implemented in `scripts/lib/insight-validation.js`. Fails the build when: (a) a persona defines both `role` and `insight_agent` with differing values; (b) a persona defines exactly one of `insight_agent` / `insight_report_target`. Standalone personas without `role` are exempt from rule (a).
 
 ### `personas/persona-build.config.js` — Config Interface
 
@@ -322,6 +326,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `outputs` | `string` | yes | What this persona produces as output. Used by `generate-agents-overview.js`. |
 | `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line rendered in the overview. |
 | `modes` | block scalar | no | Newline-delimited operating modes. Rendered in the overview for personas with distinct modes. |
+| `insight_pipeline_type` | `string` | no | Pipeline type value substituted into `mcp-insight-capture.md` as `{{insight_pipeline_type}}` (e.g. `"implementation"`, `"qa"`, `"code-review"`). Required for ledger personas that include the `mcp-insight-capture` partial (agents 3–6, 8). Must match the persona's pipeline type from `PIPELINE_AGENT_MAP`. |
 
 ---
 
@@ -536,6 +541,8 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line used in the overview. Applies to all suites. |
 | `modes` | block scalar | no | Newline-delimited operating modes. Used in the overview for personas with distinct modes. |
 | `notes` | `string` | no | Optional freeform note rendered as a **Notes:** bullet in the overview. |
+| `insight_agent` | `string` | no | Value written to the JSONL `agent` key in `insights.jsonl` (e.g. `"Developer"`, `"Web GUI Specialist"`). Required for standalone personas that include the insight partials. Must be paired with `insight_report_target`. |
+| `insight_report_target` | `string` | no | Human phrase naming where the curated insight section lands. Must be paired with `insight_agent`. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
@@ -581,7 +588,7 @@ This table is the **normative reference** for which MCP tools belong in each per
 | `ledger_complete_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | — |
 | `ledger_cancel_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | — |
 | `ledger_add_project_comment` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
-| `ledger_add_observation` | — | — | **✓** | — | — | — | — | — | — |
+| `ledger_add_observation` | — | — | **✓** | **✓** | **✓** | **✓** | — | **✓** | — |
 | `ledger_get_project_status` | — | **✓** | — | — | — | — | — | — | **✓** |
 | `ledger_list_work_packages` | — | — | — | — | — | — | — | **✓** | **✓** |
 | `ledger_update_work_package_status` | — | — | — | — | — | — | — | **✓** | — |
@@ -595,9 +602,9 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 **2 — Project Manager:** Initializes the ledger (`ledger_initialize_project`) and creates all work packages (`ledger_create_work_package`). Uses `ledger_get_project_status` to verify the ledger after creation. Uses `ledger_get_handoff_status` to compute the handoff block — required because PM does not use `ledger_get_next_action` (it has no pipeline loop) and therefore cannot rely on the embedded `handoff_status` in WAIT responses.
 
-**3 — Developer:** Full pipeline agent. Uses `ledger_get_next_action` → `ledger_begin_work` → `ledger_complete_pipeline` as the core loop. Has `ledger_add_observation` (unique to Developer) for the Code Insight Observer role — recording observations after a pipeline is already completed. Has `ledger_cancel_pipeline` for stale pipeline recovery.
+**3 — Developer:** Full pipeline agent. Uses `ledger_get_next_action` → `ledger_begin_work` → `ledger_complete_pipeline` as the core loop. Has `ledger_add_observation` for recording Code Insight observations incrementally during implementation and after pipeline completion. Has `ledger_cancel_pipeline` for stale pipeline recovery.
 
-**4 — QA:** Pipeline agent with the same core loop as Developer (get next action → begin work → complete pipeline). Does not need `ledger_add_observation` because QA records all findings as pipeline comments in `ledger_complete_pipeline`. Does not need `ledger_get_project_status` — reachability is confirmed by the `ledger_get_next_action` call in the preflight detect step.
+**4 — QA:** Pipeline agent with the same core loop as Developer (get next action → begin work → complete pipeline). Uses `ledger_add_observation` to record QA observations (edge cases, coverage gaps, regression risks) incrementally after each test area. Does not need `ledger_get_project_status` — reachability is confirmed by the `ledger_get_next_action` call in the preflight detect step.
 
 **5 — Security Auditor:** Same tool set as QA and for the same reasons. The Security Auditor's distinct behavior (OWASP-based vulnerability analysis, severity classification, findings recorded via `ledger_add_project_comment` and `ledger_complete_pipeline`) is expressed through how the tools are used, not which tools are available.
 
@@ -657,6 +664,9 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `pm-output-format.md` | Agent 2 | *(none)* |
 | `developer-operational-protocol.md` | Agent 3 | *(none)* |
 | `developer-strict-constraints.md` | Agent 3 | Embeds `{{> incident-logging}}` — resolves via ledger override layer; requires a stub in `shared/` for non-ledger suites |
+| `insight-capture.md` | Standalone Developer, Web GUI Specialist | `{{insight_agent}}`; placement: inside the observation section, after type/priority definitions. Contains the two-rung sink location ladder (resolve-once), flat JSONL schema with a concrete example line, append-only rules, non-blocking fallback, and retention note. |
+| `insight-compilation.md` | Standalone Developer, Web GUI Specialist | `{{insight_agent}}`, `{{insight_report_target}}`; placement: beside the output-format / report-template section. Contains compile-from-sink instructions (all entries, never filtered by `agent`), cross-agent corroboration note, lenient consumption, and forcing function (nothing-found type `improvement` hardcoded). |
+| `mcp-insight-capture.md` | Agents 3–6, 8 | `{{insight_pipeline_type}}`; placement: inside the observation section. Contains `ledger_add_observation` call shape with `loc`, action-gate rule, and retry-then-track fallback. Replaces `insight-capture.md` + `insight-compilation.md` for ledger personas. |
 | `developer-output-format.md` | Agent 3 | *(none)* |
 | `qa-operational-protocol.md` | Agent 4 | *(none)* |
 | `qa-output-format.md` | Agent 4 | *(none)* |
@@ -1262,6 +1272,22 @@ When the build system was introduced, the generated output differs from the orig
 <a name="c56"></a>
 34. **Do not edit `docs/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.
 
+---
+
+## Insight Capture Constraints
+
+<a name="c57"></a>
+35. **`insight-capture.md`, `insight-compilation.md`, and `mcp-insight-capture.md` are parameterised shared partials.** They live in `personas/shared/partials/` and follow the same structural precedent as `ax-feedback.md`: short, suite-agnostic behavioural fragments. Ledger personas (agents 3–6, 8) use `mcp-insight-capture.md` (parameterised by `{{insight_pipeline_type}}`), which routes observations through `ledger_add_observation`. Standalone personas use `insight-capture.md` and `insight-compilation.md` (parameterised by `{{insight_agent}}` and `{{insight_report_target}}`), which route through the `insights.jsonl` sidecar.
+
+<a name="c58"></a>
+36. **Metadata pairing rules.** For standalone personas: `insight_agent` and `insight_report_target` must be declared as a pair; standalone personas (no `role`) are exempt from the identity check. For ledger personas: `insight_pipeline_type` must match the persona's pipeline type from `PIPELINE_AGENT_MAP`.
+
+<a name="c59"></a>
+37. **Verdict-affecting findings must never be routed through observation channels.** Findings that determine a PASS/FAIL verdict (e.g., the Security Auditor's `vulnerability` and `risk` types, the Reviewer's blocking findings) must go through their normal findings channel only. Observation channels (MCP or sidecar) carry only non-blocking observations.
+
+<a name="c60"></a>
+38. **A capture partial must always be accompanied by an action gate.** Placing `{{> insight-capture}}` or `{{> mcp-insight-capture}}` in the observation section alone makes the capture described but never triggered. Each consuming persona must also bind an explicit capture instruction to a concrete step of its Operational Protocol — without this, the partial delivers end-of-session reconstruction, not incremental capture.
+
 ```
 ###  Path: `/personas/docs/agents/project-manifest/data-flows.md`
 
@@ -1673,6 +1699,9 @@ personas/
         ├── docs-operational-protocol.md
         ├── docs-output-format.md
         ├── incident-logging.md
+        ├── insight-capture.md
+        ├── insight-compilation.md
+        ├── mcp-insight-capture.md
         ├── planner-core-rules.md
         ├── planner-output-template.md
         ├── pm-output-format.md
@@ -1968,6 +1997,8 @@ Only injected when `da_file_name` is present in the merged context. Personas wit
 | `{{da_tools_list}}` | `persona.da_tools` → fallback to `tools` | Comma-separated quoted (no brackets) |
 | `{{da_tools_json}}` | `persona.da_tools` → fallback to `tools` | `['tool1', 'tool2']` (brackets included) |
 | `{{da_tools_block}}` | `persona.da_tools` → fallback to `tools` | YAML block sequence |
+
+> **These variables are currently unused in this workspace.** The `FRONTMATTER_DA` template (see `api-surface.md`) emits only `name` and `description`, and no persona content template references `{{da_tools_*}}`. Setting `da_tools:` in a persona YAML therefore has no effect on generated output. Tool availability for the Deep Agents target is determined at runtime by the orchestrator — see `orchestrator/docs/architecture.md` § Built-in Tool Suite. The variables remain available should a future `FRONTMATTER_DA` revision start emitting a tools field.
 
 ### Model Resolution (Ledger Suite)
 

@@ -8,3 +8,5 @@
 /docs/agents/**/pipeline-configuration.md
 /docs/agents/**/work-packages-draft.md
 /docs/agents/**/.orchestrator-run.json
+/docs/agents/**/insights.jsonl
+/docs/agents/insights/*.jsonl

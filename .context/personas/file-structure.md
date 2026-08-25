@@ -182,26 +182,12 @@ _SOURCE: Directory tree_
         ├── partials/
         │   └── agent-roster.md
         │   └── ax-feedback.md
-        │   └── developer-operational-protocol.md
-        │   └── developer-output-format.md
-        │   └── developer-strict-constraints.md
-        │   └── docs-operational-protocol.md
-        │   └── docs-output-format.md
         │   └── incident-logging.md
-        │   └── pm-output-format.md
+        │   └── insight-capture.md
+        │   └── insight-compilation.md
+        │   └── mcp-insight-capture.md
         │   └── pm-subagent-roster.md
-        │   └── qa-operational-protocol.md
-        │   └── qa-output-format.md
-        │   └── release-engineer-operational-protocol.md
-        │   └── release-engineer-output-format.md
-        │   └── reviewer-operational-protocol.md
-        │   └── reviewer-output-format.md
-        │   └── security-auditor-operational-protocol.md
-        │   └── security-auditor-output-format.md
         │   └── summary-crafting-guide.md
-        │   └── synthesis-knowledge-collection.md
-        │   └── synthesis-operational-protocol.md
-        │   └── synthesis-output-format.md
     └── standalone/
         └── README.md
         └── claude-code/
@@ -224,6 +210,7 @@ _SOURCE: Directory tree_
             ├── recipe-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
+            ├── usage-scenarios-curator.md
             ├── web-gui-specialist.md
             ├── whatsnew-curator.md
             ├── workspace-architect.md
@@ -247,6 +234,7 @@ _SOURCE: Directory tree_
             ├── recipe-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
+            ├── usage-scenarios-curator.md
             ├── web-gui-specialist.md
             ├── whatsnew-curator.md
             ├── workspace-architect.md
@@ -271,6 +259,7 @@ _SOURCE: Directory tree_
             │   ├── recipe-curator.md
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
+            │   ├── usage-scenarios-curator.md
             │   ├── web-gui-specialist.md
             │   ├── whatsnew-curator.md
             │   ├── workspace-architect.md
@@ -295,6 +284,7 @@ _SOURCE: Directory tree_
             │   └── recipe-curator.yaml
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
+            │   └── usage-scenarios-curator.yaml
             │   └── web-gui-specialist.yaml
             │   └── whatsnew-curator.yaml
             │   └── workspace-architect.yaml
@@ -318,6 +308,7 @@ _SOURCE: Directory tree_
             └── recipe-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
+            └── usage-scenarios-curator.agent.md
             └── web-gui-specialist.agent.md
             └── whatsnew-curator.agent.md
             └── workspace-architect.agent.md

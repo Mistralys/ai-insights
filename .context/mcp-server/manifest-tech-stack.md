@@ -36,7 +36,7 @@ Runtime, frameworks, architectural patterns, build tooling, and testing conventi
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@modelcontextprotocol/sdk` | ^1.0.4 | MCP server implementation and STDIO transport |
+| `@modelcontextprotocol/sdk` | ^1.30.0 | MCP server implementation and STDIO transport |
 | `zod` | ^3.24.1 | Runtime schema validation and type inference |
 | `proper-lockfile` | ^4.1.2 | Cross-platform file locking with retry logic |
 
@@ -51,6 +51,16 @@ Runtime, frameworks, architectural patterns, build tooling, and testing conventi
 | `tsx` | ^4.19.2 | TypeScript execution for development |
 | `typescript` | ^5.7.2 | TypeScript compiler |
 | `vitest` | ^4.0.18 | Unit and integration testing framework |
+
+### Dependency Overrides
+
+The package manifest pins patched transitive versions for production security advisories:
+
+| Package | Constraint | Reason |
+|---------|------------|--------|
+| `fast-uri` | >=3.1.5 | Resolves the host-confusion advisory in the SDK dependency chain |
+| `hono` | >=4.12.34 | Resolves advisories in the SDK's GUI/server dependency chain |
+| `ip-address` | >=10.3.1 | Resolves SSRF and trust-boundary classification advisories |
 
 ---
 

@@ -1215,6 +1215,27 @@ describe('completePipeline handler normalizes lenient inputs', () => {
     expect(pipeline.comments![0].timestamp.length).toBeGreaterThan(0);
   });
 
+  it('persists loc fields on comments through completePipeline', async () => {
+    const result = await completePipeline({
+      project_path: LENIENT_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      comments: [
+        { type: 'code-smell', priority: 'medium', note: 'Mixed concerns', loc: 'src/parser.ts' } as any,
+        { type: 'improvement', priority: 'low', note: 'Clean code' } as any,
+      ],
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.at(-1)!;
+    expect(pipeline.comments).toHaveLength(2);
+    expect(pipeline.comments![0].loc).toBe('src/parser.ts');
+    expect(pipeline.comments![1]).not.toHaveProperty('loc');
+  });
+
   // handoff_notes normalization (WP-003 — Fix B)
   it('coerces a bare-string handoff_notes to a one-element array in the persisted HandoffNote', async () => {
     const result = await completePipeline({

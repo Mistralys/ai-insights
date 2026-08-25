@@ -10,6 +10,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
 ```
 // Structure of documents
 └── scripts/
+    └── backfill-duration.js
     └── build-personas.js
     └── build-skills.js
     └── bundle-docs.js
@@ -25,6 +26,8 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── kill-orchestrator.js
     └── lib/
         ├── health-checks.js
+        ├── insight-validation.js
+        ├── ledger-dirs.js
         ├── persona-model-resolution.js
         ├── store-commands.js
         ├── yaml-utils.js
@@ -40,6 +43,217 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── run-orchestrator.js
     └── sync-personas.js
     └── validate-workflow-manifest.js
+
+```
+###  Path: `/scripts/backfill-duration.js`
+
+```js
+#!/usr/bin/env node
+/**
+ * scripts/backfill-duration.js
+ *
+ * One-time backfill: populates `duration_ms` in `.meta.json` for existing
+ * projects that already have `synthesis_generated_at` set on their root index
+ * (`project-ledger.json`) but predate the enrichment-cache field.
+ *
+ * duration_ms = synthesis_generated_at - date_created (milliseconds).
+ * Standalone projects with a zero-duration same-session import are nulled out,
+ * matching the semantics of `LedgerStore.writeRootIndex()`.
+ *
+ * Usage:
+ *   node scripts/backfill-duration.js [options]
+ *   node scripts/cli.js backfill-duration [options]
+ *
+ * Options:
+ *   --dry-run    Report planned changes without writing any files.
+ *   --verbose    Log each project processed.
+ *
+ * Store discovery order:
+ *   1. ~/.ai-insights/stores.json — multi-store config
+ *   2. LEDGER_ROOT env var         — single-store fallback path
+ *
+ * Idempotent: projects whose .meta.json already has a non-null duration_ms
+ * are skipped.
+ */
+
+import { readFileSync, writeFileSync, renameSync, existsSync, statSync } from 'fs';
+import { join, resolve } from 'path';
+import { homedir } from 'os';
+import { listAllProjectDirs } from './lib/ledger-dirs.js';
+
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes('--dry-run');
+const VERBOSE = args.includes('--verbose');
+
+// ─── Store discovery ──────────────────────────────────────────────────────────
+
+/**
+ * Returns an array of absolute store root paths.
+ * Precedence: stores.json → LEDGER_ROOT env var.
+ * @returns {string[]}
+ */
+function resolveStorePaths() {
+  const storesConfigPath = join(homedir(), '.ai-insights', 'stores.json');
+  if (existsSync(storesConfigPath)) {
+    try {
+      const config = JSON.parse(readFileSync(storesConfigPath, 'utf8'));
+      if (Array.isArray(config.stores) && config.stores.length > 0) {
+        const paths = config.stores
+          .map((s) => (typeof s.path === 'string' ? resolve(s.path.replace(/^~/, homedir())) : null))
+          .filter(Boolean);
+        if (paths.length > 0) {
+          return paths;
+        }
+      }
+    } catch {
+      console.error(`[backfill-duration] Warning: failed to parse ${storesConfigPath} — ignoring.`);
+    }
+  }
+
+  const envRoot = process.env['LEDGER_ROOT'];
+  if (envRoot) {
+    return [resolve(envRoot)];
+  }
+
+  return [];
+}
+
+// ─── Backfill logic ───────────────────────────────────────────────────────────
+
+/**
+ * Backfills `duration_ms` for a single project directory.
+ * @param {string} projectDir
+ * @returns {{ action: 'skipped-has-duration'|'skipped-no-synthesis'|'skipped-error'|'backfilled'|'dry-run', durationMs?: number|null, error?: string }}
+ */
+function backfillProject(projectDir) {
+  const metaPath = join(projectDir, '.meta.json');
+  const rootIndexPath = join(projectDir, 'project-ledger.json');
+
+  let meta;
+  try {
+    meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+  } catch (err) {
+    return { action: 'skipped-error', error: `Malformed .meta.json: ${err.message}` };
+  }
+
+  if (meta.duration_ms !== undefined && meta.duration_ms !== null) {
+    return { action: 'skipped-has-duration' };
+  }
+
+  let rootIndex;
+  try {
+    rootIndex = JSON.parse(readFileSync(rootIndexPath, 'utf8'));
+  } catch (err) {
+    return { action: 'skipped-error', error: `Malformed project-ledger.json: ${err.message}` };
+  }
+
+  if (!rootIndex.synthesis_generated_at) {
+    return { action: 'skipped-no-synthesis' };
+  }
+
+  // Use the root index's date_created — it is the source of truth (e.g. standalone imports
+  // derive it from plan.md's filesystem birthtime, which can predate .meta.json's own
+  // date_created by days). Falling back to meta.date_created would silently misreport duration.
+  const created = new Date(rootIndex.date_created ?? meta.date_created).getTime();
+  const synth = new Date(rootIndex.synthesis_generated_at).getTime();
+
+  let durationMs;
+  if (isNaN(created) || isNaN(synth) || synth < created) {
+    durationMs = null;
+  } else if (synth === created && rootIndex.runner === 'standalone') {
+    durationMs = null;
+  } else {
+    durationMs = synth - created;
+  }
+
+  if (DRY_RUN) {
+    return { action: 'dry-run', durationMs };
+  }
+
+  const updatedMeta = { ...meta, duration_ms: durationMs };
+  const tmp = metaPath + '.tmp';
+  writeFileSync(tmp, JSON.stringify(updatedMeta, null, 2) + '\n', 'utf8');
+  renameSync(tmp, metaPath);
+
+  return { action: 'backfilled', durationMs };
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const storePaths = resolveStorePaths();
+
+  if (storePaths.length === 0) {
+    console.error(
+      '[backfill-duration] Error: no store paths found.\n' +
+      '  Options:\n' +
+      '    ~/.ai-insights/stores.json  Configure multi-store paths.\n' +
+      '    LEDGER_ROOT=<path>          Set an env var for single-store mode.'
+    );
+    process.exit(1);
+  }
+
+  if (DRY_RUN) {
+    console.log('[backfill-duration] Dry-run mode — no files will be written.\n');
+  }
+
+  let total = 0;
+  let backfilled = 0;
+  let skippedHasDuration = 0;
+  let skippedNoSynthesis = 0;
+  let skippedError = 0;
+
+  for (const storePath of storePaths) {
+    if (!existsSync(storePath) || !statSync(storePath).isDirectory()) {
+      console.log(`[backfill-duration] Store not found, skipping: ${storePath}`);
+      continue;
+    }
+
+    const projectDirs = await listAllProjectDirs(storePath);
+    console.log(`[backfill-duration] Store: ${storePath} (${projectDirs.length} project(s))`);
+
+    for (const projectDir of projectDirs) {
+      const result = backfillProject(projectDir);
+      total++;
+
+      switch (result.action) {
+        case 'skipped-has-duration':
+          skippedHasDuration++;
+          if (VERBOSE) console.log(`  [skip]      ${projectDir} — already has duration_ms`);
+          break;
+        case 'skipped-no-synthesis':
+          skippedNoSynthesis++;
+          if (VERBOSE) console.log(`  [skip]      ${projectDir} — no synthesis_generated_at`);
+          break;
+        case 'skipped-error':
+          skippedError++;
+          console.log(`  [error]     ${projectDir} — ${result.error}`);
+          break;
+        case 'dry-run':
+          backfilled++;
+          console.log(`  [dry-run]   ${projectDir} — duration_ms would be ${result.durationMs}`);
+          break;
+        case 'backfilled':
+          backfilled++;
+          if (VERBOSE) console.log(`  [backfilled] ${projectDir} — duration_ms = ${result.durationMs}`);
+          break;
+      }
+    }
+  }
+
+  console.log(
+    `\n[backfill-duration] Done. ${total} project(s) processed: ` +
+    `${backfilled} ${DRY_RUN ? 'would be backfilled' : 'backfilled'}, ` +
+    `${skippedHasDuration} skipped (already had duration), ` +
+    `${skippedNoSynthesis} skipped (no synthesis), ` +
+    `${skippedError} skipped (error).`
+  );
+}
+
+main().catch((err) => {
+  console.error('[backfill-duration] Fatal:', err.message ?? err);
+  process.exit(1);
+});
 
 ```
 ###  Path: `/scripts/build-personas.js`
@@ -59,6 +273,7 @@ import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
+import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -499,7 +714,24 @@ if (!CHECK) {
     process.exit(1);
   }
 }
+// Always: validate insight_agent / insight_report_target pairing and role match.
+{
+  const suiteMetas = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
+  ];
 
+  const errors = validateInsightFieldsInDirs(suiteMetas);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] insight_agent validation failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
 ```
 ###  Path: `/scripts/build-skills.js`
 
@@ -1593,6 +1825,11 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdBackfillDuration(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'backfill-duration.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 // ─── Store command group ──────────────────────────────────────────────────────
 
 /**
@@ -1612,7 +1849,7 @@ function printStoreList(stores, defaultStore) {
   }
 }
 
-function cmdStore(args) {
+async function cmdStore(args) {
   const sub  = args[0];
   const rest = args.slice(1);
 
@@ -1663,7 +1900,7 @@ function cmdStore(args) {
     }
 
     case 'list': {
-      const result = storeList();
+      const result = await storeList();
       if (!result.ok) {
         log(`  ${C.red('✗')} Failed to load stores.json.`, 'red');
         process.exit(1);
@@ -2029,6 +2266,19 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdKillOrchestrator,
+  },
+  {
+    id:           'backfill-duration',
+    key:          null,
+    label:        'Backfill project duration',
+    category:     'MCP Server',
+    description:  'One-time backfill of duration_ms in .meta.json for existing projects',
+    helpVariants: [
+      ['backfill-duration --dry-run', 'Preview changes without writing'],
+      ['backfill-duration --verbose', 'Log each project processed'],
+    ],
+    helpHidden:   true,
+    run:          cmdBackfillDuration,
   },
   {
     id:           'doctor',
@@ -3044,6 +3294,7 @@ import fs from 'fs';
 import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { pathToFileURL } from 'url';
+import { listAllProjectDirs } from './lib/ledger-dirs.js';
 
 // ---------------------------------------------------------------------------
 // 1. Resolve paths
@@ -3120,37 +3371,31 @@ function ensureDistFresh() {
 
 /**
  * Scans the ledger storage root and returns a Set of all known project slugs.
- * Handles both the legacy flat layout ({ledgerRoot}/{slug}/) and the
- * namespaced layout ({ledgerRoot}/{repoName}/{slug}/).
+ * Directory discovery (legacy flat layout vs. namespaced
+ * `{repoName}/{slug}/` layout) is delegated to the canonical
+ * `LedgerStore.listAllProjectDirs()` via `scripts/lib/ledger-dirs.js` —
+ * never re-implemented here.
  *
- * @returns {Set<string>}
+ * @returns {Promise<Set<string>>}
  */
-function collectKnownSlugs(verbose = false) {
-  if (!fs.existsSync(LEDGER_ROOT)) return new Set();
-
+async function collectKnownSlugs(verbose = false) {
   const slugs = new Set();
 
-  for (const entry of fs.readdirSync(LEDGER_ROOT, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+  let projectDirs;
+  try {
+    projectDirs = await listAllProjectDirs(LEDGER_ROOT);
+  } catch (err) {
+    console.warn(`  ⚠ Could not scan ${LEDGER_ROOT}: ${err.message}`);
+    if (verbose) {
+      console.warn(err.stack);
+    }
+    return slugs;
+  }
 
-    if (PLAN_SLUG_RE.test(entry.name)) {
-      // Legacy layout: slug at the ledger root.
-      slugs.add(entry.name);
-    } else {
-      // Namespaced layout: repoName/slug/
-      const repoDir = path.join(LEDGER_ROOT, entry.name);
-      try {
-        for (const slugEntry of fs.readdirSync(repoDir, { withFileTypes: true })) {
-          if (slugEntry.isDirectory() && PLAN_SLUG_RE.test(slugEntry.name)) {
-            slugs.add(slugEntry.name);
-          }
-        }
-      } catch (err) {
-        console.warn(`  ⚠ Could not read ${repoDir}: ${err.message}`);
-        if (verbose) {
-          console.warn(err.stack);
-        }
-      }
+  for (const dir of projectDirs) {
+    const slug = path.basename(dir);
+    if (PLAN_SLUG_RE.test(slug)) {
+      slugs.add(slug);
     }
   }
 
@@ -3290,7 +3535,7 @@ async function runBatch(importFn, scanRoot, dryRun, verbose = false) {
     return;
   }
 
-  const knownSlugs = collectKnownSlugs(verbose);
+  const knownSlugs = await collectKnownSlugs(verbose);
   const toImport       = candidates.filter(p => !knownSlugs.has(path.basename(p)));
   const alreadyTracked = candidates.filter(p =>  knownSlugs.has(path.basename(p)));
 
@@ -4607,6 +4852,187 @@ export async function runChecks(costFilter) {
 }
 
 ```
+###  Path: `/scripts/lib/insight-validation.js`
+
+```js
+/**
+ * scripts/lib/insight-validation.js
+ *
+ * Validates insight_agent / insight_report_target pairing and role match
+ * across persona YAML metadata. Used by build-personas.js.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { parseYamlScalars } from './yaml-utils.js';
+
+/**
+ * Validate a single persona's YAML text for insight field consistency.
+ * @param {string} yamlText - raw YAML content
+ * @param {string} filename - filename for error messages
+ * @returns {string[]} array of error strings (empty = valid)
+ */
+export function validateInsightFields(yamlText, filename) {
+  const fields = parseYamlScalars(yamlText, ['role', 'insight_agent', 'insight_report_target']);
+  const errors = [];
+
+  const hasAgent  = 'insight_agent' in fields;
+  const hasTarget = 'insight_report_target' in fields;
+
+  if (hasAgent !== hasTarget) {
+    const missing = hasAgent ? 'insight_report_target' : 'insight_agent';
+    errors.push(
+      `${filename}: defines ${hasAgent ? 'insight_agent' : 'insight_report_target'} ` +
+      `but not ${missing}. Both must be declared together.`,
+    );
+  }
+
+  if (hasAgent && fields.role && fields.insight_agent !== fields.role) {
+    errors.push(
+      `${filename}: insight_agent "${fields.insight_agent}" differs from ` +
+      `role "${fields.role}". They must be identical for ledger personas.`,
+    );
+  }
+
+  return errors;
+}
+
+/**
+ * Validate insight fields across all persona YAML files in the given meta directories.
+ * @param {string[]} metaDirs - absolute paths to suite meta directories
+ * @returns {string[]} array of error strings (empty = all valid)
+ */
+export function validateInsightFieldsInDirs(metaDirs) {
+  const errors = [];
+
+  for (const metaDir of metaDirs) {
+    if (!fs.existsSync(metaDir)) continue;
+    const yamlFiles = fs.readdirSync(metaDir).filter(
+      f => f.endsWith('.yaml') && !f.startsWith('_'),
+    );
+
+    for (const yamlFile of yamlFiles) {
+      const text = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
+      errors.push(...validateInsightFields(text, yamlFile));
+    }
+  }
+
+  return errors;
+}
+
+```
+###  Path: `/scripts/lib/ledger-dirs.js`
+
+```js
+/**
+ * scripts/lib/ledger-dirs.js
+ *
+ * Canonical project-directory discovery for root-level `scripts/` utilities.
+ *
+ * Ledger project storage supports two on-disk layouts:
+ *   - Legacy flat layout:      {storeRoot}/{slug}/
+ *   - Namespaced layout:       {storeRoot}/{repoName}/{slug}/
+ *
+ * The rules for distinguishing them (dot-prefix exclusion, depth-1 vs depth-2
+ * `.meta.json` probing) are owned by `LedgerStore.listAllProjectDirs()` in the
+ * MCP server source. This module loads that compiled implementation from
+ * `mcp-server/dist/` and re-exports it for Node scripts, so the discovery
+ * logic is never re-implemented outside of `mcp-server/src/storage/ledger-store.ts`.
+ *
+ * Rebuilds `mcp-server/dist/` automatically when stale, mirroring the
+ * freshness guard already used by `scripts/import-standalone.js`.
+ */
+
+import path from 'path';
+import fs from 'fs';
+import { spawnSync } from 'child_process';
+import { pathToFileURL } from 'url';
+
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const MCP_SERVER_DIR = path.join(WORKSPACE_ROOT, 'mcp-server');
+const MCP_SRC_DIR = path.join(MCP_SERVER_DIR, 'src');
+const MCP_DIST_SENTINEL = path.join(MCP_SERVER_DIR, 'dist', 'index.js');
+const MCP_DIST_LEDGER_STORE = path.join(MCP_SERVER_DIR, 'dist', 'storage', 'ledger-store.js');
+
+/**
+ * Recursively returns the largest mtime (ms) of any file under `dir`.
+ * @param {string} dir
+ * @returns {number}
+ */
+function latestMtime(dir) {
+  let latest = -Infinity;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      latest = Math.max(latest, latestMtime(full));
+    } else if (entry.isFile()) {
+      latest = Math.max(latest, fs.statSync(full).mtimeMs);
+    }
+  }
+  return latest;
+}
+
+/**
+ * Rebuilds `mcp-server/dist/` when missing or older than `mcp-server/src/`.
+ * Exits the process on build failure, consistent with `import-standalone.js`.
+ */
+function ensureMcpDistFresh() {
+  let needBuild = !fs.existsSync(MCP_DIST_SENTINEL);
+  if (!needBuild) {
+    needBuild = latestMtime(MCP_SRC_DIR) > fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
+  }
+
+  if (needBuild) {
+    console.log('[ledger-dirs] mcp-server/dist is stale or missing — building MCP server...');
+    const isWindows = process.platform === 'win32';
+    const npmCmd = isWindows ? 'npm.cmd' : 'npm';
+    const build = spawnSync(npmCmd, ['run', 'build'], {
+      cwd: MCP_SERVER_DIR,
+      stdio: 'inherit',
+      shell: isWindows,
+    });
+    if (build.status !== 0) {
+      console.error('[ledger-dirs] MCP server build failed.');
+      process.exit(build.status ?? 1);
+    }
+  }
+
+  if (!fs.existsSync(MCP_DIST_LEDGER_STORE)) {
+    console.error(`[ledger-dirs] Error: compiled module not found at ${MCP_DIST_LEDGER_STORE}`);
+    console.error('Try running: cd mcp-server && npm run build');
+    process.exit(1);
+  }
+}
+
+/** @type {Promise<{ LedgerStore: unknown }> | null} */
+let ledgerStoreModulePromise = null;
+
+/**
+ * Loads (and caches) the compiled `LedgerStore` class from `mcp-server/dist/`.
+ * @returns {Promise<any>}
+ */
+async function loadLedgerStore() {
+  ensureMcpDistFresh();
+  if (!ledgerStoreModulePromise) {
+    ledgerStoreModulePromise = import(pathToFileURL(MCP_DIST_LEDGER_STORE).href);
+  }
+  const mod = await ledgerStoreModulePromise;
+  return mod.LedgerStore;
+}
+
+/**
+ * Returns the absolute storage directory path for every project found under
+ * `storeRoot`, delegating to `LedgerStore.listAllProjectDirs()`.
+ *
+ * @param {string} storeRoot - Absolute path to a ledger store root.
+ * @returns {Promise<string[]>}
+ */
+export async function listAllProjectDirs(storeRoot) {
+  const LedgerStore = await loadLedgerStore();
+  return LedgerStore.listAllProjectDirs(storeRoot);
+}
+
+```
 ###  Path: `/scripts/lib/persona-model-resolution.js`
 
 ```js
@@ -4744,7 +5170,7 @@ export function resolveModel(
       if (slug && slug !== 'inherit') {
         const entry = entryForSlug(slug);
         return {
-          model:      entry ? entry.slug : slug,
+          model:      entry ? entry.name : slug,
           model_slug: slug,
           cc_model:   entry ? entry.cc_model : 'inherit',
         };
@@ -4757,7 +5183,7 @@ export function resolveModel(
   if (yamlModelSlug && yamlModelSlug !== 'inherit') {
     const entry = entryForSlug(yamlModelSlug);
     return {
-      model:      entry ? entry.slug : yamlModelSlug,
+      model:      entry ? entry.name : yamlModelSlug,
       model_slug: yamlModelSlug,
       cc_model:   entry ? entry.cc_model : 'inherit',
     };
@@ -4769,7 +5195,7 @@ export function resolveModel(
     if (slug && slug !== 'inherit') {
       const entry = entryForSlug(slug);
       return {
-        model:      entry ? entry.slug : slug,
+        model:      entry ? entry.name : slug,
         model_slug: slug,
         cc_model:   entry ? entry.cc_model : 'inherit',
       };
@@ -4781,7 +5207,7 @@ export function resolveModel(
   if (sharedModelSlug && sharedModelSlug !== 'inherit') {
     const entry = entryForSlug(sharedModelSlug);
     return {
-      model:      entry ? entry.slug : sharedModelSlug,
+      model:      entry ? entry.name : (sharedModelName || sharedModelSlug),
       model_slug: sharedModelSlug,
       cc_model:   entry ? entry.cc_model : 'inherit',
     };
@@ -4828,6 +5254,7 @@ import { homedir } from 'os';
 import { join, resolve } from 'path';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
+import { listAllProjectDirs } from './ledger-dirs.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -5074,29 +5501,26 @@ export function storeRemove({ id, configPath } = {}) {
 /**
  * Returns a summary of all registered stores with repo and project counts.
  *
+ * Project counts are derived from `LedgerStore.listAllProjectDirs()` (via
+ * `scripts/lib/ledger-dirs.js`) — directory discovery is never re-implemented
+ * here.
+ *
  * @param {{ configPath?: string }} [opts]
- * @returns {{ ok: boolean, stores: Array, default_store?: string }}
+ * @returns {Promise<{ ok: boolean, stores: Array, default_store?: string }>}
  */
-export function storeList({ configPath } = {}) {
+export async function storeList({ configPath } = {}) {
   const cp = configPath ?? resolveConfigPath();
   const config = loadConfig(cp);
   if (!config) return { ok: true, stores: [] };
 
-  const stores = config.stores.map(s => {
+  const stores = await Promise.all(config.stores.map(async (s) => {
     const absPath  = expandPath(s.path);
     const registry = loadRegistry(absPath);
     const repoCount = registry.repositories.length;
 
-    // Two-level scan: {storePath}/{repoName}/{slug}/
     let projectCount = 0;
     try {
-      for (const repoEntry of fs.readdirSync(absPath, { withFileTypes: true })) {
-        if (!repoEntry.isDirectory() || repoEntry.name.startsWith('.')) continue;
-        const repoDir = join(absPath, repoEntry.name);
-        for (const slugEntry of fs.readdirSync(repoDir, { withFileTypes: true })) {
-          if (slugEntry.isDirectory()) projectCount++;
-        }
-      }
+      projectCount = (await listAllProjectDirs(absPath)).length;
     } catch { /* store path may not exist yet — skip silently */ }
 
     return {
@@ -5107,7 +5531,7 @@ export function storeList({ configPath } = {}) {
       repo_count:    repoCount,
       project_count: projectCount,
     };
-  });
+  }));
 
   return { ok: true, stores, default_store: config.default_store };
 }
