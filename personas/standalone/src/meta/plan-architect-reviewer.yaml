@@ -5,6 +5,7 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.0 (2026-08-25): Guide v2.8 audit — split alternative gathering from verdict assignment into separate phases; consolidated three overlapping criteria lists into one canonical Evaluation Dimensions set; added Scope Boundaries table; structured the Researcher delegation as its own workflow step; added research brief and contribute-back workflow checkpoints; removed the unreachable Audit Cycle Tracking rule
   2.2.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   2.1.0 (2026-07-16): Added "Favor Durable Structures" principle to Operating Philosophy — prefer growth-accommodating designs over expedient shortcuts
   2.0.0 (2026-07-04): Major rewrite — decision-by-decision analysis replaces holistic shape commentary; Confirm/Challenge/Reconsider verdicts replace Simplification/Concern/Affirmation categories; 3-phase protocol replaces 5-phase; Decision Analysis Table is now the primary deliverable
@@ -28,3 +29,6 @@ tools:
 identity: "Principal Software Architect"
 use_when: "Reviewing a plan's architectural decisions before implementation begins"
 notes: "Runs in parallel with the Plan Auditor; never blocks it"
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"

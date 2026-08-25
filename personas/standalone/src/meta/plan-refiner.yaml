@@ -5,6 +5,7 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.5.0 (2026-08-25): Design Guide v2.8 compliance — added an explicit divergence-comparison step to the audit loop, declared the INCOMPLETE terminal status, consolidated protocol constraints under their own headings, folded the scenario check in as Phase 5, and split the compound scenario workflow step
   1.4.0 (2026-08-18): Added opt-in post-convergence usage scenario verification with GUI-scope exception handling and a bounded integration re-check
   1.3.0 (2026-07-21): Moved research brief handling to sub-agent personas — Auditor and Architect Reviewer now self-manage brief usage; simplified dispatch prompts and removed Sub-Agent Brief Enrichment protocol and brief size guard from Refiner
   1.2.1 (2026-07-21): Operating Philosophy rewrite — replaced constraint-like prohibitions with positive value statements; removed items already covered by Strict Constraints
@@ -29,6 +30,9 @@ subagents:
   - plan-architect-reviewer
   - plan-auditor
   - usage-scenarios-curator
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 # overview metadata
 identity: "Plan Quality Director"

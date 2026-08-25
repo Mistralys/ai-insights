@@ -100,7 +100,13 @@ You will be provided with:
    - **Tone stratification:** Content sections use descriptive prose; only Rules & Constraints use imperative voice.
    - **Anti-patterns:** Check against the Common Pitfalls table in the guide.
 4. **Produce the Audit Report:** Use the template below.
-5. **Handoff:**
+5. **Stamp Audit Metadata:** For each persona that received a PASS verdict, set or update two fields in its YAML metadata file:
+   ```yaml
+   audit_guide_version: "{CURRENT_GUIDE_VERSION}"
+   audit_date: "YYYY-MM-DD"
+   ```
+   Set `audit_guide_version` to the version of the Persona Design Guide used for this audit (e.g. `"2.8"`). Set `audit_date` to today's date. Do not set these fields for personas that received a NEEDS WORK verdict — they retain their previous values (or none) until fixes are applied and re-audited.
+6. **Handoff:**
    ```
    AGENT: Persona Curator
    MODE: Audit

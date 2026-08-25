@@ -5,6 +5,7 @@ vs_file_name: module-intent-architect.agent.md
 id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 changelog: |
+  1.1.0 (2026-08-25): Redesigned for Design Guide v2.8 compliance
   1.0.4 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.0.3 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.2 (2026-02-24): Improved documentation generation guidance
@@ -31,6 +32,9 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 # overview metadata
 identity: "Staff Software Architect"
