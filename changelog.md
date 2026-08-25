@@ -1,30 +1,30 @@
 # AI Insights Changelog
 
-## v2.9.0 - **WIP UNRELEASED**
-> mcp v2.8.0 · orchestrator v1.4.0 · personas v3.32.0
+## v2.9.0 - **WIP UNRELEASED** Multi-Store Ledger and Insight Channel Consolidation
+> mcp v2.8.0 · orchestrator v1.4.0 · personas v3.31.0
 
-- GUI: Added sortable Duration column to the project list.
-- MCP: Project duration is now cached in project metadata on synthesis completion.
-- Scripts: Added `backfill-duration` one-time command to populate duration for existing projects.
-- Scripts: Added canonical project-directory discovery helper consumed by all ledger scripts.
-- MCP: Multi-store storage layer with Stores CRUD tab in the GUI.
+**This release ships the multi-store storage layer, enabling cross-device ledger sync by
+registering multiple store roots in the new Stores GUI tab.** Ledger agents now route code
+observations through `ledger_add_observation` MCP calls — replacing the local sidecar file —
+with an optional `loc` field for file-level context.
+
+- MCP: Multi-store storage layer with Stores CRUD tab, cross-store repo scanning, and
+  store-aware knowledge and repository handlers.
 - MCP: Knowledge insight IDs migrated from integers to UUID v4.
-- MCP: Work packages now carry title and description; spec files removed.
-- MCP: Standalone imports preserve authored usage scenario files.
+- MCP: Work packages now carry title and description fields; spec files retired.
+- MCP: Added `ledger_ping` tool; `ledger_get_next_action` now returns `plan_path`.
+- MCP: Added `loc` to `ledger_add_observation` and `insight_pipeline_type` routing.
 - MCP: Fixed release engineering PASS routing on multi-stage pipelines.
-- MCP: Added the ping tool as a lightweight server health check.
-- GUI: Sortable repos, project filter, breadcrumbs, and modal dialogs.
-- Orchestrator: Added store resolution utility for multi-store lookup.
-- Personas: Added Usage Scenarios Curator for scenario generation and coverage checks.
-- Personas: Plan Refiner gains opt-in scenario verification.
-- Personas: Retired WP spec file mechanism across all ledger agents.
-- Personas: Added agents-overview generator with overview metadata.
-- Scripts: Added store management CLI subcommands.
-- Scripts: Added knowledge UUID migration script.
-- MCP: `ledger_get_next_action` now includes `plan_path` in responses.
-- Personas: Insight sidecar integration across all three persona suites.
-- Build: Added `insight_agent` field validation to the persona build system.
-- Build: Fixed model assignment resolution using model name instead of internal slug.
+- GUI: Sortable repos and project list, project filter, breadcrumbs, and modal dialogs.
+- GUI: Project duration column added; duration cached on synthesis completion.
+- Orchestrator: Added store resolution utility for multi-store ledger lookup.
+- Personas: Ledger agents route observations through `ledger_add_observation` with
+  `insight_pipeline_type`; standalone agents gain sidecar insight capture.
+- Personas: Added Usage Scenarios Curator; Plan Refiner gains scenario verification.
+- Personas: Retired WP spec file mechanism; PM gains ping-based preflight.
+- Scripts: Added store management CLI subcommands and knowledge UUID migration script.
+- Scripts: Added `backfill-duration` and canonical ledger-directory discovery helper.
+- Build: Added `insight_agent` field validation; fixed model assignment resolution.
 
 ## v2.8.0 - Model Settings & GUI Improvements
 > mcp v2.7.0 · orchestrator v1.3.2 · personas v3.30.0

@@ -1,23 +1,32 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.9.0 - **WIP UNRELEASED**
-- Tool: `ledger_get_next_action` now includes `plan_path` in every JSON response.
-- Storage: Added multi-store layer with store router, registry, and manager.
-- Storage: Centralized project-directory discovery; store context and resolution utilities added.
+## v2.8.0 - **WIP UNRELEASED** Multi-Store Ledger and Observation Routing
+
+**This release introduces the multi-store storage layer, allowing users to register multiple
+ledger roots for cross-device sync via the new Stores GUI tab.** Knowledge insight IDs are
+migrated from integers to UUID v4. Observations can now include a `loc` field pointing to the
+affected file or module, enabling the insight channel consolidation in ledger personas.
+
+- Storage: Added multi-store layer with store router, registry, manager, and cross-store
+  undeclared repo scanning.
+- Storage: Centralized project-directory discovery shared across all tools and scripts.
 - GUI: Added Stores CRUD tab with hot-reload backend for managing store configurations.
 - GUI: Multi-store API handlers for repositories and knowledge operations.
-- GUI: Sortable repository list, project filter, and breadcrumb navigation added.
-- GUI: Strategy detail page replaced with a modal dialog.
+- GUI: Sortable repository list, project filter, breadcrumb navigation, and modal dialogs.
 - GUI: Fixed Windows path handling in project resolution.
 - Schema: Added `duration_ms` to project metadata; auto-computed on synthesis and import.
 - Knowledge: Migrated insight IDs from integers to UUID v4; fixed multi-store pagination.
-- Tools: Added `ledger_ping` health-check, `title`/`description` fields on work packages.
+- Tools: Added `ledger_ping` health-check tool.
+- Tools: Added `title` and `description` fields to work packages.
+- Tools: Added optional `loc` parameter to `ledger_add_observation` for file/module context.
+- Tools: Added `insight_pipeline_type` to the observation routing model.
 - Tools: Removed `work_package_file`; sorted repositories in list responses.
 - Tools: Fixed release engineering PASS routing stalling on multi-stage pipelines.
 - Tools: Standalone imports optionally archive `usage-scenarios.md`.
+- Tools: `ledger_get_next_action` now includes `plan_path` in every JSON response.
 - Scripts: Added `backfill-duration` command for populating duration on existing projects.
-- Dependencies: Updated `@modelcontextprotocol/sdk` with enforced patched transitive versions.
-- Tests: Added coverage for multi-store, duration, knowledge pagination, and import flows.
+- Tests: Added coverage for multi-store, duration, knowledge pagination, import flows,
+  and `loc` field persistence on observations.
 
 ## v2.6.0 - Project Summary Field and Structured Dialogues
 
