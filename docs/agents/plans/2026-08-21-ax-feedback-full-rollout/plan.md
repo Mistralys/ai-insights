@@ -1,7 +1,7 @@
 # Plan
 
 ## Plan Audit Cycles
-- Audits: none — Plan Auditor v1.7.0
+- Audits: 1 — Plan Auditor v1.7.0
 - Architectural Reviews: none — Plan Architect Reviewer v2.2.0
 
 ## Prior Project Context
@@ -32,16 +32,18 @@ that do not yet include it, across all three suites (ledger, standalone, ledger-
 must be corrected **before** replication: its current form emits a section-terminating `## AX Feedback`
 H2 inside the `## Workflow` section, its literal template is mangled by the build system's separator
 handling, and it lacks the incremental capture sink that Persona Design Guide Pattern 6 requires of
-every observation side-channel. Replicating the current form would multiply all three defects by 44.
+every observation side-channel. Replicating the current form would multiply all three defects by 48.
 
 The capture sink is the agent's todo list. Making it universally available requires edits on two of
 the three targets, which use different field names *and* different tool names: `tools: [todo]` for
 VS Code, `cc_tools: [TodoRead, TodoWrite]` for Claude Code. Deep Agents needs no edit at all — its
 generated frontmatter carries no tools field, and `create_deep_agent()` merges `write_todos` into
-every agent's tool suite unconditionally. The Claude Code gap is the larger of the two — the ledger
-suite's `default_cc_tools` omits both Todo tools, leaving all 9 ledger personas without a sink on
-that target, including the Developer and Synthesis personas already running AX Feedback. No persona
-gains filesystem write access.
+every agent's tool suite unconditionally. Claude Code's tool list falls back from `cc_tools:` directly
+to `tools:` when a persona declares no override — the 9 ledger personas never override `cc_tools:`, so
+they already inherit a Claude Code sink from the VS Code `tools:` list, including the Developer and
+Synthesis personas already running AX Feedback. The real Claude Code gap is limited to the 4 personas
+that declare their own `cc_tools:` override without Todo tools; overrides do not benefit from the
+fallback. No persona gains filesystem write access.
 
 After the partial is fixed, the rollout is mechanical: for each persona, add a numbered "AX Feedback"
 workflow step before the handoff, bump the handoff step number, and add a changelog entry to the
@@ -71,7 +73,7 @@ Three distinct handoff patterns exist across the 38 remaining personas:
 | Plain text `STATUS: …` block | 29 files | `readme-curator.md` (already done) |
 | Separate `## Handoff` section (not numbered) | 3 standalone files | `agents-md-curator.md`, `ctx-architect.md`, `usage-scenarios-curator.md` |
 
-Additionally, 4 multi-mode personas require one `ax-feedback` insertion per mode (following the
+Additionally, 7 multi-mode personas require one `ax-feedback` insertion per mode (following the
 `changelog-curator.md` precedent):
 
 | Persona | Modes | Insertions |
@@ -80,6 +82,14 @@ Additionally, 4 multi-mode personas require one `ax-feedback` insertion per mode
 | `manifest-curator.md` | Create, Update, Audit | 3 |
 | `whatsnew-curator.md` | Generate, Rewrite | 2 |
 | `standalone-archiver.md` | Import, Update | 2 |
+| `documentation-curator.md` | Update, Audit, Create | 3 |
+| `workspace-architect.md` | Onboard, Upgrade | 2 |
+| `recipe-curator.md` | Single Recipe, Weekly Plan | 2 |
+
+`documentation-curator.md`, `workspace-architect.md`, and `recipe-curator.md` are each structured as
+separate `## Mode: …` / `## Workflow — … Mode` sections with their own numbered workflow and their own
+plain-text `STATUS:` handoff — the same multi-mode shape as `changelog-curator.md`, not a single
+workflow with one handoff. They are reclassified here accordingly.
 
 Two further personas end a **single** workflow step with two alternative `STATUS:` variants
 (`plan-refiner.md` steps 9/10, `ledger-doctor.md` step 10). These are terminal-status alternatives
@@ -103,17 +113,21 @@ quality for long-session personas (ledger Developer, QA, Reviewer, `plan-refiner
 
 ### Overlap with `incident-logging`
 
-Five ledger personas already carry an **Environment Incident Logging** constraint via the
+Five ledger personas directly carry an **Environment Incident Logging** constraint via the
 `{{> incident-logging}}` partial: `4-qa.md` (L54), `5-security-auditor.md` (L53), `6-reviewer.md`
-(L70), `7-release-engineer.md` (L49), `8-documentation.md` (L50). Its scope ("tool returning
-unexpected errors, file operations silently failing") is a strict subset of AX Feedback's. Two
-overlapping duties covering the same information means the agent reports it once, in whichever slot
-it reaches first — non-deterministically. This plan resolves the overlap by folding all non-blocking
-reporting into AX Feedback (see Step 7).
+(L70), `7-release-engineer.md` (L49), `8-documentation.md` (L50). A sixth persona carries the same
+scope indirectly: `3-developer.md` (L137) includes `{{> developer-strict-constraints}}`, and that
+shared partial itself embeds `{{> incident-logging}}` (L13) as its own "Environment Incident Logging"
+bullet. `3-developer.md` already shipped as a Step-0 proof-of-concept persona, so it enters this fold
+alongside the 5 direct-inclusion personas. Its scope ("tool returning unexpected errors, file
+operations silently failing") is a strict subset of AX Feedback's. Two overlapping duties covering the
+same information means the agent reports it once, in whichever slot it reaches first —
+non-deterministically. This plan resolves the overlap by folding all non-blocking reporting into AX
+Feedback (see Step 5).
 
 ### Sub-agent propagation
 
-Eight personas dispatch work via `runSubagent` / the `Task` tool: `2-project-manager.md`,
+Ten personas dispatch work via `runSubagent` / the `Task` tool: `2-project-manager.md`,
 `7-release-engineer.md`, `8-documentation.md`, `9-synthesis.md`, `developer.md` (standalone),
 `documentation-curator.md`, `manifest-curator.md`, `plan-refiner.md`, `web-gui-specialist.md`,
 `workspace-architect.md`. After the rollout, every sub-agent returns an AX Feedback block inside its
@@ -126,13 +140,13 @@ parent's own AX Feedback section. Step 0 adds the propagation rule to the partia
 
 No new architecture. The `ax-feedback.md` shared partial is corrected in place, then reused. The work
 is a fix-then-replicate sequence: repair the partial (Step 0), verify the repair against the 5
-personas that already include it, then perform 44 `{{> ax-feedback}}` insertions across 38 content
+personas that already include it, then perform 48 `{{> ax-feedback}}` insertions across 38 content
 templates, with corresponding changelog entries in 38 YAML metadata files, an `incident-logging`
-reconciliation across 5 ledger personas, Design Guide and Persona Curator updates, an
+reconciliation across 6 ledger personas, Design Guide and Persona Curator updates, an
 `agents-overview.md` regeneration, and one suite-level changelog update.
 
 **Sequencing rationale:** Step 0 must complete and be verified before Steps 1–3 begin. Every defect
-left in the partial is replicated 44 times; fixing it afterwards requires re-touching all 38 files.
+left in the partial is replicated 48 times; fixing it afterwards requires re-touching all 38 files.
 
 ### Insertion pattern
 
@@ -152,12 +166,15 @@ the pattern is placed before the heading without a step number.
 
 | Category | Files | Insertions |
 |----------|-------|------------|
-| Single-handoff (incl. two-STATUS-variant personas) | 34 | 34 |
+| Single-handoff (incl. two-STATUS-variant personas) | 31 | 31 |
 | `persona-curator.md` (3 modes) | 1 | 3 |
 | `manifest-curator.md` (3 modes) | 1 | 3 |
 | `whatsnew-curator.md` (2 modes) | 1 | 2 |
 | `standalone-archiver.md` (2 modes) | 1 | 2 |
-| **Total** | **38** | **44** |
+| `documentation-curator.md` (3 modes) | 1 | 3 |
+| `workspace-architect.md` (2 modes) | 1 | 2 |
+| `recipe-curator.md` (2 modes) | 1 | 2 |
+| **Total** | **38** | **48** |
 
 Generated output affected: 38 personas × 3 targets (`vs-code`, `claude-code`, `deep-agents`) = **114
 generated files**, plus the 15 already-generated files for the 5 proof-of-concept personas re-emitted
@@ -173,7 +190,7 @@ agent type — lightweight curators produce "No friction encountered." while hea
 categorized observations. The "Most sessions are expected to have zero friction" framing is a
 deliberate anti-confabulation guard and is retained verbatim. What requires correction is its
 *rendering* (D1, D2) and its *Pattern 6 compliance* (D3) — none of which the proof-of-concept's
-5-persona scope made visible as a systemic cost. At 44 insertions the cost becomes structural.
+5-persona scope made visible as a systemic cost. At 48 insertions the cost becomes structural.
 
 **Why an incremental capture sink.** Design Guide Pattern 6 states that a forcing function without a
 sink produces end-of-session reconstruction: "an agent that stopped observing mid-session will, at
@@ -203,8 +220,8 @@ routing. The two concerns separate cleanly along the blocking boundary.
 **Why patch-level version bumps.** The change is behaviour-neutral for the persona's primary task: it
 adds a reporting step, alters no decision logic, no constraints, and no outputs the downstream agent
 consumes. Thirty-eight simultaneous minor bumps would inflate every version in the system for a
-mechanical inclusion. The 5 ledger/support personas that also receive the `incident-logging` fold
-(Step 7) are the exception — a constraint is removed there, so those take a minor bump.
+mechanical inclusion. The 6 ledger personas that also receive the `incident-logging` fold (Step 5)
+are the exception — a constraint is removed there, so those take a minor bump.
 
 **Why the Design Guide must be updated in the same plan.** After this rollout, AX Feedback is a
 universal structural element of every persona in the system, but it appears in neither the Guide's
@@ -219,16 +236,16 @@ the element is what makes the rollout durable rather than a one-time sweep.
 | Decision | Chosen Shape | Alternatives Considered | Trade-Off Summary |
 |----------|--------------|-------------------------|-------------------|
 | Rollout scope | All 38 remaining personas at once | Incremental rollout in 2–3 batches | The change is mechanical and identical for each persona — batching adds coordination overhead without reducing risk. A single rollout ensures consistent coverage. |
-| Partial changes | Fix D1–D3 first, then replicate | Replicate as-is and fix later; add tiering (light vs. full) by persona complexity | Replicating known defects 44× turns a one-file fix into a 38-file cleanup. Tiering is separately rejected: the proof-of-concept validated a single tier across all agent types, and tiering introduces YAML fields and conditional logic without demonstrated need. |
+| Partial changes | Fix D1–D3 first, then replicate | Replicate as-is and fix later; add tiering (light vs. full) by persona complexity | Replicating known defects 48× turns a one-file fix into a 38-file cleanup. Tiering is separately rejected: the proof-of-concept validated a single tier across all agent types, and tiering introduces YAML fields and conditional logic without demonstrated need. |
 | Heading level of the emitted block (D1) | `###` sub-block under the numbered step | Keep `## AX Feedback`; move the whole block into a dedicated section after `## Workflow` | `##` terminates the enclosing Workflow section and orphans the handoff step. A dedicated post-Workflow section would fix nesting but breaks the checkpoint-duty anchoring that gives the step its trigger (Pattern 15) — the step must stay inside the numbered workflow. |
 | Capture sink medium (D3) | The todo list, mandated | A dedicated `ax-friction.md` scratch file; or leaving the medium to the agent's choice | A todo entry is ephemeral and touches no filesystem, so it conflicts with no read-only guardrail — including the four personas deliberately denied `edit`. A scratch file collides with constraints like "never create project files" and forces case-by-case adjudication. Leaving the medium open was rejected because an unmandated sink is weakly triggered: Pattern 6 requires the sink be a concrete, named destination, not an intention. |
-| Enabling the sink for personas lacking a sink capability | Grant todo tools on the two YAML-declared targets — `tools: [todo]` and `cc_tools: [TodoRead, TodoWrite]`; Deep Agents needs no grant | Grant `edit` to the 4 personas without it so they can write scratch files | Only 4 of 43 personas lack `edit`, and in every case the omission is deliberate (write-free curation, forensic analysis, chat-only output, commit-only scope). Granting write access to enable friction capture would weaken a real safety property to obtain something the todo list already provides. The todo gaps, by contrast, are incidental — the ledger-support suite was authored without `todo`, and the ledger suite's `default_cc_tools` omits the Todo tools that both other suites include. |
-| Scope of the todo grant | Fix `tools:`, the ledger `default_cc_tools`, and 4 per-persona `cc_tools:` overrides | Fix `tools:` only, relying on the `cc_tools` → `tools` fallback | The fallback never fires: it applies only when neither `cc_tools` nor `default_cc_tools` exists, and all three suites define `default_cc_tools`. A `tools:`-only fix would leave 13 personas — including the entire ledger suite — without a Claude Code sink while appearing complete. |
+| Enabling the sink for personas lacking a sink capability | Grant todo tools on the two YAML-declared targets — `tools: [todo]` and, for the 4 personas with an explicit `cc_tools:` override, `cc_tools: [TodoRead, TodoWrite]`; Deep Agents needs no grant | Grant `edit` to the 4 personas without it so they can write scratch files | Only 4 of 43 personas lack `edit`, and in every case the omission is deliberate (write-free curation, forensic analysis, chat-only output, commit-only scope). Granting write access to enable friction capture would weaken a real safety property to obtain something the todo list already provides. The todo gaps, by contrast, are incidental — the ledger-support suite was authored without `todo`, and 4 personas' explicit `cc_tools:` overrides omit the Todo tools that the suite defaults include. |
+| Scope of the todo grant | Fix `tools:` (11 files) and the 4 per-persona `cc_tools:` overrides lacking Todo tools | Also edit each suite's `_shared.yaml` `default_cc_tools` | `default_cc_tools` is not read anywhere in `@mistralys/persona-builder`'s merge chain (`persona-builder.ts` L311–313) — the real fallback for personas with no `cc_tools:` override is `cc_tools:` → `tools:` directly. Editing `_shared.yaml` would touch a field with zero effect on generated output while leaving the actual gap (the 4 overrides) unaddressed. |
 | Sink wording in the shared partial | Target-neutral prose ("your todo list") | Name the tool explicitly; or branch with `{{#if target_vscode}}` / `{{#if target_claude_code}}` | The tool is `todo` on VS Code, `TodoWrite` on Claude Code, and `write_todos` on Deep Agents. A hard-coded name is wrong on two of three targets. Conditional branching would work but adds template complexity for no gain, since the prose form is accurate everywhere. |
 | Multi-mode handling | One insertion per mode | One insertion at the end of the file, outside any mode section | Agents follow a single mode per session; placing AX Feedback outside all modes risks it being skipped by an agent that stops after its mode's handoff. |
 | Two-STATUS-variant personas | One insertion before the first handoff step | One insertion per STATUS variant | The variants are alternative terminal statuses of a single handoff, not separate modes. Two insertions would emit the AX Feedback block twice in one workflow. |
 | `incident-logging` overlap | Fold all non-blocking reporting into AX Feedback | Keep both with scoped boundaries (incident = blocked-me-now, AX = design friction); delete `incident-logging` outright | Two partials for one information class forces the agent to arbitrate at report time. Deleting outright would lose the blocking-incident case, which legitimately affects handoff status rather than feedback — so that residue moves to the handoff instead. |
-| Version bump level | Patch for the 33 inclusion-only personas, minor for the 5 with the `incident-logging` fold | Minor for all 38 | Inclusion is behaviour-neutral for the persona's primary task; a uniform minor bump inflates every version in the system. The 5 fold personas lose a constraint, which warrants minor. |
+| Version bump level | Patch for the 33 inclusion-only rollout personas, minor for the 5 rollout personas with the `incident-logging` fold | Minor for all 38 | Inclusion is behaviour-neutral for the persona's primary task; a uniform minor bump inflates every version in the system. The fold personas lose a constraint, which warrants minor. |
 
 ---
 
@@ -240,7 +257,7 @@ the element is what makes the rollout durable rather than a one-time sweep.
 - **Follows** C18 (shared partials must not contain MCP content) — the Step 0 edits to `ax-feedback.md` introduce no MCP references; the sink instruction names the agent's todo list, not ledger tools.
 - **Follows** Persona Design Guide Pattern 6 (Observation Side-Channel) — Step 0 supplies the second required mitigation (incremental capture sink) alongside the existing forcing function.
 - **Follows** Pattern 15 (Trigger Anchoring) — AX Feedback is a checkpoint duty: a numbered workflow step with a mandatory output slot. The heading fix (D1) preserves this anchoring by keeping the block inside the numbered workflow rather than relocating it to its own section.
-- **Follows** the guide's one-side-channel-per-persona limit — Step 7's `incident-logging` fold prevents the 5 affected ledger personas from carrying two competing observation duties.
+- **Follows** the guide's one-side-channel-per-persona limit — Step 5's `incident-logging` fold prevents the 6 affected ledger personas from carrying two competing observation duties.
 
 ---
 
@@ -295,7 +312,7 @@ against the 3-bullet cap) and otherwise drops it. Without this rule, blocks nest
   `changelog-curator` (2 modes) renders 2 correctly-nested blocks, not 4 H2 headings.
 - Add a changelog entry for each of the 5 proof-of-concept personas covering the partial fix.
 
-### Step 0a: Grant todo tools on the two YAML-declared targets (13 personas + 1 shared file)
+### Step 0a: Grant todo tools on the two YAML-declared targets (15 personas)
 
 The capture sink requires a todo list. **The tool has different names per target and is declared in
 two separate YAML fields** — granting it on one target does not grant it on the other. Deep Agents is
@@ -304,7 +321,7 @@ not YAML-driven at all and needs no edit.
 | Target | YAML field | Tool name(s) | Fallback chain |
 |--------|-----------|--------------|----------------|
 | VS Code | `tools:` | `todo` | none — the field is authoritative |
-| Claude Code | `cc_tools:` | `TodoRead` **and** `TodoWrite` | `cc_tools` → suite `_shared.yaml` `default_cc_tools` → `tools` |
+| Claude Code | `cc_tools:` | `TodoRead` **and** `TodoWrite` | `cc_tools:` → `tools:` directly if `cc_tools:` is absent |
 | Deep Agents | — (no tools field) | `write_todos` | n/a — built in at runtime; see below |
 
 **Deep Agents needs no edit.** The `deep-agents` target's frontmatter template is `name` +
@@ -317,28 +334,33 @@ merges its built-in suite — `write_todos`, filesystem tools, `execute`, `task`
 unconditionally ("passing tools here is additive — it never removes a built-in"). Every Deep Agents
 persona therefore already has the capture sink, and adding a `da_tools:` field would not change that.
 
-Because all three suites define `default_cc_tools`, the final `cc_tools → tools` fallback **never
-fires**. A persona with `todo` in `tools:` but no Todo entry in its effective Claude Code list has no
-sink on Claude Code. Adding `- todo` to `tools:` alone is therefore *not sufficient*.
+**`default_cc_tools` in each suite's `_shared.yaml` is not consumed by the build system.** No code
+path in `@mistralys/persona-builder` reads it — `buildContext()` (`persona-builder.ts` L311–313)
+computes the effective Claude Code tool list as `Array.isArray(merged['cc_tools']) ? merged['cc_tools']
+: tools`, i.e. **`cc_tools:` if present, else `tools:` directly.** `default_cc_tools` is unreferenced
+YAML data in all three suites' `_shared.yaml` files; the library's own test suite
+(`tools-block-fields.test.ts`, `'falls back to tools when cc_tools is absent'`) confirms `tools:` is
+the only fallback target. Personas without a `cc_tools:` override therefore already inherit their
+Claude Code tool list from `tools:` — verified against generated output: `personas/ledger/claude-code/
+1-planner.md`, `4-qa.md`, and `9-synthesis.md` all render `tools:` (not a separate `default_cc_tools`
+list) with `todo` already present. **No edit to any `_shared.yaml` has any effect on generated output**
+and no such edit is included in this step.
 
-**Current state — Claude Code is the worse gap:**
+The real gap is therefore limited to personas that declare their own `cc_tools:` override, since an
+override does not benefit from the `tools:` fallback at all.
+
+**Current state — the gap is on personas with an explicit `cc_tools:` override:**
 
 | Target | Personas lacking a todo capability | Cause |
 |--------|-----------------------------------|-------|
 | VS Code (`todo`) | 11 | 9 ledger-support personas + `git-committer` + `recipe-curator` |
-| Claude Code (`TodoRead`/`TodoWrite`) | 13 | **the entire 9-persona ledger suite** + `ledger-claude-coordinator` + `ctx-architect` + `module-intent-architect` + `git-committer` |
+| Claude Code (`TodoRead`/`TodoWrite`) | 4 | the 4 personas with an explicit `cc_tools:` override lacking Todo tools: `ctx-architect`, `git-committer`, `module-intent-architect`, `ledger-claude-coordinator` |
 
-Only 3 personas lack it on both targets: `ledger-claude-coordinator`, `git-committer`,
-`recipe-curator`. All 13 gaps are closed by this step — there are no exclusions.
+Two personas lack it on both targets: `git-committer`, `recipe-curator` (`recipe-curator` has no
+`cc_tools:` override, so its VS Code gap does not carry over to Claude Code). All 15 persona-file gaps
+(11 VS Code + 4 Claude Code) are closed by this step — there are no exclusions.
 
-**0a-1 — Fix the ledger suite's Claude Code default (1 file, highest impact).**
-`personas/ledger/src/meta/_shared.yaml` → `default_cc_tools` omits `TodoRead` and `TodoWrite`, unlike
-the standalone and ledger-support suites which both include them. All 9 ledger personas inherit this
-default, so none has a Claude Code sink — including Developer and Synthesis, the two longest-session
-personas already running AX Feedback. Append both tools to bring the ledger suite in line with the
-other two suites. This single edit closes 9 of the 13 Claude Code gaps.
-
-**0a-2 — Add `- todo` to `tools:` (11 files):**
+**0a-1 — Add `- todo` to `tools:` (11 files):**
 
 | Persona | Suite |
 |---------|-------|
@@ -359,7 +381,7 @@ Nine of the eleven are the ledger-support suite, authored without `todo` through
 restriction: nothing in those personas' constraints forbids task tracking. This edit affects the
 VS Code target only; Deep Agents is unaffected either way.
 
-**0a-3 — Add `TodoRead` and `TodoWrite` to per-persona `cc_tools:` overrides (4 files):**
+**0a-2 — Add `TodoRead` and `TodoWrite` to per-persona `cc_tools:` overrides (4 files):**
 
 | Persona | Why it needs an explicit override |
 |---------|----------------------------------|
@@ -414,8 +436,7 @@ rather than authors). Granting write access purely to enable a friction sink wou
 property for a capability the todo list already provides.
 
 Fold these metadata edits into Step 4's changelog entries; the entry text for affected personas should
-mention the todo grant. The `_shared.yaml` change in 0a-1 is suite-wide and belongs in
-`personas/changelog.md` (Step 7).
+mention the todo grant.
 
 ### Step 1: Add AX Feedback to ledger persona content templates (7 files)
 
@@ -437,24 +458,21 @@ text `STATUS: READY_FOR_PM` block). Follow the exact pattern from `3-developer.m
 
 ### Step 2: Add AX Feedback to standalone persona content templates (20 files)
 
-**Single-handoff personas (14 files):** Insert the AX Feedback step before the handoff step and bump
+**Single-handoff personas (11 files):** Insert the AX Feedback step before the handoff step and bump
 the handoff step number. Follow the pattern from `readme-curator.md` L147–L152.
 
 | File | Current handoff step | New AX step | New handoff step |
 |------|---------------------|-------------|------------------|
 | `comms-curator.md` | 7 | 7 | 8 |
 | `composer-curator.md` | 7 | 7 | 8 |
-| `documentation-curator.md` | 7 | 7 | 8 |
 | `git-committer.md` | 10 | 10 | 11 |
 | `module-intent-architect.md` | 7 | 7 | 8 |
 | `plan-architect-reviewer.md` | 7 | 7 | 8 |
 | `plan-auditor.md` | 11 | 11 | 12 |
 | `planner.md` | 7 | 7 | 8 |
-| `recipe-curator.md` | 10 | 10 | 11 |
 | `researcher.md` | 10 | 10 | 11 |
 | `unit-test-auditor.md` | 5 | 5 | 6 |
 | `web-gui-specialist.md` | 9 | 9 | 10 |
-| `workspace-architect.md` | 6 | 6 | 7 |
 | `plan-refiner.md` | 9 and 10 (alternative terminal statuses) | 9 | 10 and 11 |
 
 **`plan-refiner.md` — single insertion.** Steps 9 (`CONVERGED`) and 10 (`CEILING_REACHED |
@@ -470,7 +488,7 @@ DIVERGING | INCOMPLETE`) are mutually exclusive terminal outcomes of one handoff
 | `ctx-architect.md` | Before `## Handoff` section (L397) |
 | `usage-scenarios-curator.md` | Before `## Handoff` section (L352) |
 
-**Multi-mode personas (3 files):** Insert one AX Feedback step before each mode's handoff, following
+**Multi-mode personas (6 files):** Insert one AX Feedback step before each mode's handoff, following
 the `changelog-curator.md` multi-mode precedent.
 
 | File | Mode | Handoff location |
@@ -483,6 +501,17 @@ the `changelog-curator.md` multi-mode precedent.
 | `manifest-curator.md` | Audit | Before handoff at L184 |
 | `whatsnew-curator.md` | Generate | Before handoff at L155 |
 | `whatsnew-curator.md` | Rewrite | Before handoff at L170 |
+| `documentation-curator.md` | Update | Before handoff at L111 |
+| `documentation-curator.md` | Audit | Before handoff at L133 |
+| `documentation-curator.md` | Create | Before handoff at L201 |
+| `workspace-architect.md` | Onboard | Before handoff at L180 |
+| `workspace-architect.md` | Upgrade | Before handoff at L211 |
+| `recipe-curator.md` | Single Recipe | Before handoff at L330 |
+| `recipe-curator.md` | Weekly Plan | Before handoff at L357 |
+
+`documentation-curator.md`, `workspace-architect.md`, and `recipe-curator.md` were previously
+misclassified as single-handoff insertions (see Architectural Context); each is reclassified here as
+multi-mode, following the same `changelog-curator.md` precedent as the other four multi-mode files.
 
 ### Step 3: Add AX Feedback to ledger-support persona content templates (11 files)
 
@@ -539,16 +568,20 @@ changelog entry.
 
 | Group | Count | Bump | Reason |
 |-------|-------|------|--------|
-| Inclusion only | 33 | Patch | Behaviour-neutral addition of a reporting step. |
-| Inclusion + `incident-logging` fold (Step 7) | 5 | Minor | A constraint is removed from the persona. |
-| Proof-of-concept personas (Step 0 partial fix) | 5 | Patch | Rendering and sink correction only. |
+| Inclusion only (of the 38 rollout personas) | 33 | Patch | Behaviour-neutral addition of a reporting step. |
+| Inclusion + `incident-logging` fold (of the 38 rollout personas; Step 5) | 5 | Minor | A constraint is removed from the persona. |
+| Proof-of-concept personas without the fold (Step 0 partial fix only) | 4 | Patch | Rendering and sink correction only. |
+| Proof-of-concept persona with the fold — `3-developer` (Step 0 fix + Step 5) | 1 | Minor | `3-developer.md` already received a patch bump at Step 0 for the partial-fix rollout; the `incident-logging` fold (Critical Finding #4 — its `developer-strict-constraints.md` inclusion carries the same overlap as the 5 direct-inclusion ledger personas) is a constraint removal layered on top. One persona gets one changelog entry per release cycle, so its single entry for this plan reflects the more significant change and takes a minor bump, not two separate patch bumps. |
 
 The exact next version per persona is derived from the current first entry in its `changelog:` block.
 
-### Step 5: Fold `incident-logging` into AX Feedback (6 files)
+### Step 5: Fold `incident-logging` into AX Feedback (7 files)
 
-Five ledger personas carry both duties after Steps 1–3. Resolve the overlap by folding all
-**non-blocking** reporting into AX Feedback and routing the **blocking** residue to the handoff.
+Six ledger personas carry both duties after Steps 1–3: the 5 with a direct `{{> incident-logging}}`
+inclusion, plus `3-developer.md`, which carries it indirectly via `{{> developer-strict-constraints}}`
+(that shared partial embeds `{{> incident-logging}}` as its own "Environment Incident Logging"
+bullet — see Architectural Context, "Overlap with `incident-logging`"). Resolve the overlap by folding
+all **non-blocking** reporting into AX Feedback and routing the **blocking** residue to the handoff.
 
 **5a — Confirm the AX Feedback partial covers the folded scope.** Verify that the Step 0 partial
 already covers what `incident-logging` collected (tooling errors, silently failing file operations,
@@ -559,29 +592,40 @@ do-not-over-investigate guard ("do not investigate root causes beyond what is ne
 which is a useful scope limiter for AX Feedback generally.
 
 **5b — Handle the blocking residue.** An incident that prevents the agent from completing its work is
-not feedback — it changes the handoff status and downstream routing. Confirm each of the 5 personas'
+not feedback — it changes the handoff status and downstream routing. Confirm each of the 6 personas'
 existing handoff/decision logic already covers "blocked by environment" as a terminal state. Where it
 does not, add a single line to that persona's handoff or Decision Logic section. Do **not** add it to
 the shared partial.
 
-**5c — Remove the `{{> incident-logging}}` inclusion** from the 5 content templates:
+**5c — Remove the `{{> incident-logging}}` inclusion**, conditional block and all, from the 6 sites:
 
-| File | Line |
-|------|------|
-| `personas/ledger/src/content/4-qa.md` | L54 |
-| `personas/ledger/src/content/5-security-auditor.md` | L53 |
-| `personas/ledger/src/content/6-reviewer.md` | L70 |
-| `personas/ledger/src/content/7-release-engineer.md` | L49 |
-| `personas/ledger/src/content/8-documentation.md` | L50 |
+| File | Line | Removal target |
+|------|------|-----------------|
+| `personas/ledger/src/content/4-qa.md` | L53–L55 | `{{#if has_incident_logging}}` block |
+| `personas/ledger/src/content/5-security-auditor.md` | L52–L54 | `{{#if has_incident_logging}}` block |
+| `personas/ledger/src/content/6-reviewer.md` | L69–L71 | `{{#if has_incident_logging}}` block |
+| `personas/ledger/src/content/7-release-engineer.md` | L48–L50 | `{{#if has_incident_logging}}` block |
+| `personas/ledger/src/content/8-documentation.md` | L49–L51 | `{{#if has_incident_logging}}` block |
+| `personas/shared/partials/developer-strict-constraints.md` | L13 | `* **Environment Incident Logging:** {{> incident-logging}}` bullet (unconditional — this shared partial has no `{{#if}}` guard) |
 
-Each is a `* **Environment Incident Logging:** {{> incident-logging}}` bullet inside a constraints
-list. Remove the whole bullet.
+The 5 ledger content templates each wrap their `* **Environment Incident Logging:**
+{{> incident-logging}}` bullet in a per-persona `{{#if has_incident_logging}}...{{/if}}` conditional
+(YAML flag, all 5 currently `true`). Remove the **entire conditional block**, not just the inner
+bullet — leaving the empty `{{#if}}...{{/if}}` wrapper behind would be dead template syntax. Also
+remove the now-unused `has_incident_logging: true` flag from each of the 5 personas' YAML metadata
+files (`personas/ledger/src/meta/4-qa.yaml`, `5-security-auditor.yaml`, `6-reviewer.yaml`,
+`7-release-engineer.yaml`, `8-documentation.yaml`). `developer-strict-constraints.md` has no such
+conditional — its bullet is unconditional — so removing the bullet there is sufficient; it carries no
+`has_incident_logging` flag of its own since the flag lives on the content template, not the partial,
+and `3-developer.md` does not gate its `{{> developer-strict-constraints}}` inclusion on one.
 
-**5d — Delete `personas/shared/partials/incident-logging.md`** once no content template references it.
-Verify with a grep for `incident-logging` across `personas/` before deleting.
+**5d — Delete `personas/shared/partials/incident-logging.md`** once no content template or shared
+partial references it. Verify with a grep for `incident-logging` across `personas/` before deleting.
 
-**5e — Bump these 5 personas to a minor version** (not patch) in Step 4's changelog entries, and note
-the constraint removal in the entry text.
+**5e — Bump these 6 personas to a minor version** (not patch) in Step 4's changelog entries, and note
+the constraint removal in the entry text. `3-developer.md` already received a patch-level changelog
+entry for the Step 0 partial fix as a proof-of-concept persona (see Step 4's version-bump table); its
+single entry for this plan is minor, reflecting both changes together rather than two separate bumps.
 
 ### Step 6: Register AX Feedback in the Design Guide and Persona Curator (2 files)
 
@@ -618,7 +662,7 @@ Add a new version entry to `personas/changelog.md` summarizing the rollout:
   gained filesystem write access.
 - All suites: Every persona now includes an AX Feedback pre-handoff step for structured agent
   experience self-reporting; completes the full rollout started in v3.30.0.
-- Ledger: Folded the Environment Incident Logging constraint into AX Feedback across 5 personas;
+- Ledger: Folded the Environment Incident Logging constraint into AX Feedback across 6 personas;
   removed the `incident-logging` partial.
 - Docs: Registered AX Feedback as a required persona section in the Persona Design Guide (v2.6).
 ```
@@ -652,11 +696,11 @@ targets. Verify:
   one-file correction into a 38-file cleanup.
 - **Step 0a must land with Step 0.** The sink instruction added in Step 0 names the todo list; the
   personas lacking a todo capability cannot comply until the grants are in place. Step 0a spans both
-  target-specific fields (`tools:` and `cc_tools:`/`default_cc_tools`) — completing only one leaves a
-  whole target without a sink.
+  target-specific fields (`tools:` and per-persona `cc_tools:` overrides) — completing only one leaves
+  a whole target without a sink for the personas that need it.
 - Steps 1–3 (content templates) are independent of each other per file.
 - Step 4 (YAML metadata) depends on Steps 1–3 and 5 being settled, since Step 5 determines which
-  5 personas take a minor rather than a patch bump.
+  6 personas take a minor rather than a patch bump.
 - Step 5 (`incident-logging` fold) depends on Step 0 — the fold assumes the corrected partial covers
   the folded scope.
 - Step 6 (Design Guide / Persona Curator) depends on Step 0, since the guide documents the partial's
@@ -669,29 +713,34 @@ targets. Verify:
 ## Required Components
 
 - `personas/shared/partials/ax-feedback.md` — **modified** (D1, D2, D3, sub-agent propagation rule)
-- `personas/ledger/src/meta/_shared.yaml` — **modified** (Step 0a-1): `default_cc_tools` gains
-  `TodoRead` and `TodoWrite`
-- 11 persona metadata files gain a `- todo` entry in their `tools:` list (Step 0a-2): 9 in
+- 11 persona metadata files gain a `- todo` entry in their `tools:` list (Step 0a-1): 9 in
   `personas/ledger-support/src/meta/`, 2 in `personas/standalone/src/meta/`
 - 4 persona metadata files gain `TodoRead`/`TodoWrite` in their per-persona `cc_tools:` override
-  (Step 0a-3): `personas/standalone/src/meta/ctx-architect.yaml`,
+  (Step 0a-2): `personas/standalone/src/meta/ctx-architect.yaml`,
   `personas/standalone/src/meta/git-committer.yaml`,
   `personas/standalone/src/meta/module-intent-architect.yaml` (which also loses a stale comment),
   `personas/ledger-support/src/meta/ledger-claude-coordinator.yaml`
 - `personas/shared/partials/incident-logging.md` — **deleted** (folded into AX Feedback)
+- `personas/shared/partials/developer-strict-constraints.md` — **modified** (Step 5c): loses its
+  `{{> incident-logging}}` bullet
 - `personas/ledger/src/content/*.md` — 7 files modified for AX Feedback; 5 of them additionally lose
-  their `{{> incident-logging}}` bullet
+  their `{{#if has_incident_logging}}...{{/if}}` conditional block
 - `personas/standalone/src/content/*.md` — 20 files modified
 - `personas/standalone/src/content/persona-curator.md` — additionally modified for the checklist item
 - `personas/ledger-support/src/content/*.md` — 11 files modified
 - `personas/ledger/src/meta/*.yaml` — 7 files modified (+2 proof-of-concept personas: `3-developer`,
-  `9-synthesis`)
+  `9-synthesis`); the 5 with the `incident-logging` fold also lose their `has_incident_logging` flag
 - `personas/standalone/src/meta/*.yaml` — 20 files modified (+3 proof-of-concept personas:
   `developer`, `readme-curator`, `changelog-curator`)
 - `personas/ledger-support/src/meta/*.yaml` — 11 files modified
 - `personas/docs/persona-design-guide.md` — modified, bumped to v2.6
 - `personas/changelog.md` — 1 file modified
 - `docs/agents-overview.md` — regenerated
+- `personas/docs/agents/project-manifest/api-surface.md`, `data-flows.md`, `constraints.md`,
+  `variables.md` — **modified** (Documentation Updates): corrects the pre-existing `default_cc_tools`
+  fallback documentation bug (see Documentation Updates)
+- `.context/personas/manifest.md`, `.context/personas/shared-partials.md` — regenerated via
+  `node scripts/cli.js ctx-generate` (mirror the manifest and partial changes above)
 - `scripts/build-personas.js` — existing, no changes (used for verification)
 - `scripts/generate-agents-overview.js` — existing, no changes (used in Step 8)
 
@@ -705,15 +754,17 @@ targets. Verify:
 - D2's fenced-block mangling is fixable partial-side. If investigation in Step 0 shows the defect
   originates in the build system's separator handling and cannot be worked around in the partial, the
   build-system fix becomes part of Step 0 and its scope grows accordingly.
-- The 5 personas losing `incident-logging` already have a terminal state for "blocked by environment"
+- The 6 personas losing `incident-logging` already have a terminal state for "blocked by environment"
   in their handoff or Decision Logic. Step 5b verifies this per persona rather than assuming it.
 - The absence of `todo` in the 9 ledger-support personas is an incidental authoring gap, not a
   deliberate restriction — no constraint in those personas forbids task tracking. Verified by reading
   their constraint sections; if any turns out to forbid it, that persona keeps the sink instruction
   but relies on in-context tracking.
-- The omission of `TodoRead`/`TodoWrite` from the ledger suite's `default_cc_tools` is likewise
-  incidental: the standalone and ledger-support suites both include them, and no ledger persona
-  documents a reason to differ.
+- `default_cc_tools` in each suite's `_shared.yaml` is unreferenced by `@mistralys/persona-builder`'s
+  merge chain — confirmed by reading `persona-builder.ts` and the library's test suite. The 9 ledger
+  personas' effective Claude Code tool list is rendered from `tools:` (which already contains `todo`)
+  via the real `cc_tools:` → `tools:` fallback, not from `default_cc_tools`. No edit to `_shared.yaml`
+  is included in this plan for that reason.
 - Neither of the two apparently-deliberate divergences survives inspection.
   `module-intent-architect`'s YAML comment is stale rather than intentional — verified against Git
   history (`aad1438`, `6bc3423`). `ledger-claude-coordinator`'s read-only allowlist is scoped to the
@@ -780,10 +831,12 @@ targets. Verify:
 - AC-04a: The sink instruction names the todo list in target-neutral prose — it does not hard-code
   `todo`, `TodoWrite`, `write_todos`, or any other target-specific tool name.
 - AC-04b: All 43 persona metadata files declare `todo` in their `tools:` list (VS Code target).
-- AC-04c: `personas/ledger/src/meta/_shared.yaml` → `default_cc_tools` includes `TodoRead` and
-  `TodoWrite`, matching the standalone and ledger-support suites.
-- AC-04d: Every persona's *effective* Claude Code tool list (own `cc_tools:` if present, otherwise
-  the suite `default_cc_tools`) includes `TodoWrite`. There are no exclusions — all 43 personas.
+- AC-04c: The 4 personas with an explicit `cc_tools:` override (`ctx-architect`, `git-committer`,
+  `module-intent-architect`, `ledger-claude-coordinator`) include `TodoRead` and `TodoWrite` in that
+  override.
+- AC-04d: Every persona's *effective* Claude Code tool list — resolved as its own `cc_tools:` if
+  present, otherwise its `tools:` list directly (never a suite `default_cc_tools`) — includes
+  `TodoWrite`. There are no exclusions — all 43 personas.
 - AC-04f: The stale `# cc_tools differs from default: module-intent-architect has no
   TodoRead/TodoWrite` comment is removed from
   `personas/standalone/src/meta/module-intent-architect.yaml`.
@@ -795,9 +848,10 @@ targets. Verify:
 **Rollout (Steps 1–4)**
 
 - AC-07: All 38 persona content templates include `{{> ax-feedback}}` before their handoff step(s),
-  for a total of 44 inclusions across the suite.
+  for a total of 48 inclusions across the suite.
 - AC-08: Multi-mode personas include one `{{> ax-feedback}}` per mode's handoff block
-  (`persona-curator` 3, `manifest-curator` 3, `whatsnew-curator` 2, `standalone-archiver` 2).
+  (`persona-curator` 3, `manifest-curator` 3, `whatsnew-curator` 2, `standalone-archiver` 2,
+  `documentation-curator` 3, `workspace-architect` 2, `recipe-curator` 2).
 - AC-09: `plan-refiner.md` and `ledger-doctor.md` each contain exactly **one** inclusion despite their
   two terminal-status variants.
 - AC-10: Every `{{> ax-feedback}}` inclusion has a corresponding numbered "AX Feedback" workflow step
@@ -806,15 +860,21 @@ targets. Verify:
   contains a duplicate or skipped ordinal.
 - AC-12: All 38 persona YAML metadata files have a changelog entry for the AX Feedback addition, plus
   the 5 proof-of-concept personas for the Step 0 fix (43 entries total).
-- AC-13: Version bumps follow Step 4's table — patch for the 33 inclusion-only personas, minor for the
-  5 `incident-logging` fold personas.
+- AC-13: Version bumps follow Step 4's table — patch for the 37 inclusion-only personas (33 rollout +
+  4 proof-of-concept personas without the fold), minor for the 6 `incident-logging` fold personas
+  (5 rollout + `3-developer`, whose single changelog entry for this plan covers both the Step 0 fix
+  and the fold).
 - AC-14: No persona metadata file contains a standalone `version:` or `last_updated:` field.
 
 **`incident-logging` fold (Step 5)**
 
-- AC-15: No content template references `{{> incident-logging}}`, and
-  `personas/shared/partials/incident-logging.md` is deleted.
-- AC-16: Each of the 5 affected personas has a terminal handoff state covering "blocked by
+- AC-15: No content template or shared partial references `{{> incident-logging}}`, and
+  `personas/shared/partials/incident-logging.md` is deleted. This includes
+  `personas/shared/partials/developer-strict-constraints.md`.
+- AC-15a: The 5 ledger content templates' `{{#if has_incident_logging}}...{{/if}}` conditional blocks
+  are removed in full (not just the inner bullet), and the now-dead `has_incident_logging` YAML flag
+  is removed from all 5 affected persona metadata files.
+- AC-16: Each of the 6 affected personas has a terminal handoff state covering "blocked by
   environment", verified or added.
 - AC-17: The AX Feedback partial covers the folded scope, including workaround reporting and the
   do-not-over-investigate scope limiter.
@@ -866,17 +926,24 @@ spot-check-based: 114 generated files cannot be sampled reliably.
 - Read `personas/shared/partials/ax-feedback.md` — confirm todo-list sink instruction, retained zero-friction sentence, and sub-agent propagation rule — AC-04, AC-05, AC-06
 - Grep the partial for `TodoWrite`, `TodoRead`, `write_todos`, and `` `todo` `` — zero matches; the instruction is target-neutral prose — AC-04a
 - Count persona metadata files whose `tools:` list contains `todo` — 43 of 43 — AC-04b
-- Read `personas/ledger/src/meta/_shared.yaml` — `default_cc_tools` contains `TodoRead` and `TodoWrite` — AC-04c
-- Resolve each persona's effective Claude Code tool list (own `cc_tools:` else suite `default_cc_tools`) and assert `TodoWrite` present — 43 of 43, no exclusions — AC-04d
+- Read the 4 `cc_tools:`-override metadata files (`ctx-architect`, `git-committer`,
+  `module-intent-architect`, `ledger-claude-coordinator`) — each override contains `TodoRead` and
+  `TodoWrite` — AC-04c
+- Resolve each persona's effective Claude Code tool list as the build system actually computes it —
+  own `cc_tools:` if present, else `tools:` directly, never a suite `default_cc_tools` — and assert
+  `TodoWrite` present — 43 of 43, no exclusions — AC-04d
 - Grep `personas/standalone/src/meta/module-intent-architect.yaml` for `cc_tools differs from default` — zero matches — AC-04f
 - Count persona metadata files whose `tools:` list contains `edit` — still 39 of 43; the same 4 personas lack it — AC-04e
-- Inspect a generated Claude Code ledger persona (e.g. `personas/ledger/claude-code/3-developer.md`) — frontmatter `tools:` includes the Todo entries — AC-04c
+- Inspect a generated Claude Code ledger persona with no `cc_tools:` override (e.g.
+  `personas/ledger/claude-code/3-developer.md`) — frontmatter `tools:` includes the Todo entries,
+  rendered from `tools:` rather than a separate `default_cc_tools`-derived list — AC-04d
 - Per-file count audit across all 38 source templates (inclusions vs. steps vs. handoffs, with the documented exceptions) — AC-07, AC-08, AC-09, AC-10
 - Ordinal continuity scan of every modified numbered workflow list — AC-11
 - Grep all persona metadata for `^version:` and `^last_updated:` — zero matches — AC-14
 - Diff each metadata file's first changelog entry against the Step 4 bump table — AC-12, AC-13
-- Grep `personas/` for `incident-logging` — zero matches; confirm the partial file is deleted — AC-15
-- Read the 5 folded personas' handoff/Decision Logic sections for a blocked-by-environment terminal state — AC-16
+- Grep `personas/` for `incident-logging` — zero matches; confirm the partial file is deleted, including its former reference in `developer-strict-constraints.md` — AC-15
+- Grep the 5 ledger content templates for `has_incident_logging` — zero matches; grep their metadata files for the same flag — zero matches — AC-15a
+- Read the 6 folded personas' handoff/Decision Logic sections for a blocked-by-environment terminal state — AC-16
 - Read the AX Feedback partial for workaround reporting and the investigation scope limiter — AC-17
 - Read `persona-design-guide.md` tables, checklist, and version header — AC-18
 - Read `persona-curator.md`'s Quality Checklist — AC-19
@@ -899,9 +966,23 @@ spot-check-based: 114 generated files cannot be sampled reliably.
 - **Personas manifest:** `personas/docs/agents/project-manifest/api-surface.md` documents the shared
   partial inventory. Step 5d deletes `incident-logging.md`; update the partial list accordingly.
   Verify whether `data-flows.md` or `constraints.md` reference the partial before deleting.
-- `.context/` regeneration: required if the personas manifest changes in the previous item, since
-  `.context/personas/manifest.md` and `.context/personas/shared-partials.md` mirror those sources. Run
-  `node scripts/cli.js ctx-generate`.
+- **Pre-existing documentation bug, independent of this plan's changes:**
+  `personas/docs/agents/project-manifest/api-surface.md`, `data-flows.md`, `constraints.md`, and
+  `variables.md` currently describe `default_cc_tools` as a live fallback in the
+  `cc_tools → default_cc_tools → tools` chain — this mechanism does not exist in
+  `@mistralys/persona-builder` (see Architectural Context / Step 0a). It was real until the 2026-03-26
+  migration to the `@mistralys/persona-builder` library (commit `65b78cb5`), which dropped the
+  `persona.cc_tools || sharedMeta.default_cc_tools || []` fallback from `scripts/build-personas.js`
+  without the replacement library ever implementing an equivalent — the four manifest documents were
+  never updated to match. Since this plan's own research corrected the same false premise, fix all
+  four documents' `default_cc_tools` rows to state the real chain (`cc_tools:` → `tools:` directly)
+  while other Documentation Updates in this plan are applied, so the fix isn't deferred to a future,
+  unrelated change. `constraints.md` L84 and `variables.md` L85–93 currently repeat the same false
+  claim as `api-surface.md`/`data-flows.md` and must be corrected identically.
+- `.context/` regeneration: required since the previous two items modify files under
+  `personas/docs/agents/project-manifest/` (`api-surface.md`, `data-flows.md`, `constraints.md`,
+  `variables.md`) and `personas/shared/partials/`, all of which `.context/personas/manifest.md` and
+  `.context/personas/shared-partials.md` mirror. Run `node scripts/cli.js ctx-generate`.
 
 ---
 
@@ -909,22 +990,22 @@ spot-check-based: 114 generated files cannot be sampled reliably.
 
 | Risk | Mitigation |
 |------|------------|
-| **Rolling out before fixing the partial** — the single highest-cost failure mode; every defect is multiplied by 44 and cleanup requires re-touching all 38 files | Step 0 is declared blocking, with an explicit verification gate against the 5 proof-of-concept personas before Steps 1–3 begin. |
+| **Rolling out before fixing the partial** — the single highest-cost failure mode; every defect is multiplied by 48 and cleanup requires re-touching all 38 files | Step 0 is declared blocking, with an explicit verification gate against the 5 proof-of-concept personas before Steps 1–3 begin. |
 | **D2's fenced-block mangling turns out to originate in the build system** | Step 0 investigates before editing; if the partial-side workaround is impossible, the build-system fix is absorbed into Step 0 and the scope grows there rather than leaking into the rollout steps. |
-| **Step numbering errors across the 44 insertions** | Mechanical per-file count audit (inclusions vs. steps vs. handoffs) plus an ordinal continuity scan, not spot-checks. |
+| **Step numbering errors across the 48 insertions** | Mechanical per-file count audit (inclusions vs. steps vs. handoffs) plus an ordinal continuity scan, not spot-checks. |
 | **Missing a multi-mode handoff point** | The research brief enumerates every handoff location with line numbers; the per-file count audit fails if a mode is missed. |
 | **Double-inserting in the two-STATUS-variant personas** (`plan-refiner`, `ledger-doctor`) | Both are called out explicitly in Steps 2 and 3 and recorded as expected exceptions in the count audit (1 inclusion vs. 2 handoff blocks). |
-| **The `incident-logging` fold silently drops blocking-incident reporting** | Step 5b verifies a blocked-by-environment terminal state exists in each of the 5 personas before the constraint is removed, and adds one where it does not. |
+| **The `incident-logging` fold silently drops blocking-incident reporting** | Step 5b verifies a blocked-by-environment terminal state exists in each of the 6 personas before the constraint is removed, and adds one where it does not. |
 | **Deleting `incident-logging.md` breaks an unnoticed consumer** | Step 5d greps all of `personas/` before deletion; Documentation Updates additionally checks the personas manifest for references. |
 | **The sink instruction pushes personas toward writing scratch files they lack permission to create** | The sink is the todo list, which has no filesystem footprint and conflicts with no read-only guardrail. Step 0a grants todo tools across targets; no persona gains `edit`. |
 | **Granting todo to a persona that deliberately avoids task tracking** | Step 0a reads each persona's constraint sections before granting. Both apparent exclusions were investigated and found incidental, so no persona is excluded — but the investigation is recorded so the reasoning can be re-checked. |
-| **Mistaking a stale YAML comment for a design decision** — `module-intent-architect`'s comment restates a diff without giving a reason, and Git history shows it was orphaned when `todo` was added to `tools:` in April | Step 0a-3 records the two commits behind the divergence, adds the Todo tools, and deletes the comment so it cannot mislead again. |
-| **Mistaking a namespace-scoped constraint for a global one** — `ledger-claude-coordinator`'s "read-only tool allowlist" governs only `ledger_*` tools, but reads at a glance like a restriction on its whole toolset | Step 0a-3 quotes the constraint's actual wording and notes that the persona already holds `execute` and `edit` despite constraints forbidding their use. General rule recorded in the step: an exclusion requires a rationale in the persona content that covers the specific tool in question. |
-| **Fixing only the VS Code `tools:` field and leaving Claude Code without a sink** — the two targets use different field names *and* different tool names, and `cc_tools` never falls back to `tools` because every suite defines `default_cc_tools` | Step 0a is split into three sub-steps covering `tools:`, the ledger suite's `default_cc_tools`, and the two per-persona `cc_tools:` overrides. AC-04d resolves each persona's *effective* Claude Code list rather than trusting the `tools:` field. |
+| **Mistaking a stale YAML comment for a design decision** — `module-intent-architect`'s comment restates a diff without giving a reason, and Git history shows it was orphaned when `todo` was added to `tools:` in April | Step 0a-2 records the two commits behind the divergence, adds the Todo tools, and deletes the comment so it cannot mislead again. |
+| **Mistaking a namespace-scoped constraint for a global one** — `ledger-claude-coordinator`'s "read-only tool allowlist" governs only `ledger_*` tools, but reads at a glance like a restriction on its whole toolset | Step 0a-2 quotes the constraint's actual wording and notes that the persona already holds `execute` and `edit` despite constraints forbidding their use. General rule recorded in the step: an exclusion requires a rationale in the persona content that covers the specific tool in question. |
+| **Fixing only the VS Code `tools:` field and missing the 4 personas whose `cc_tools:` override doesn't benefit from the `cc_tools:` → `tools:` fallback** — the two targets use different field names *and* different tool names | Step 0a is split into two sub-steps covering `tools:` (11 files) and the 4 per-persona `cc_tools:` overrides. AC-04d resolves each persona's *effective* Claude Code list (own `cc_tools:` else `tools:` directly) rather than assuming a `default_cc_tools` mechanism that does not exist in the build system. |
 | **Hard-coding a target-specific tool name into the shared partial**, producing an instruction that names a nonexistent tool on two of three targets — the tool is `todo`, `TodoWrite`, and `write_todos` on VS Code, Claude Code, and Deep Agents respectively | The sink sentence uses target-neutral prose ("your todo list"); AC-04a greps the partial for `TodoWrite`/`TodoRead`/`write_todos`/`todo` and requires zero matches. |
 | **Sub-agent AX Feedback blocks nest and duplicate through `runSubagent` chains** in the 10 dispatching personas | Step 0 adds an explicit propagation rule to the partial. |
 | **Stale `docs/agents-overview.md` after 38 version bumps** | Step 8 regenerates it and AC-21 gates on `--check` reporting clean. |
-| **Version inflation across the whole persona suite** | Patch bumps for the 33 inclusion-only personas; minor reserved for the 5 that lose a constraint. |
+| **Version inflation across the whole persona suite** | Patch bumps for the 37 inclusion-only personas; minor reserved for the 6 that lose a constraint. |
 | **The Design Guide update is deferred and forgotten**, leaving newly authored personas non-compliant from day one | Step 6 is part of this plan, not a follow-up, and is gated by AC-18 and AC-19. |
 
 ---
