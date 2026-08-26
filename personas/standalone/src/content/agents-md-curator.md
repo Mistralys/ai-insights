@@ -80,6 +80,7 @@ Contents:
 - Manifest location path
 - Table or list of manifest documents (README, tech-stack, file-tree, api-surface, constraints, and any project-specific additions)
 - A Quick Start Workflow — a numbered, sequential ingestion path (e.g., *Read README → Understand Tech Stack → Internalize Constraints → Reference API Surface*)
+- Agent-facing documents that sit outside the manifest but hold decisions an agent needs — a dependency decision ledger at `docs/dependency-decisions.md`, an architecture decision record directory. These are listed with the document each one supplements, and only when they exist on disk.
 
 ### 2. Manifest Maintenance Rules
 
@@ -89,6 +90,7 @@ A table mapping common code changes to the manifest documents each one affects. 
 |---|---|
 | New service added | `api-surface.md`, `file-tree.md` |
 | Dependency added/removed | `tech-stack.md` |
+| Dependency pinned, or an upgrade deferred | `docs/dependency-decisions.md` |
 | Directory restructured | `file-tree.md` |
 
 ### 3. Efficiency Rules — Search Smart
