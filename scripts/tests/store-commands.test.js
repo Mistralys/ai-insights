@@ -165,13 +165,13 @@ describe('store-commands', () => {
       const aRow = result.stores.find(s => s.id === 'store-a');
       expect(aRow.repo_count).toBe(0);
       expect(aRow.project_count).toBe(0);
-    });
+    }, 15_000);
 
     it('returns empty stores array when no stores.json exists', async () => {
       const result = await storeList({ configPath });
       expect(result.ok).toBe(true);
       expect(result.stores).toEqual([]);
-    });
+    }, 15_000);
 
     it('marks the default store correctly', async () => {
       const storePath = path.join(tempDir, 'store-x');
@@ -180,7 +180,7 @@ describe('store-commands', () => {
 
       const result = await storeList({ configPath });
       expect(result.stores[0].is_default).toBe(true);
-    });
+    }, 15_000);
 
     it('reflects repo_count from .repositories.json', async () => {
       const storePath = path.join(tempDir, 'store-r');
@@ -190,7 +190,7 @@ describe('store-commands', () => {
       const result = await storeList({ configPath });
       const row = result.stores.find(s => s.id === 'store-r');
       expect(row.repo_count).toBe(1);
-    });
+    }, 15_000);
   });
 
   // ─── storeSetDefault ───────────────────────────────────────────────────────

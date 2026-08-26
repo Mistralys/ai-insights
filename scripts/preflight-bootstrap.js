@@ -1,8 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { HEALTH_CHECKS } from './lib/health-checks.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+
+const hcDevLinksInactive = HEALTH_CHECKS.find((c) => c.id === 'dev-links-inactive');
+if (!hcDevLinksInactive) {
+  throw new Error("Health check 'dev-links-inactive' not found in HEALTH_CHECKS — was its id renamed?");
+}
 
 /**
  * Return the latest mtime (ms) of any file found recursively inside `dir`.
@@ -37,6 +43,12 @@ function isStale(srcDir, distFile) {
 
 function bootstrap() {
   const root = ROOT;
+
+  // --- DEV-mode advisory — printed before any install/rebuild work ---
+  if (!hcDevLinksInactive.detect()) {
+    console.log(`[Bootstrap] WARNING: DEV mode is active (.dev-links.json exists).`);
+    console.log(`[Bootstrap]   Run 'node scripts/cli.js dev-unlink' before committing.`);
+  }
 
   // --- Ensure root node_modules are installed and up to date ---
   // Use node_modules/.package-lock.json mtime (updated by every npm install)
