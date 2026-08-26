@@ -24,7 +24,31 @@ The server manages two types of JSON files:
 | [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | MCP tools, classes, types, and public methods |
 | [Key Data Flows](data-flows.md) | Main interaction paths through the system |
-| [Constraints & Conventions](constraints.md) | Established rules, conventions, and gotchas |
+
+### Constraints
+
+Constraints are split by domain. Start with **Core**; the others are consulted when working in
+their area.
+
+| Document | Covers |
+|----------|--------|
+| [constraints.md](constraints.md) | **Core** — file I/O, storage layout, schema, module system, validation, concurrency, build, manifest authoring, cross-platform |
+| [constraints-workflow.md](constraints-workflow.md) | Status transitions, claiming, pipelines, handoffs, workflow gotchas |
+| [constraints-testing.md](constraints-testing.md) | Test isolation, fixtures, helper mandate, mocking policy |
+| [constraints-code-style.md](constraints-code-style.md) | Naming, loops, compiler strictness, JSDoc, Zod schema shape |
+| [constraints-storage.md](constraints-storage.md) | Knowledge store, multi-store architecture, known limitations |
+| [GUI constraints](../../../gui/docs/agents/project-manifest/constraints.md) | Frontend and HTTP-server conventions — owned by the [GUI sub-manifest](../../../gui/docs/agents/project-manifest/README.md) |
+
+> **Citation convention:** constraints are cited by heading, not by number. Numbers were removed
+> after repeated collisions made references ambiguous.
+
+---
+
+## GUI Sub-Manifest
+
+The GUI (`mcp-server/gui/`) maintains its own manifest covering the vanilla-JS frontend and the
+standalone HTTP server: [gui/docs/agents/project-manifest/](../../../gui/docs/agents/project-manifest/README.md).
+Changes to `gui/` are documented there, not in this manifest.
 
 ---
 

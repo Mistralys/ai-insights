@@ -84,6 +84,42 @@
 
    A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
 
+<a name="c4d"></a>
+5d. **Published artifacts carry no project-specific content.** Some files in this repository are consumed by unrelated downstream projects, which fetch them over HTTPS and overwrite their local copy on every sync. AI-Insights-specific content added to one of them ships to every consumer, and they cannot remove it — the next sync restores it.
+
+   **Published artifacts:**
+
+   | Artifact | How to recognise it | Downstream consumption |
+   |---|---|---|
+   | `personas/docs/persona-design-guide.md` | `**License:**` / `**Author:**` / `**Source:**` header block | Fetched by `nexus-personas` (`scripts/sync-persona-design-guide.js`, plus a scheduled Gitea Actions workflow); local copies also exist in `hcp-editor` and `nexus-plugins` |
+   | `personas/standalone/src/content/persona-curator.md` | Consumed as source by downstream builds | Fetched by the same sync script; downstream treats its local copy as read-only under a MUST-level constraint |
+
+   **Rules:**
+
+   - **The guide is domain-neutral.** Downstream suites cover non-coding domains — recipes, content curation, research. A rule stated in the guide holds for any persona suite; an inventory, a file path under `personas/ledger/`, or a reference to this workspace's tooling does not belong there. Project-specific vocabulary and conventions go into this constraints document instead, as C5c does.
+   - **The Persona Curator degrades gracefully.** Instructions in the Curator reference project infrastructure conditionally ("where the project maintains a registry…"), never unconditionally. A step that assumes this workspace's layout is a step that misfires in every downstream project.
+   - **Section headings in both files are a downstream contract.** `nexus-personas` injects a partial into `persona-curator.md` by anchoring on the literal string `\n\n## Operating Philosophy\n`, and its sync throws a hard error when the anchor is missing. Renaming or removing a top-level heading in either file breaks a downstream build. Treat heading changes as breaking changes: flag them for the user rather than applying them silently.
+   - **Version and changelog are the sync signal.** Both files carry a version and changelog block that downstream consumers read to detect drift. Content changes bump the guide's version in the same change.
+
+   > **Why this needs stating:** these files look exactly like ordinary project documentation from inside the workspace — same directory, same Markdown, same Git history. The only in-file signal is the header block, which is easy to read past. When in doubt, check whether the file appears in the table above.
+
+<a name="c4e"></a>
+5e. **This project's persona layout is not the layout the Persona Curator can assume.** Because `persona-curator.md` is published (C5d), it describes persona work in role terms — "the project's copy of the guide", "the persona's metadata file", "per-target output directories" — rather than naming paths. Downstream consumers use a flat `personas/src/` + `personas/meta/` layout with no suite subdivision and different target directories, so a hardcoded path in that file is wrong everywhere except here.
+
+   The concrete values for **this** workspace:
+
+   | Concept (as the Curator names it) | This project's path |
+   |---|---|
+   | The project's copy of the Design Guide | `personas/docs/persona-design-guide.md` — the first entry in the Curator's lookup order, so no search is needed here. The filename is invariant across projects; only the directory varies (downstream consumers use `docs/persona-design-guide.md`). Moving this file requires updating that lookup order, since it would otherwise fall through to the search fallback. |
+   | Persona source content files | `personas/ledger/src/content/`, `personas/standalone/src/content/`, `personas/ledger-support/src/content/` |
+   | Persona metadata files | `personas/{suite}/src/meta/` (see [C2a](#c2a) for the full directory table) |
+   | Per-target generated output | `personas/{suite}/vs-code/`, `personas/{suite}/claude-code/`, `personas/{suite}/deep-agents/` — never edited ([C1](#c1)) |
+   | Metadata fields for a new persona | `slug`, `name`, `description`, `id`, `vs_file_name`, `cc_file_name`, `tools`, `changelog` (see [C11](#c11)–[C15](#c15) for naming rules) |
+   | The project's persona changelog | `personas/changelog.md` |
+   | The persona build command | `node scripts/build-personas.js` ([C3](#c3) covers the full edit → build → sync workflow) |
+
+   An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
+
 ---
 
 ## Naming & File Conventions
@@ -201,7 +237,6 @@
 23. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — the library emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).
 
 <a name="c29"></a>
-<a name="c38"></a>
 <a name="c48"></a>
 24. **`mcp_server_name` in `_shared.yaml` controls the MCP server reference** everywhere in generated output and must match the server key used by `scripts/install-mcp-global.js` (default: `central_pm`). If the server name changes, update this field, rebuild personas, and update `install-mcp-global.js` — see the Cross-System Dependencies table in `AGENTS.md`.
 
@@ -220,7 +255,7 @@
 
 ## Audit Tracking
 
-<a name="c54"></a>
+<a name="c50a"></a>
 25a. **`audit_guide_version` and `audit_date` track design guide compliance.** Two optional YAML metadata fields record whether a persona has been audited against the Persona Design Guide:
 
    ```yaml

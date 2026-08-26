@@ -23,10 +23,34 @@ All manifest documents are located in:
 | 0 | [Workflow Specification](docs/agents/workflow-specification/README.md) | Authoritative specification of all workflow logic — state machines, routing, handoffs, edge cases | **Before modifying any pipeline, routing, status, handoff, or recommendation logic** |
 | 1 | [README.md](docs/agents/project-manifest/README.md) | Project overview, purpose, and context | **FIRST** — Before any work |
 | 2 | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) | Runtime, frameworks, libraries, architectural patterns | Understanding system design |
-| 3 | [constraints.md](docs/agents/project-manifest/constraints.md) | Critical rules, gotchas, and conventions | **MANDATORY** — Before making changes |
+| 3 | [constraints.md](docs/agents/project-manifest/constraints.md) | **Core** rules, gotchas, and conventions | **MANDATORY** — Before making changes |
 | 4 | [file-tree.md](docs/agents/project-manifest/file-tree.md) | Visual directory structure with annotations | Finding files and modules |
 | 5 | [api-surface.md](docs/agents/project-manifest/api-surface.md) | Public constructors, methods, and signatures | Understanding interfaces before reading implementations |
 | 6 | [data-flows.md](docs/agents/project-manifest/data-flows.md) | Main interaction paths through the system | Tracing execution paths |
+
+### 📐 Constraints by Domain
+
+Constraints are split across five documents. Read **Core** always; read the others when working
+in their area.
+
+| Document | Read When |
+|----------|-----------|
+| [constraints.md](docs/agents/project-manifest/constraints.md) | **Always** — file I/O, storage layout, schema, validation, concurrency, build, manifest authoring |
+| [constraints-workflow.md](docs/agents/project-manifest/constraints-workflow.md) | Touching status transitions, claiming, pipelines, or handoffs |
+| [constraints-testing.md](docs/agents/project-manifest/constraints-testing.md) | Writing or modifying any test |
+| [constraints-code-style.md](docs/agents/project-manifest/constraints-code-style.md) | Writing TypeScript — naming, JSDoc, Zod schemas, tool registration |
+| [constraints-storage.md](docs/agents/project-manifest/constraints-storage.md) | Touching the knowledge store or multi-store routing |
+
+> **Citation convention:** cite constraints by heading, never by number. Numbers were removed
+> after repeated collisions made references ambiguous.
+
+### 🖥️ GUI Sub-Manifest
+
+Work under `gui/` is governed by a separate manifest:
+[gui/docs/agents/project-manifest/](gui/docs/agents/project-manifest/README.md). Its
+[constraints.md](gui/docs/agents/project-manifest/constraints.md) owns the no-build-step rule,
+ES5 frontend conventions, route-table ordering, security headers, handler domain split, and the
+LIVE/DEV port convention. Do not document GUI rules in the manifest above.
 
 ---
 
@@ -80,12 +104,14 @@ All manifest documents are located in:
 | **Add new dependency** | `tech-stack.md` | Add to Production or Development dependencies table |
 | **Add new file/directory** | `file-tree.md` | Add to tree structure with brief annotation |
 | **Change architectural pattern** | `tech-stack.md`, `README.md` | Update pattern description and rationale |
-| **Add new constraint/convention** | `constraints.md` | Document rule, anti-pattern, and enforcement mechanism |
+| **Add new constraint/convention** | The matching `constraints-*.md` (or `constraints.md` for infrastructure) | Document rule, anti-pattern, and enforcement mechanism |
 | **Change data flow** | `data-flows.md` | Update or add flow diagram and description |
 | **Modify public method signature** | `api-surface.md` | Update signature (do NOT include implementation) |
 | **Rename/move file** | `file-tree.md`, `api-surface.md` (if public) | Update paths and references |
-| **Add new status transition** | `constraints.md`, `data-flows.md` | Document rule and update transition table |
+| **Add new status transition** | `docs/agents/workflow-specification/` **first**, then `constraints-workflow.md`, `data-flows.md` | The spec owns the transition table; the manifest records enforcement only |
 | **Change schema/validation** | `constraints.md`, `tech-stack.md` (if pattern), `api-surface.md` (if signature) | Document new validation rules |
+| **Add/change a test convention** | `constraints-testing.md` | Keep all test rules in one document |
+| **Change anything under `gui/`** | `gui/docs/agents/project-manifest/` | The GUI owns its own manifest |
 
 **Enforcement:** Before completing any work package, verify you have updated ALL relevant manifest documents.
 
@@ -99,11 +125,11 @@ All manifest documents are located in:
 
 | What You Need | Search Here FIRST | Search Here SECOND | Read Source Code LAST |
 |---------------|-------------------|--------------------|-----------------------|
-| **Understand workflow behavior** | [Workflow Specification](docs/agents/workflow-specification/README.md) | `constraints.md` | Only for implementation details |
+| **Understand workflow behavior** | [Workflow Specification](docs/agents/workflow-specification/README.md) | `constraints-workflow.md` | Only for implementation details |
 | **Find a file location** | `file-tree.md` | grep/file search | Never needed |
 | **Understand a method signature** | `api-surface.md` | Source code | Only for implementation logic |
 | **Trace how data flows** | `data-flows.md` | Source code | Only for edge cases |
-| **Check if rule exists** | `constraints.md` | Source code comments | Only if ambiguous |
+| **Check if rule exists** | The matching `constraints-*.md` | Source code comments | Only if ambiguous |
 | **Identify dependencies** | `tech-stack.md` | `package.json` | Never needed |
 | **Understand patterns** | `tech-stack.md` | Source code | Only for complex logic |
 
@@ -113,7 +139,7 @@ All manifest documents are located in:
 |---------------|-------------|
 | Grep entire codebase for "LedgerStore" | Search `api-surface.md` for "LedgerStore" |
 | Read 10 files to find "atomicWriteJson" | Search `file-tree.md` for "atomic-writer.ts" |
-| Read source code to understand status transitions | Read `constraints.md` §8 "Status Transitions Are Enforced" |
+| Read source code to understand status transitions | Read the Workflow Specification §6.2 transition table |
 | Clone the repo and run grep on all TS files | Read `data-flows.md` to trace execution path |
 
 **Rationale:** Reading manifest documents consumes ~1/10th the tokens of reading source code. Use the manifest as your index.
@@ -132,7 +158,7 @@ All manifest documents are located in:
 | **Ambiguous Requirement** | Use most restrictive interpretation. Document assumption in work notes. | **MUST** | "Update status" unclear → Assume full validation required (stricter) |
 | **Missing Manifest Documentation** | Pause work. Read source code. Create draft manifest entry. Request review. | **MUST** | New tool not in `api-surface.md` → Draft signature and request manifest update |
 | **Untested Code Path** | Write test first. Do not ship code without tests. | **MUST** | Adding new validator → Write test in `tests/schema/validators.test.ts` |
-| **Unclear Constraints** | Search for similar constraints in `constraints.md`. Apply same pattern. | **SHOULD** | Unsure of logging discipline → See §4 "STDIO Logging Discipline" |
+| **Unclear Constraints** | Search for similar constraints in the matching `constraints-*.md`. Apply same pattern. | **SHOULD** | Unsure of logging discipline → See "STDIO Logging Discipline" in `constraints.md` |
 | **Breaking Change Proposal** | Document change in work package. Flag for review. Never implement silently. | **MUST** | Changing MCP tool signature → Document breaking change + migration path |
 | **Dependency Not in Tech Stack** | Check if dependency is transitive. If new, justify in work notes before adding. | **SHOULD** | Need `lodash` → Justify vs. native JS; update `tech-stack.md` if added |
 | **Performance Concern** | Measure first. Optimize only if needed. Document tradeoffs. | **SHOULD** | Atomic writes feel slow → Measure latency before optimizing |
@@ -174,12 +200,9 @@ Unclear → Pause and request user clarification
 | **Runtime** | Node.js (ESM) |
 | **Architecture** | MCP Server with Repository Pattern |
 | **Primary Pattern** | Schema-First Design (Zod) + Atomic Writes + File Locking |
-| **Lines of Code** | ~2,000 (src/) |
-| **Test Coverage** | ~85% (unit + integration) |
-| **MCP Tools** | 22 registered tools |
-| **Pipeline Types** | 6 (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) |
-| **Agent Roles** | 9 (`Planner`, `Project Manager`, `Developer`, `QA`, `Security Auditor`, `Reviewer`, `Release Engineer`, `Documentation`, `Synthesis`) |
-| **Dependencies** | 3 production, 4 development |
+| **Pipeline Types** | `implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation` |
+| **Agent Roles** | `Planner`, `Project Manager`, `Developer`, `QA`, `Security Auditor`, `Reviewer`, `Release Engineer`, `Documentation`, `Synthesis` |
+| **Dependencies** | See [tech-stack.md](docs/agents/project-manifest/tech-stack.md) |
 
 ---
 
@@ -202,7 +225,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | 11 | Pre-mutation state passed out of `updateWorkPackageWithSync` must use outer-scope `let` | TS2304 compile error + runtime ReferenceError at call site |
 | 12 | All workflow logic must implement the Workflow Specification exactly | Spec drift → behavioral divergence → test false positives → production bugs |
 
-**Memorize these constraints.** Reference [constraints.md](docs/agents/project-manifest/constraints.md) for full details.
+**Memorize these constraints.** Full details: rules 1–7 and 11 in [constraints.md](docs/agents/project-manifest/constraints.md); rules 8–10 in [constraints-workflow.md](docs/agents/project-manifest/constraints-workflow.md) and the Workflow Specification; rule 11 in [constraints-code-style.md](docs/agents/project-manifest/constraints-code-style.md).
 
 ---
 
@@ -215,10 +238,15 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | Look up a method signature | [api-surface.md](docs/agents/project-manifest/api-surface.md) |
 | Understand how data flows through system | [data-flows.md](docs/agents/project-manifest/data-flows.md) |
 | Check architectural patterns | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) |
-| Verify a rule or constraint | [constraints.md](docs/agents/project-manifest/constraints.md) |
+| Verify an infrastructure rule | [constraints.md](docs/agents/project-manifest/constraints.md) |
+| Verify a workflow enforcement rule | [constraints-workflow.md](docs/agents/project-manifest/constraints-workflow.md) |
+| Verify a test convention | [constraints-testing.md](docs/agents/project-manifest/constraints-testing.md) |
+| Verify a code-style rule | [constraints-code-style.md](docs/agents/project-manifest/constraints-code-style.md) |
+| Verify a storage or knowledge-store rule | [constraints-storage.md](docs/agents/project-manifest/constraints-storage.md) |
+| Verify a GUI rule | [gui/…/constraints.md](gui/docs/agents/project-manifest/constraints.md) |
 | See previous implementation notes | [docs/agents/implementation-history/](docs/agents/implementation-history/) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](docs/agents/workflow-specification/README.md) |
-| Run tests (pretest / persona-builder dependency) | [README.md — Running the test suite](README.md#running-the-test-suite) |
+| Run tests (pretest / persona-builder dependency) | [README.md — Running Tests](README.md#running-tests) |
 
 ---
 

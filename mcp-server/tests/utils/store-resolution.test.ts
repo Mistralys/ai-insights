@@ -71,7 +71,7 @@ describe('extractLedgerRoot', () => {
     expect(extractLedgerRoot(undefined)).toBeUndefined();
   });
 
-  it('returns undefined for RequestHandlerExtra-shaped object (constraint 58 regression guard)', () => {
+  it('returns undefined for RequestHandlerExtra-shaped object (RequestHandlerExtra-injection regression guard)', () => {
     // The MCP SDK injects a RequestHandlerExtra as the second positional argument
     // to tool handler functions. This object must never be treated as a ledger root.
     const requestHandlerExtra = {

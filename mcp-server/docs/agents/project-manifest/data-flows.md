@@ -211,7 +211,7 @@ Release lock
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
+**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see "`writeWorkPackage` and `writeRootIndex` Are Internal" in constraints.md.
 
 ---
 

@@ -87,6 +87,9 @@ documents:
         sourcePaths:
           - docs/agents/project-manifest
         filePattern: "*.md"
+        # Dated point-in-time audit artefacts are not durable manifest content.
+        excludePatterns:
+          - 'audit-report-'
 
   - description: 'AI Insights - Shared Manifest'
     outputPath: shared-manifest.md
