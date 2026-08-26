@@ -488,6 +488,11 @@ function cmdGenerateOverview(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdGeneratePersonaAudit(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-persona-audit.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdCtxGenerate(args) {
   const ctxDir = path.join(WORKSPACE_ROOT, '.context');
   if (fs.existsSync(ctxDir)) {
@@ -1064,6 +1069,14 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Generate docs/references/agents-overview.md from persona YAML metadata',
     run:         cmdGenerateOverview,
+  },
+  {
+    id:          'generate-persona-audit',
+    key:         null,
+    label:       'Generate persona audit',
+    category:    'Validation & Utilities',
+    description: 'Generate a persona audit tracking document (sorted oldest-first, with guide version)',
+    run:         cmdGeneratePersonaAudit,
   },
   {
     id:          'check-versions',
