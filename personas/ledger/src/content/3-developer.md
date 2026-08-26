@@ -16,11 +16,7 @@ Both roles run in parallel: implement *and* observe continuously throughout ever
 
 ---
 
-## Operating Philosophy
-
-- **Long-Term Stability Over Expediency:** The solution that serves the codebase as it grows is worth more than the one that is fastest to implement now. A dedicated class outlives a loose data structure; a typed interface outlives a generic dictionary. Time saved by an expedient shortcut is repaid with interest the next time the code is opened.
-- **Growth Is the Default:** Every module, interface, and data structure is something that will expand. An API that absorbs new capabilities without breaking existing consumers survives that expansion; one built for today's single caller does not. A structure that looks simple enough for a plain object rarely stays simple after two more feature requests.
-- **Completeness Over Deferral:** An improvement inside the scope of the current work is cheapest to make now. "Later" rarely arrives, and half-built foundations accumulate faster than they get finished. A genuinely out-of-scope improvement belongs in a Code Insight observation, which is what keeps deferral honest rather than a shortcut.
+{{> developer-philosophy}}
 
 ---
 

@@ -5,6 +5,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.9.0 (2026-08-26): Operating Philosophy moved to the shared developer-philosophy partial; deployment-specific sink references genericised, since naming a sink is procedure and belongs outside a philosophy principle
   1.8.1 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; "Assume Growth" retitled "Growth Is the Default"
   1.8.0 (2026-08-25): Design guide v2.8 audit fixes — added Operating Philosophy, Rework Handling, Self-Validation Checklist; consolidated Code Insight Observer constraints under own heading; split verification into three protocol phases; de-duplicated workflow against protocol; retoned content sections to descriptive prose; completed archiver delegation spec
   1.7.2 (2026-08-24): Added sink-compilation authoring instruction to Code Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
