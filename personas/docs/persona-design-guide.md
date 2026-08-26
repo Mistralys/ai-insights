@@ -1,8 +1,17 @@
+<!--
+  PUBLISHED ARTIFACT — domain-neutral, no project-specific content.
+  Downstream projects fetch this file over HTTPS and overwrite their local copy
+  on every sync, across non-coding domains (recipes, curation, research).
+  Project-specific inventories and conventions belong in that project's own
+  constraints. Top-level headings are a downstream anchor contract: renaming one 
+  is a breaking change.
+-->
+
 # Persona Design Guide
 
-> A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
+> A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.1
+**Version:** 3.2
 **Last Updated:** 2026-08-26
 **License:** MIT 
 **Author:** Sebastian Mordziol
@@ -10,6 +19,7 @@
 
 **Changelog**
 
+- v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
 - v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
 - v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
 - v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
@@ -857,7 +867,7 @@ Before shipping a new persona, verify:
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
-- [ ] **Deliberate guide deviations are recorded in `design_notes`.** Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
+- [ ] **Deliberate guide deviations are recorded in `design_notes`,** where the persona carries metadata. Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
 
 ---
 
@@ -1079,13 +1089,29 @@ This applies to persona source files in `src/content/`. The build system and tem
 
 ## Governance Metadata
 
-A persona's YAML metadata file carries three fields that exist purely to govern the persona's relationship with this guide. None of them is read by the build system or rendered into persona output — they are durable records for the humans and agents who audit and maintain the persona over time.
+A persona's metadata carries three fields that exist purely to govern the persona's relationship with this guide. None of them is read by a build system or rendered into persona output — they are durable records for the humans and agents who audit and maintain the persona over time.
 
 | Field | Type | Purpose |
 |-------|------|---------|
 | `audit_guide_version` | `string` | The version of this guide the persona was last audited against (e.g. `"2.9"`). |
 | `audit_date` | `string` | ISO date of that audit (e.g. `"2026-08-26"`). |
 | `design_notes` | block scalar | Deliberate, documented deviations from this guide, each with its rationale. |
+
+### Metadata Without a Build System
+
+Not every persona is compiled. A persona written as a system prompt for a web-based assistant — a Gemini Gem, a Claude Project, a custom GPT — is authored once and pasted into a text field, with no build step and no output targets. Metadata serves two distinct purposes, and only one of them survives that context:
+
+| Purpose | Examples | Needed without a build system? |
+|---|---|---|
+| **Build inputs** | Per-target output filenames, tool lists, template flags, slugs and ids the build resolves | No. These describe a compilation step that does not exist. |
+| **Governance and provenance** | `version`, changelog, `audit_guide_version`, `audit_date`, `design_notes` | Optional, and valuable for any persona expected to be maintained over time. |
+
+**Rules:**
+
+- **Carry only the metadata the persona's deployment needs.** A build-driven persona declares whatever its build requires. A hand-maintained persona carries governance fields at most, and the build-input fields are simply inapplicable — their absence is not a defect.
+- **The author chooses where governance metadata lives, or whether to keep it.** With no metadata file to hold them, the options are frontmatter at the top of the persona document, a short header block in prose, or nothing at all. For a persona the author maintains alone and revises in place, omitting them entirely is a legitimate choice — the fields exist to answer questions across time and across maintainers, and a persona with neither has nothing to record.
+- **Ask rather than assume.** Adding a metadata block to a persona destined for a system-prompt text field imposes structure the author may not want, and some assistants render frontmatter as literal text. Where the deployment context is not stated, the author's intent decides.
+- **A missing audit stamp is not a failed audit.** Where a persona carries no metadata, an audit reports its verdict to the author directly instead of stamping it. The absence of a stamp says nothing about compliance.
 
 ### Audit Stamps
 

@@ -1,3 +1,8 @@
+# PUBLISHED ARTIFACT — src/content/persona-curator.md is fetched by downstream
+# projects and overwritten locally on every sync. Keep instructions project-neutral
+# (conditional references only) and treat top-level heading renames as breaking:
+# nexus-personas injects a partial by anchoring on "\n\n## Operating Philosophy\n".
+# See personas/docs/agents/project-manifest/constraints.md (C5d).
 slug: persona-curator
 name: "Persona Curator"
 description: "Create, audit, and maintain AI agent personas according to the Persona Design Guide."
@@ -5,6 +10,10 @@ vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
 changelog: |
+  1.11.0 (2026-08-26): Metadata handling is now conditional on deployment - a persona pasted into a system-prompt field has no build step, so build-input fields are inapplicable and governance fields are the author's choice; Create asks where the persona will be deployed, Audit skips the stamp where no metadata exists, and bookkeeping no longer assumes a changelog to update
+  1.10.1 (2026-08-26): Added an explicit guide lookup order - the filename is invariant, so the two conventional directories are probed first and a repository-wide search is the documented last resort rather than the default
+  1.10.0 (2026-08-26): Replaced every hardcoded AI-Insights path with role terms - downstream consumers use a flat source layout, so the previous paths resolved to nothing outside this workspace; concrete values now live in the personas constraints (C5e)
+  1.9.0 (2026-08-26): Added published-artifact constraints - project-specific content must not enter externally consumed files, and top-level heading renames in them are breaking changes because downstream sync scripts anchor on literal headings
   1.8.0 (2026-08-26): Philosophy Tone Pass extended to every sentence of a principle body, not just the opener; comparison-idiom titles exempted; added a canonical-name check against the project's principle vocabulary, reported as a finding where no registry exists
   1.7.0 (2026-08-26): Philosophy Tone Pass - dedicated protocol with its own workflow step in all three modes, catching positively framed imperatives in Operating Philosophy sections via the "You should" test; own philosophy section rewritten into the indicative mood
   1.6.0 (2026-08-26): design_notes metadata field - Audit mode reads documented guide deviations before evaluating and records them at the new Accepted severity instead of re-flagging them; Create and Maintain modes write entries; constraints guard against using the field to silence findings
