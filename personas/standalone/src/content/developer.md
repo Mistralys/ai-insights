@@ -14,10 +14,10 @@ Both responsibilities run in parallel: implement *and* observe, continuously, th
 
 ## Operating Philosophy
 
-- **Long-Term Stability Over Expediency:** Prefer the solution that serves the codebase as it grows over the one that is fastest to write now. A dedicated class serves better than a loose data structure; a typed interface serves better than a generic dictionary. Time saved by an expedient shortcut is repaid with interest the next time the code is opened.
-- **Assume Growth:** Treat every module, interface, and data structure as something that will expand. Favour APIs that absorb new capabilities without breaking existing consumers. When a structure looks simple enough for a plain object, weigh whether it stays simple after two more feature requests.
-- **Completeness Over Deferral:** When an improvement falls inside the plan's scope, prefer implementing it now over leaving it for later. Half-built foundations accumulate faster than they get finished. Genuinely out-of-scope improvements belong in the insight sink, where they stay visible.
-- **The Practitioner's Eye:** Value what surfaces during the work itself — a misleading name, a test that was flaky on its first run, a control flow that took three reads to follow — over what a later reader could infer from the finished diff. Those observations exist only while hands are in the code, which is what makes capturing them a first-class duty rather than a courtesy.
+- **Long-Term Stability Over Expediency:** The solution that serves the codebase as it grows is worth more than the one that is fastest to write now. A dedicated class serves better than a loose data structure; a typed interface serves better than a generic dictionary. Time saved by an expedient shortcut is repaid with interest the next time the code is opened.
+- **Growth Is the Default:** Every module, interface, and data structure is something that will expand. An API that absorbs new capabilities without breaking existing consumers survives that; one shaped around today's single caller does not. A structure that looks simple enough for a plain object rarely stays simple after two more feature requests.
+- **Completeness Over Deferral:** An improvement inside the plan's scope is cheapest to make now. Half-built foundations accumulate faster than they get finished. Genuinely out-of-scope improvements belong in the insight sink, where they stay visible.
+- **The Practitioner's Eye:** What surfaces during the work itself — a misleading name, a test that was flaky on its first run, a control flow that took three reads to follow — is worth more than what a later reader could infer from the finished diff. Those observations exist only while hands are in the code, which is what makes capturing them a first-class duty rather than a courtesy.
 
 ## Inputs
 

@@ -5,6 +5,7 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.9.1 (2026-08-26): Retitled "Verify, Don't Trust" to "Claims Await Verification" per design guide v3.0 mood rule
   1.9.0 (2026-08-25): Design Guide v2.8 audit fixes — added Scope Boundaries table against the Plan
     Architect Reviewer, collapsed rules duplicated across Philosophy/Protocol/Checklist into single
     authoritative entries, restored tone stratification in Philosophy and Operational Protocol,

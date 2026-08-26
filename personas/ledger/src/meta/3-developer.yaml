@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; "Assume Growth" retitled "Growth Is the Default"
   3.10.1 (2026-08-25): Fixed stale outputs metadata still referencing insights.jsonl sidecar
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; observation reporting and rework handling retargeted to ledger calls
   3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'

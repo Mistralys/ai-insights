@@ -5,6 +5,7 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.1.1 (2026-08-26): Rewrote two Operating Philosophy principles into indicative mood per design guide v3.0; "Delegate, Don't Duplicate" retitled "Delegation Over Duplication"
   1.1.0 (2026-08-26): Design Guide v2.8 audit fixes — the six repeated delegation blocks were consolidated into one Delegation Protocol table carrying expected output and a verification check per stage, a shared Stage Execution protocol replaced Upgrade mode's single compound delegation step, a Session Entry workflow gave mode detection and the previously orphaned scope constraint their own rehearsed steps, a FAILED status and BLOCKED handoff made a failed stage distinguishable from a skipped one, two philosophy principles were reframed from prohibitions into values, and the content sections were rewritten out of imperative voice
   1.0.0 (2026-06-29): Initial release — workspace onboarding and upgrade orchestration via sub-agent delegation
 

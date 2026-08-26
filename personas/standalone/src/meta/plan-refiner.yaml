@@ -5,6 +5,7 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.6.1 (2026-08-26): Rewrote the Token Economy philosophy principle into indicative mood per design guide v3.0
   1.6.0 (2026-08-25): Design Guide v2.8 re-audit fixes — Phase 5 brought up to the structural standard of Phases 2–4 with stale-artifact deletion and write confirmation, the compound scenario step split into three single-delegation steps, a missing-artifact halt constraint added, the filesystem capability narrowed so it no longer authorizes plan writes, a max-audit-cycles bound check added to step 1, and CEILING_REACHED spelling unified with the emitted status token
   1.5.0 (2026-08-25): Design Guide v2.8 compliance — added an explicit divergence-comparison step to the audit loop, declared the INCOMPLETE terminal status, consolidated protocol constraints under their own headings, folded the scenario check in as Phase 5, and split the compound scenario workflow step
   1.4.0 (2026-08-18): Added opt-in post-convergence usage scenario verification with GUI-scope exception handling and a bounded integration re-check
