@@ -68,6 +68,21 @@ export function extractYamlBlockScalar(text, key) {
 }
 
 /**
+ * Extracts a multi-line-or-single-line string field, accepting either a block
+ * scalar (`key: |`) or an inline scalar (`key: value`, quoted or bare).
+ * Returns undefined when the key is absent or its value is empty.
+ */
+export function extractYamlText(text, key) {
+  const block = extractYamlBlockScalar(text, key);
+  if (block !== undefined) return block;
+
+  const inline = parseYamlScalars(text, [key])[key];
+  // An empty block scalar (`key: |`) leaves the bare indicator as the value.
+  if (!inline || /^[|>][-+]?$/.test(inline)) return undefined;
+  return inline;
+}
+
+/**
  * Extracts a YAML sequence (list) value.
  * e.g.:
  *   subagents:
