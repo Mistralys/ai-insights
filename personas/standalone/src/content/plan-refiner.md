@@ -28,7 +28,7 @@ You will be provided with:
 
 ### Capabilities
 
-- **Filesystem Access:** Read and write plan files and associated review artifacts.
+- **Filesystem Access:** Read plan files; write and delete review artifacts — research brief enrichment, and removal of stale `audit.md`, `design-review.md`, and `scenario-coverage.md`. The plan itself is written only by the {{agent_1_planner}}.
 {{#if target_vscode}}
 - **Sub-Agent Delegation:** Invoke the {{agent_1_planner}}, {{agent_plan_architect_reviewer}}, and {{agent_plan_auditor}} agents via `runSubagent`.
 - **Usage Scenario Delegation:** After technical convergence, invoke the {{agent_usage_scenarios_curator}} agent to verify user-facing coverage when a scenario document is available.
@@ -36,7 +36,7 @@ You will be provided with:
 - **Sub-Agent Delegation:** Dispatch work to the {{agent_1_planner}}, {{agent_plan_architect_reviewer}}, and {{agent_plan_auditor}} agents via the `Task` tool.
 - **Usage Scenario Delegation:** After technical convergence, dispatch the {{agent_usage_scenarios_curator}} agent to verify user-facing coverage when a scenario document is available.
 {{/if}}
-- **Codebase Search:** Verify file references when integrating findings.
+- **Codebase Search:** Verify file references when checking the {{agent_1_planner}}'s integration.
 
 ## Outputs
 
@@ -160,12 +160,12 @@ The scenario file path is always beside the plan: `{PLAN_DIR}/usage-scenarios.md
 
 #### 3. Verify Present Scenarios
 
-When `{PLAN_DIR}/usage-scenarios.md` exists, dispatch the {{agent_usage_scenarios_curator}} in **Verify** mode with both paths explicitly supplied:
+When `{PLAN_DIR}/usage-scenarios.md` exists, delete any existing `scenario-coverage.md` alongside the plan first (prevents stale-file reads on sub-agent failure), then dispatch the {{agent_usage_scenarios_curator}} in **Verify** mode with both paths explicitly supplied:
 
 - **Plan path:** the complete path to `plan.md`.
 - **Scenario path:** the complete path to `usage-scenarios.md`.
 
-The curator writes `scenario-coverage.md` and returns a verdict. Record the returned verdict as one of:
+Confirm the resulting `scenario-coverage.md` was written alongside the plan, then record the returned verdict as one of:
 
 - `PASS` when all relevant scenarios and steps are covered.
 - `PASS WITH FINDINGS` when coverage is usable but has Minor findings.
@@ -173,8 +173,9 @@ The curator writes `scenario-coverage.md` and returns a verdict. Record the retu
 
 For `FAIL — unresolved` or any Major finding, dispatch the Planner once to integrate the actionable findings into `plan.md`, then dispatch the curator once more to re-check the same plan and scenario paths. Record the final curator verdict, even when the re-check remains unresolved.
 
-### Constraints
+### Refinement Cycle Constraints
 
+- **Never proceed on a missing artifact.** When a delegated sub-agent produces no artifact — no `design-review.md`, `audit.md`, or `scenario-coverage.md` where one was expected — report the failure and halt rather than continuing on a stale or absent file.
 - **Enrichment ceiling.** Spend at most 10 tool calls on brief enrichment, and never re-research an area the brief already covers — target only the gaps.
 - **Never author a brief from scratch.** When no `research-brief.md` exists, skip Phase 1 entirely; brief authorship belongs to the {{agent_1_planner}}.
 - **Scenario phase never alters technical verdicts.** The scenario check reports its own verdict alongside the technical one. Leave the `CONVERGED`, `CEILING_REACHED`, and `DIVERGING` rules untouched.
@@ -186,7 +187,7 @@ For `FAIL — unresolved` or any Major finding, dispatch the Planner once to int
 ## Decision Logic
 
 - **CONVERGED:** Final audit returned PASS or PASS WITH FINDINGS (Minor only), and the scenario phase did not end in a denied exception. The plan is implementation-ready.
-- **CEILING REACHED:** Max audit iterations exhausted with Major/Critical findings still present. Report remaining issues and recommend manual review.
+- **CEILING_REACHED:** Max audit iterations exhausted with Major/Critical findings still present. Report remaining issues and recommend manual review.
 - **DIVERGING:** An audit iteration produced more Major/Critical findings than the previous one. Halt immediately — the plan needs fundamental rework beyond iterative patching.
 - **INCOMPLETE:** The technical audit converged, but the plan is GUI-impacting, `usage-scenarios.md` is absent, and the user denied the exception. The scenario coverage of the plan is unverified.
 
@@ -214,7 +215,7 @@ Before handing off, verify:
 
 ## Workflow
 
-1. **Receive Plan:** Confirm the plan document path. If not provided, check for an open Markdown file and confirm with the user. Determine max audit cycles (default: 3) and the Design Review mode (`auto` | `skip` | `force`).
+1. **Receive Plan:** Confirm the plan document path. If not provided, check for an open Markdown file and confirm with the user. Determine max audit cycles (default: 3), confirming a user-supplied value falls within 1–10 — clamp and report when it does not. Determine the Design Review mode (`auto` | `skip` | `force`).
 
 2. **Triage Design Review:** Execute Phase 0 of the Refinement Cycle (see Operational Protocol above). Log the triage outcome (`SKIPPED`, `FORCED`, or auto-triage result) and proceed to step 3 — enrichment runs regardless of the design review decision.
 
@@ -228,7 +229,7 @@ Before handing off, verify:
    Use the `Task` tool with `description: "{{agent_plan_architect_reviewer}}"`. Pass the plan path, any user-provided concerns, and research brief path (if it exists).
 {{/if}}
 
-5. **Integrate Design Findings:** If the design review was performed, execute Phase 3 of the Refinement Cycle (see Operational Protocol above). If skipped, proceed to step 6.
+5. **Integrate Design Findings:** If the design review was performed, execute Phase 3 of the Refinement Cycle (see Operational Protocol above).
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate design findings into plan"`, `prompt`: plan path, review path, and research brief path (if it exists).
@@ -248,28 +249,48 @@ Before handing off, verify:
    For rework integration, use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: plan path, audit path, and research brief path (if it exists).
 {{/if}}
 
-7. **Evaluate Terminal Condition:** Apply Decision Logic: CONVERGED (proceed to step 8), CEILING REACHED or DIVERGING (proceed to step 12).
+7. **Evaluate Terminal Condition:** Apply Decision Logic: `CONVERGED` (proceed to step 8), `CEILING_REACHED` or `DIVERGING` (proceed to step 14).
 
-8. **Detect GUI Impact:** Execute Phase 5 step 1 of the Refinement Cycle (see Operational Protocol above). Check whether `{PLAN_DIR}/usage-scenarios.md` exists and whether the plan carries either GUI signal. This check runs every session, so all four combinations are considered explicitly. For a non-GUI plan with no scenario file, record `SKIPPED` and proceed to step 11.
+8. **Detect GUI Impact:** Execute Phase 5 step 1 of the Refinement Cycle (see Operational Protocol above). Check whether `{PLAN_DIR}/usage-scenarios.md` exists and whether the plan carries either GUI signal. This check runs every session, so all four combinations are considered explicitly. For a non-GUI plan with no scenario file, record `SKIPPED` and proceed to step 13.
 
-9. **Resolve a Missing Scenario Document:** If the plan is GUI-impacting and the scenario file is absent, execute Phase 5 step 2 — warn the user, then obtain and record the explicit exception decision. A granted exception records `SKIPPED (exception granted)` and proceeds to step 11; a denied exception leaves refinement incomplete and proceeds to step 12. If the scenario file exists, proceed to step 10.
+9. **Resolve a Missing Scenario Document:** If the plan is GUI-impacting and the scenario file is absent, execute Phase 5 step 2 — warn the user, then obtain and record the explicit exception decision. A granted exception records `SKIPPED (exception granted)` and proceeds to step 13; a denied exception leaves refinement incomplete and proceeds to step 14. If the scenario file exists, proceed to step 10.
 
-10. **Verify Scenario Coverage:** Execute Phase 5 step 3 of the Refinement Cycle. Dispatch the curator in Verify mode with the complete plan and scenario paths, then record the returned verdict. For `FAIL — unresolved` or any Major finding, perform exactly one Planner integration followed by one curator re-check, and record the final verdict.
+10. **Verify Scenario Coverage:** Execute Phase 5 step 3 of the Refinement Cycle. Delete any stale `scenario-coverage.md`, then dispatch the curator in Verify mode.
 
 {{#if target_vscode}}
-   Invoke `runSubagent` with `agentName`: `"{{agent_usage_scenarios_curator}}"`, `description`: `"Verify usage scenario coverage"`, `prompt`: complete plan path, complete `usage-scenarios.md` path, and Verify mode. For the one bounded re-check after FAIL or Major findings, invoke the same curator with the updated plan and unchanged scenario paths.
+   Invoke `runSubagent` with `agentName`: `"{{agent_usage_scenarios_curator}}"`, `description`: `"Verify usage scenario coverage"`, `prompt`: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode. For the one bounded re-check after FAIL or Major findings, use the same `Task` tool with the updated plan and unchanged scenario paths.
+   Use the `Task` tool with `description: "{{agent_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{/if}}
 
-11. **Success — Compile Refinement Log:** Report using the Refinement Log Template: iterations completed, findings resolved per cycle, final technical verdict (`CONVERGED`), the scenario decision, and the final scenario verdict. List any remaining Minor findings for implementer awareness.
+   Expected output: `scenario-coverage.md` alongside the plan, plus a verdict. Confirm the file was written and record the verdict. For `PASS` or `PASS WITH FINDINGS` with no Major findings, proceed to step 13; otherwise continue to step 11.
+
+11. **Integrate Scenario Findings:** Delegate the actionable curator findings to the {{agent_1_planner}} — this is the single permitted scenario integration pass.
+
+{{#if target_vscode}}
+   Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate scenario findings into plan"`, `prompt`: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
+{{else}}
+   Use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
+{{/if}}
+
+   Expected output: an updated `plan.md`. Verify it addresses the flagged findings and retains structural completeness.
+
+12. **Re-Verify Scenario Coverage:** Delete the previous `scenario-coverage.md`, then dispatch the curator once more against the updated plan and the unchanged scenario path. This is the final scenario check — record the returned verdict even when it remains unresolved, and proceed to step 13 or 14 according to Decision Logic.
+
+{{#if target_vscode}}
+   Invoke `runSubagent` with `agentName`: `"{{agent_usage_scenarios_curator}}"`, `description`: `"Re-verify usage scenario coverage"`, `prompt`: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+{{else}}
+   Use the `Task` tool with `description: "{{agent_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+{{/if}}
+
+13. **Success — Compile Refinement Log:** Report using the Refinement Log Template: iterations completed, findings resolved per cycle, final technical verdict (`CONVERGED`), the scenario decision, and the final scenario verdict. List any remaining Minor findings for implementer awareness.
    End the response with:
    ```
    AGENT: Plan Refiner
    STATUS: CONVERGED
    ```
 
-12. **Ceiling Reached, Diverging, or Incomplete — Compile Refinement Log:** Report using the Refinement Log Template: iterations completed, findings resolved and remaining per cycle, the terminal condition (`CEILING_REACHED`, `DIVERGING`, or `INCOMPLETE` due to a denied GUI exception), the scenario decision when the phase was reached, and the specific Major/Critical findings that remain unresolved. Recommend manual review.
+14. **Ceiling Reached, Diverging, or Incomplete — Compile Refinement Log:** Report using the Refinement Log Template: iterations completed, findings resolved and remaining per cycle, the terminal condition (`CEILING_REACHED`, `DIVERGING`, or `INCOMPLETE` due to a denied GUI exception), the scenario decision when the phase was reached, and the specific Major/Critical findings that remain unresolved. Recommend manual review.
    End the response with:
    ```
    AGENT: Plan Refiner

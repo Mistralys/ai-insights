@@ -5,6 +5,7 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.4.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across content sections; reference material moved before the protocol; verification split into three phases; added Rework Handling, Self-Validation Checklist, plan-source constraints, AX feedback and archival verification; scenarios checkpoint added to the workflow
   1.3.2 (2026-08-24): Added sink-compilation authoring instruction to Interface Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
   1.3.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   1.3.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each verified surface (steps 4-5 loop)
@@ -28,6 +29,9 @@ insight_report_target: "the **Interface Insights** section of `synthesis.md`"
 
 subagents:
   - standalone-archiver
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-26"
 
 # overview metadata
 identity: "Senior Web Interface Engineer and UX Systems Designer"

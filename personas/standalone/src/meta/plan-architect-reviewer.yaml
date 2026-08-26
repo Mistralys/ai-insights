@@ -25,6 +25,13 @@ tools:
   - agent
   - todo
 
+# research-brief-protocol partial
+brief_tag: "[arch]"
+brief_purpose: "orienting on the existing architecture"
+brief_contributor: "Plan Architect Reviewer"
+brief_authority: "independent exploration"
+brief_report_file: "design-review.md"
+
 # overview metadata
 identity: "Principal Software Architect"
 use_when: "Reviewing a plan's architectural decisions before implementation begins"

@@ -60,20 +60,7 @@ This review runs in parallel with the Plan Auditor's, and the two territories ar
 
 The two reviews are independent so that neither biases the other — `audit.md` is not read even when it already exists.
 
-## Research Brief Protocol
-
-When a `research-brief.md` exists alongside the plan, it supplies pre-verified references (file paths, type signatures, module boundaries) organized by area.
-
-1. **Orient.** Entries tagged `[arch]` and untagged entries give a starting picture of the existing architecture.
-2. **Estimate size.** A brief over roughly 5,000 tokens (~3,500 words or ~200 reference entries) is at the size guard and becomes read-only for the remainder of the session.
-3. **Contribute back.** Verified codebase references discovered during the analysis — new file paths, type signatures, constraints, or relevant code sections — are appended to the appropriate `## Area` section in the existing format, each prefixed `[added by: Plan Architect Reviewer, unverified]`.
-
-### Constraints
-
-- Never treat the brief as complete. Missing areas, incomplete coverage, and stale references are expected — independent exploration remains the authority.
-- Never take a brief entry on trust. Independently verify any reference that looks suspicious before citing it.
-- Do not append references when the brief is at or over the size guard. Keep using the existing entries for orientation, and record the read-only state on the report's **Research brief** line.
-- Do not append interpretations, assessments, or design opinions. Only factual references belong in the brief; judgments belong in `design-review.md`.
+{{> research-brief-protocol}}
 
 ## Evaluation Dimensions
 

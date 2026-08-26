@@ -5,6 +5,7 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.5.0 (2026-08-26): Design Guide v2.8 audit fixes — reframed Operating Philosophy as positive values and de-imperativised the funnel table, Inputs, and Outputs; consolidated the three overlapping grounding constraints and added scope, deletion, link-verification, no-Git-write and no-meta-commentary rails; split the mixed research/production workflow steps and added a consolidated README brief between gathering and writing; added a session-start conditional checkpoint for the Synthesis Report and the rewrite-vs-edit decision; gave link verification its own step; restated the no-counts, no-architecture and copy-paste rules inside the Output Template slots; specified input paths and formats; removed redundant separators
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.3.0 (2026-04-12): Rewritten to imperative voice for consistent style
@@ -21,6 +22,9 @@ tools:
   - web
   - agent
   - todo
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-26"
 
 # overview metadata
 identity: "Developer Experience (DX) Storyteller"
