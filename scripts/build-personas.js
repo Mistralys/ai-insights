@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
+import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -469,5 +470,30 @@ if (!CHECK) {
       console.error('  ' + err);
     }
     process.exit(1);
+  }
+}
+
+// Always: warn on imperative phrasing in Operating Philosophy sections.
+// Heuristic (guide v3.0 mood rule) — warns rather than fails, since a
+// legitimate declarative can open with a verb the detector does not know.
+{
+  const suiteContents = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'content'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
+  ];
+
+  const warnings = checkPhilosophyToneInDirs(suiteContents);
+
+  if (warnings.length > 0) {
+    console.warn('\n[WARN] imperative phrasing in Operating Philosophy sections:\n');
+    for (const warning of warnings) {
+      console.warn('  ' + warning);
+    }
+    console.warn(
+      '\n  Philosophy principles are stated in the indicative mood (guide v3.0).\n' +
+      '  Apply the "You should" test: if prepending it reads naturally, rewrite\n' +
+      '  the principle as a claim about the domain.\n',
+    );
   }
 }
