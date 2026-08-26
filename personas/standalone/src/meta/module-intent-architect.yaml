@@ -34,8 +34,8 @@ cc_tools:
   - WebFetch
   - WebSearch
 
-audit_guide_version: "2.9"
-audit_date: "2026-08-25"
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"
 
 # overview metadata
 identity: "Staff Software Architect"

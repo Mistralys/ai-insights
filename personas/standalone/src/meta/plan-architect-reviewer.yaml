@@ -38,5 +38,5 @@ identity: "Principal Software Architect"
 use_when: "Reviewing a plan's architectural decisions before implementation begins"
 notes: "Runs in parallel with the Plan Auditor; never blocks it"
 
-audit_guide_version: "2.9"
-audit_date: "2026-08-25"
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"

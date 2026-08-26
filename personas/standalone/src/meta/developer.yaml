@@ -40,8 +40,8 @@ cc_tools:
   - TodoRead
   - TodoWrite
 
-audit_guide_version: "2.9"
-audit_date: "2026-08-25"
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"
 
 insight_agent: Developer
 insight_report_target: "the **Code Insights** section of `synthesis.md`"

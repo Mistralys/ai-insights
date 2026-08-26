@@ -36,7 +36,7 @@ tools:
   - web
   - browser
 
-audit_guide_version: "2.9"
+audit_guide_version: "3.2"
 audit_date: "2026-08-26"
 
 design_notes: |
