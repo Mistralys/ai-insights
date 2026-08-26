@@ -2,7 +2,7 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.9
+**Version:** 3.0
 **Last Updated:** 2026-08-26
 **License:** MIT 
 **Author:** Sebastian Mordziol
@@ -10,6 +10,7 @@
 
 **Changelog**
 
+- v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
 - v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
 - v2.8 - 2026-08-24: Added design rule for self-contained sub-sections: reusable partials and dedicated procedure blocks consolidate their constraints into their own Constraints heading rather than scattering them inline.
 - v2.7 - 2026-08-24: Added Core Philosophy principle 7 (Tone Stratification); reserved imperative voice for Rules & Constraints only; rewrote checklist tone item to enforce stratification; added "All-imperative monotone" pitfall; fixed Mission template wording.
@@ -166,8 +167,8 @@ This section is optional but highly recommended for complex or judgment-heavy ro
 ```markdown
 ## Operating Philosophy
 
-- **{PRINCIPLE_NAME}:** {One–two sentence explanation of the principle.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
+- **{Nominal or declarative title — never verb-initial}:** {One–two sentences stating the principle as a claim about the domain, not an instruction to the agent.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
 ```
 
 Or, when a unifying metaphor applies:
@@ -187,16 +188,35 @@ Or, when a unifying metaphor applies:
 
 - **Name each principle.** Bold term + explanation sentence. This makes principles scannable and referenceable (e.g., “Apply the 30-Second Rule here”).
 - **Encode judgment, not procedure.** Principles describe *how to think*, not *what to do*. Steps belong in the Workflow.
-- **Frame positively — values over prohibitions.** Philosophy principles express what the agent *prioritizes*, *prefers*, or *values* — not what it must avoid. Use language like "Prefer X over Y", "Value X", "Favor X when…". If a principle starts with "Do not" or "Never", it is a constraint and belongs in Rules & Constraints.
+- **Frame positively — values over prohibitions.** Philosophy principles express what the agent *prioritizes* or *values*, not what it must avoid. A principle that opens with "Do not" or "Never" is a constraint and belongs in Rules & Constraints.
+- **State principles in the indicative mood.** Polarity and mood are independent axes, and the philosophy section requires both: *positive* polarity and *indicative* mood. A principle is a statement about the world the agent works in ("Advisories outrank freshness"), not an instruction addressed to the agent ("Prefer advisories over freshness"). Both are positively framed; only the first is descriptive. Imperative phrasings — "Prefer X", "Favor X", "Use X", "Read X", "Keep X", "Treat X as…" — are positively framed *commands*, and they belong in Rules & Constraints. See Core Philosophy §7 (Tone Stratification).
+- **Titles are nominal or declarative, never verb-initial.** A principle's title sets the mood its body follows, so drift starts in the title. "Read the Changelog, Not the Version Number" is a command and pulls the body into command voice; "The Changelog Decides, Not the Version Number" is a claim and pulls the body into prose. Titles take the form of a noun phrase ("Evidence Over Availability"), a comparison ("Maintenance Status Outranks Version Distance"), or a statement ("State Is Measured, Rationale Is Remembered").
 - **Keep it short.** 3–6 principles is the sweet spot. More than that and the agent can't hold them all in working memory.
 - **Use when the agent faces frequent ambiguity.** Not every persona needs a philosophy. A mechanical agent (like a Ledger Initializer) can operate entirely from its workflow. A judgment-heavy agent (like a README Writer or Documentation Curator) needs principles to navigate the gray areas.
+
+**The "You Should" Test:**
+
+Prepend *"You should"* to a principle's title and to the first clause of its body. If the result reads naturally, the principle is imperative and needs rewriting as a statement about the world.
+
+| Imperative (fails the test) | Indicative (passes) |
+|---|---|
+| Prefer the Smallest Sufficient Move | The Smallest Sufficient Move Carries the Least Risk |
+| Read the Changelog, Not the Version Number | The Changelog Decides, Not the Version Number |
+| Favor Depth Over Breadth | Depth Outranks Breadth |
+| Value Structure Over Prose | Structure Before Content |
+| Keep the Manifest Authoritative | The Manifest Is Authoritative |
+| Treat Advisories as Urgent | Advisories Outrank Freshness |
+| Verify Versions Before Reporting Them | Verified Versions Only |
+| Use the Ledger for Rationale, Not State | Rationale Is Remembered, State Is Measured |
+
+The rewrite is mechanical: the imperative verb becomes a claim about how the domain behaves, and the agent's obligation to act on it is left implicit. Where an obligation genuinely must be enforced, the principle stays as a value statement here and a matching hard rule is added to Rules & Constraints.
 
 **Philosophy vs. Constraint — Litmus Test:**
 
 | If the principle… | It belongs in… | Example |
 |---|---|---|
 | Describes what the agent *values or prioritizes* | Operating Philosophy | "**Structure Before Content:** A well-structured document with average prose outperforms brilliant prose in a disorganized layout." |
-| Expresses a *preference between two valid approaches* | Operating Philosophy | "**Depth Over Breadth:** Prefer thorough coverage of fewer items over shallow coverage of many." |
+| Expresses a *preference between two valid approaches* | Operating Philosophy | "**Depth Outranks Breadth:** Thorough coverage of a few items is worth more than shallow coverage of many." |
 | States what the agent *must not do* | Rules & Constraints | "Do not modify files outside the current work package." |
 | Defines a *hard boundary with an alternative action* | Rules & Constraints | "Never invent APIs — verify existence using filesystem tools before referencing." |
 
@@ -783,6 +803,8 @@ Before shipping a new persona, verify:
 - [ ] **Single responsibility.** The mission describes one clear outcome.
 - [ ] **Operating Philosophy is present** if the role requires judgment in ambiguous situations.
 - [ ] **Operating Philosophy uses positive framing.** Principles express values and preferences, not prohibitions. Any "Do not" / "Never" statements belong in Constraints.
+- [ ] **Every philosophy principle passes the "You should" test.** Prepend "You should" to each title and to the first clause of each body. Anything that reads naturally is imperative and needs rewriting as a statement about the domain. Applied bullet by bullet, not to the section as a whole.
+- [ ] **No philosophy title is verb-initial.** Titles are noun phrases, comparisons, or statements — never commands ("Read X", "Prefer X", "Keep X", "Use X", "Treat X…").
 - [ ] **Inputs are specific.** Each input names its source and format.
 - [ ] **Capabilities sub-section exists** if the agent needs to run tests, execute commands, or write files.
 - [ ] **Outputs have a defined location.** The agent knows exactly where to save its work.
@@ -890,9 +912,9 @@ Use this for complex, judgment-heavy, or multi-agent personas. Remove sections t
 
 ## Operating Philosophy
 
-- **{PRINCIPLE_NAME}:** {Explanation of the guiding principle.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
+- **{Nominal or declarative title}:** {The principle as a claim about the domain, in the indicative mood.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
 
 ---
 
@@ -1087,7 +1109,8 @@ design_notes: |
 | **Rework re-runs the full workflow** | Agent wastes time and context re-doing work that was fine | Add a Rework Handling section that narrows focus to flagged issues |
 | **Shared content is copy-pasted** | Inconsistencies creep in across personas when one is updated | Extract shared instructions into reusable partials |
 | **No Operating Philosophy** | Agent makes inconsistent judgment calls across sessions | Add named guiding principles that encode how to think |
-| **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive values ("Prefer X over Y"); move prohibitions into Rules & Constraints |
+| **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive value statements ("X outranks Y"); move prohibitions into Rules & Constraints |
+| **Positively framed commands in philosophy** | Principles avoid "Do not" but still address the agent directly — "Prefer X", "Favor Y", "Read Z, not W". Polarity is correct, mood is not, so the section still reads as instructions and drains signal from Constraints | Apply the "You should" test to every principle. Convert each imperative into a claim about the domain: "Prefer the smallest sufficient move" → "The smallest sufficient move carries the least risk". Fix verb-initial titles first — the body usually follows |
 | **All-imperative monotone** | Every section — Mission, Philosophy, Inputs, Workflow — uses command voice ("Do X", "Never Y"), making the Constraints section indistinguishable from the rest of the document | Reserve imperative language for Rules & Constraints only. Rewrite other sections in descriptive, explanatory prose: explain *what* and *why*, not *must* and *must not*. The tonal contrast is what makes constraints visible. See Core Philosophy §7 (Tone Stratification) |
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
