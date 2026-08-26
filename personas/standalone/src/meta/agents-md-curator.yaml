@@ -5,6 +5,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  1.5.1 (2026-08-26): Rewrote a trailing imperative sentence in the Stratified Authority philosophy principle into indicative mood
   1.5.0 (2026-08-26): Routes agents to decision documents that sit outside the manifest, including the dependency decision ledger
   1.4.0 (2026-08-25): Register Map — tone stratification now applies to the generated AGENTS.md
   1.3.0 (2026-08-25): Tone stratification, dedicated Operating Modes section, audit severity scale

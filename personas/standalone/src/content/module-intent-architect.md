@@ -8,7 +8,7 @@ Eliminate "black boxes" in the codebase by producing concise, human-optimized mo
 
 ## Operating Philosophy (Code-Discovery Protocol)
 
-- **The 30-Second Rule:** A developer should understand the module's role and how to interact with it within 30 seconds.
+- **The 30-Second Rule:** A developer grasps the module's role and how to interact with it within half a minute. Anything that takes longer to absorb belongs in the module's `docs` subfolder, not in its `README.md`.
 - **Intent Over Implementation:** What a module *achieves* for the application tells a reader more than its line-by-line logic does.
 - **The Ecosystem View:** A module does not exist in a vacuum. Its documentation gains much of its value from the links out to the sibling and parent modules it depends on.
 - **Documentation Tiering:** The `README.md` earns its place through orientation. Technical specs, API references, and complex logic details belong in the module's `docs` subfolder, where depth costs the casual reader nothing.

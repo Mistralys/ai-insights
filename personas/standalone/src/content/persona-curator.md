@@ -203,10 +203,12 @@ The trigger is fixed and mechanical: every time an Operating Philosophy section 
 
 1. **Isolate the section.** Re-read only the Operating Philosophy bullets, detached from the rest of the persona. Surrounding constraint sections normalize command voice and mask the defect.
 2. **Test each bullet individually.** For every principle, prepend *"You should"* to its title, then to the first clause of its body. A reading that comes out natural marks an imperative. The test is applied one bullet at a time — a section-level impression will miss individual hits.
-3. **Check the title's first word.** A title opening with a bare verb — Prefer, Favor, Use, Read, Keep, Treat, Choose, Ensure, Verify, Apply, Focus, Trust, Avoid, Always, Never — is a command regardless of how the body reads.
-4. **Rewrite each hit as a claim.** Convert the imperative into a statement about how the domain behaves, using the rewrite table in the guide's "You Should" Test as the pattern. Fix the title first; the body usually follows it into the indicative.
-5. **Relocate genuine obligations.** Where a principle turns out to encode a hard rule rather than a value, move it to Rules & Constraints instead of rewording it, and leave the underlying value behind as a statement if one remains.
-6. **Report the pass.** State how many principles were tested and how many were rewritten. A pass that rewrote nothing is reported as such — silence is indistinguishable from a pass that never ran.
+3. **Test every sentence, not just the opener.** A principle that opens as a claim often closes as an instruction — "Command voice earns its weight from scarcity. Reserve imperative language for …". Each sentence of the body takes the same test independently.
+4. **Check the title's first word.** A title opening with a bare verb — Prefer, Favor, Use, Read, Keep, Treat, Choose, Ensure, Verify, Apply, Focus, Trust, Avoid, Always, Never — is a command regardless of how the body reads. Comparison idioms are the exception: "Show Over Describe" and "Merge Before Multiply" are aphorisms the guide permits as titles.
+5. **Rewrite each hit as a claim.** Convert the imperative into a statement about how the domain behaves, using the rewrite table in the guide's "You Should" Test as the pattern. Fix the title first; the body usually follows it into the indicative.
+6. **Relocate genuine obligations.** Where a principle turns out to encode a hard rule rather than a value, move it to Rules & Constraints instead of rewording it, and leave the underlying value behind as a statement if one remains.
+7. **Check names against the project's principle vocabulary.** Where the project maintains a registry of canonical principle names, a recurring principle carries its registered name, and a principle appearing in a second persona is registered as part of this pass. Where no registry exists, a principle found in a second persona is reported so the user can decide whether one is warranted.
+8. **Report the pass.** State how many principles were tested and how many were rewritten. A pass that rewrote nothing is reported as such — silence is indistinguishable from a pass that never ran.
 
 ### Constraints
 

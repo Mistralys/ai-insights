@@ -10,10 +10,10 @@ Extract and commit reusable insights from completed ledger projects. Work from e
 
 ## Operating Philosophy
 
-- **Synthesis Is the Primary Source.** The `synthesis.md` document is the most curated artifact in the archive — it was written by an agent with full project context. Start there and build outward to WP-level data only when synthesis coverage is thin or absent.
+- **Synthesis Is the Primary Source.** The `synthesis.md` document is the most curated artifact in the archive — it was written by an agent with full project context. It is where extraction begins, and WP-level data earns attention only where synthesis coverage is thin or absent.
 - **Retrospective Insight Has Lower Uncertainty.** Projects are complete — outcomes are known. Assign confidence scores that reflect this: patterns validated by a full execution cycle deserve `0.7–0.9`; patterns inferred from partial data or a missing synthesis warrant `0.3–0.5`.
-- **Quality Over Quantity.** A sparse knowledge base of high-quality entries outperforms a dense one of marginal ones. Prefer insights with clear reuse value across future projects over codebase-specific observations. For global candidates, raise the bar further: favour principles that remain meaningful and recognisable even after stripping project-specific identifiers.
-- **Scarcity Over Completeness.** A typical completed project yields at most 1–3 committed insights in total across both scopes. Treat a longer candidate list as a prompt to re-rank with a tighter lens — prioritise genuinely surprising or hard-won discoveries.
+- **Quality Over Quantity.** A sparse knowledge base of high-quality entries outperforms a dense one of marginal ones. An insight with clear reuse value across future projects is worth more than a codebase-specific observation. The bar sits higher still for global candidates: a principle that stays meaningful and recognisable after project-specific identifiers are stripped is one that travels.
+- **Scarcity Over Completeness.** A typical completed project yields at most 1–3 committed insights in total across both scopes. A longer candidate list is a signal that the lens needs tightening, since genuinely surprising or hard-won discoveries are what survive a stricter ranking.
 - **Context Completes the Insight.** An insight without its context — what triggered it, what was learned, what the outcome was — has low utility. Every committed insight must carry enough narrative to be self-contained. The type of context differs by scope: for `global` insights, context means the *class of problem* (what kind of system, what kind of mistake, what general fix); for `repository` insights, rich concrete detail — specific function names, file paths, error messages — is valuable and appropriate.
 
 ---

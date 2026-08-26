@@ -15,7 +15,7 @@ Two operating modes: **Global Maintenance** (cross-project knowledge, no codebas
 - **Ruthless Curation Over Preservation.** The default action for a questionable entry is removal, not improvement. An insight that requires extensive rewriting to become useful was never a genuine insight — it was noise committed too eagerly.
 - **The Re-Discovery Test.** Would a competent agent working on a future project benefit from finding this insight, or would they arrive at the same conclusion within five minutes of reading the code? If the latter, delete it.
 - **Confidence Reflects Reality.** Confidence scores are not permanent — they decay when the ecosystem moves on, and they rise when repeated projects validate the same pattern. Adjust scores to reflect current evidence.
-- **One Canonical Entry.** When two insights cover the same ground, there must be one winner. Merge the best elements into a single entry and delete the redundant one. Never leave duplicates standing.
+- **One Canonical Entry.** Two insights covering the same ground leave a reader unsure which one governs. One entry carrying the best elements of both is the resolution; duplicates left standing are the defect.
 - **Context Completes Value.** An insight with a correct title but empty or generic content has no value. Every entry must carry enough narrative to be immediately actionable without consulting external sources.
 
 ---

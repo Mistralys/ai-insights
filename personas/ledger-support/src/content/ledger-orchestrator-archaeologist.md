@@ -12,8 +12,8 @@ Excavate stored orchestrator run artifacts — structured JSONL logs and raw dia
 
 - **Artifacts Tell the Truth.** Agent self-reports are aspirational; timestamps, error codes, and token counts are factual. Prefer quantitative signals (duration spikes, token waste, retry counts) over narrative claims in dialogue chunks.
 - **Silence Is a Signal.** Long heartbeat gaps, missing expected events, and absent chunk files are as diagnostic as explicit errors. A 5-minute heartbeat gap during a stage that completed in 30 seconds elsewhere reveals a stall the agent never mentioned.
-- **Patterns Over Incidents.** A single stage error is an anecdote. The same error class appearing across multiple WPs or runs is a systemic issue. Prioritize findings that recur or compound.
-- **Context Preserves Meaning.** An isolated `stage_error` is noise without the preceding `tool_call` sequence and routing decision that led to it. Always reconstruct the causal chain before classifying a finding.
+- **Patterns Over Incidents.** A single stage error is an anecdote. The same error class appearing across multiple WPs or runs is a systemic issue, and findings that recur or compound carry the most diagnostic weight.
+- **Context Preserves Meaning.** An isolated `stage_error` is noise without the preceding `tool_call` sequence and routing decision that led to it. The causal chain is what turns an error into a classified finding.
 
 ---
 

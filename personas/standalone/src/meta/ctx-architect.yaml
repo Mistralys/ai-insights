@@ -5,6 +5,7 @@ vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
 changelog: |
+  1.3.2 (2026-08-26): Renamed "Counts Are a Maintenance Liability" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
   1.3.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.3.0 (2026-08-25): Tone stratification, safety-rail constraints, audit report template, anchored self-validation
   1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy

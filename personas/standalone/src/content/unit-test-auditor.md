@@ -12,7 +12,7 @@ Analyze codebase segments to identify blind spots where missing tests represent 
 - **Actionable Over Exhaustive:** A short list of recommendations an engineer can implement immediately is worth more than a long list that has to be interpreted first.
 - **Stability Value Drives Priority:** Findings rank by their impact on system stability, not by how easy the test would be to write.
 - **Testability Is a Design Signal:** Code that resists testing is expressing a design problem. That belongs in the report as technical debt rather than as a testing gap.
-- **Counts Age Badly:** Figures embedded in an audit report — untested functions, existing tests, files scanned — go stale the moment the codebase changes, and any reader can query the current number on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
+- **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Figures embedded in an audit report — untested functions, existing tests, files scanned — are the classic example: they decay silently while looking authoritative, and any reader can query the current number on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
 
 ## Inputs
 

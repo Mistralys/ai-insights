@@ -5,6 +5,7 @@ vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
 changelog: |
+  1.8.0 (2026-08-26): Philosophy Tone Pass extended to every sentence of a principle body, not just the opener; comparison-idiom titles exempted; added a canonical-name check against the project's principle vocabulary, reported as a finding where no registry exists
   1.7.0 (2026-08-26): Philosophy Tone Pass - dedicated protocol with its own workflow step in all three modes, catching positively framed imperatives in Operating Philosophy sections via the "You should" test; own philosophy section rewritten into the indicative mood
   1.6.0 (2026-08-26): design_notes metadata field - Audit mode reads documented guide deviations before evaluating and records them at the new Accepted severity instead of re-flagging them; Create and Maintain modes write entries; constraints guard against using the field to silence findings
   1.5.0 (2026-08-25): Audit mode stamps audit_guide_version and audit_date on persona YAML metadata for declarative compliance tracking
