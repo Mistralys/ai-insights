@@ -5,6 +5,14 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.9.0 (2026-08-25): Design Guide v2.8 audit fixes — added Scope Boundaries table against the Plan
+    Architect Reviewer, collapsed rules duplicated across Philosophy/Protocol/Checklist into single
+    authoritative entries, restored tone stratification in Philosophy and Operational Protocol,
+    replaced the "Flag Expedient Shortcuts" principle with a precedent-bounded Structural Durability
+    dimension, aligned plan-edit rules with the Planner-owns-the-pen model and added a plan-integrity
+    checkpoint, moved the Quality Checklist below Core Rules, restated finding discipline inside the
+    output template, and normalised placeholders to SCREAMING_SNAKE
+  1.8.0 (2026-08-25): Research Brief Protocol extracted into the shared research-brief-protocol partial; prohibitions consolidated under their own Constraints heading per Design Guide v2.8
   1.7.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   1.6.0 (2026-07-16): Added "Flag Expedient Shortcuts" principle to Operating Philosophy — catch structures that won't scale before implementation begins
   1.5.0 (2026-06-03): No longer nags about navigational aids; gained browser tool
@@ -24,6 +32,16 @@ tools:
   - browser
   - agent
   - todo
+
+# research-brief-protocol partial
+brief_tag: "[verify]"
+brief_purpose: "grounding verification"
+brief_contributor: "Plan Auditor"
+brief_authority: "independent verification"
+brief_report_file: "audit.md"
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 # overview metadata
 identity: "Senior Technical Plan Auditor"

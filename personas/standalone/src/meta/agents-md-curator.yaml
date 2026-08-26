@@ -5,6 +5,8 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  1.4.0 (2026-08-25): Register Map — tone stratification now applies to the generated AGENTS.md
+  1.3.0 (2026-08-25): Tone stratification, dedicated Operating Modes section, audit severity scale
   1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-04-30): Comprehensive rewrite to imperative voice
   1.1.0 (2026-03-20): Creates CLAUDE.md companion file alongside AGENTS.md
@@ -27,3 +29,6 @@ modes: |
   Create
   Update
   Audit
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"

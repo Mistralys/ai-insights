@@ -5,6 +5,7 @@ vs_file_name: composer-curator.agent.md
 id: standalone-composer-curator
 cc_file_name: composer-curator.md
 changelog: |
+  1.1.0 (2026-08-25): Design Guide v2.8 audit — added Outputs and Strict Constraints sections, extracted Capabilities sub-section, reformatted Workflow with bold step names, applied tone stratification, promoted AGENTS.md check to explicit workflow step, removed redundant separators
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-24): Initial release — composer.json verification for agentic coding
 

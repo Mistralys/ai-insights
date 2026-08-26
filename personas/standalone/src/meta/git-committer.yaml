@@ -5,6 +5,7 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.8.0 (2026-08-25): Audit compliance (guide v2.8) — repaired corrupted git-mv constraint, single-sourced the plan archival set, consolidated sub-section constraints, split plan inventory from thematic grouping, restated message rules in the review template
   1.7.0 (2026-08-21): Classify insights.jsonl as generated evidence — relocate with plan folder but never group as source
   1.6.0 (2026-08-18): Treat optional usage-scenarios.md as authored standalone-plan source and exclude generated scenario-coverage.md from grouping and archival
   1.5.0 (2026-08-12): Added "Verify before deleting after moves" constraint — guards against silent git mv failures on untracked files followed by destructive directory removal
@@ -32,6 +33,9 @@ cc_tools:
   - Read
   - Grep
   - Glob
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 # overview metadata
 identity: "Configuration Management Engineer"

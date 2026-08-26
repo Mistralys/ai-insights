@@ -16,6 +16,7 @@ import path from 'path';
 import {
   parseYamlScalars,
   extractYamlBlockScalar,
+  extractYamlText,
   extractYamlSequence,
 } from './lib/yaml-utils.js';
 
@@ -62,9 +63,9 @@ function loadPersona(filePath, suite) {
   const fields  = suite === 'ledger' ? LEDGER_SCALARS : STANDALONE_SCALARS;
   const scalars = parseYamlScalars(text, fields);
 
-  const version     = resolveVersionFromChangelog(text);
-  const key_behavior = extractYamlBlockScalar(text, 'key_behavior');
-  const modes        = extractYamlBlockScalar(text, 'modes');
+  const version      = resolveVersionFromChangelog(text);
+  const key_behavior = extractYamlText(text, 'key_behavior');
+  const modes        = extractYamlText(text, 'modes');
   const subagents    = extractYamlSequence(text, 'subagents');
 
   return { ...scalars, version, key_behavior, modes, subagents, suite };

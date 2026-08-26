@@ -5,6 +5,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.8.0 (2026-08-25): Design guide v2.8 audit fixes — added Operating Philosophy, Rework Handling, Self-Validation Checklist; consolidated Code Insight Observer constraints under own heading; split verification into three protocol phases; de-duplicated workflow against protocol; retoned content sections to descriptive prose; completed archiver delegation spec
   1.7.2 (2026-08-24): Added sink-compilation authoring instruction to Code Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
   1.7.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
   1.7.0 (2026-08-24): Sink opened at session start with marker line as protocol step 1; capture split into its own step gated on each completed file edit (steps 4-5 loop)
@@ -36,6 +37,9 @@ cc_tools:
   - Grep
   - TodoRead
   - TodoWrite
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 insight_agent: Developer
 insight_report_target: "the **Code Insights** section of `synthesis.md`"

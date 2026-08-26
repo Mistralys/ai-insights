@@ -5,8 +5,12 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.1.0 (2026-08-25): Design Guide v2.8 audit — added Operating Philosophy, Capabilities, Outputs with location, scope boundary against the Changelog Curator, and a Quality Checklist; reordered sections to guide order; added the missing Rewrite-mode apply step and a conditional-case checkpoint to Generate; de-duplicated formatting rules against constraints; applied tone stratification; removed redundant separators
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-25): Initial release — bilingual WHATSNEW.xml release note generation
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-25"
 
 tools:
   - vscode

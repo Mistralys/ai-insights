@@ -5,6 +5,7 @@ vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 changelog: |
+  1.2.0 (2026-08-26): Design Guide v2.8 audit fixes — reframed Operating Philosophy as positive values and de-imperativised Inputs and Outputs; added scope, file-write, reference-verification, coverage-padding and no-stale-counts constraints; converted the Output Template to a fenced block and moved its example rows into a Worked Example; added an Out of Scope report section and a nothing-found form for Technical Debt Observations; restated the no-counts and path-plus-line rules inside the template slots; split the workflow into audit and writing phases with a consolidated findings brief between them; added a Quality Checklist and the AX Feedback step; renamed Audit Protocol to Operational Protocol; specified input sources and the no-test-suite case; documented read-only command execution as a capability; removed redundant separators
   1.1.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.1.0 (2026-04-30): Audited and improved; rewritten to imperative voice
   1.0.0 (2026-02-23): Initial release — unit test coverage auditing for specific modules
@@ -18,6 +19,9 @@ tools:
   - web
   - agent
   - todo
+
+audit_guide_version: "2.8"
+audit_date: "2026-08-26"
 
 # overview metadata
 identity: "Lead QA Auditor & Test Architect"
