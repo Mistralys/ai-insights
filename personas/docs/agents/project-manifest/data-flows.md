@@ -286,4 +286,78 @@ How generated personas reach end users and the MCP server:
        │
        ▼
   Project Ledger MCP Server
+``` 
+
+---
+
+## 5. Persona Audit Process
+
+Periodic compliance checks ensure all personas conform to the current Persona Design Guide. The process combines a generator script with the Persona Curator agent.
+
+### Lifecycle
+
 ```
+  Guide updated (new version)
+       │
+       ▼
+  node scripts/generate-persona-audit.js -o <file>
+       │  reads: all personas/*/src/meta/*.yaml
+       │  reads: personas/docs/persona-design-guide.md (version + changelog)
+       │  derives: guide version at each persona's last-updated date
+       │  derives: audit status from audit_guide_version vs current guide
+       ▼
+  Audit tracking document (Markdown)
+       │  sorted oldest-first per suite
+       │  columns: Version, Last Updated, Guide, Audited, Status
+       ▼
+  Persona Curator (Audit mode)
+       │  reads: persona-design-guide.md
+       │  reads: personas/*/src/content/<persona>.md
+       │  evaluates: Quality Checklist compliance
+       ▼
+  ┌─── Verdict ───┐
+  │               │
+  PASS        NEEDS WORK
+  │               │
+  │               ▼
+  │          Fix issues (Maintain mode)
+  │               │
+  │               ▼
+  │          Re-audit
+  │               │
+  ▼               │
+  Stamp YAML  ◄───┘
+  │  audit_guide_version: "{GUIDE_VERSION}"
+  │  audit_date: "YYYY-MM-DD"
+  │  changelog: prepend version bump entry
+  ▼
+  Regenerate tracking doc
+       │  node scripts/generate-persona-audit.js -o <file>
+       ▼
+  Summary shows updated Current / Stale / Unaudited counts
+```
+
+### Status Derivation
+
+The script reads `audit_guide_version` from each persona's YAML metadata and compares it against the current guide version:
+
+| `audit_guide_version` | Current Guide | Derived Status |
+|---|---|---|
+| absent | any | Unaudited |
+| matches current | e.g. `"2.8"` = `"2.8"` | Current (PASS) |
+| older version | e.g. `"2.5"` < `"2.8"` | Stale — re-audit needed |
+
+### CLI
+
+```bash
+# Print to stdout
+node scripts/generate-persona-audit.js
+
+# Write to file
+node scripts/generate-persona-audit.js -o docs/agents/projects/persona-audit-guide-v2.8.md
+
+# Override guide version label
+node scripts/generate-persona-audit.js --guide-version 3.0
+```
+
+Also available via `node scripts/cli.js generate-persona-audit`.

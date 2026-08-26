@@ -30,7 +30,7 @@ insight_report_target: "the **Interface Insights** section of `synthesis.md`"
 subagents:
   - standalone-archiver
 
-audit_guide_version: "2.8"
+audit_guide_version: "2.9"
 audit_date: "2026-08-26"
 
 # overview metadata

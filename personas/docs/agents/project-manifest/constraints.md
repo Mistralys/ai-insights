@@ -198,6 +198,24 @@
 
 ---
 
+## Audit Tracking
+
+<a name="c54"></a>
+25a. **`audit_guide_version` and `audit_date` track design guide compliance.** Two optional YAML metadata fields record whether a persona has been audited against the Persona Design Guide:
+
+   ```yaml
+   audit_guide_version: "2.8"
+   audit_date: "2026-08-25"
+   ```
+
+   - **`audit_guide_version`** — the version of the Persona Design Guide the persona was last audited against. Set by the Persona Curator on a PASS verdict.
+   - **`audit_date`** — the date the audit was performed. Set alongside `audit_guide_version`.
+   - **Not set on NEEDS WORK** — personas that fail audit retain their previous values (or none) until fixes are applied and the persona is re-audited.
+   - **Consumed by `scripts/generate-persona-audit.js`** — the audit tracking script reads these fields to auto-derive status: current (matches the latest guide version), stale (audited against an older version), or unaudited (fields absent).
+   - **Not consumed by the build system** — these fields are silently ignored by the template engine and have no effect on generated output.
+
+---
+
 ## Pre-Commit Guard
 
 <a name="c46"></a>

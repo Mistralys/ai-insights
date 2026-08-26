@@ -2,14 +2,15 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.8
-**Last Updated:** 2026-08-24
+**Version:** 2.9
+**Last Updated:** 2026-08-26
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
 - v2.8 - 2026-08-24: Added design rule for self-contained sub-sections: reusable partials and dedicated procedure blocks consolidate their constraints into their own Constraints heading rather than scattering them inline.
 - v2.7 - 2026-08-24: Added Core Philosophy principle 7 (Tone Stratification); reserved imperative voice for Rules & Constraints only; rewrote checklist tone item to enforce stratification; added "All-imperative monotone" pitfall; fixed Mission template wording.
 - v2.6 - 2026-08-24: Added Pattern 15 rules for observable-action gating, own-step placement, and skipped-duty visibility; expanded Pattern 6 with session-start sink opening and liveness markers; added related checklist items and two pitfalls.
@@ -812,6 +813,7 @@ Before shipping a new persona, verify:
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
+- [ ] **Deliberate guide deviations are recorded in `design_notes`.** Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
 
 ---
 
@@ -1028,6 +1030,47 @@ This applies to persona source files in `src/content/`. The build system and tem
 - Do not add `---` between sections in persona content files. Headings are sufficient.
 - Do not add `---` after every section heading — this is a redundant pattern that adds no structural value.
 - Existing `---` in persona files are harmless but unnecessary. Remove them when editing a file for other reasons; do not make separator-only cleanup passes.
+
+---
+
+## Governance Metadata
+
+A persona's YAML metadata file carries three fields that exist purely to govern the persona's relationship with this guide. None of them is read by the build system or rendered into persona output — they are durable records for the humans and agents who audit and maintain the persona over time.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `audit_guide_version` | `string` | The version of this guide the persona was last audited against (e.g. `"2.9"`). |
+| `audit_date` | `string` | ISO date of that audit (e.g. `"2026-08-26"`). |
+| `design_notes` | block scalar | Deliberate, documented deviations from this guide, each with its rationale. |
+
+### Audit Stamps
+
+`audit_guide_version` and `audit_date` are written **only** when a persona passes an audit. A persona that fails retains its previous stamp (or none) until the findings are fixed and it is re-audited. Together the two fields answer the maintenance question this guide's evolution creates: *which personas predate the rules I just added?* Comparing a persona's stamp against the guide's current version identifies stale personas without re-reading them.
+
+```yaml
+audit_guide_version: "2.9"
+audit_date: "2026-08-26"
+```
+
+### Design Notes
+
+Some personas cannot follow every rule in this guide, and the reason is legitimate. A persona deployed as a system prompt for a web-based LLM cannot reference external documents, so the usual advice to extract bulky reference material into a separate file does not apply — and neither does the 60-Second Rule that the inline material breaks. Without a record, each audit re-derives the same finding, and each auditor must independently reason its way to the same conclusion.
+
+`design_notes` makes that reasoning durable. Each entry names the rule being deviated from and the constraint that forces the deviation:
+
+```yaml
+design_notes: |
+  Reference material stays inline (equipment table, Rainbow Eating Reference): this persona is
+  deployed as a system prompt for web LLMs, where external documents cannot be reliably
+  accessed. The "extract reference material" guidance and the 60-Second Rule do not apply.
+```
+
+**Design Rules:**
+
+- **Name the rule and the reason.** An entry that states only what the persona does ("keeps its reference tables inline") is not actionable — an auditor cannot tell whether it is an accepted exception or an undocumented defect. The rule being waived and the constraint forcing the waiver both belong in the entry.
+- **Reserve it for guide deviations.** This field is not a general comment field. Implementation notes, ideas for future revisions, and observations about the persona's behavior belong in the persona's changelog or in project documentation. A field that accumulates unrelated notes loses the property that makes it useful: everything in it is binding.
+- **Deviations are accepted, not re-flagged.** A documented deviation is a decision already made. Audits report these as accepted exceptions rather than findings — see the Persona Curator's audit workflow.
+- **Undocumented deviations remain defects.** The field records decisions; it does not grant blanket permission. A deviation with no entry is a finding, and adding an entry to silence a legitimate finding without a real constraint behind it defeats the mechanism.
 
 ---
 

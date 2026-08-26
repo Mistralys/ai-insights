@@ -224,6 +224,8 @@ Use these flags in content templates to write platform-conditional blocks:
 | `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line rendered in the overview. |
 | `modes` | block scalar | no | Newline-delimited operating modes. Rendered in the overview for personas with distinct modes. |
 | `insight_pipeline_type` | `string` | no | Pipeline type value substituted into `mcp-insight-capture.md` as `{{insight_pipeline_type}}` (e.g. `"implementation"`, `"qa"`, `"code-review"`). Required for ledger personas that include the `mcp-insight-capture` partial (agents 3–6, 8). Must match the persona's pipeline type from `PIPELINE_AGENT_MAP`. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`. Not used by the build system. |
+| `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 ---
 
@@ -439,7 +441,14 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `modes` | block scalar | no | Newline-delimited operating modes. Used in the overview for personas with distinct modes. |
 | `notes` | `string` | no | Optional freeform note rendered as a **Notes:** bullet in the overview. |
 | `insight_agent` | `string` | no | Value written to the JSONL `agent` key in `insights.jsonl` (e.g. `"Developer"`, `"Web GUI Specialist"`). Required for standalone personas that include the insight partials. Must be paired with `insight_report_target`. |
+| `brief_tag` | `string` | no | Research brief entry tag the persona draws on, substituted into `research-brief-protocol.md` (e.g. `"[verify]"`, `"[arch]"`). Required for personas including that partial, alongside the other four `brief_*` fields. |
+| `brief_purpose` | `string` | no | Sentence fragment naming what the brief gives a head start on (e.g. `"grounding verification"`). Pairs with `brief_tag`. |
+| `brief_contributor` | `string` | no | Attribution name used in the `[added by: …, unverified]` prefix when appending to the brief. Pairs with `brief_tag`. |
+| `brief_authority` | `string` | no | Phrase naming what remains authoritative over the brief (e.g. `"independent verification"`). Pairs with `brief_tag`. |
+| `brief_report_file` | `string` | no | The persona's own report filename, used to contrast facts (brief) against judgments (report) — e.g. `"audit.md"`. Pairs with `brief_tag`. |
 | `insight_report_target` | `string` | no | Human phrase naming where the curated insight section lands. Must be paired with `insight_agent`. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`. Not used by the build system. |
+| `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
@@ -578,6 +587,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
 | `summary-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
+| `research-brief-protocol.md` | Plan Auditor, Plan Architect Reviewer | `{{brief_tag}}`, `{{brief_purpose}}`, `{{brief_contributor}}`, `{{brief_authority}}`, `{{brief_report_file}}`; placement: after Outputs, before the Operational Protocol. Contains the orient / size-estimate / contribute-back steps and a consolidated Constraints block. Consumers must supply all five variables, provide a **Research brief** line in their output template, and carry both a brief-existence workflow checkpoint and a contribute-back step. |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 

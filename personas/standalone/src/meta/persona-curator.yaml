@@ -5,6 +5,7 @@ vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
 changelog: |
+  1.6.0 (2026-08-26): design_notes metadata field - Audit mode reads documented guide deviations before evaluating and records them at the new Accepted severity instead of re-flagging them; Create and Maintain modes write entries; constraints guard against using the field to silence findings
   1.5.0 (2026-08-25): Audit mode stamps audit_guide_version and audit_date on persona YAML metadata for declarative compliance tracking
   1.4.0 (2026-08-24): Replaced "Imperative, Not Suggestive" philosophy with Tone Stratification; updated audit and quality checklist items to enforce two-register tone rule
   1.3.0 (2026-06-13): Updated Create workflow + Version bookkeeping constraint to use changelog: block scalar; prohibit standalone version: and last_updated: fields

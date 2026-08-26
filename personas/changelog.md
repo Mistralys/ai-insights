@@ -1,5 +1,235 @@
 # Personas Changelog
 
+## v3.32.0 - **WIP UNRELEASED**
+- Design Guide v2.9: accepted guide deviations had nowhere to live, so every audit re-derived the same
+  findings and each auditor had to independently reason its way to the same conclusion; a new
+  Governance Metadata section documents `design_notes` alongside the existing audit stamp fields.
+- Standalone: Persona Curator now reads `design_notes` before evaluating and reports covered
+  deviations at a new Accepted severity rather than as defects, with constraints preventing the field
+  from being used to silence legitimate findings.
+- Standalone: Recipe Curator records its inline reference material as an accepted deviation — the
+  persona ships as a web-LLM system prompt, where external documents cannot be reached.
+- Standalone: Recipe Curator maintained its conversation-wide recipe counter entirely from recall with
+  no artefact, so a long session silently reset or duplicated IDs; a Recipe Ledger now opens at session
+  start with a liveness line and is appended in its own workflow step after each recipe is written.
+- Standalone: Recipe Curator stated its metric, chef's-language and template-fidelity rules hundreds of
+  lines from where they fire; all three now appear as authoring instructions inside the output templates
+  they govern, which is where the recorded regressions originated.
+- Standalone: Recipe Curator's Survey Options gathered candidates and picked a winner in one phase, so
+  selection began before the option set existed; gathering now closes with a candidate brief that a
+  separate selection step consumes.
+- Standalone: Recipe Curator read as an all-imperative monotone — Philosophy, Operational Protocol and
+  both workflows commanded, and three philosophy principles were prohibitions in disguise.
+- Standalone: Recipe Curator had no self-validation despite being terminal, and its optional Bread Plan
+  had no rehearsal; a Quality Checklist and a Bread Plan Check step now close both gaps.
+- Standalone: Recipe Curator's household prohibitions lived inside the Culinary Identity reference
+  rather than the constraints; they now form a Household Boundaries rule group alongside new Process
+  Discipline and Output Fidelity groups under a renamed Core Rules heading.
+- Standalone: Workspace Architect repeated the same target-conditional delegation block six times and
+  never named an expected output or ran a verification check, so a sub-agent that returned without
+  writing its artefact let the next stage proceed on a dependency that did not exist.
+- Standalone: Workspace Architect's summary offered only CREATED/UPDATED/SKIPPED, making a failed
+  stage indistinguishable from a deliberately skipped one; FAILED and a BLOCKED handoff now separate
+  them, and every non-created stage must name its cause.
+- Standalone: Workspace Architect resolved its operating mode inside an optional input description
+  and declared a scope constraint no step ever consumed; both now have their own Session Entry steps.
+- Standalone: Workspace Architect's Upgrade mode collapsed all six delegations into one compound
+  step and mixed presence discovery with staleness judgment; stage execution is now a shared protocol
+  and the audit is split from the assessment.
+- Standalone: Workspace Architect framed two philosophy principles as prohibitions and wrote its
+  detection, triage and stage sections in imperative voice, leaving the constraints without signal.
+- Standalone: Communications Curator described five output shapes in prose with no templates, so the
+  no-superlative, no-counts and no-implementation-detail rules never reached the point where they
+  fire; each mode now has an Output Template carrying those rules as authoring instructions.
+- Standalone: Communications Curator gathered facts, chose a mode and drafted inside overlapping
+  workflow steps; reading, brief compilation, structure and prose are now four separate phases.
+- Standalone: Communications Curator's ask-before-writing and gap-reporting duties were sub-clauses
+  with no mandatory slot, so a skipped check and a clean run read identically; both now have their
+  own workflow step and the brief's Gaps section requires an explicit nothing-found statement.
+- Standalone: Communications Curator read as an all-imperative monotone — Philosophy, Inputs,
+  Outputs and the content type guidelines all commanded, and two philosophy principles duplicated
+  constraints outright.
+- Standalone: Communications Curator held edit tools with no file-write boundary and no
+  meta-commentary rail, and four of its constraints named no alternative action.
+- Standalone: Web GUI Specialist read as an all-imperative monotone — Philosophy, Inputs, Outputs
+  and the GUI heuristics reference all commanded, leaving the constraints section without signal.
+- Standalone: Web GUI Specialist's GUI heuristics reference sat after the protocol that needs it,
+  and its single "Verification Stack" step merged functional, accessibility and static checks into
+  one phase; verification is now three separate phases with the reference moved ahead of them.
+- Standalone: Web GUI Specialist's workflow restated the Operational Protocol's documentation,
+  verification and compilation steps, creating two competing procedures for the same work.
+- Standalone: Web GUI Specialist had no Rework Handling path, so a second pass would rename the
+  plan folder again and desynchronise the slug already recorded in the ledger.
+- Standalone: Web GUI Specialist gained a Self-Validation Checklist — as a terminal standalone
+  agent only the archiver ran after it, and the archiver validates the ledger entry, not the UI.
+- Standalone: Web GUI Specialist could rewrite `plan.md` or an authored `usage-scenarios.md`
+  unchallenged; both are now protected by constraints, and the optional-scenarios rule gained a
+  workflow checkpoint so it is rehearsed every session rather than only when it applies.
+- Standalone: Web GUI Specialist's no-counts rule fired at generation time but was stated only in
+  the constraints; it is now restated inside the synthesis template slots where it applies.
+- Standalone: Web GUI Specialist's observation reporting rules scattered prohibitions across
+  numbered items, and its archiver delegation named no expected output or verification step.
+- Standalone: Unit Test Auditor cited functions and line numbers with no rule requiring they be
+  verified first, and nothing bounded the audit to the files the user actually named.
+- Standalone: Unit Test Auditor's report was written from recall of the analysis phase; findings
+  are now consolidated into a brief with verified paths before any report prose is written.
+- Standalone: Unit Test Auditor's no-counts rule was philosophy-only and absent from the template
+  slot where it fires; it is now a constraint and an authoring instruction in the summary slot.
+- Standalone: Unit Test Auditor's Technical Debt slot read identically whether the agent found
+  nothing or never looked, and now requires an explicit "testable as written" statement.
+- Standalone: Unit Test Auditor gained a self-validation Quality Checklist, an Out of Scope report
+  section for adjacent risks, and the file-write boundary it lacked despite holding edit tools.
+- Standalone: Unit Test Auditor's Output Template mixed placeholders with worked example rows; the
+  examples moved into their own Worked Example section.
+- Standalone: Documentation Curator's Update mode had no verification step at all, and Create mode
+  verified claims only after writing them — all three modes now share one research protocol that
+  gathers and verifies facts into a brief before any prose is written.
+- Standalone: Documentation Curator's README, manifest and CTX delegations lived only in a rules
+  list; they now carry conditions, inputs, expected outputs, a review step and a scope boundary
+  table, plus a session-start checkpoint that rehearses all three conditions every session.
+- Standalone: Documentation Curator gained a self-validation Quality Checklist — as a terminal
+  standalone agent it had nothing catching errors before the user saw them.
+- Standalone: Documentation Curator's no-stale-counts rule was philosophy-only and unenforced; it
+  is now a constraint and is restated inside the report and summary template slots where it fires.
+- Standalone: Documentation Curator's Update mode produced an untemplated freeform summary — the
+  one place a stale count most easily leaks — and now has a change summary template.
+- Standalone: Documentation Curator's audit-mode read-only rule and create-mode approval gate were
+  buried inside workflow steps; both are now constraints.
+- Standalone: README Curator's Guiding Principles were a list of prohibitions ("avoid jargon",
+  "never use 'As an AI…'") competing with Constraints; they now read as values.
+- Standalone: README Curator gained the scope, deletion-bounding and no-Git-write rails it lacked
+  despite holding `rm` authority, and its three overlapping grounding constraints merged into one.
+- Standalone: README Curator's Quality Checklist asserted every link exists, but nothing verified
+  them — link targets are now checked against the filesystem in their own workflow step.
+- Standalone: README Curator separates capability gathering from benefit rewriting and compiles a
+  verified README brief before any prose is written.
+- Standalone: README Curator checks for a Synthesis Report and settles the rewrite-vs-edit choice
+  at session start, so both conditionals are rehearsed even when they do not apply.
+- Standalone: README Curator's no-counts, no-architecture and copy-paste rules are restated inside
+  the Output Template slots where they fire, not only in Constraints.
+- Standalone: Git Committer's `git mv` safety constraint had a line break mid-word ("not move d"),
+  corrupting the one rule that guards against permanently destroying un-moved plan files.
+- Standalone: Git Committer's plan archival inventory is now defined once as the "archival set" —
+  four separate restatements had drifted apart, two of them omitting `usage-scenarios.md`.
+- Standalone: Git Committer separates plan inventory gathering from thematic grouping, so folder
+  scanning and synthesis checks complete before any grouping decision is committed to.
+- Standalone: Git Committer's optional companion files (`request.md`, `usage-scenarios.md`,
+  `insights.jsonl`) are checked every session rather than only when a plan happens to match.
+- Standalone: Git Committer's subject-line rules are restated inside the review template slot
+  where they fire, and the Upstream Integration procedure consolidates its own constraints.
+- Standalone: Developer gained an Operating Philosophy, a Rework Handling section, and a
+  Self-Validation Checklist — as the terminal agent for standalone plans it previously had no
+  safety net before the user, and no guidance for the judgment calls implementation demands.
+- Standalone: Developer's rework re-entry no longer renames an already-archived plan folder,
+  which broke `plan.md` path references and desynchronised the recorded ledger slug.
+- Standalone: Developer's verification step split into build/regression, acceptance-test
+  authoring, and static-analysis phases, separating test production from test execution.
+- Standalone: Developer's Workflow no longer repeats the documentation, verification and insight
+  steps its own Operational Protocol already performed, and the archiver dispatch now states its
+  expected output and verifies the returned slug.
+- Standalone: Developer's Code Insight Observer consolidates its prohibitions under a Constraints
+  heading, and the no-stale-counts rule is restated inside the synthesis template slots where it
+  fires rather than only in Constraints.
+- Standalone: Changelog Curator no longer writes to the changelog before the user approves the
+  draft — Generate presented its entry after inserting it, and Rewrite never wrote at all.
+- Standalone: Changelog Curator gained the Inputs, Capabilities, Outputs and Quality Checklist
+  sections it was missing, plus an Operating Philosophy for its impact-weighting judgment calls.
+- Standalone: Changelog Curator drafts from a compact change inventory rather than from recall of
+  the Git history, and checks its breaking, deprecation and file-heading cases every session.
+- Standalone: Changelog Curator's line-length and no-identifiers rules restated inside the Entry
+  Format template slots where they fire, and a scope boundary drawn against the WHATSNEW Curator.
+- Shared: New `research-brief-protocol` partial replaces the near-duplicate protocol previously
+  maintained in both the Plan Auditor and Plan Architect Reviewer, parameterised over five
+  `brief_*` variables so the two personas keep their distinct tags, purposes, and report files.
+- Standalone: Plan Auditor gained a research-brief existence checkpoint, a contribute-back step,
+  and a **Research brief** report line, so the brief's read-only and absent cases are
+  distinguishable rather than silent.
+- Standalone: Plan Auditor gained a Scope Boundaries table against the Plan Architect Reviewer,
+  replacing the territory assertions previously repeated across six locations.
+- Standalone: Plan Auditor's "Flag Expedient Shortcuts" principle replaced by a Structural
+  Durability dimension bounded to in-repo precedent, resolving the contradiction with its own
+  no-architectural-critique scope.
+- Standalone: Plan Auditor no longer edits `plan.md` or its audit-cycle counter, matching the
+  Plan Architect Reviewer and the Planner-owns-the-pen model; a plan-integrity checkpoint enforces it.
+- Standalone: Plan Auditor redesigned for Design Guide v2.8 compliance — tone stratification
+  restored in Philosophy and Operational Protocol, finding discipline restated inside the output
+  template where it fires, and the Quality Checklist moved below Core Rules.
+- Standalone: Plan Architect Reviewer now gathers and verifies alternatives in a phase of its own
+  before any verdict is formed, so no Challenge verdict rests on an unverified premise.
+- Standalone: Plan Architect Reviewer's three overlapping criteria lists collapsed into one
+  canonical Evaluation Dimensions set that the protocol and output template both draw from.
+- Standalone: Plan Architect Reviewer gained a Scope Boundaries table against the Plan Auditor,
+  replacing the border assertions previously scattered across five blockquotes.
+- Standalone: Plan Architect Reviewer's Researcher delegation restructured as its own workflow
+  step with declared inputs, expected output, and a verifiability review.
+- Standalone: Plan Architect Reviewer gained research-brief and contribute-back workflow
+  checkpoints, so the brief's read-only and absent cases are distinguishable in the report.
+- Standalone: Removed the Plan Architect Reviewer's unreachable Audit Cycle Tracking rule, which
+  contradicted its own do-not-rewrite-the-plan constraint; the Planner owns the counter.
+- Standalone: Plan Refiner's scenario phase brought up to the structural standard of its older
+  phases — stale-artifact deletion, a write confirmation, and one sub-agent per workflow step,
+  replacing a single step that bundled three delegations.
+- Standalone: Plan Refiner's filesystem capability no longer authorizes plan writes, resolving the
+  contradiction with its own let-the-Planner-hold-the-pen constraint.
+- Standalone: Plan Refiner halts rather than proceeding when a delegated sub-agent produces no
+  artifact, and validates a user-supplied audit-cycle ceiling against its declared 1–10 bound.
+- Standalone: Plan Refiner gained an explicit divergence-comparison step in the audit loop, so the
+  DIVERGING verdict its Decision Logic defines is now actually detected.
+- Standalone: Plan Refiner declares the INCOMPLETE terminal status in Decision Logic and its
+  refinement log template, matching the status its workflow could already emit.
+- Standalone: Plan Refiner redesigned for Design Guide v2.8 compliance — protocol prohibitions
+  consolidated under their own Constraints headings, the usage scenario check folded in as
+  Phase 5, and its compound workflow step split into detect, resolve, and verify steps.
+- Standalone: Module Intent Architect redesigned for Design Guide v2.8 compliance \u2014 the workflow
+  now separates fact-gathering from drafting via a module brief, and a `docs/` existence check
+  plus a dependency-link survey run every session.
+- Standalone: Module Intent Architect gained scope boundaries against the README and Manifest
+  Curators, link-integrity and stay-inside-the-module constraints, a self-validation step, and
+  no-counts authoring instructions in its output template slots.
+- Standalone: Module Intent Architect restored tone stratification \u2014 the no-counts prohibition
+  moved out of Operating Philosophy into Strict Constraints as a "Durable Over Precise" value.
+- Standalone: Manifest Curator now applies tone stratification to the manifests it generates — a
+  Register Map marks `constraints.md` as the only imperative document and the rest as descriptive.
+- Standalone: Manifest Curator redesigned for Design Guide v2.8 compliance — added Scope
+  Boundaries against the AGENTS.md Curator and CTX Architect, an audit severity scale, a
+  read-only Audit constraint, and the previously missing no-counts rule.
+- Standalone: Manifest Curator CTX delegation extracted into one self-contained sub-section with
+  its own constraints, replacing the block duplicated across the Create and Update workflows.
+- Standalone: Manifest Curator gained explicit CTX-status checkpoints in all three modes, so a
+  project that became CTX-enabled after its manifest was written is detected.
+- Standalone: Fixed the Manifest Curator discrepancy report template rendering as broken
+  Markdown from unescaped pipes in its example row.
+- Standalone: CTX Architect redesigned for Design Guide v2.8 compliance — restored tone
+  stratification across Philosophy, Outputs and the CTX Generator Reference, and moved the
+  prohibitions those sections carried into Strict Constraints.
+- Standalone: CTX Architect gained safety-rail constraints (no Git writes, no silent overwrite
+  of an existing README or module config, read-only Audit mode), an Audit Report template, and
+  handoff plus self-validation steps in all four mode workflows.
+- Standalone: CTX Architect Audit mode is now declared in its overview metadata, so the
+  generated agents overview reports all four modes.
+- Standalone: AGENTS.md Curator now applies tone stratification to the documents it generates,
+  not just to itself — a Register Map assigns each AGENTS.md section an imperative or
+  descriptive voice, replacing the blanket "Authoritative Tone" principle.
+- Standalone: AGENTS.md Curator gained a Document Voice rule group, a matching self-validation
+  item, and an Audit-mode voice check that flags all-imperative documents.
+- Standalone: AGENTS.md Curator redesigned for Design Guide v2.8 compliance — reversed the
+  v1.2.0 imperative-voice rewrite to restore tone stratification, promoted Operating Modes to
+  its own section, and regrouped Core Rules into scannable imperative rule groups.
+- Standalone: AGENTS.md Curator gained a severity scale for audit reports, handoff steps in all
+  three mode workflows, and a no-counts authoring instruction in the Project Stats template
+  slot; dropped the redundant Workflow Summary flowchart.
+- Standalone: Researcher consolidated — merged Research Depth and Hallucination Prevention into
+  a single Grounding & Verification rule group, removed rules duplicating Operating Philosophy,
+  and re-framed philosophy principles as values rather than prohibitions. No behaviour change.
+- Standalone: WHATSNEW Curator redesigned for Design Guide v2.8 compliance — added Operating
+  Philosophy, Capabilities, Outputs with location, scope boundary against the Changelog
+  Curator, and a Quality Checklist; reordered sections to guide order.
+- Standalone: Fixed WHATSNEW Curator Rewrite mode never writing its approved entries, and
+  added a Generate checkpoint for unmapped categories and user-facing database changes.
+- Standalone: Composer Curator redesigned for Design Guide v2.8 compliance — added Outputs
+  and Strict Constraints sections, extracted Capabilities, reformatted Workflow with bold
+  step names, applied tone stratification, promoted AGENTS.md check to explicit workflow step.
+
 ## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 
 **Ledger agents now route code observations through `ledger_add_observation` instead of writing
