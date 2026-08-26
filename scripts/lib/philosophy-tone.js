@@ -8,8 +8,8 @@
  * the older polarity rule while still violating the mood rule, which is the
  * drift this check exists to surface.
  *
- * This is a lint, not a proof: it flags verb-initial titles and bodies for
- * human review. The authoritative test remains the guide's "You should" test.
+ * This is a lint, not a proof: it flags candidates for human review. The
+ * authoritative test remains the guide's "You should" test.
  */
 
 import fs from 'fs';
@@ -17,25 +17,89 @@ import path from 'path';
 
 /**
  * Verbs that read as commands when they open a philosophy title or body.
- * Entries that double as nouns ("Focus", "Default", "Report") are disambiguated
- * by the copula check in `isDeclarative()`.
+ * Deliberately broad — a missed verb is a silent false negative, whereas a
+ * false positive costs one human glance at a warning.
  */
 const IMPERATIVE_VERBS = new Set([
-  'aim', 'always', 'apply', 'assume', 'avoid', 'capture', 'check',
-  'choose', 'confirm', 'consider', 'default', 'do', 'dont', "don't", 'ensure',
-  'extract', 'favor', 'favour', 'focus', 'follow', 'keep', 'lean', 'limit',
-  'maintain', 'make', 'maximize', 'maximise', 'minimize', 'minimise', 'never',
-  'optimize', 'optimise', 'prefer', 'prioritise', 'prioritize', 'read',
-  'record', 'reduce', 'remember', 'report', 'reserve', 'respect', 'seek',
-  'separate', 'start', 'stick', 'stop', 'treat', 'trust', 'use', 'validate',
-  'verify', 'write',
+  'accept', 'acknowledge', 'adopt', 'aim', 'allow', 'always', 'anchor',
+  'apply', 'ask', 'assess', 'assume', 'audit', 'avoid', 'balance', 'begin',
+  'break', 'build', 'capture', 'challenge', 'check', 'choose', 'cite',
+  'clarify', 'classify', 'collect', 'compare', 'complete', 'confirm',
+  'consider', 'consult', 'convert', 'cover', 'create', 'decide', 'declare',
+  'decompose', 'defer', 'define', 'delegate', 'deliver', 'describe', 'design',
+  'detect', 'determine', 'distinguish', 'document', 'draft', 'drop', 'edit',
+  'eliminate', 'embrace', 'enforce', 'ensure', 'escalate', 'establish',
+  'evaluate', 'examine', 'exclude', 'execute', 'exhaust', 'expand', 'explain',
+  'explore', 'express', 'extract', 'favor', 'favour', 'find', 'finish', 'fix',
+  'flag', 'focus', 'follow', 'frame', 'gather', 'generate', 'ground', 'group',
+  'guard', 'handle', 'hold', 'identify', 'ignore', 'implement', 'include',
+  'inspect', 'interpret', 'investigate', 'judge', 'justify', 'keep', 'label',
+  'lean', 'leave', 'limit', 'list', 'locate', 'log', 'maintain', 'make', 'map',
+  'mark', 'match', 'maximise', 'maximize', 'measure', 'merge', 'minimise',
+  'minimize', 'model', 'monitor', 'move', 'name', 'never', 'note', 'observe',
+  'omit', 'optimise', 'optimize', 'order', 'organise', 'organize', 'pause',
+  'perform', 'pick', 'place', 'plan', 'prefer', 'prepare', 'present',
+  'preserve', 'prevent', 'prioritise', 'prioritize', 'probe', 'proceed',
+  'produce', 'promote', 'propose', 'protect', 'prove', 'provide', 'quantify',
+  'query', 'question', 'quote', 'raise', 'rank', 'read', 'reason', 'recognise',
+  'recognize', 'recommend', 'reconcile', 'record', 'reduce', 'refine',
+  'reflect', 'register', 'reject', 'relocate', 'rely', 'remember', 'remove',
+  'rename', 'repair', 'repeat', 'replace', 'report', 'request', 'require',
+  'research', 'reserve', 'resist', 'resolve', 'respect', 'restate', 'restore',
+  'restrict', 'retain', 'reuse', 'reveal', 'review', 'revisit', 'rewrite',
+  'run', 'save', 'scan', 'score', 'search', 'seek', 'select', 'separate',
+  'set', 'settle', 'share', 'show', 'sift', 'simplify', 'sketch', 'solve',
+  'sort', 'source', 'specify', 'split', 'start', 'state', 'stay', 'stick',
+  'stop', 'store', 'structure', 'suggest', 'summarise', 'summarize', 'supply',
+  'support', 'surface', 'survey', 'tag', 'take', 'target', 'teach', 'tell',
+  'test', 'think', 'tighten', 'trace', 'track', 'transform', 'translate',
+  'treat', 'trim', 'trust', 'try', 'uncover', 'understand', 'unify', 'update',
+  'upgrade', 'use', 'validate', 'value', 'verify', 'view', 'weigh', 'widen',
+  'work', 'wrap', 'write',
 ]);
 
-/** Copulas and third-person verbs that mark the preceding token as a subject. */
+/**
+ * Verbs above that are at least as common as nouns at the head of a title.
+ * "Value Over Volume" is a noun phrase; "Value the Manifest" is a command.
+ * These count as imperative only when a determiner follows, which is what
+ * separates a verb+object from a bare noun phrase.
+ */
+const AMBIGUOUS_HEADS = new Set([
+  'design', 'focus', 'label', 'map', 'model', 'name', 'order', 'place', 'plan',
+  'question', 'reason', 'record', 'report', 'research', 'run', 'set', 'sketch',
+  'source', 'state', 'structure', 'support', 'surface', 'survey', 'target',
+  'test', 'trust', 'use', 'value', 'view', 'work',
+]);
+
+/**
+ * Separators forming a comparison idiom ("Show Over Describe", "Merge Before
+ * Multiply", "Verify, Not Trust"). The guide permits comparisons as titles, so
+ * a bare verb on each side is aphorism rather than instruction.
+ */
+const COMPARISON_SEPARATORS = new Set(['over', 'before', 'not', 'beats', 'than']);
+
+/** Determiners that mark the following token as the object of a verb. */
+const DETERMINERS = new Set([
+  'a', 'all', 'an', 'any', 'each', 'every', 'her', 'his', 'its', 'my', 'no',
+  'our', 'that', 'the', 'their', 'these', 'this', 'those', 'what', 'whatever',
+  'your',
+]);
+
+/** Copulas and third-person verbs that mark the preceding tokens as a subject. */
 const COPULAS = new Set([
-  'is', 'are', 'was', 'were', "isn't", "aren't", 'beats', 'outranks',
-  'carries', 'wins', 'comes', 'decides', 'means', 'matters', 'belongs',
-  'produces', 'outperforms', 'has', 'have', 'remains', 'stays',
+  'are', "aren't", 'beats', 'belongs', 'buys', 'carries', 'comes', 'costs',
+  'creates', 'decides', 'defines', 'delivers', 'depends', 'determines',
+  'drives', 'earns', 'exists', 'fails', 'follows', 'gives', 'goes', 'happens',
+  'has', 'have', 'holds', 'is', "isn't", 'leads', 'lies', 'makes', 'matters',
+  'means', 'needs', 'outperforms', 'outranks', 'outweighs', 'pays', 'points',
+  'precedes', 'produces', 'remains', 'requires', 'rests', 'says', 'serves',
+  'shapes', 'signals', 'stands', 'stays', 'takes', 'tells', 'was', 'were',
+  'wins', 'works', 'yields',
+]);
+
+/** Relative pronouns — a copula after one of these sits in a subordinate clause. */
+const RELATIVE_PRONOUNS = new Set([
+  'that', 'when', 'where', 'which', 'while', 'who', 'whom', 'whose',
 ]);
 
 function tokens(text) {
@@ -48,19 +112,45 @@ function tokens(text) {
 }
 
 /**
- * A verb-initial phrase is declarative when its first word is the subject of a
- * following copula — "State Is Measured" reads as a claim, "State the version"
- * as a command.
+ * A verb-initial phrase is declarative when the leading words form the subject
+ * of a main-clause copula: "State Is Measured", "Design for Growth Is Cheap".
+ * A copula behind a relative pronoun belongs to a subordinate clause and says
+ * nothing about the phrase's own mood.
  */
 function isDeclarative(words) {
-  return words.length > 1 && COPULAS.has(words[1]);
+  const limit = Math.min(words.length, 5);
+
+  for (let i = 1; i < limit; i++) {
+    if (RELATIVE_PRONOUNS.has(words[i])) return false;
+    if (COPULAS.has(words[i])) return true;
+  }
+
+  return false;
+}
+
+/**
+ * "Show Over Describe" is an aphorism; "Show the Reader Everything" is a
+ * command. A comparison separator immediately after the head verb, with no
+ * intervening object, marks the former.
+ */
+function isComparisonIdiom(words) {
+  return words.length > 1 && COMPARISON_SEPARATORS.has(words[1]);
 }
 
 function isImperative(text) {
   const words = tokens(text);
   if (words.length === 0) return false;
   if (!IMPERATIVE_VERBS.has(words[0])) return false;
-  return !isDeclarative(words);
+  if (isDeclarative(words)) return false;
+  if (isComparisonIdiom(words)) return false;
+
+  // A bare noun phrase ("Value Over Volume") needs a determiner to read as a
+  // command; an unambiguous verb ("Prefer X") does not.
+  if (AMBIGUOUS_HEADS.has(words[0])) {
+    return words.length > 1 && DETERMINERS.has(words[1]);
+  }
+
+  return true;
 }
 
 /**
