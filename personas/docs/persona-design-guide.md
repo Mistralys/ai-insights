@@ -2,7 +2,7 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 3.0
+**Version:** 3.1
 **Last Updated:** 2026-08-26
 **License:** MIT 
 **Author:** Sebastian Mordziol
@@ -10,6 +10,7 @@
 
 **Changelog**
 
+- v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
 - v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
 - v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
 - v2.8 - 2026-08-24: Added design rule for self-contained sub-sections: reusable partials and dedicated procedure blocks consolidate their constraints into their own Constraints heading rather than scattering them inline.
@@ -201,13 +202,13 @@ Prepend *"You should"* to a principle's title and to the first clause of its bod
 | Imperative (fails the test) | Indicative (passes) |
 |---|---|
 | Prefer the Smallest Sufficient Move | The Smallest Sufficient Move Carries the Least Risk |
-| Read the Changelog, Not the Version Number | The Changelog Decides, Not the Version Number |
 | Favor Depth Over Breadth | Depth Outranks Breadth |
 | Value Structure Over Prose | Structure Before Content |
-| Keep the Manifest Authoritative | The Manifest Is Authoritative |
-| Treat Advisories as Urgent | Advisories Outrank Freshness |
-| Verify Versions Before Reporting Them | Verified Versions Only |
-| Use the Ledger for Rationale, Not State | Rationale Is Remembered, State Is Measured |
+| Keep the Reference Authoritative | The Reference Is Authoritative |
+| Treat Seasonality as a Constraint | Seasonality Bounds the Menu |
+| Choose Fewer, Better Ingredients | Fewer Ingredients Carry More Flavour |
+| Verify Figures Before Reporting Them | Verified Figures Only |
+| Read the Source, Not the Summary | The Source Decides, Not the Summary |
 
 The rewrite is mechanical: the imperative verb becomes a claim about how the domain behaves, and the agent's obligation to act on it is left implicit. Where an obligation genuinely must be enforced, the principle stays as a value statement here and a matching hard rule is added to Rules & Constraints.
 
@@ -228,6 +229,25 @@ The rewrite is mechanical: the imperative verb becomes a claim about how the dom
 | Module Documenter | Code-Discovery Protocol | The 30-Second Rule, Intent Over Implementation, Ecosystem View, Documentation Tiering |
 | README Writer | The README Funnel | Landing-page funnel: Hook → Features → Requirements → Quick Start → Learn More |
 | Config Generator | (unnamed) | Documentation as Infrastructure, Generated Over Hand-Written, README = Why / Architecture = What, Convention Over Configuration, Minimal Viable Coverage |
+
+#### Recurring Principles Across a Persona Suite
+
+Once a collection grows past a handful of personas, some principles begin to recur. Naming a principle is what makes it referenceable — the value of "Apply the 30-Second Rule here" depends on that name meaning one thing everywhere it appears. Two failure modes follow, and they are opposites:
+
+| Failure | Symptom | Consequence |
+|---|---|---|
+| **Name forking** | One principle acquires several names across personas ("Counts Age Badly", "Durable Over Precise", "Counts Are a Maintenance Liability") | The principle cannot be referenced, and an audit cannot distinguish a persona that lacks it from one that calls it something else |
+| **Name collision** | One name covers two unrelated principles in different domains | A shared name asserts a shared principle that does not exist, and a reader who follows the reference finds something else |
+
+**Design Rules:**
+
+- **One meaning per name.** Two personas using the same name state the same underlying principle. Where two principles differ in substance, they take different names.
+- **Prefer the general claim over its symptom.** Where a principle and its most common illustration compete for the name, the principle wins — it extends to illustrations not yet encountered. "Durable Over Precise" covers stale counts, stale dates, and stale version numbers; "Counts Age Badly" covers only the first.
+- **Bodies are authored, not copied.** Each persona illustrates the principle with its own domain's examples. A count in an audit report is not a count in a README, and a principle about ingredient quality is not one about knowledge-base quality. Verbatim duplication across personas is a signal the principle belongs in a shared partial instead.
+- **Extraction into a partial is reserved for whole sections.** A single recurring bullet stays inline under its canonical name. Partials are warranted when two personas share an *entire* philosophy section — typically the same role under two deployment contexts — not when they overlap on one principle.
+- **Maintain the vocabulary where the personas live.** A collection large enough to fork names is large enough to need a registry of canonical names, their meanings, and the personas carrying them. That registry is project-specific and belongs with the project's own conventions, not in this guide.
+
+> **Scope note:** This guide is domain-neutral. A persona suite may cover software engineering, content curation, cooking, research, or anything else, and the principles that recur within one suite are rarely meaningful to another. The rules above describe how to keep a vocabulary coherent; the vocabulary itself is always local to the project.
 
 ---
 
@@ -805,6 +825,8 @@ Before shipping a new persona, verify:
 - [ ] **Operating Philosophy uses positive framing.** Principles express values and preferences, not prohibitions. Any "Do not" / "Never" statements belong in Constraints.
 - [ ] **Every philosophy principle passes the "You should" test.** Prepend "You should" to each title and to the first clause of each body. Anything that reads naturally is imperative and needs rewriting as a statement about the domain. Applied bullet by bullet, not to the section as a whole.
 - [ ] **No philosophy title is verb-initial.** Titles are noun phrases, comparisons, or statements — never commands ("Read X", "Prefer X", "Keep X", "Use X", "Treat X…").
+- [ ] **Every sentence of a principle body is indicative, not just the first.** Drift commonly appears in a trailing sentence where a principle slides from claim into instruction ("… Reserve imperative language for …").
+- [ ] **Recurring principles use their canonical name** as recorded by the project's own principle vocabulary, where one exists. A principle appearing in a second persona is registered at that point.
 - [ ] **Inputs are specific.** Each input names its source and format.
 - [ ] **Capabilities sub-section exists** if the agent needs to run tests, execute commands, or write files.
 - [ ] **Outputs have a defined location.** The agent knows exactly where to save its work.

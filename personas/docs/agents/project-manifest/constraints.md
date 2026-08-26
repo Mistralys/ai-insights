@@ -64,6 +64,26 @@
    - **Separation of concerns.** Persona content defines identity, methodology, and decision-making framework. Reference documents are consulted knowledge — analogous to config loaded at runtime, not hardcoded into source.
    - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
 
+<a name="c4c"></a>
+5c. **Recurring Operating Philosophy principles use their canonical name from the registry below.** The [Persona Design Guide](../../persona-design-guide.md) § "Recurring Principles Across a Persona Suite" defines the naming rules; this registry is the project-local vocabulary those rules operate on. The guide is a distributed document used to curate persona suites in unrelated projects and domains, so the inventory of *this* project's principles belongs here rather than in the guide.
+
+   **Canonical names:**
+
+   | Canonical Name | Meaning | Carried By |
+   |---|---|---|
+   | **Durable Over Precise** | A statement that stays true across commits beats a precise one that goes stale. Counts, tallies, and inventories are the standard illustration. | AGENTS.md Curator, Manifest Curator, Module Intent Architect, Documentation Curator, README Curator, Unit Test Auditor, CTX Architect |
+   | **Stratified Authority** | Command voice earns its weight from scarcity; a document written entirely in directives flattens into noise. | AGENTS.md Curator, Manifest Curator |
+   | **The 30-Second Rule** | A reader reaches orientation within half a minute; anything slower belongs in a deeper document. | AGENTS.md Curator, Module Intent Architect |
+   | **Long-Term Stability Over Expediency**, **Growth Is the Default**, **Completeness Over Deferral**, **The Practitioner's Eye** | The shared Developer philosophy. | `personas/shared/partials/developer-philosophy.md` — rendered by both the ledger and standalone Developer personas; never duplicated inline |
+
+   **Known collisions — deliberately not unified:**
+
+   | Name | Why it stays split |
+   |---|---|
+   | **Quality Over Quantity** | The Knowledge Archiver means a sparse knowledge base outperforms a dense one; the Recipe Curator means fewer, better ingredients. The shared name is coincidence, not a shared principle — unifying them would assert a relationship that does not exist. Neither persona may reference the other's meaning. |
+
+   A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
+
 ---
 
 ## Naming & File Conventions
