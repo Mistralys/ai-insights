@@ -477,10 +477,13 @@ if (!CHECK) {
 // Heuristic (guide v3.0 mood rule) — warns rather than fails, since a
 // legitimate declarative can open with a verb the detector does not know.
 {
+  // Shared partials are included: a philosophy section extracted into a partial
+  // must not fall out of tone coverage.
   const suiteContents = [
     path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
     path.join(ROOT, 'personas', 'standalone', 'src', 'content'),
     path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
+    path.join(ROOT, 'personas', 'shared', 'partials'),
   ];
 
   const warnings = checkPhilosophyToneInDirs(suiteContents);

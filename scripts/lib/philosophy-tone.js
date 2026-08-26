@@ -112,6 +112,20 @@ function tokens(text) {
 }
 
 /**
+ * Split a principle body into sentences, dropping quoted spans and inline code
+ * first. A guide-style illustration ("Prefer X over Y" cited as an example of
+ * what to avoid) is discussing imperative phrasing, not using it.
+ */
+function sentences(body) {
+  return body
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/["“][^"”]*["”]/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
  * A verb-initial phrase is declarative when the leading words form the subject
  * of a main-clause copula: "State Is Measured", "Design for Growth Is Cheap".
  * A copula behind a relative pronoun belongs to a subordinate clause and says
@@ -208,12 +222,17 @@ export function checkPhilosophyTone(markdown, filename) {
       );
     }
 
-    const firstSentence = body.split(/(?<=[.!?])\s/)[0] || '';
-    if (isImperative(firstSentence)) {
+    // Every sentence, not just the opener — drift hides in trailing sentences
+    // where a principle slides from claim into instruction.
+    const bodySentences = sentences(body);
+    for (let i = 0; i < bodySentences.length; i++) {
+      if (!isImperative(bodySentences[i])) continue;
+
+      const position = i === 0 ? 'opens in the imperative' : `sentence ${i + 1} is imperative`;
       warnings.push(
-        `${filename}:${line}: philosophy body under "${title}" opens in the ` +
-        `imperative ("${tokens(firstSentence)[0]}…"). State the principle as a ` +
-        `claim about the domain, not an instruction to the agent.`,
+        `${filename}:${line}: philosophy body under "${title}" ${position} ` +
+        `("${tokens(bodySentences[i])[0]}…"). State the principle as a claim ` +
+        `about the domain, not an instruction to the agent.`,
       );
     }
   }

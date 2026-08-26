@@ -167,4 +167,37 @@ describe('checkPhilosophyTone', () => {
     );
     expect(warnings).toEqual([]);
   });
+
+  it('flags an imperative in a trailing sentence, not just the opener', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Tone:** Command voice earns its weight from scarcity. Reserve imperative language for the sections that enforce something.'),
+      'p.md',
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('sentence 2 is imperative');
+  });
+
+  it('flags every imperative sentence in a body', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Tone:** Scarcity is what gives it weight. Reserve the imperative. Never spend it elsewhere.'),
+      'p.md',
+    );
+    expect(warnings).toHaveLength(2);
+  });
+
+  it('ignores imperatives inside quoted illustrations', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Mood Matters:** Polarity and mood are independent. "Prefer X over Y" carries no prohibition yet still instructs.'),
+      'p.md',
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('ignores imperatives inside inline code', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Naming:** The rule is mechanical. `Keep the manifest current` reads as a command.'),
+      'p.md',
+    );
+    expect(warnings).toEqual([]);
+  });
 });
