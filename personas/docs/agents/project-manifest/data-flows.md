@@ -60,7 +60,9 @@ The primary data flow: transform source templates into final persona Markdown fi
   └──────────────────────────────────────────┘
 ```
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files and `_shared.yaml`, computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`; each entry: `role`, `number`, `id`, `version`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` **and `personas/package-lock.json`** if they differ; (2) reads all 9 ledger persona YAML files and `_shared.yaml`, computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`; each entry: `role`, `number`, `id`, `version`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
+
+The `model`, `model_slug`, and `cc_model` keys are added to each entry **only** when `personas/model-registry/local.json` or `assignments.json` exists. Without a local registry these values would resolve from the shipped `default.json` and be machine-dependent, so they are omitted rather than committed. Naming fields are always emitted — the MCP server `require()`s this file at startup.
 
 ### Template Engine Detail (inside the library)
 

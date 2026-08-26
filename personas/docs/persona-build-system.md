@@ -868,7 +868,8 @@ import { resolveModel } from './scripts/lib/persona-model-resolution.js';
 
 const { model, model_slug, cc_model } = resolveModel(
   personaId, yamlModelSlug, sharedModelSlug, sharedModelName,
-  uuidToSlug, assignments, registryEntries
+  uuidToSlug, assignments, registryEntries,
+  { warn, warnedSlugs }   // optional
 );
 ```
 
@@ -882,7 +883,25 @@ const { model, model_slug, cc_model } = resolveModel(
 | 4 | `_shared.yaml` `default_model_slug` / `default_model` | — |
 | 5 | Sentinel fallback | — (always matches) |
 
-The sentinel fallback returns `{ model: "Inherit / Auto", model_slug: "inherit", cc_model: "inherit" }`. This is the value written into `name-mapping.json` for any persona that has no model configured — the expected state on a fresh install with no `assignments.json`.
+The sentinel fallback returns `{ model: "Inherit / Auto", model_slug: "inherit", cc_model: "inherit" }`.
+
+**Slug must match the registry.** Levels 2 and 4 look the slug up in the registry to obtain the
+display `name` and `cc_model`. When the slug matches no entry, resolution still returns a usable
+`model_slug` (the orchestrator reads it from YAML directly), but `model` falls back to the raw
+slug and `cc_model` degrades to `"inherit"`. `resolveModel()` emits one `[WARN]` per unmatched
+slug so the mismatch is visible instead of silent.
+
+> The shipped `default.json` uses display-style slugs (`Claude Opus 4.6 (anthropic)`) while
+> persona YAML uses API-style slugs (`claude-opus-4-6`). These namespaces do not overlap, so
+> `default.json` alone never satisfies a YAML slug lookup — a real `local.json` is required for
+> `model` / `cc_model` to resolve meaningfully.
+
+**Model fields are gated on a local registry.** `scripts/build-personas.js` calls `resolveModel()`
+only when `local.json` or `assignments.json` exists. Without either, the `model`, `model_slug`,
+and `cc_model` keys are **omitted** from `name-mapping.json` entries rather than written with
+fallback values — those values are machine-dependent and would otherwise churn the committed
+file on every clone. Naming fields are always written: the MCP server `require()`s this file at
+startup for `AGENT_NAMES` and needs them regardless of model configuration.
 
 **Parameter reference:**
 

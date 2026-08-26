@@ -36,5 +36,6 @@
 /dist/vscode-skills/
 /dist/claude-skills/
 /node_modules/
+/.dev-links.json
 /.claude/agent-memory
 .vscode/settings.json

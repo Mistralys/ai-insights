@@ -275,6 +275,76 @@ describe('resolveModel()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolveModel() — unmatched slug reporting
+// ---------------------------------------------------------------------------
+
+describe('resolveModel() unmatched-slug warnings', () => {
+  /** @returns {{ warn: (m: string) => void, messages: string[] }} */
+  function collector() {
+    const messages = [];
+    return { warn: (m) => messages.push(m), messages };
+  }
+
+  it('warns when a YAML model_slug matches no registry entry', () => {
+    const { warn, messages } = collector();
+    const result = resolveModel(
+      'p', 'not-in-registry', undefined, undefined,
+      buildUuidToSlug(), null, REGISTRY_ENTRIES, { warn },
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/not-in-registry/);
+    expect(messages[0]).toMatch(/persona YAML model_slug/);
+    // Resolution still yields a usable slug — the orchestrator reads it from YAML.
+    expect(result.model_slug).toBe('not-in-registry');
+    expect(result.cc_model).toBe('inherit');
+  });
+
+  it('warns when the shared default slug matches no registry entry', () => {
+    const { warn, messages } = collector();
+    resolveModel(
+      'p', undefined, 'shared-missing', 'Shared Missing',
+      buildUuidToSlug(), null, REGISTRY_ENTRIES, { warn },
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(/shared-missing/);
+    expect(messages[0]).toMatch(/_shared\.yaml default_model_slug/);
+  });
+
+  it('does not warn when the slug matches a registry entry', () => {
+    const { warn, messages } = collector();
+    resolveModel(
+      'p', 'gemini-3-5-flash', undefined, undefined,
+      buildUuidToSlug(), null, REGISTRY_ENTRIES, { warn },
+    );
+    expect(messages).toEqual([]);
+  });
+
+  it('stays silent when the registry is empty (nothing could match)', () => {
+    const { warn, messages } = collector();
+    resolveModel('p', 'anything', undefined, undefined, new Map(), null, [], { warn });
+    expect(messages).toEqual([]);
+  });
+
+  it('reports each slug once when warnedSlugs is shared across calls', () => {
+    const { warn, messages } = collector();
+    const warnedSlugs = new Set();
+    for (let i = 0; i < 3; i++) {
+      resolveModel(
+        `p${i}`, 'repeated-miss', undefined, undefined,
+        buildUuidToSlug(), null, REGISTRY_ENTRIES, { warn, warnedSlugs },
+      );
+    }
+    expect(messages).toHaveLength(1);
+  });
+
+  it('does not warn on the inherit sentinel', () => {
+    const { warn, messages } = collector();
+    resolveModel('p', 'inherit', undefined, undefined, buildUuidToSlug(), null, REGISTRY_ENTRIES, { warn });
+    expect(messages).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // loadModelRegistry() — file loading and graceful degradation
 // ---------------------------------------------------------------------------
 

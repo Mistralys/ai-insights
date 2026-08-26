@@ -42,6 +42,11 @@ import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+// Aliased: cli-menu's reader returns a "v"-prefixed string and has no UNRELEASED handling.
+import {
+  readChangelogVersion as readReleasedVersion,
+  syncModuleVersion,
+} from './lib/package-version.js';
 import {
   storeInit,
   storeAdd,
@@ -87,6 +92,38 @@ function findPython() {
   return null;
 }
 
+/** Sync the workspace root package.json + package-lock.json from the root changelog. */
+function syncRootVersion() {
+  const changelogPath = path.join(WORKSPACE_ROOT, 'changelog.md');
+
+  try {
+    const version = readReleasedVersion(changelogPath);
+
+    if (version === 'UNRELEASED') {
+      log('  ✓ Root changelog has an UNRELEASED entry — skipping version sync', 'green');
+      return;
+    }
+    if (!version) {
+      log('  ⚠ Could not find version in changelog.md');
+      return;
+    }
+
+    const { pkgChanged, lockChanged } = syncModuleVersion({
+      packageJson: path.join(WORKSPACE_ROOT, 'package.json'),
+      lockFile:    path.join(WORKSPACE_ROOT, 'package-lock.json'),
+      version,
+    });
+
+    if (pkgChanged || lockChanged) {
+      log(`  ✓ Updated root package files to ${version}`, 'green');
+    } else {
+      log(`  ✓ Root package files already at ${version}`, 'green');
+    }
+  } catch (e) {
+    log(`  ✗ Failed to sync root version: ${e.message}`, 'red');
+  }
+}
+
 function syncOrchestratorVersion() {
   const changelogPath = path.join(ORCHESTRATOR_DIR, 'changelog.md');
   const pyprojectPath = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
@@ -101,15 +138,17 @@ function syncOrchestratorVersion() {
   }
 
   try {
-    const changelog = fs.readFileSync(changelogPath, 'utf8');
-    const versionMatch = changelog.match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
+    const newVersion = readReleasedVersion(changelogPath);
 
-    if (!versionMatch) {
+    if (newVersion === 'UNRELEASED') {
+      log('  ✓ orchestrator/changelog.md has an UNRELEASED entry — skipping', 'green');
+      return;
+    }
+    if (!newVersion) {
       log('  ⚠ Could not find version in orchestrator/changelog.md');
       return;
     }
 
-    const newVersion = versionMatch[1];
     let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
 
     const versionRegex = /^version\s*=\s*"[^"]+"/m;
@@ -440,6 +479,7 @@ async function cmdGui(args) {
 function cmdBuildMaintain(args) {
   const syncCode = runScript('node', [path.join(MCP_SERVER_DIR, 'scripts', 'sync-version.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (syncCode !== 0) process.exit(syncCode);
+  syncRootVersion();
   syncOrchestratorVersion();
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
@@ -577,6 +617,16 @@ function cmdKillOrchestrator(args) {
 
 function cmdBackfillDuration(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'backfill-duration.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdDevLink(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'dev-link.js'), 'link', ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdDevUnlink(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'dev-link.js'), 'unlink', ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
 }
 
@@ -881,6 +931,29 @@ const COMMANDS = [
     category:    'Setup & Configuration',
     description: 'Install git hooks (pre-commit build & version guards)',
     run:         cmdGitHooks,
+  },
+  {
+    id:           'dev-link',
+    key:          'l',
+    label:        'Link sibling packages (DEV mode)',
+    category:     'Setup & Configuration',
+    description:  'Symlink sibling repos for local development',
+    helpVariants: [
+      ['dev-link --package <name>', 'Link one only (persona-builder | cli-menu)'],
+      ['dev-link --skip-build',     'Skip npm run build in sibling repos'],
+    ],
+    run:          cmdDevLink,
+  },
+  {
+    id:           'dev-unlink',
+    key:          'u',
+    label:        'Unlink sibling packages (PROD mode)',
+    category:     'Setup & Configuration',
+    description:  'Restore npm-registry dependencies',
+    helpVariants: [
+      ['dev-unlink --package <name>', 'Unlink one only'],
+    ],
+    run:          cmdDevUnlink,
   },
   {
     id:          'sync-personas',

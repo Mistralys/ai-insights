@@ -101,6 +101,9 @@ export function loadModelRegistry(registryDir, opts = {}) {
  * @param {Map<string,string>}     uuidToSlug      UUID → slug from registry.
  * @param {object|null}            assignments     Parsed assignments.json (or null).
  * @param {object[]}               registryEntries Array of { id, name, slug, cc_model } registry entries.
+ * @param {{ warn?: (msg: string) => void, warnedSlugs?: Set<string> }} [opts]
+ *   `warn` defaults to console.warn; pass a shared `warnedSlugs` set across calls
+ *   to report each unmatched slug once per build rather than once per persona.
  * @returns {{ model: string, model_slug: string, cc_model: string }}
  */
 export function resolveModel(
@@ -111,7 +114,11 @@ export function resolveModel(
   uuidToSlug,
   assignments,
   registryEntries,
+  opts = {},
 ) {
+  const warn        = opts.warn ?? ((msg) => console.warn(msg));
+  const warnedSlugs = opts.warnedSlugs ?? new Set();
+
   // Build slug → entry map for name / cc_model lookups
   const slugToEntry = new Map();
   for (const entry of registryEntries) {
@@ -122,6 +129,19 @@ export function resolveModel(
 
   function entryForSlug(slug) {
     return slugToEntry.get(slug) || null;
+  }
+
+  // A slug that matches no registry entry still yields a usable model_slug (the
+  // orchestrator reads it from YAML directly), but the display name and cc_model
+  // degrade silently — so surface it once per slug instead.
+  function reportUnmatchedSlug(slug, source) {
+    if (registryEntries.length === 0 || warnedSlugs.has(slug)) return;
+    warnedSlugs.add(slug);
+    warn(
+      `[WARN] persona model resolution: slug "${slug}" (${source}) matches no ` +
+      `model-registry entry — falling back to cc_model "inherit". Add a registry ` +
+      `entry with this slug, or align the slug with an existing one.`
+    );
   }
 
   // 1. Per-persona assignment
@@ -144,6 +164,7 @@ export function resolveModel(
   // 2. Per-persona YAML model_slug
   if (yamlModelSlug && yamlModelSlug !== 'inherit') {
     const entry = entryForSlug(yamlModelSlug);
+    if (!entry) reportUnmatchedSlug(yamlModelSlug, 'persona YAML model_slug');
     return {
       model:      entry ? entry.name : yamlModelSlug,
       model_slug: yamlModelSlug,
@@ -168,6 +189,7 @@ export function resolveModel(
   // 4. _shared.yaml default
   if (sharedModelSlug && sharedModelSlug !== 'inherit') {
     const entry = entryForSlug(sharedModelSlug);
+    if (!entry) reportUnmatchedSlug(sharedModelSlug, '_shared.yaml default_model_slug');
     return {
       model:      entry ? entry.name : (sharedModelName || sharedModelSlug),
       model_slug: sharedModelSlug,

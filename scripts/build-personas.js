@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
+import { readChangelogVersion, syncModuleVersion } from './lib/package-version.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -59,26 +60,22 @@ try {
   process.exit(err.status ?? 1);
 }
 
-// Post-build: sync personas/package.json version from changelog (real builds only)
+// Post-build: sync personas/package.json + package-lock.json from changelog (real builds only)
 if (!CHECK) {
-  const changelogPath = path.join(ROOT, 'personas', 'changelog.md');
-  const pkgPath       = path.join(ROOT, 'personas', 'package.json');
-  const changelog     = fs.readFileSync(changelogPath, 'utf8');
-  const match         = changelog.match(/^## v(\d+\.\d+\.\d+)/m);
+  const newVersion = readChangelogVersion(path.join(ROOT, 'personas', 'changelog.md'));
 
-  if (!match) {
-    console.warn('[WARN] Could not extract version from personas/changelog.md — skipping package.json update.');
+  if (!newVersion) {
+    console.warn('[WARN] Could not extract version from personas/changelog.md — skipping version update.');
+  } else if (newVersion === 'UNRELEASED') {
+    console.log('personas/changelog.md has an UNRELEASED entry — skipping version update.');
   } else {
-    const newVersion = match[1];
-    const pkg        = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    if (pkg.version !== newVersion) {
-      const oldVersion = pkg.version;
-      pkg.version = newVersion;
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
-      console.log(`Updated personas/package.json: ${oldVersion} → ${newVersion}`);
-    } else {
-      console.log(`personas/package.json already at v${newVersion} — no update needed.`);
-    }
+    console.log(`Syncing personas to v${newVersion}:`);
+    syncModuleVersion({
+      packageJson: path.join(ROOT, 'personas', 'package.json'),
+      lockFile:    path.join(ROOT, 'personas', 'package-lock.json'),
+      version:     newVersion,
+      log:         (msg) => console.log(msg),
+    });
   }
 }
 
@@ -117,6 +114,32 @@ if (!CHECK) {
 
   const registryDir = path.join(ROOT, 'personas', 'model-registry');
   const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir);
+
+  // Model fields are only emitted when the user has a real local registry.
+  // Without local.json/assignments.json, resolution falls back to the shipped
+  // default.json and produces machine-dependent values — committing those would
+  // churn name-mapping.json on every clone. Naming fields are always emitted:
+  // the MCP server require()s this file at startup and needs them regardless.
+  const hasLocalRegistry = fs.existsSync(path.join(registryDir, 'local.json'))
+    || fs.existsSync(path.join(registryDir, 'assignments.json'));
+
+  // Shared across all resolveModel calls so each unmatched slug warns once.
+  const warnedSlugs = new Set();
+
+  /**
+   * Resolved model fields for a persona, or an empty object when no local
+   * registry exists (keys are omitted rather than set to a placeholder).
+   * @returns {{ model?: string, model_slug?: string, cc_model?: string }}
+   */
+  function modelFields(personaId, yamlModelSlug, sharedSlug, sharedName) {
+    if (!hasLocalRegistry) return {};
+    const m = resolveModel(
+      personaId, yamlModelSlug, sharedSlug, sharedName,
+      uuidToSlug, assignments, registryEntries,
+      { warnedSlugs },
+    );
+    return { model: m.model, model_slug: m.model_slug, cc_model: m.cc_model };
+  }
 
 
   /**
@@ -223,25 +246,14 @@ if (!CHECK) {
     const number     = Number(data.number);
     const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
 
-    const modelInfo = resolveModel(
-      data.id,
-      undefined, // ledger personas don't carry per-persona model_slug in YAML (uses shared default)
-      LEDGER_DEFAULT_MODEL_SLUG,
-      LEDGER_DEFAULT_MODEL,
-      uuidToSlug,
-      assignments,
-      registryEntries,
-    );
-
     return {
       number,
       id:         data.id,
       role:       data.role,
       version,
       suite:      'ledger',
-      model:      modelInfo.model,
-      model_slug: modelInfo.model_slug,
-      cc_model:   modelInfo.cc_model,
+      // Ledger personas carry no per-persona model_slug — they use the shared default.
+      ...modelFields(data.id, undefined, LEDGER_DEFAULT_MODEL_SLUG, LEDGER_DEFAULT_MODEL),
       vscode: {
         file_name:  data.vs_file_name,
         agent_name: `${number} - ${data.role} v${version}`,
@@ -312,25 +324,14 @@ if (!CHECK) {
       const personaName = data.name || stem(file);
       const role        = deriveRole(personaName);
 
-      const modelInfo = resolveModel(
-        data.id,
-        data.model_slug || suiteDefaultModelSlug,
-        undefined,  // no ledger-style shared model default for non-ledger suites
-        undefined,
-        uuidToSlug,
-        assignments,
-        registryEntries,
-      );
-
       const entry = {
         number:     null,
         id:         data.id,
         role,
         version,
         suite:      suiteName,
-        model:      modelInfo.model,
-        model_slug: modelInfo.model_slug,
-        cc_model:   modelInfo.cc_model,
+        // Non-ledger suites have no ledger-style shared model default.
+        ...modelFields(data.id, data.model_slug || suiteDefaultModelSlug, undefined, undefined), 
         vscode: {
           file_name:  data.vs_file_name || ccFileName,
           agent_name: personaName,

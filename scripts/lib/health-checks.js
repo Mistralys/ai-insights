@@ -34,6 +34,7 @@ const VENV_DIR          = path.join(ORCHESTRATOR_DIR, '.venv');
 const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
 const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
 const OVERVIEW_FILE     = path.join(WORKSPACE_ROOT, 'docs', 'references', 'agents-overview.md');
+const DEV_LINKS_MARKER  = path.join(WORKSPACE_ROOT, '.dev-links.json');
 const PERSONA_META_DIRS = [
   path.join(PERSONAS_DIR, 'ledger',        'src', 'meta'),
   path.join(PERSONAS_DIR, 'standalone',    'src', 'meta'),
@@ -176,6 +177,20 @@ export const HEALTH_CHECKS = [
       return major >= 18;
     },
     fix: 'Install Node.js 18 or later from https://nodejs.org',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'dev-links-inactive',
+    label: 'PROD mode (no sibling packages linked)',
+    cost: 'instant',
+    // Reports DEV mode as a failure so the status line surfaces it — commits
+    // are blocked while the marker exists.
+    /** @returns {boolean} */
+    detect() {
+      return !fs.existsSync(DEV_LINKS_MARKER);
+    },
+    fix: 'node scripts/cli.js dev-unlink',
   },
 
   // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────

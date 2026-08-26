@@ -5,9 +5,6 @@
     "role": "Planner",
     "version": "2.2.0",
     "suite": "ledger",
-    "model": "Claude Opus 4.6 (Anthropic)",
-    "model_slug": "Claude Opus 4.6 (anthropic)",
-    "cc_model": "claude-opus-4-6",
     "vscode": {
       "file_name": "1-planner.agent.md",
       "agent_name": "1 - Planner v2.2.0"
@@ -27,9 +24,6 @@
     "role": "Project Manager",
     "version": "3.8.0",
     "suite": "ledger",
-    "model": "Claude Opus 4.6 (Anthropic)",
-    "model_slug": "Claude Opus 4.6 (anthropic)",
-    "cc_model": "claude-opus-4-6",
     "vscode": {
       "file_name": "2-pm.agent.md",
       "agent_name": "2 - Project Manager v3.8.0"
@@ -49,9 +43,6 @@
     "role": "Developer",
     "version": "3.10.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "3-dev.agent.md",
       "agent_name": "3 - Developer v3.10.1"
@@ -71,9 +62,6 @@
     "role": "QA",
     "version": "3.9.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "4-qa.agent.md",
       "agent_name": "4 - QA v3.9.1"
@@ -93,9 +81,6 @@
     "role": "Security Auditor",
     "version": "3.9.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "5-security-auditor.agent.md",
       "agent_name": "5 - Security Auditor v3.9.1"
@@ -115,9 +100,6 @@
     "role": "Reviewer",
     "version": "3.10.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "6-reviewer.agent.md",
       "agent_name": "6 - Reviewer v3.10.1"
@@ -137,9 +119,6 @@
     "role": "Release Engineer",
     "version": "3.7.4",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "7-release-engineer.agent.md",
       "agent_name": "7 - Release Engineer v3.7.4"
@@ -159,9 +138,6 @@
     "role": "Documentation",
     "version": "3.10.1",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "8-docs.agent.md",
       "agent_name": "8 - Documentation v3.10.1"
@@ -181,9 +157,6 @@
     "role": "Synthesis",
     "version": "3.11.0",
     "suite": "ledger",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "9-synthesis.agent.md",
       "agent_name": "9 - Synthesis v3.11.0"
@@ -203,9 +176,6 @@
     "role": "Ledger Bootstrapper",
     "version": "1.3.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-bootstrapper.agent.md",
       "agent_name": "Ledger Bootstrapper"
@@ -225,9 +195,6 @@
     "role": "Ledger Claude Coordinator",
     "version": "1.0.0",
     "suite": "ledger-support",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "ledger-claude-coordinator.agent.md",
       "agent_name": "Ledger Claude Coordinator"
@@ -247,9 +214,6 @@
     "role": "Ledger Dependency Sequencer",
     "version": "1.3.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-dependency-sequencer.agent.md",
       "agent_name": "Ledger Dependency Sequencer"
@@ -269,9 +233,6 @@
     "role": "Ledger Doctor",
     "version": "1.3.0",
     "suite": "ledger-support",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "ledger-doctor.agent.md",
       "agent_name": "Ledger Doctor"
@@ -291,9 +252,6 @@
     "role": "Ledger Knowledge Archiver",
     "version": "1.8.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-knowledge-archiver.agent.md",
       "agent_name": "Ledger Knowledge Archiver"
@@ -313,9 +271,6 @@
     "role": "Ledger Knowledge Curator",
     "version": "1.2.0",
     "suite": "ledger-support",
-    "model": "Claude Opus 4.6 (Anthropic)",
-    "model_slug": "Claude Opus 4.6 (anthropic)",
-    "cc_model": "claude-opus-4-6",
     "vscode": {
       "file_name": "ledger-knowledge-curator.agent.md",
       "agent_name": "Ledger Knowledge Curator"
@@ -335,9 +290,6 @@
     "role": "Ledger Orchestrator Archaeologist",
     "version": "1.0.1",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-orchestrator-archaeologist.agent.md",
       "agent_name": "Ledger Orchestrator Archaeologist"
@@ -357,9 +309,6 @@
     "role": "Ledger Orchestrator Runner",
     "version": "1.5.1",
     "suite": "ledger-support",
-    "model": "Gemini 3.6 Flash",
-    "model_slug": "Gemini 3.6 Flash (Preview) (copilot)",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "ledger-orchestrator-runner.agent.md",
       "agent_name": "Ledger Orchestrator Runner"
@@ -379,9 +328,6 @@
     "role": "Ledger Pipeline Configurator",
     "version": "1.1.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-pipeline-configurator.agent.md",
       "agent_name": "Ledger Pipeline Configurator"
@@ -401,9 +347,6 @@
     "role": "Ledger Standalone Archiver",
     "version": "1.7.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "standalone-archiver.agent.md",
       "agent_name": "Ledger Standalone Archiver"
@@ -423,9 +366,6 @@
     "role": "Ledger WP Decomposer",
     "version": "1.3.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 4.6 (Copilot)",
-    "model_slug": "Claude Sonnet 4.6 (copilot)",
-    "cc_model": "claude-sonnet-4-6",
     "vscode": {
       "file_name": "ledger-wp-decomposer.agent.md",
       "agent_name": "Ledger WP Decomposer"
@@ -445,9 +385,6 @@
     "role": "AGENTS.md Curator",
     "version": "1.2.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "agents-md-curator.agent.md",
       "agent_name": "AGENTS.md Curator"
@@ -467,9 +404,6 @@
     "role": "CTX Architect",
     "version": "1.2.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "ctx-architect.agent.md",
       "agent_name": "CTX Architect"
@@ -489,9 +423,6 @@
     "role": "Changelog Curator",
     "version": "1.4.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "changelog-curator.agent.md",
       "agent_name": "Changelog Curator"
@@ -511,9 +442,6 @@
     "role": "Communications Curator",
     "version": "1.0.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "comms-curator.agent.md",
       "agent_name": "Communications Curator"
@@ -533,9 +461,6 @@
     "role": "Composer Curator",
     "version": "1.0.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "composer-curator.agent.md",
       "agent_name": "Composer Curator"
@@ -555,9 +480,6 @@
     "role": "Developer",
     "version": "1.7.2",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "developer-standalone.agent.md",
       "agent_name": "Developer (Standalone)"
@@ -577,9 +499,6 @@
     "role": "Documentation",
     "version": "1.0.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "documentation-curator.agent.md",
       "agent_name": "Documentation (Standalone)"
@@ -599,9 +518,6 @@
     "role": "Git Committer",
     "version": "1.7.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "git-committer.agent.md",
       "agent_name": "Git Committer"
@@ -621,9 +537,6 @@
     "role": "Manifest Curator",
     "version": "1.0.7",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "manifest-curator.agent.md",
       "agent_name": "Manifest Curator"
@@ -643,9 +556,6 @@
     "role": "Module Intent Architect",
     "version": "1.0.4",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "module-intent-architect.agent.md",
       "agent_name": "Module Intent Architect"
@@ -665,9 +575,6 @@
     "role": "Persona Curator",
     "version": "1.4.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "persona-curator.agent.md",
       "agent_name": "Persona Curator"
@@ -687,9 +594,6 @@
     "role": "Plan Architect Reviewer",
     "version": "2.2.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "plan-architect-reviewer.agent.md",
       "agent_name": "Plan Architect Reviewer"
@@ -709,9 +613,6 @@
     "role": "Plan Auditor",
     "version": "1.7.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "plan-auditor.agent.md",
       "agent_name": "Plan Auditor"
@@ -731,9 +632,6 @@
     "role": "Plan Refiner",
     "version": "1.4.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "plan-refiner.agent.md",
       "agent_name": "Plan Refiner"
@@ -753,9 +651,6 @@
     "role": "Planner",
     "version": "2.0.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "planner.agent.md",
       "agent_name": "Planner (Standalone)"
@@ -775,9 +670,6 @@
     "role": "README Curator",
     "version": "1.4.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "readme-curator.agent.md",
       "agent_name": "README Curator"
@@ -797,9 +689,6 @@
     "role": "Recipe Curator",
     "version": "1.10.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "recipe-curator.agent.md",
       "agent_name": "Recipe Curator"
@@ -819,9 +708,6 @@
     "role": "Researcher",
     "version": "1.2.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "researcher.agent.md",
       "agent_name": "Researcher"
@@ -841,9 +727,6 @@
     "role": "Unit Test Auditor",
     "version": "1.1.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "unit-test-auditor.agent.md",
       "agent_name": "Unit Test Auditor"
@@ -863,9 +746,6 @@
     "role": "Usage Scenarios Curator",
     "version": "1.2.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "usage-scenarios-curator.agent.md",
       "agent_name": "Usage Scenarios Curator"
@@ -885,9 +765,6 @@
     "role": "WHATSNEW Curator",
     "version": "1.0.1",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "whatsnew-curator.agent.md",
       "agent_name": "WHATSNEW Curator"
@@ -907,9 +784,6 @@
     "role": "Web GUI Specialist",
     "version": "1.3.2",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "web-gui-specialist.agent.md",
       "agent_name": "Web GUI Specialist"
@@ -929,9 +803,6 @@
     "role": "Workspace Architect",
     "version": "1.0.0",
     "suite": "standalone",
-    "model": "Inherit / Auto",
-    "model_slug": "inherit",
-    "cc_model": "inherit",
     "vscode": {
       "file_name": "workspace-architect.agent.md",
       "agent_name": "Workspace Architect"

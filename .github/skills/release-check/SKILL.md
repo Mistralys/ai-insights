@@ -17,7 +17,15 @@ Run all steps in order. Report the result of each check before continuing to the
 node scripts/check-version-sync.js
 ```
 
-Confirms each module's changelog version matches its `package.json`. Must exit 0.
+Confirms each module's changelog version matches its `package.json` and — for npm modules — both
+version fields in `package-lock.json`. Must exit 0.
+
+**Fix if it fails:**
+```bash
+node scripts/cli.js build-maintain
+```
+The version writers update `package.json` and `package-lock.json` together, so a lock-only
+mismatch is resolved by re-running them. Any resulting lock diff must be committed before tagging.
 
 ---
 
@@ -53,8 +61,11 @@ Then re-run the grep to confirm all `resolved` entries now point to `https://reg
 cd personas && npm ci
 ```
 
-`npm ci` fails if `package-lock.json` is out of sync with `package.json`.  
+`npm ci` fails if the lock file's **dependency tree** is out of sync with `package.json`.  
 **Common failure:** upgrading `@mistralys/persona-builder` in `package.json` without re-running `npm install` to regenerate the lock file.
+
+> **Note:** `npm ci` does *not* check the lock file's root `version` field against `package.json` —
+> it exits 0 even when they disagree. That gap is covered by step 1, not by this step.
 
 **Fix if it fails:**
 ```bash

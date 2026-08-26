@@ -6,17 +6,88 @@ title: Development Guide
 
 ## Workspace Directory Layout
 
-The root `package.json` depends on `@mistralys/cli-menu` (currently `^1.1.0` from npm).
+`ai-insights` consumes two published npm packages that are also developed in this workspace:
 
-For **local development** of `cli-menu` alongside `ai-insights`, clone it as a sibling directory and switch the dependency to a `file:` path:
+| Package | Consumer | Sibling repo directory |
+|---------|----------|------------------------|
+| `@mistralys/persona-builder` | `personas/package.json` | `../ai-persona-builder` |
+| `@mistralys/cli-menu` | root `package.json` | `../cli-menu` |
+
+For **local development** of either package, clone it as a direct sibling of `ai-insights`:
 
 ```
 parent/
-├── ai-insights/   ← this repository
-└── cli-menu/      ← optional sibling for local dev
+├── ai-insights/         ← this repository
+├── ai-persona-builder/  ← optional sibling for local dev
+└── cli-menu/            ← optional sibling for local dev
 ```
 
-The preflight bootstrap script (`scripts/preflight-bootstrap.js`) handles sibling linking automatically when both repos are present.
+## DEV / PROD Dependency Modes
+
+The workspace runs in one of two dependency modes:
+
+| Mode | Resolution | Valid for commits? |
+|------|-----------|--------------------|
+| **PROD** (default) | Dependencies installed from the npm registry via `package-lock.json` | Yes |
+| **DEV** | One or both sibling packages symlinked into `node_modules/` via `npm link` | **No** — blocked by the pre-commit hook |
+
+Switching modes is fully reversible and never touches tracked files: `npm link` only writes into
+the gitignored `node_modules/` tree, so `package.json` and `package-lock.json` remain untouched.
+
+```bash
+node scripts/cli.js dev-link                              # link every available sibling
+node scripts/cli.js dev-link --package persona-builder    # link one package only
+node scripts/cli.js dev-link --package cli-menu --skip-build
+node scripts/cli.js dev-unlink                            # back to PROD mode
+node scripts/dev-link.js status                           # print the current mode
+```
+
+`dev-link` builds the sibling repo once (`npm run build`) before linking. Pass `--skip-build`
+when its `dist/` is already fresh. For continuous rebuilds while editing the sibling, run
+`npm run dev` (tsup watch mode) in the sibling repo in a separate terminal — the symlink picks
+up each rebuild without any further action in `ai-insights`.
+
+When a sibling repo is not present at the expected path, `dev-link` warns and skips it rather
+than failing.
+
+### Mode Marker and Guards
+
+Linking writes a gitignored `.dev-links.json` marker to the workspace root recording which
+packages are linked and when. Four consumers read it:
+
+- **CLI status line** — the `dev-links-inactive` health check reports DEV mode as a failing
+  check so the active mode is visible on every menu render.
+- **Pre-commit hook** — `scripts/lib/precommit-guards.js`'s `devModeInactive()` guard blocks any
+  commit while the marker exists, with a message pointing at `dev-unlink`. It resolves the
+  `dev-links-inactive` check from `HEALTH_CHECKS` by id rather than re-deriving the marker path.
+  Forgetting to unlink is therefore a safe failure.
+- **Bootstrap script** — `scripts/preflight-bootstrap.js` resolves the same `dev-links-inactive`
+  check by id (hard-throwing if the id is ever renamed) and prints a `[Bootstrap]`-prefixed
+  advisory naming `dev-unlink` before any install/rebuild work runs. This surfaces the reminder
+  on every `menu.sh` / `menu.cmd` launch, not just at commit time. The advisory never changes the
+  script's exit code.
+- **`dev-unlink`** — reads the marker to know what to restore, then removes it.
+
+The same guard module's `noFileProtocolInLocks()` additionally rejects any staged
+`package-lock.json` that *adds* a `file:` resolved path. This is the same contamination that the
+`release-check` skill's step 3a rejects at release time; the guard simply catches it earlier.
+Never point `package.json` at a local path to test sibling changes — `npm link` is the only
+sanctioned mechanism.
+
+### Agent Workflow
+
+When an agent receives a request that requires changes to `ai-persona-builder` or `cli-menu`
+source code, the agent must:
+
+1. Check whether DEV mode is already active — read `.dev-links.json`, or run
+   `node scripts/dev-link.js status`.
+2. If not active, run `node scripts/cli.js dev-link --package <name>` to symlink the affected
+   sibling package **before** making any changes.
+3. After changing the sibling, rebuild it (`npm run build` in the sibling directory) and verify
+   the change propagates — e.g. `node scripts/build-personas.js --check` for persona-builder.
+4. Do **not** unlink automatically. Leave the workspace in DEV mode so the user can verify.
+5. Remind the user that DEV mode is active and that `node scripts/cli.js dev-unlink` must be run
+   before committing.
 
 ## Pre-Commit Hook
 
@@ -24,7 +95,25 @@ The preflight bootstrap script (`scripts/preflight-bootstrap.js`) handles siblin
 node scripts/install-hooks.js
 ```
 
-This enables a pre-commit guard that fails the commit if any generated persona file is stale (out of sync with its source template).
+`.githooks/pre-commit` is a thin, cross-platform shell shim: it extends `PATH` so `node` can be
+found inside a Git hook environment, then delegates everything else to
+`node scripts/precommit-guards.js`. That runner iterates the declarative `GUARDS` registry in
+`scripts/lib/precommit-guards.js`, a pure-ish Node module (no `grep`/`sed`/other Unix-only
+utilities) that runs identically on Windows, macOS, and Linux and is covered by
+`scripts/tests/precommit-guards.test.js`. The guards, in order:
+
+| Guard | Blocking? | Checks |
+|-------|-----------|--------|
+| `personaFreshness` | Yes | Stale generated persona output (`build-personas.js --check`) |
+| `versionSync` | Yes | Changelog/package-manifest version drift (`check-version-sync.js`) |
+| `devModeInactive` | Yes | DEV mode active (`.dev-links.json` exists) |
+| `noFileProtocolInLocks` | Yes | Staged `package-lock.json` adds a `file:` resolved path |
+| `ruffLint` | Yes once resolved | Staged `orchestrator/src/**.py` fails `ruff check`; prints a non-blocking warning instead when no `ruff` binary can be found |
+| `contextStaleness` | No (advisory) | Source changed under `.context/`-tracked directories without a matching `.context/` update |
+| `changelogDrift` | No (advisory) | A sub-project changelog changed without the root `changelog.md` |
+
+The runner short-circuits on the first blocking failure and exits 1; advisory guards print their
+warnings but never change the exit code.
 
 ## Global CLI (Optional)
 
@@ -74,6 +163,8 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/bundle-docs.js` | `./menu.sh bundle-docs` | Compile project docs into bundles (e.g. for NotebookLM) |
 | `node scripts/cli.js ctx-generate` | `./menu.sh ctx-generate` | Generate context documentation via [CTX Generator](https://github.com/context-hub/generator) |
 | `node scripts/cli.js doctor` | `./menu.sh doctor` | Run all health checks; exits 1 on any failure |
+| `node scripts/dev-link.js link\|unlink\|status` | `./menu.sh dev-link` / `dev-unlink` | Switch between DEV (sibling symlinks) and PROD (npm registry) dependency modes |
+| `node scripts/precommit-guards.js` | — | Run the pre-commit guard suite standalone (same guards `.githooks/pre-commit` delegates to) |
 | `node scripts/cli.js install-mcp` | `./menu.sh install-mcp` | Register `central_pm` in VS Code user-level `mcp.json` via stable shim |
 | `node scripts/run-gui.js` | `./menu.sh gui` | Launch the MCP server GUI dashboard |
 | `node scripts/preflight-orchestrator.js` | `./menu.sh preflight` | Pre-flight readiness checks (venv, `.env`, dist, conflicts) |
