@@ -7,6 +7,8 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.4.0 (2026-08-26): Philosophy gained Refactoring Is Always on the Table and Adjacent Improvement Is the Only Improvement; maintenance surface folded into Long-Term Stability Over Expediency; Proportionality replaced by Justified Structure (anticipated growth is now a valid justification) plus a Refactoring & Adjacent Improvement group; new ## Structural Improvements plan section with brief observations and a promote-or-reject workflow step
+  2.3.0 (2026-08-26): Shared content extracted into six planner-* partials with the standalone twin; gained Capabilities, Rework Handling and a self-validation Quality Checklist; Core Rules gained role-boundary and output-integrity groups; philosophy principles renamed to their canonical registry names; handoff now emits AGENT: Planner
   2.2.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   2.2.0 (2026-07-17): Recommended Workflow section added to Plan Output Template; workflow assessment persisted in plan.md
   2.1.0 (2026-07-16): Added Operating Philosophy — design for growth, no deferred quality, right abstraction first time
@@ -36,6 +38,13 @@ has_mcp: true
 has_detect_project: false
 self_documenting_note: false
 has_incident_logging: false
+
+# gates the ledger-only plan sections in planner-output-template.md
+has_ledger_workflow: true
+planner_implementer_ref: "TPM and Engineer"
+
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"
 
 mcp_tools:
   - tool: ledger_get_repository_context
