@@ -13,10 +13,11 @@ When writing the report, read every entry in `insights.jsonl` from the resolved 
 {{/if}}
 - Attribute an entry to the agent that recorded it whenever the origin adds weight or context to the finding.
 
+**Sink state handling:**
 {{#if insight_consumer_only}}
-**Sink state handling:** This agent is a consumer-only compiler — it never writes to the sink, so it has no `session-start` marker of its own. Check each contributing agent's marker individually: if an agent that participated in this project has no `session-start` marker, note that its insight capture did not run rather than implying it found nothing.
+This agent is a consumer-only compiler — it never writes to the sink, so it has no `session-start` marker of its own. Check each contributing agent's marker individually: if an agent that participated in this project has no `session-start` marker, note that its insight capture did not run rather than implying it found nothing.
 {{else}}
-**Sink state handling:** Use the `{{insight_agent}}` `session-start` marker to distinguish the sink states below — reporting a skipped duty as a clean result destroys the sidecar's value.
+Use the `{{insight_agent}}` `session-start` marker to distinguish the sink states below — reporting a skipped duty as a clean result destroys the sidecar's value.
 
 | What the sink contains | What it means | What to report |
 |---|---|---|
