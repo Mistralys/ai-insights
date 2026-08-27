@@ -4,7 +4,13 @@ description: "Map dependencies between Work Packages, identify parallelization o
 vs_file_name: ledger-dependency-sequencer.agent.md
 id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
+audit_guide_version: "3.3"
+audit_date: "2026-08-27"
+
 changelog: |
+  1.4.2 (2026-08-27): Rewrote the philosophy principles, protocol prose and constraints in plain language — same meaning, concrete phrasing, no abstract-noun density
+  1.4.1 (2026-08-27): Inputs now state the Project Manager's actual dispatch contract — one plan folder path holding both required files — replacing three separately-supplied inputs and a wrongly optional plan document
+  1.4.0 (2026-08-27): Audit compliance (guide v3.3) — added Operating Philosophy; split evidence-gathering from edge assertion per Pattern 14; added cycle-detection checkpoint; consolidated protocol constraints into their own block
   1.3.0 (2026-07-06): Step 1 now consumes Code Observations from upstream WP Decomposer to avoid redundant codebase reads
   1.2.0 (2026-07-06): Added codebase verification capability; Step 2 now includes code-level coupling checks for import graphs, shared types, and module boundaries
   1.1.0 (2026-07-06): Audit compliance — agent name variables, section reorder, capabilities, strengthened constraints, separator cleanup
