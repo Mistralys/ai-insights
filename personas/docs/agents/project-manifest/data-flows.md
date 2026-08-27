@@ -249,9 +249,30 @@ content/3-developer.md
 
 Agent 2 does **not** use the `{{#if has_detect_project}}` guard. Instead, it directly embeds `{{> mcp-preflight-verify-no-detect}}`, which uses "Step 1" numbering and references a "target project_path" rather than a resolved one. This is because the PM always receives an explicit path from the Planner.
 
-### Agent 1 (Planner) — Minimal Template
+### Agent 1 (Planner) — Shared With the Standalone Twin
 
-Agent 1 uses `{{> agent-roster}}` only. No MCP partials, no handoff block, no incident logging. It produces a plan document and does not interact with the ledger.
+Agent 1 has no handoff-block partial and no incident logging — it prints its handoff verbatim and produces a plan document rather than driving the ledger. It does use the MCP pre-flight header partials, since it calls `ledger_get_repository_context` and `ledger_search_insights` for strategic context.
+
+Beyond `{{> agent-roster}}`, Agent 1 shares six `planner-*` partials with the standalone Planner. The two personas are the same role under two deployment contexts, so the shared blocks live in `personas/shared/partials/` and each persona contributes only its genuine divergences:
+
+```
+content/1-planner.md                      content/planner.md  (standalone)
+│                                         │
+├── {{> agent-roster}}                    │   (ledger only — no roster in standalone)
+├── {{> planner-philosophy}} ───────────── ┤   identical
+├── {{> planner-operating-modes}} ──────── ┤   identical
+├── … MCP tools table + pre-flight …      │   (ledger only — has_mcp: true)
+├── {{> planner-research-brief-template}}─ ┤   {{#if has_mcp}} gates ## Strategic Context
+├── {{> planner-output-template}} ──────── ┤   {{#if has_ledger_workflow}} gates
+│                                         │     ## Plan Audit Cycles, ## Recommended Workflow
+│                                         │   {{#if has_mcp}} gates ## Prior Project Context
+├── … Rework Handling (own text) …        │   (standalone omits the audit-counter step)
+├── {{> planner-core-rules}} ───────────── ┤   {{planner_implementer_ref}} differs
+├── {{> planner-quality-checklist}} ────── ┤   identical
+└── … Workflow (own text) …               │   (differs: MCP steps, workflow assessment)
+```
+
+The four genuine divergences are the agent roster, the MCP block, the ledger-gated plan sections, and the handoff status (`READY_FOR_PM` + `RECOMMENDED_WORKFLOW` vs. `COMPLETE`). Everything else is shared. A change to planning methodology belongs in the partial, not in either persona.
 
 ---
 
