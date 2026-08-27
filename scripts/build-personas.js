@@ -14,6 +14,7 @@ import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
+import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -498,5 +499,30 @@ if (!CHECK) {
       '  Apply the "You should" test: if prepending it reads naturally, rewrite\n' +
       '  the principle as a claim about the domain.\n',
     );
+  }
+}
+
+// Always: warn on an oversized newest personas/changelog.md entry.
+// Heuristic (line/bullet/sentence thresholds) — warns rather than fails, since
+// a legitimately large multi-persona release can still be well-summarized.
+{
+  const changelogPath = path.join(ROOT, 'personas', 'changelog.md');
+
+  if (fs.existsSync(changelogPath)) {
+    const text = fs.readFileSync(changelogPath, 'utf8');
+    const warnings = checkChangelogEntrySize(text, 'personas/changelog.md');
+
+    if (warnings.length > 0) {
+      console.warn('\n[WARN] oversized personas/changelog.md entry:\n');
+      for (const warning of warnings) {
+        console.warn('  ' + warning);
+      }
+      console.warn(
+        '\n  personas/changelog.md is summary-only (AGENTS.md Changelog Convention,\n' +
+        '  rule 8): one outcome-oriented line per affected persona/theme, no\n' +
+        '  rationale or mechanism detail. Full detail belongs in that persona\'s\n' +
+        '  own integrated changelog.\n',
+      );
+    }
   }
 }
