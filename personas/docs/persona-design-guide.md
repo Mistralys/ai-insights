@@ -11,14 +11,15 @@
 
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.2
-**Last Updated:** 2026-08-26
+**Version:** 3.3
+**Last Updated:** 2026-08-27
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
 - v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
 - v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
 - v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
@@ -867,6 +868,7 @@ Before shipping a new persona, verify:
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
+- [ ] **The rendered output has been read end to end,** where a build system assembles the persona. Partials and variables hide duplication, wrong substitutions, and tone breaks that only the assembled document shows. (See Verifying Rendered Output.)
 - [ ] **Deliberate guide deviations are recorded in `design_notes`,** where the persona carries metadata. Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
 
 ---
@@ -1087,6 +1089,31 @@ This applies to persona source files in `src/content/`. The build system and tem
 
 ---
 
+## Verifying Rendered Output
+
+A persona assembled by a build system is never read as a whole while it is being written. The source is a set of fragments — a content file, shared partials pulled in by reference, variables resolved from metadata, sections gated behind feature flags — and each fragment reads as coherent in isolation. The assembled document is the only artifact the agent ever sees, and it is the first place where the persona can be judged as a single document rather than as a set of parts. Reviewing the source verifies the parts; only reading the rendered output verifies the persona.
+
+This is not a build-integrity check. A build that emits no errors proves the templates resolved, not that the result reads as one coherent document. The defects this catches are semantic, and they are invisible in a source diff:
+
+| Defect | Why the source hides it |
+|--------|-------------------------|
+| **Duplication between a partial and an inline section** | Each says it once; only the assembled document says it twice. |
+| **Variables resolving to the wrong value — or to nothing** | The source shows the placeholder, not the substitution. |
+| **Broken tone stratification** | A partial written in imperative voice looks fine alone and flattens the constraints section once inlined. |
+| **Section order and duplicated headings** | Injected partials land in an order the content file does not show. |
+| **Contradictions across fragments** | Two partials can each be correct and still instruct the agent to do opposite things. |
+| **60-Second Rule violations** | Length and density are properties of the assembled document alone. |
+
+**Rules:**
+
+- **Run the build and read the rendered output after every source change.** Read the full document end to end, not the diff — the defects above are relational, and a diff shows only the fragment that moved.
+- **Read one rendered file per affected target where targets differ.** A change that resolves cleanly for one output target can drop a section or mangle a frontmatter field in another.
+- **Never treat a clean build as verification.** A successful build reports that the template engine found everything it referenced. It says nothing about whether the result is consistent.
+- **Never edit rendered output.** Generated files are overwritten on the next build. A defect seen in the output is traced back to the content file, partial, or metadata field that produced it, and fixed there.
+- **Where the persona has no build step, this section does not apply.** A persona authored directly into a system-prompt field is already its own rendered output; verification is re-reading the text before pasting it.
+
+---
+
 ## Governance Metadata
 
 A persona's metadata carries three fields that exist purely to govern the persona's relationship with this guide. None of them is read by a build system or rendered into persona output — they are durable records for the humans and agents who audit and maintain the persona over time.
@@ -1170,3 +1197,4 @@ design_notes: |
 | **Constraint stated far from where it fires** | Rule holds in the final templated output but is violated in intermediate outputs (e.g., counts appear in a mid-session summary) | Restate the constraint as an authoring instruction inside the output template slot where it applies (Pattern 15) |
 | **Conditional rule with no rehearsal** | "If present, do X" rules are skipped in the rare sessions where the condition actually holds | Add an explicit workflow step that performs the check every session (Pattern 15) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
+| **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
