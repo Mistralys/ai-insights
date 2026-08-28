@@ -36,8 +36,8 @@ tools:
   - web
   - browser
 
-audit_guide_version: "3.2"
-audit_date: "2026-08-26"
+audit_guide_version: "3.3"
+audit_date: "2026-08-27"
 
 design_notes: |
   Reference material stays inline (Household Kitchen Reference incl. the 19-row equipment table,
