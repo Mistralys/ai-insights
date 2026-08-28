@@ -235,7 +235,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `insight_reviewer_ref` | `string` | no | Substituted into `insight-scope-and-types.md` — names who owns the out-of-scope column. Required by personas including that partial, alongside the other two `insight_*` scope fields. |
 | `insight_routing` | `string` | no | Substituted into `insight-scope-and-types.md` — one sentence naming where a recorded observation travels downstream. Pairs with `insight_reviewer_ref`. |
 | `insight_type_context` | `string` | no | Substituted into `insight-scope-and-types.md` — the lead-in sentence above the observation `type` table. Pairs with `insight_reviewer_ref`. |
-| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`. Not used by the build system. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`, which writes `personas/docs/audits/status.md`. Not used by the build system. Audit *process* notes belong in `personas/docs/audits/annotations.json`, not here. |
 | `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 ---
@@ -460,7 +460,7 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `insight_report_target` | `string` | no | Human phrase naming where the curated insight section lands. Must be paired with `insight_agent`. |
 | `has_ledger_workflow` | `bool` | no | Gates the ledger-only sections of `planner-output-template.md`. Set to `false` on the standalone Planner so `## Plan Audit Cycles` and `## Recommended Workflow` are omitted. |
 | `planner_implementer_ref` | `string` | no | Substituted into `planner-core-rules.md` as `{{planner_implementer_ref}}` — `"implementer"` for the standalone Planner. |
-| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`. Not used by the build system. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`, which writes `personas/docs/audits/status.md`. Not used by the build system. Audit *process* notes belong in `personas/docs/audits/annotations.json`, not here. |
 | `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.

@@ -321,15 +321,18 @@ Periodic compliance checks ensure all personas conform to the current Persona De
   Guide updated (new version)
        │
        ▼
-  node scripts/generate-persona-audit.js -o <file>
+  node scripts/generate-persona-audit.js
        │  reads: all personas/*/src/meta/*.yaml
+       │  reads: all personas/*/src/content/*.md (composition tier)
        │  reads: personas/docs/persona-design-guide.md (version + changelog)
+       │  reads: personas/docs/audits/annotations.json (Notes column)
        │  derives: guide version at each persona's last-updated date
        │  derives: audit status from audit_guide_version vs current guide
+       │  derives: tier from partial + conditional counts in source
        ▼
-  Audit tracking document (Markdown)
+  personas/docs/audits/status.md  (fully generated)
        │  sorted oldest-first per suite
-       │  columns: Version, Last Updated, Guide, Audited, Status
+       │  columns: Version, Last Updated, Guide, Audited, Tier, Status, Notes
        ▼
   Persona Curator (Audit mode)
        │  reads: persona-design-guide.md
@@ -353,10 +356,35 @@ Periodic compliance checks ensure all personas conform to the current Persona De
   │  changelog: prepend version bump entry
   ▼
   Regenerate tracking doc
-       │  node scripts/generate-persona-audit.js -o <file>
+       │  node scripts/generate-persona-audit.js
        ▼
   Summary shows updated Current / Stale / Unaudited counts
 ```
+
+### File Layout
+
+The audit record lives in `personas/docs/audits/`, split by who writes it:
+
+| File | Written by | Contents |
+|---|---|---|
+| `status.md` | Generator | Per-persona tracking table. Regenerated wholesale — never hand-edit. |
+| `notes.md` | Hand | Audit methodology, generalising findings, roll-forward reasoning. Cumulative. |
+| `annotations.json` | Hand | Notes-column text keyed by suite + persona YAML stem. Missing key → empty cell. |
+
+The split exists because `status.md` is derived entirely from YAML and source composition,
+so anything hand-written inside it is lost on the next run.
+
+### Tier Derivation
+
+Tier is computed from each persona's content file, not stored in YAML:
+
+| Condition | Tier | Meaning |
+|---|---|---|
+| No `{{> partial}}` and no `{{#if}}` / `{{#unless}}` | `A` | Rendered output is the source plus frontmatter; design guide v3.3's rendered-output requirement does not apply. |
+| Otherwise | `B (Np/Mc)` | N partials, M conditionals — the assembled document must be read to be verified. |
+
+Because it is derived, a persona that gains its first partial flips A → B automatically,
+surfacing that its existing audit stamp no longer covers everything the guide requires.
 
 ### Status Derivation
 
@@ -371,11 +399,14 @@ The script reads `audit_guide_version` from each persona's YAML metadata and com
 ### CLI
 
 ```bash
-# Print to stdout
+# Write personas/docs/audits/status.md (default)
 node scripts/generate-persona-audit.js
 
-# Write to file
-node scripts/generate-persona-audit.js -o docs/agents/projects/persona-audit-guide-v2.8.md
+# Preview without writing
+node scripts/generate-persona-audit.js --stdout
+
+# Write elsewhere
+node scripts/generate-persona-audit.js -o /tmp/audit-preview.md
 
 # Override guide version label
 node scripts/generate-persona-audit.js --guide-version 3.0
