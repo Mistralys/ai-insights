@@ -5,6 +5,16 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.9.0 (2026-08-28): First full audit at guide v3.4 — 14 findings, all resolved. Mode A no longer reads
+    the insights.jsonl sidecar, which ledger agents stopped writing on 2026-08-24; pipeline comments read
+    via ledger_get_work_package are named as its live replacement. Added a Resolve Provenance workflow step
+    and a repository resolution protocol (ledger_get_repository_context via cwd_path), closing a gap where
+    repository_name and origin_plan had no documented Mode A source despite being required for repository
+    scope. Capabilities table now authorises the chunk-log reads and the Mode B marker write the protocol
+    already performed. Added an Output Template so the report's per-item skip reasons and nothing-committed
+    case are stated where they fire, plus a Scope Boundaries table against the Knowledge Curator and a
+    constraint forbidding entry edits. Confidence bands no longer contradict the philosophy. Philosophy:
+    two imperative principles rewritten as claims; prohibitions consolidated into Strict Constraints.
   1.8.1 (2026-08-26): Rewrote trailing imperative sentences in three philosophy principles into indicative mood
   1.8.0 (2026-08-21): Add insights.jsonl as optional low-priority source in both reading orders
   1.7.0 (2026-07-31): Philosophy rewritten with positive framing; constraint-like items moved to Strict Constraints
@@ -15,6 +25,9 @@ changelog: |
   1.2.0 (2026-05-30): Knowledge collection delegation from Synthesis integrated
   1.1.0 (2026-05-30): Refined operational protocol
   1.0.0 (2026-05-29): Initial release — retrospective knowledge extraction from completed projects
+
+audit_guide_version: "3.4"
+audit_date: "2026-08-28"
 
 tools:
   - vscode
