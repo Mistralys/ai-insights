@@ -5,6 +5,11 @@ vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 changelog: |
+  1.4.0 (2026-08-28): Added a third mode, Targeted Reconciliation — a bounded pass over entries a caller
+    names after a completed change overtook what they claim, with its own Reconciliation Protocol, report
+    template and workflow. Its constraints forbid widening into an audit, rewriting on a caller's
+    description without verifying the change landed, and reconciling an unresolved or ambiguous
+    identifier. Added a Locating a Named Entry protocol, since no tool fetches an insight by id.
   1.3.0 (2026-08-28): First full audit at guide v3.4 — 15 findings, all resolved. MERGE now retires the
     duplicate via superseded_by + confidence 0 instead of deleting it, closing a contradiction where the
     approval gate and the "non-destructive" workflow step disagreed about whether a merge could delete.
@@ -31,7 +36,8 @@ tools:
 
 # overview metadata
 identity: "Knowledge Base Librarian"
-use_when: "The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity"
+use_when: "The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity — or a completed change has overtaken specific stored insights"
 modes: |
   Global Maintenance
   Project Maintenance
+  Targeted Reconciliation
