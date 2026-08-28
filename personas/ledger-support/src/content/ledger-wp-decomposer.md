@@ -30,7 +30,7 @@ Derive `{PLAN_PATH}` from the folder containing the plan document. Two files liv
 - **`plan.md`** — the plan itself, at the path you were given.
 - **`research-brief.md`** — the verified codebase facts the plan was built from, organised under `## Area` headings. The Planner wrote it alongside the plan and the Plan Refiner's review cycles enriched it. Step 3 starts here.
 
-Both files are always present: the Planner produces them together, before the Project Manager ever dispatches you. A missing or unreadable file means an earlier stage failed — report that and stop. Do not reconstruct the plan or the brief, and do not ask the user to paste either.
+Both files are required, and the Project Manager checks for the brief before dispatching you. Where one is missing anyway, stop and report which file and which path — naming `research-brief.md` specifically, since it is gitignored and is routinely lost when a plan is committed and resumed in a later session. Only the Planner writes it. Do not reconstruct the plan or the brief, and do not ask the user to paste either.
 
 ### Capabilities
 
@@ -212,7 +212,7 @@ Before submitting your output, verify:
 
 ## Workflow
 
-1. **Ingest Plan and Brief:** Read the plan document at the path the Project Manager gave you, in full, then read `research-brief.md` from the same folder. Where either file is missing or unreadable, report the broken upstream stage and stop.
+1. **Ingest Plan and Brief:** Read the plan document at the path the Project Manager gave you, in full, then read `research-brief.md` from the same folder. Where either file is missing or unreadable, name the file and its full path and stop — for a missing brief, state that only the Planner can regenerate it.
 2. **Decompose:** Execute the Decomposition Protocol above (Read and Understand → Sketch WP Candidates → Gather Boundary Evidence → Assert WP Boundaries → Map Plan AC to WPs → Write WP Definitions).
 3. **Produce Output:** Save to the Output Location above.
 4. **Self-Validate:** Run every item in the Quality Checklist. Fix any issues found before proceeding.
