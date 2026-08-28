@@ -11,7 +11,7 @@
 
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.3
+**Version:** 3.4
 **Last Updated:** 2026-08-27
 **License:** MIT 
 **Author:** Sebastian Mordziol
@@ -19,6 +19,7 @@
 
 **Changelog**
 
+- v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall.
 - v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
 - v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
 - v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
@@ -864,6 +865,7 @@ Before shipping a new persona, verify:
 - [ ] **Generation-time constraints are restated in the output template.** Style rules that fire while writing (e.g., "no counts") appear as authoring instructions inside the relevant template slots, not only in the Constraints section.
 - [ ] **Rarely-fired conditionals have a workflow checkpoint.** Every "if present / if applicable" rule is backed by an explicit workflow step that forces the check each session.
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
+- [ ] **Explanatory prose carries one idea per sentence and names its actor.** Abstract subjects, back-references ("that asymmetry", "which is why"), register words, and bolted-on qualifiers are removed in a dedicated pass after the draft exists — not while writing it. Constraints are exempt. (See Prose Density.)
 - [ ] **Tone is stratified: descriptive prose for content sections, imperative commands for constraints only.** Mission, Philosophy, Inputs, Workflow, and Operational Protocol use explanatory language. Only Rules & Constraints use imperative voice ("Do not", "Never", "Must"). If the whole persona reads like a list of commands, the constraints section loses its signal. See Core Philosophy §7.
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
@@ -1089,6 +1091,40 @@ This applies to persona source files in `src/content/`. The build system and tem
 
 ---
 
+## Prose Density
+
+A persona's explanatory sections have a second failure mode alongside imperative drift, and it comes from the same place: density reads as competence. A sentence carrying three clauses of reasoning looks like the writer understood the problem, so a draft reaches for it whenever the work should appear considered. The prose ends up performing thought rather than transmitting it.
+
+The obvious cost is that a maintainer struggles to read it. The larger cost is that the instruction stops firing. An abstract sentence is understood perfectly on the way in and still fails to surface at the moment it applies, because nothing in it names anything the agent is about to do. Both of these carry the same claim:
+
+| Overloaded | Plain |
+|---|---|
+| Confidence in a graph comes from checking the pairs where coupling is plausible, not from reading the repository. | You get a better graph by opening the four files where two items might touch than by reading all forty. |
+
+Only the second one surfaces while the agent is choosing which file to open. This is Core Philosophy §6 (Salience Beats Volume) at sentence scale: comprehension was never the bottleneck, activation is.
+
+**Four habits produce most of it:**
+
+| Habit | Overloaded | Plain |
+|---|---|---|
+| **Abstract subject** — no actor in the sentence | "Verification is targeted at suspected pairs" | "You open only the files where two items might touch" |
+| **Back-reference** — pointing at a claim instead of making it | "That asymmetry is why an unproven link is worth less than a recorded caveat" | State the asymmetry and stop |
+| **Register word** — a longer word carrying no extra meaning | artefact, arbiter, by construction, leverage | file, decides, always, use |
+| **Bolted-on second thought** — a qualifier that kept a finished sentence alive | "…which makes them both the cheapest starting point and a place where re-checking buys nothing" | Two sentences, or cut the second half |
+
+**Rules:**
+
+- **One idea per sentence.** Where an em-dash or a "which" clause adds a second thought to a sentence that was already complete, split it or drop it.
+- **Name the actor.** Abstract subjects — "confidence", "verification", "the analysis", "coverage" — hide who does what. A person, a file, or a tool belongs in the subject slot.
+- **Say the claim once, never point back at it.** "That asymmetry", "which is why", "this makes it", "the result is" all reference something stated moments earlier instead of stating it.
+- **The plain word wins ties.** Where an everyday word carries the same meaning, the longer one is decoration.
+- **Length is a signal, not a verdict.** A sentence past roughly thirty words, or holding more than one em-dash, is worth re-reading. A long sentence with one idea and a named actor is fine.
+- **Constraints are exempt.** Rules & Constraints are terse imperatives by design, and their compression is the source of their weight. This section governs explanatory prose only.
+- **Never trade accuracy for brevity.** The plain version makes the same claim with the same precision. Where shortening would drop a real qualifier, the qualifier becomes its own sentence.
+- **Catch it in a dedicated pass, not while drafting.** Overloaded phrasing arrives in the draft looking correct and survives an unaided review, exactly as imperative mood does. What removes it is re-reading the prose after it exists, with no other objective competing for attention.
+
+---
+
 ## Verifying Rendered Output
 
 A persona assembled by a build system is never read as a whole while it is being written. The source is a set of fragments — a content file, shared partials pulled in by reference, variables resolved from metadata, sections gated behind feature flags — and each fragment reads as coherent in isolation. The assembled document is the only artifact the agent ever sees, and it is the first place where the persona can be judged as a single document rather than as a set of parts. Reviewing the source verifies the parts; only reading the rendered output verifies the persona.
@@ -1198,3 +1234,4 @@ design_notes: |
 | **Conditional rule with no rehearsal** | "If present, do X" rules are skipped in the rare sessions where the condition actually holds | Add an explicit workflow step that performs the check every session (Pattern 15) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
 | **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
+| **Overloaded prose** | Sections read as authoritative but a maintainer cannot scan them, and abstractly-phrased duties never fire because no sentence names anything the agent is about to do | Run a dedicated density pass after drafting: one idea per sentence, a named actor in the subject slot, no back-references, plain words over register words (see Prose Density) |
