@@ -10,6 +10,59 @@
 
 ---
 
+### Hard-Stops Need a Gate Where the Artefact Is Actually Produced (2026-08-28)
+
+Not an audit finding — it came out of a question the user asked after the Bootstrapper audit: if
+the sub-agents now hard-stop on missing artefacts, does the PM already fail when
+`research-brief.md` is absent? It does not, and the answer exposed a gap the four pipeline audits
+had all walked past.
+
+**The distinction that decides whether a hard-stop is safe is whether the artefact is guaranteed
+by construction.** The Bootstrapper's three inputs are written by PM steps 5–7, in the same
+session, moments before dispatch — a hard-stop there is unreachable except when something genuinely
+broke. `research-brief.md` is written by the *Planner*, in a different session that may never have
+run, so the WP Decomposer's identically-shaped hard-stop is reachable in normal use. Four of ten
+plan folders in this repo have no brief. **Same instruction, opposite risk profile, and nothing in
+either persona's source distinguishes the two cases.**
+
+**The cause was a gitignore, and that generalises further than this one file.**
+`.gitignore` line 12 excludes `/docs/agents/**/research-brief.md`, so committing a plan to resume
+later keeps `plan.md` and silently drops the brief. The plan folder looks intact in that state.
+An artefact that is (a) required by a downstream agent, (b) produced by an upstream agent in a
+separate session, and (c) untracked is lost by default rather than by exception — and the persona
+system had no gate anywhere on the path.
+
+The fix was a gate rather than a relaxation, on the user's call: the brief fills a role nothing
+else fills, so making it optional would have traded a loud failure for a quiet quality loss. The
+PM gained a numbered step 2 that checks for the brief **before** dispatching anything and before
+renaming the plan folder, plus a Missing Research Brief block that names the gitignore as the
+usual cause and the Planner as the only remedy. This is Pattern 15's rehearsed-checkpoint rule:
+a constraint whose remedy is *stop* belongs at a workflow step before the work, not at the
+downstream agent that discovers it too late. Note the Sequencer audit recorded the same shape
+("any constraint whose remedy is stop needs a workflow step before the write") — it applies across
+personas, not only within one.
+
+Two smaller items:
+
+- **The WP Decomposer's error message misdiagnosed the failure.** "Report the broken upstream
+  stage" tells the user the Planner failed when the plan was simply committed and resumed. An error
+  message that names the wrong cause costs more than a vague one, since it sends the user to
+  investigate a stage that worked.
+- **The PM's sub-agent context list described data it does not pass.** It claimed to hand over
+  "full plan text", "WP definitions from decomposer", "dependency graph from sequencer" — but every
+  sub-agent reads the plan folder itself and the PM passes paths. This is the fourth persona-facing
+  symptom of the dispatch-contract mismatch, and the first found on the *caller's* side. When the
+  four pipeline personas described their inputs wrongly, the PM was describing its outputs wrongly
+  to match.
+
+**The agent-name-in-prose hazard recurred for the third time in one day**, in both files I edited,
+and the rendered read caught it again. Three recurrences with the rule already written down is
+enough to conclude prose usage will not be prevented by documentation. `{{agent_1_planner}}` in a
+user-facing report template is the worst variant — it printed "The 1-planner v2.4.0 is the only
+agent that writes it" into text meant for a human. **A build-time check for agent-name variables
+outside `runSubagent`/`Task`/`task` dispatch blocks would end this class**, in the same way
+`philosophy-tone.js` ended the mood class.
+
 ### Ledger Bootstrapper — First Audit (2026-08-28)
 
 Ten findings, six Major, none Critical. The last of the four pipeline personas, and the one whose

@@ -53,15 +53,15 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 
 | # | Persona | Version | Last Updated | Guide | Audited | Tier | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 1 | Project Manager | v3.8.0 | 2026-08-04 | v2.4 | — | B (10p/6c) | — |  |
-| 2 | Release Engineer | v3.7.4 | 2026-08-04 | v2.4 | — | B (12p/7c) | — |  |
-| 3 | Synthesis | v3.11.0 | 2026-08-24 | v2.8 | — | B (9p/4c) | — |  |
-| 4 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 5 | Security Auditor | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 6 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
-| 7 | Planner | v2.4.0 | 2026-08-26 | v3.2 | v3.2 | B (9p/1c) | PASS (v3.2) | Paired audit with standalone twin; delta pass pending |
-| 8 | Reviewer | v3.10.2 | 2026-08-26 | v3.2 | — | B (13p/5c) | — | Tone fix only |
-| 9 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
+| 1 | Release Engineer | v3.7.4 | 2026-08-04 | v2.4 | — | B (12p/7c) | — |  |
+| 2 | Synthesis | v3.11.0 | 2026-08-24 | v2.8 | — | B (9p/4c) | — |  |
+| 3 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
+| 4 | Security Auditor | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
+| 5 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
+| 6 | Planner | v2.4.0 | 2026-08-26 | v3.2 | v3.2 | B (9p/1c) | PASS (v3.2) | Paired audit with standalone twin; delta pass pending |
+| 7 | Reviewer | v3.10.2 | 2026-08-26 | v3.2 | — | B (13p/5c) | — | Tone fix only |
+| 8 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
+| 9 | Project Manager | v3.9.0 | 2026-08-28 | v3.4 | — | B (10p/6c) | — |  |
 
 ### Standalone Suite (24 personas)
 
@@ -101,12 +101,12 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 | 3 | Ledger Standalone Archiver | v1.7.0 | 2026-08-21 | v2.5 | — | B (1p/0c) | — |  |
 | 4 | Ledger Doctor | v1.3.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
 | 5 | Ledger Knowledge Archiver | v1.8.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 6 | Ledger Knowledge Curator | v1.2.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 7 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 8 | Ledger Bootstrapper | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | B (2p/0c) | PASS | First audit — 10 findings, all resolved; two required parameters had no documented source |
-| 9 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
+| 6 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 7 | Ledger Bootstrapper | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | B (2p/0c) | PASS | First audit — 10 findings, all resolved; two required parameters had no documented source |
+| 8 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
+| 9 | Ledger Knowledge Curator | v1.3.0 | 2026-08-28 | v3.4 | v3.4 | A | PASS | First audit — 15 findings, all resolved; MERGE had no legal deletion path and RESCOPE contradicted the no-creation rule |
 | 10 | Ledger Pipeline Configurator | v1.2.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required |
-| 11 | Ledger WP Decomposer | v1.5.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas |
+| 11 | Ledger WP Decomposer | v1.5.1 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas |
 
 ## Summary
 
@@ -114,8 +114,8 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 |---|---|---|---|---|---|
 | Ledger | 9 | 0 | 2 | 7 | 9 |
 | Standalone | 24 | 1 | 22 | 1 | 23 |
-| Ledger Support | 11 | 4 | 0 | 7 | 7 |
-| **Total** | **44** | **5** | **24** | **15** | **39** |
+| Ledger Support | 11 | 5 | 0 | 6 | 6 |
+| **Total** | **44** | **6** | **24** | **14** | **38** |
 
 **Stale** personas hold a real PASS at an older guide version — their remaining work
 depends on tier. **Unaudited** personas have never been through a Quality Checklist at

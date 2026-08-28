@@ -18,7 +18,7 @@
     "ledger-dependency-sequencer": "First audit — 9 findings, all resolved; density delta pass applied at v3.4",
     "ledger-doctor": "Tone fix only",
     "ledger-knowledge-archiver": "Tone fix only",
-    "ledger-knowledge-curator": "Tone fix only",
+    "ledger-knowledge-curator": "First audit — 15 findings, all resolved; MERGE had no legal deletion path and RESCOPE contradicted the no-creation rule",
     "ledger-orchestrator-archaeologist": "Tone fix only",
     "ledger-pipeline-configurator": "First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required",
     "ledger-wp-decomposer": "First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas"
