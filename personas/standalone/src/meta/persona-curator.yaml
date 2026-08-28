@@ -9,10 +9,11 @@ description: "Create, audit, and maintain AI agent personas according to the Per
 vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
-audit_guide_version: "3.2"
-audit_date: "2026-08-26"
+audit_guide_version: "3.4"
+audit_date: "2026-08-27"
 
 changelog: |
+  1.15.0 (2026-08-27): Added a Prose Density Pass alongside the Philosophy Tone Pass - overloaded explanatory prose costs an instruction its trigger as well as its readability, and like imperative mood it survives an unaided review, so it now has its own numbered step in all three modes and a Minor-or-Major audit criterion; guide v3.4 carries the domain-neutral rules
   1.14.0 (2026-08-27): Rendered output is now verified rather than assumed - guide v3.3 requires reading the assembled persona end to end after every build, since partials and variables keep duplication, wrong substitutions and tone breaks out of the source diff; Create and Maintain gained a build-and-read step, Audit evaluates rendered coherence, and a clean build no longer counts as verification
   1.13.0 (2026-08-26): Constraints are now grouped under Core Rules - the guide pairs that heading with categorized rule groups, so the twelve flat bullets became six named groups (authority, scope, source integrity, published artifacts, documented deviations, bookkeeping); the rename was cleared with the user first, since the heading sits in a published artifact
   1.12.0 (2026-08-26): Self-audit fixes - added the missing Outputs section and a Decision Logic section defining the PASS/NEEDS WORK threshold the audit stamp hangs on; the reproduced Quality Checklist was replaced by a reference to the guide's own after drifting eleven items behind it; constraints and the tone-pass protocol now precede the mode workflows per the guide's ordering, the mode table moved into its own Operating Modes section, and the tone principle adopted the registry's canonical Stratified Authority name
