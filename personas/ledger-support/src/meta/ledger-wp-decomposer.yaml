@@ -4,7 +4,12 @@ description: "Analyze a plan document and decompose it into atomic, actionable W
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
+audit_guide_version: "3.4"
+audit_date: "2026-08-27"
+
 changelog: |
+  1.5.0 (2026-08-28): Consumes the Planner's research-brief.md as a required input — Step 3 now checks Verified References and the Scope Sketch before opening any source file, Code Observations mark each finding [brief] or [verified], and the brief's Structural Observations are barred as a WP source since the Planner already resolved them
+  1.4.0 (2026-08-27): Audit compliance (guide v3.4) — Inputs now state the Project Manager's dispatch contract instead of hedging against an absent plan; split boundary evidence-gathering from boundary assertion per Pattern 14; promoted two protocol imperatives into philosophy principles; consolidated protocol constraints into their own block; deliverable-AC parity now stated once
   1.3.1 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0
   1.3.0 (2026-07-09): Deliverable-AC parity enforcement; Step 4 gains coverage test for state-changing operations; two quality checklist items added; strict constraint added requiring every deliverable to trace to a covering AC
   1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
