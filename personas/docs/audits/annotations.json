@@ -14,11 +14,13 @@
     "workspace-architect": "7 findings, all resolved — 2 were rendered-output defects invisible in source"
   },
   "support": {
+    "ledger-bootstrapper": "First audit — 10 findings, all resolved; two required parameters had no documented source",
     "ledger-dependency-sequencer": "First audit — 9 findings, all resolved; density delta pass applied at v3.4",
     "ledger-doctor": "Tone fix only",
     "ledger-knowledge-archiver": "Tone fix only",
     "ledger-knowledge-curator": "Tone fix only",
     "ledger-orchestrator-archaeologist": "Tone fix only",
+    "ledger-pipeline-configurator": "First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required",
     "ledger-wp-decomposer": "First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas"
   }
 }

@@ -98,14 +98,14 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 |---|---|---|---|---|---|---|---|---|
 | 1 | Ledger Claude Coordinator | v1.0.0 | 2026-03-19 | v<1.0 | — | B (0p/2c) | — |  |
 | 2 | Ledger Orchestrator Runner | v1.5.1 | 2026-03-26 | v1.0 | — | A | — |  |
-| 3 | Ledger Pipeline Configurator | v1.1.0 | 2026-07-09 | v2.2 | — | B (1p/0c) | — |  |
-| 4 | Ledger Bootstrapper | v1.3.0 | 2026-08-04 | v2.4 | — | B (2p/0c) | — |  |
-| 5 | Ledger Standalone Archiver | v1.7.0 | 2026-08-21 | v2.5 | — | B (1p/0c) | — |  |
-| 6 | Ledger Doctor | v1.3.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 7 | Ledger Knowledge Archiver | v1.8.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 8 | Ledger Knowledge Curator | v1.2.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 9 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 10 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
+| 3 | Ledger Standalone Archiver | v1.7.0 | 2026-08-21 | v2.5 | — | B (1p/0c) | — |  |
+| 4 | Ledger Doctor | v1.3.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 5 | Ledger Knowledge Archiver | v1.8.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 6 | Ledger Knowledge Curator | v1.2.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 7 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 8 | Ledger Bootstrapper | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | B (2p/0c) | PASS | First audit — 10 findings, all resolved; two required parameters had no documented source |
+| 9 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
+| 10 | Ledger Pipeline Configurator | v1.2.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required |
 | 11 | Ledger WP Decomposer | v1.5.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas |
 
 ## Summary
@@ -114,8 +114,8 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 |---|---|---|---|---|---|
 | Ledger | 9 | 0 | 2 | 7 | 9 |
 | Standalone | 24 | 1 | 22 | 1 | 23 |
-| Ledger Support | 11 | 2 | 0 | 9 | 9 |
-| **Total** | **44** | **3** | **24** | **17** | **41** |
+| Ledger Support | 11 | 4 | 0 | 7 | 7 |
+| **Total** | **44** | **5** | **24** | **15** | **39** |
 
 **Stale** personas hold a real PASS at an older guide version — their remaining work
 depends on tier. **Unaudited** personas have never been through a Quality Checklist at

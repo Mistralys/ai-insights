@@ -10,6 +10,118 @@
 
 ---
 
+### Ledger Bootstrapper — First Audit (2026-08-28)
+
+Ten findings, six Major, none Critical. The last of the four pipeline personas, and the one whose
+findings were least predicted by the three before it — its defects sit in the *tool call contract*
+rather than in the judgment-and-philosophy layer the others shared.
+
+**A required tool parameter with no documented source is the sharpest defect class this suite has
+produced.** `ledger_create_work_package` requires `assigned_to`, and nothing upstream supplies it:
+the Pipeline Configurator's output table carries stage lists and rationales, no agent column. The
+persona said only "the agent role (e.g., `"Developer"`)", so the agent's cheapest correct-looking
+move is to copy the example onto every WP — which is right for standard-chain WPs and silently
+wrong for every documentation-only or verification-only WP the Configurator narrowed. The failure
+is invisible at every stage: the tool accepts any string, the ledger stores it, and the wrong agent
+is simply never dispatched. `dependencies` had the same shape with a subtler twist — Step 1 named
+the WP definitions as its source, but the WP Decomposer only *flags candidates* in `**Notes:**`;
+the resolved graph lives in `dependency-analysis.md`. **The general form: for any persona whose
+output is a tool call, every required parameter needs a named source document, and an example
+value is not a source.** A parameter table with a Source column makes the gap impossible to write
+past — which is what the fix here became.
+
+Three of the four pipeline personas were predicted to carry the **dispatch-contract mismatch**, and
+this was the fourth. The Pipeline Configurator audit expected this one might be legitimate, since
+the PM's step 7 genuinely passes two arguments rather than one. It was half right: the two-argument
+dispatch is real, but Inputs still listed five separately-supplied items and keyed three of them to
+a hardcoded `docs/agents/plans/{PLAN_FOLDER}/` path the PM never passes — and which is wrong for any
+plan folder outside that tree. The closing "stop and ask the user" is the same unreachable branch
+the Sequencer and Configurator both carried. **All four pipeline personas had it. The mismatch was
+never about argument count; it was about describing inputs as things handed to you rather than as
+things you resolve from a path.**
+
+**Capabilities under-declared against the protocol, for the second consecutive audit.** Capabilities
+granted MCP tool access alone while the protocol reads four documents. Identical in shape to the
+Pipeline Configurator's finding a day earlier, and the `tools:` list again covered it so nothing
+failed loudly. Two consecutive hits make this worth checking first rather than last in any
+remaining support persona: **read the protocol, list what it opens, and check that Capabilities
+authorises it.**
+
+Two smaller items generalise. A cross-persona Markdown link (`ledger-wp-decomposer.md#output-template`)
+resolves only in the `claude-code` target — the VS Code sibling carries an `.agent.md` extension and
+`deep-agents` has no equivalent path at all. **A file link between personas is unreachable in two of
+three targets; reference the persona by name instead.** And the `description:` bullet embedded a
+*maintainer* instruction ("if that template changes, update this extraction rule to match") inside a
+runtime prompt — advice no agent executing the persona can act on, spending context on the wrong
+reader.
+
+**One rendered-output defect was mine, and it reproduced a hazard recorded three entries above.**
+The rewritten Inputs section used `{{agent_ledger_wp_decomposer}}` in explanatory prose, which
+renders as "written by the Ledger WP Decomposer v1.5.0" — a dispatchable name with a version suffix,
+in a sentence about who wrote a file. The rule was already recorded on 2026-08-28 under "Research
+Brief Reaches the Decomposition Pipeline" and I still introduced it. Reading the rendered output
+caught it; the source diff looked entirely sensible. Worth noting that **a recorded hazard class
+does not prevent its own recurrence — the rendered read is what catches it**, which is the v3.3
+argument in miniature.
+
+### Ledger Pipeline Configurator — First Audit (2026-08-28)
+
+Fourteen findings, five Major, none Critical. The third of the four pipeline personas, and the
+first whose rendered output held no defect the source did not already show — the shared
+`pm-subagent-roster` partial is correct for it, since it genuinely is stage 3 of 4 with a
+predecessor. That is the counterpart to the WP Decomposer finding: the partial was never broken,
+only wrong for one of its four consumers.
+
+**The dispatch-contract mismatch is now confirmed in three of four pipeline personas.** Inputs
+listed four separately-supplied items and told the agent to derive `{PLAN_PATH}` from the plan
+document's folder; the PM's step 6 passes the plan folder path. Workflow step 1 then hedged with
+"if the plan document is available", the same unreachable branch the Sequencer audit resolved in
+the wrong direction before the user caught it. Two file reads settled it. Only the Bootstrapper
+remains, and it is the one case where a multi-argument Inputs section may be correct — the PM's
+step 7 passes the plan document path *and* the absolute project path, unlike steps 5 and 6.
+
+**A capability can be granted in the tool list and withheld in Capabilities.** Two Decision
+Criteria pre-requisites and a checklist item all required confirming that named symbols "already
+exist in production code", while Capabilities granted only "read plan documents and write
+pipeline configuration output". The `tools:` list did permit reading source, so nothing failed
+loudly — the persona was simply told to verify without being told it was allowed to look. This is
+the paired Developer audit's `cc_tools` finding inverted: there, a metadata override revoked a
+tool the content file commanded; here, the content file's own Capabilities section under-declares
+what its criteria demand. **The general form: a grant and the duty depending on it live in
+different places, so neither reads as wrong alone. Any persona whose duties include verifying
+something against a codebase is worth checking for the pair.** The guide's rationale for
+Capabilities — agents self-limit without explicit authorisation — means the narrower of the two
+governs behaviour, so the tool grant does not rescue it.
+
+**A forcing function that routes five duties into one slot can absorb all five.** Three
+constraints and two pre-requisites all terminated in `## Guardrail Notes`, whose authoring
+instruction was "{List any configurations that deviate…}". Every one of those duties is
+satisfiable by writing nothing, and a clean run and a skipped run produced identical output. The
+fix is the guide's nothing-found form, but the detail worth recording is that the slot now has to
+*name the checks performed* rather than merely assert cleanliness — with five contributing duties,
+"nothing to flag" does not say which of the five ran. **A shared output slot needs its liveness
+signal scaled to the number of duties feeding it.**
+
+One finding is a maintainability class rather than a guide rule: the persona hardcoded "the 6
+available pipeline types" twice, next to a table that is the actual inventory, while
+`shared/workflow-manifest.json` owns that count. This is **Durable Over Precise** (C5c) applied to
+persona content, and the same shape as the counts the AGENTS.md Curator and Manifest Curator
+personas guard against in documentation.
+
+A grep across all three suites' `src/content/` and the shared partials found three other
+instances, all left in place and none as exposed as this one was:
+
+| Location | Count | Why it stays |
+|---|---|---|
+| `pm-subagent-roster.md` | "4-stage decomposition pipeline" | The partial's own list is the four stages, and its arity is what makes the partial coherent. A change to it rewrites the partial anyway. |
+| `workspace-architect.md` | "all six stages" | Refers to the six rows of the table directly above, in a sentence about invocation mechanics being uniform. Dropping the numeral loses the "uniform across all of them" claim. |
+| `ledger-doctor.md` | "should default to 4-stage" | Names the default chain's length as a diagnostic expectation, not an inventory. |
+
+The distinguishing test is whether the numeral counts a list the persona does not own. The
+Pipeline Configurator's did — `shared/workflow-manifest.json` owns the pipeline types, so the
+persona restated a number it could not keep true. The three above count their own adjacent
+content, which goes stale only in the same edit that would fix them.
+
 ### Research Brief Reaches the Decomposition Pipeline (2026-08-28)
 
 The WP Decomposer now reads the Planner's `research-brief.md`. Not an audit finding — the user
