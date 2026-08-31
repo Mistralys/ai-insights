@@ -13,8 +13,8 @@ The deck is built on [Reveal.js 5.1.0](https://revealjs.com/) loaded from a CDN,
 | Path | Role |
 |------|------|
 | `template.html` | The shell: `<head>`, all CSS, modal markup, chrome, and the Reveal init script. **All styling lives here.** |
-| `slides/*.html` | One `<section>` per file. Content only — no `<style>` blocks. |
-| `slides.json` | Slide order and section labels. A fragment not listed here is not in the deck. |
+| `slides/{section}/*.html` | One `<section>` per file, grouped into a subfolder per deck section (e.g. `slides/agent-personas/`). Content only — no `<style>` blocks. |
+| `slides.json` | Slide order and section labels, referenced as `{section}/{name}` (no `.html`). A fragment not listed here is not in the deck. |
 | `partials/*.md` | Markdown injected into modals at build time. |
 | `img/*.png` | Raster assets, inlined as base64 by the build. |
 | `dist/ai-insights-slides.html` | Build output. Single self-contained file. Never edited by hand. |
@@ -378,7 +378,7 @@ same spirit as the existing `.context/` staleness warning — it never blocks a 
 
 Steps, in order:
 
-1. Concatenate `slides/*.html` in `slides.json` order into `<!-- BUILD:SLIDES -->`.
+1. Concatenate `slides/{section}/*.html` in `slides.json` order into `<!-- BUILD:SLIDES -->`.
    **Must run first** so placeholders inside fragments are visible to later steps.
 2. Inject outline data (`label`, `startIndex`, `count` per section) into `/* BUILD:OUTLINE_DATA */`.
 3. Inline every PNG in `IMAGE_MAP` as a base64 data URI. Each image is emitted **once** into
@@ -416,12 +416,12 @@ Steps, in order:
 
 ## 11. Adding a Slide — Checklist
 
-- [ ] Create `slides/{name}.html` with a single `<section>`, no `<style>` block.
+- [ ] Create `slides/{section}/{name}.html` with a single `<section>`, no `<style>` block — use the subfolder matching the slide's `slides.json` section (e.g. `slides/build-system/`).
 - [ ] Include `.section-label`, one `h2`, and — unless it is a part divider — `<aside class="notes">`.
 - [ ] Reuse an existing component from §6 before writing new CSS. `.card-stack` covers most bodies.
 - [ ] Use `.accent*` and `.muted` utilities in preference to hex literals.
 - [ ] Tune stack density with the `--stack-*` knobs, not a re-declared inline layout.
-- [ ] Register the slide in `slides.json` under the right section, in the right position.
+- [ ] Register the slide in `slides.json` under the right section, in the right position, as `{section}/{name}`.
 - [ ] Register any new image in `IMAGE_MAP`.
 - [ ] Rebuild and step through the neighbouring slides in a browser.
 - [ ] **Run the overflow audit** — open the deck with `?audit` (or press `Shift+O`) and confirm the

@@ -69,7 +69,7 @@ arrows in the bottom-right corner, which is easy to miss by eye.
 presentation/
 ├── template.html      # shell: head, all CSS, modal markup, Reveal init
 ├── slides.json        # slide order + section labels
-├── slides/            # one <section> per file, content only
+├── slides/            # one <section> per file, grouped into per-section subfolders
 ├── partials/          # Markdown injected into modals at build time
 ├── img/               # PNGs, inlined as base64 by the build
 ├── tools/build.js     # build script (Node built-ins only)
@@ -81,8 +81,8 @@ presentation/
 
 | I want to… | Edit |
 |------------|------|
-| Change slide text | `slides/{name}.html` |
-| Add a slide | New file in `slides/`, then register it in `slides.json` |
+| Change slide text | `slides/{section}/{name}.html` |
+| Add a slide | New file in the matching `slides/{section}/` subfolder, then register it in `slides.json` as `{section}/{name}` |
 | Reorder or re-section slides | `slides.json` |
 | Change styling | The `<style>` block in `template.html` |
 | Change modal or chrome behaviour | The Reveal init script in `template.html` |

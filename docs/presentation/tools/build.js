@@ -211,7 +211,7 @@ function escapeForJsSingleQuote(str) {
 
 /**
  * Reads slides.json and concatenates all slide fragment files into one HTML string.
- * Each entry in slides.json resolves to slides/{name}.html.
+ * Each entry in slides.json is a "{section}/{name}" path resolving to slides/{section}/{name}.html.
  * Throws if a referenced file does not exist.
  */
 function assembleSlides() {
@@ -372,8 +372,9 @@ if (args.includes('--check') || args.includes('--dry-run')) {
     ...Object.values(RECIPE_FILES),
   ];
 
-  // Watch the slides/ directory so new or renamed fragment files trigger a rebuild
-  fsWatch(SLIDES_DIR, { persistent: true }, () => {
+  // Watch the slides/ directory (recursively, since fragments live in section
+  // subfolders) so new or renamed fragment files trigger a rebuild
+  fsWatch(SLIDES_DIR, { persistent: true, recursive: true }, () => {
     console.log(`\n  Changed: slides/`);
     try { build(); } catch (e) { console.error('  Build error:', e.message); }
   });

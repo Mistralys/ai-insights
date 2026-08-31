@@ -1,6 +1,8 @@
 # Presentation Slides Changelog
 
 ## v1.2.0 (2026-08-31) - **WIP UNRELEASED**
+- Slide fragments now live in per-section subfolders under `slides/` (e.g. `agent-personas/`,
+  `build-system/`) instead of one flat directory, matching the deck's part structure.
 - Added an overflow audit: open the deck with `?audit` or press `Shift+O` to find slides
   running past the viewport.
 - Images are now inlined once instead of per occurrence, so reusing a screenshot across
