@@ -12,6 +12,13 @@
 
 ## Prior Project Context
 {Optional — omit section entirely if no prior context was retrieved. When present, summarize relevant findings from ledger_get_repository_context and ledger_search_insights: strategic vision alignment, prior project outcomes, recurring patterns, known pitfalls, or reusable insights that informed this plan's design decisions.}
+
+## Knowledge Base Reconciliation
+{Optional — omit section entirely when no cited insight is affected. List every stored insight this plan's work would leave making a claim the codebase no longer supports. Each row names the owning agent, which is always the {{agent_ledger_knowledge_curator}} — insight mutation belongs to no other role.}
+
+| Insight ID | Title | What the plan overtakes | Executed by |
+|------------|-------|-------------------------|-------------|
+| {UUID} | {title} | {the specific claim the change invalidates or supersedes} | {{agent_ledger_knowledge_curator}} (Targeted Reconciliation) |
 {{/if}}
 
 ## Summary

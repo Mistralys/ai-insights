@@ -13,3 +13,6 @@ Before handing off, verify:
 - [ ] Every new abstraction has a named current consumer or a named growth trajectory, or is marked speculative in the Rationale.
 - [ ] No section contains an unfilled `{…}` placeholder; inapplicable sections are omitted entirely.
 - [ ] In Synthesis Rework mode: every deferred item was either promoted into a step or recorded in the `Deferred Items` table.
+{{#if has_mcp}}
+- [ ] Every cited insight that shipping this plan would leave making a claim the codebase no longer supports appears in `Knowledge Base Reconciliation`, with the {{agent_ledger_knowledge_curator}} named as executor.
+{{/if}}
