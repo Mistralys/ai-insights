@@ -1,7 +1,7 @@
 {
   "$comment": "Editorial notes for the Notes column of status.md. Keyed by persona file stem, scoped per suite. Tier (A/B) is computed by the generator from source composition and must not be duplicated here. A missing key renders an empty cell. See notes.md for methodology.",
   "ledger": {
-    "1-planner": "Paired audit with standalone twin; delta pass pending",
+    "1-planner": "Paired audit with standalone twin; v3.3/v3.4 delta pass applied — rendered read caught a missing Outputs entry",
     "3-developer": "Paired audit with standalone twin — 11 findings, all resolved",
     "6-reviewer": "Tone fix only"
   },
@@ -9,7 +9,7 @@
     "ctx-architect": "Principle renamed to canonical \"Every Artefact Earns Its Place\" (C5c)",
     "developer": "Paired audit with ledger twin — 11 findings, all resolved",
     "persona-curator": "Full self-audit at v3.2, rolled forward",
-    "planner": "Paired audit with ledger twin; delta pass pending",
+    "planner": "Paired audit with ledger twin; v3.3/v3.4 delta pass applied",
     "usage-scenarios-curator": "Tone fix only",
     "workspace-architect": "7 findings, all resolved — 2 were rendered-output defects invisible in source"
   },
@@ -17,10 +17,11 @@
     "ledger-bootstrapper": "First audit — 10 findings, all resolved; two required parameters had no documented source",
     "ledger-dependency-sequencer": "First audit — 9 findings, all resolved; density delta pass applied at v3.4",
     "ledger-doctor": "Tone fix only",
-    "ledger-knowledge-archiver": "Tone fix only",
+    "ledger-knowledge-archiver": "First audit — 14 findings, all resolved; Mode A read a sidecar the ledger agents stopped writing, and two commit parameters had no Mode A source",
     "ledger-knowledge-curator": "First audit — 15 findings, all resolved; MERGE had no legal deletion path and RESCOPE contradicted the no-creation rule",
     "ledger-orchestrator-archaeologist": "Tone fix only",
     "ledger-pipeline-configurator": "First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required",
-    "ledger-wp-decomposer": "First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas"
+    "ledger-wp-decomposer": "First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas",
+    "standalone-archiver": "First audit — 16 findings, all resolved; Inputs described a three-way choice the subagent dispatch never offers, and Outputs omitted the file it writes"
   }
 }

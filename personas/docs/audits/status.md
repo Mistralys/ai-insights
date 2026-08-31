@@ -4,7 +4,7 @@
      Regenerate: node scripts/cli.js generate-persona-audit
      Narrative: notes.md · Notes-column text: annotations.json -->
 
-**Generated:** 2026-08-28
+**Generated:** 2026-08-31
 **Guide Version:** 3.4
 
 > **Companion:** [notes.md](notes.md) — audit methodology, generalising findings, and
@@ -54,14 +54,14 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 | # | Persona | Version | Last Updated | Guide | Audited | Tier | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 1 | Release Engineer | v3.7.4 | 2026-08-04 | v2.4 | — | B (12p/7c) | — |  |
-| 2 | Synthesis | v3.11.0 | 2026-08-24 | v2.8 | — | B (9p/4c) | — |  |
-| 3 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 4 | Security Auditor | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 5 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
-| 6 | Planner | v2.4.0 | 2026-08-26 | v3.2 | v3.2 | B (9p/1c) | PASS (v3.2) | Paired audit with standalone twin; delta pass pending |
-| 7 | Reviewer | v3.10.2 | 2026-08-26 | v3.2 | — | B (13p/5c) | — | Tone fix only |
-| 8 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
-| 9 | Project Manager | v3.9.0 | 2026-08-28 | v3.4 | — | B (10p/6c) | — |  |
+| 2 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
+| 3 | Security Auditor | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
+| 4 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
+| 5 | Reviewer | v3.10.2 | 2026-08-26 | v3.2 | — | B (13p/5c) | — | Tone fix only |
+| 6 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
+| 7 | Project Manager | v3.9.0 | 2026-08-28 | v3.4 | — | B (10p/6c) | — |  |
+| 8 | Synthesis | v3.12.0 | 2026-08-28 | v3.4 | — | B (10p/5c) | — |  |
+| 9 | Planner | v2.6.0 | 2026-08-31 | v3.4 | v3.4 | B (10p/1c) | PASS | Paired audit with standalone twin; v3.3/v3.4 delta pass applied — rendered read caught a missing Outputs entry |
 
 ### Standalone Suite (24 personas)
 
@@ -79,18 +79,18 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 | 10 | Plan Architect Reviewer | v2.3.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/1c) | PASS (v3.2) |  |
 | 11 | Plan Auditor | v1.9.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/0c) | PASS (v3.2) |  |
 | 12 | Plan Refiner | v1.6.1 | 2026-08-26 | v3.2 | v3.2 | B (0p/7c) | PASS (v3.2) |  |
-| 13 | Planner (Standalone) | v2.2.0 | 2026-08-26 | v3.2 | v3.2 | B (6p/0c) | PASS (v3.2) | Paired audit with ledger twin; delta pass pending |
-| 14 | README Curator | v1.5.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/0c) | PASS (v3.2) |  |
-| 15 | Recipe Curator | v1.11.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
-| 16 | Researcher | v1.3.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
-| 17 | Unit Test Auditor | v1.2.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/0c) | PASS (v3.2) |  |
-| 18 | Usage Scenarios Curator | v1.2.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 19 | Web GUI Specialist | v1.4.0 | 2026-08-26 | v3.2 | v3.2 | B (3p/1c) | PASS (v3.2) |  |
-| 20 | WHATSNEW Curator | v1.1.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
-| 21 | CTX Architect | v1.3.3 | 2026-08-27 | v3.4 | v3.3 | A | PASS (v3.3) | Principle renamed to canonical "Every Artefact Earns Its Place" (C5c) |
-| 22 | Developer (Standalone) | v1.13.0 | 2026-08-27 | v3.4 | v3.3 | B (9p/1c) | PASS (v3.3) | Paired audit with ledger twin — 11 findings, all resolved |
-| 23 | Persona Curator | v1.15.0 | 2026-08-27 | v3.4 | v3.4 | A | PASS | Full self-audit at v3.2, rolled forward |
-| 24 | Workspace Architect | v1.2.0 | 2026-08-27 | v3.4 | v3.3 | B (0p/2c) | PASS (v3.3) | 7 findings, all resolved — 2 were rendered-output defects invisible in source |
+| 13 | README Curator | v1.5.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/0c) | PASS (v3.2) |  |
+| 14 | Recipe Curator | v1.11.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
+| 15 | Researcher | v1.3.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
+| 16 | Unit Test Auditor | v1.2.1 | 2026-08-26 | v3.2 | v3.2 | B (1p/0c) | PASS (v3.2) |  |
+| 17 | Usage Scenarios Curator | v1.2.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 18 | Web GUI Specialist | v1.4.0 | 2026-08-26 | v3.2 | v3.2 | B (3p/1c) | PASS (v3.2) |  |
+| 19 | WHATSNEW Curator | v1.1.1 | 2026-08-26 | v3.2 | v3.3 | A | PASS (v3.3) |  |
+| 20 | CTX Architect | v1.3.3 | 2026-08-27 | v3.4 | v3.3 | A | PASS (v3.3) | Principle renamed to canonical "Every Artefact Earns Its Place" (C5c) |
+| 21 | Persona Curator | v1.15.0 | 2026-08-27 | v3.4 | v3.4 | A | PASS | Full self-audit at v3.2, rolled forward |
+| 22 | Workspace Architect | v1.2.0 | 2026-08-27 | v3.4 | v3.3 | B (0p/2c) | PASS (v3.3) | 7 findings, all resolved — 2 were rendered-output defects invisible in source |
+| 23 | Developer (Standalone) | v1.14.0 | 2026-08-28 | v3.4 | v3.3 | B (10p/2c) | PASS (v3.3) | Paired audit with ledger twin — 11 findings, all resolved |
+| 24 | Planner (Standalone) | v2.3.0 | 2026-08-31 | v3.4 | v3.4 | B (6p/0c) | PASS | Paired audit with ledger twin; v3.3/v3.4 delta pass applied |
 
 ### Ledger Support Suite (11 personas)
 
@@ -98,28 +98,28 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 |---|---|---|---|---|---|---|---|---|
 | 1 | Ledger Claude Coordinator | v1.0.0 | 2026-03-19 | v<1.0 | — | B (0p/2c) | — |  |
 | 2 | Ledger Orchestrator Runner | v1.5.1 | 2026-03-26 | v1.0 | — | A | — |  |
-| 3 | Ledger Standalone Archiver | v1.7.0 | 2026-08-21 | v2.5 | — | B (1p/0c) | — |  |
-| 4 | Ledger Doctor | v1.3.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 5 | Ledger Knowledge Archiver | v1.8.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 6 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
-| 7 | Ledger Bootstrapper | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | B (2p/0c) | PASS | First audit — 10 findings, all resolved; two required parameters had no documented source |
-| 8 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
-| 9 | Ledger Knowledge Curator | v1.3.0 | 2026-08-28 | v3.4 | v3.4 | A | PASS | First audit — 15 findings, all resolved; MERGE had no legal deletion path and RESCOPE contradicted the no-creation rule |
-| 10 | Ledger Pipeline Configurator | v1.2.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required |
-| 11 | Ledger WP Decomposer | v1.5.1 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas |
+| 3 | Ledger Doctor | v1.3.1 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 4 | Ledger Orchestrator Archaeologist | v1.0.2 | 2026-08-26 | v3.2 | — | A | — | Tone fix only |
+| 5 | Ledger Bootstrapper | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | B (2p/0c) | PASS | First audit — 10 findings, all resolved; two required parameters had no documented source |
+| 6 | Ledger Dependency Sequencer | v1.4.4 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 9 findings, all resolved; density delta pass applied at v3.4 |
+| 7 | Ledger Knowledge Archiver | v1.9.0 | 2026-08-28 | v3.4 | v3.4 | A | PASS | First audit — 14 findings, all resolved; Mode A read a sidecar the ledger agents stopped writing, and two commit parameters had no Mode A source |
+| 8 | Ledger Knowledge Curator | v1.4.0 | 2026-08-28 | v3.4 | v3.4 | A | PASS | First audit — 15 findings, all resolved; MERGE had no legal deletion path and RESCOPE contradicted the no-creation rule |
+| 9 | Ledger Pipeline Configurator | v1.2.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required |
+| 10 | Ledger WP Decomposer | v1.5.1 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas |
+| 11 | Ledger Standalone Archiver | v1.9.0 | 2026-08-28 | v3.4 | v3.4 | B (1p/0c) | PASS | First audit — 16 findings, all resolved; Inputs described a three-way choice the subagent dispatch never offers, and Outputs omitted the file it writes |
 
 ## Summary
 
 | Suite | Total | Current | Stale | Unaudited | Remaining |
 |---|---|---|---|---|---|
-| Ledger | 9 | 0 | 2 | 7 | 9 |
-| Standalone | 24 | 1 | 22 | 1 | 23 |
-| Ledger Support | 11 | 5 | 0 | 6 | 6 |
-| **Total** | **44** | **6** | **24** | **14** | **38** |
+| Ledger | 9 | 1 | 1 | 7 | 8 |
+| Standalone | 24 | 2 | 21 | 1 | 22 |
+| Ledger Support | 11 | 7 | 0 | 4 | 4 |
+| **Total** | **44** | **10** | **22** | **12** | **34** |
 
 **Stale** personas hold a real PASS at an older guide version — their remaining work
 depends on tier. **Unaudited** personas have never been through a Quality Checklist at
 any version, and that is where the substantive backlog sits.
 
-Of the 24 stale, 16 are Tier B (composed — need a rendered read) and
+Of the 22 stale, 14 are Tier B (composed — need a rendered read) and
 8 are Tier A (no composition — eligible for roll-forward on the guide's own terms).

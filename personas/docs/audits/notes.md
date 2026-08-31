@@ -10,6 +10,53 @@
 
 ---
 
+### Ledger Standalone Archiver — First Audit (2026-08-28)
+
+Sixteen findings, eight Major, none Critical. The fifth support persona audited in a day, and the
+first whose defects cluster in **Outputs** rather than in inputs or judgment.
+
+**A persona that writes a file and does not declare it in Outputs has an undocumented side effect.**
+Outputs described the inline confirmation report and nothing else, while the persona's whole reason
+to hold an `edit` tool is stamping `Archived in Ledger` into `synthesis.md`. The write was fully
+specified in workflow Step 3, so nothing was broken — but Outputs is where an auditor and a caller
+look to learn what the persona touches, and this one read as write-free. Update mode had the
+converse gap: no output section, no report step, just a "report the summary" clause hanging off the
+tool call's success branch. **The general check: every write the Capabilities section authorises
+appears in Outputs, and every mode has an output.** Both halves were missed here.
+
+**The dispatch-contract mismatch now stands at five for five.** All four pipeline personas carried
+it, and so does this one — Inputs opened with "You need one of the following" over a list whose
+three items were not alternatives at all. One was a companion file the caller never supplies, and
+the other two were the same path distinguished only by mode. The closing "If the path is not
+provided, ask for it" and the modes table's "If ambiguous, ask" are both unreachable: the
+Standalone Developer and Web GUI Specialist dispatch this role with a bare path and nothing else.
+Nothing in the persona said that a path-only dispatch means Import. **Five consecutive hits makes
+this the highest-yield thing to check first in any remaining support persona** — read the caller's
+dispatch block, then read Inputs, and see whether they describe the same transaction.
+
+**Two constraints forbade actions the tool surface makes impossible.** "Never ask the import path
+to archive them" and "do not supply `scenario-coverage.md` as an import source" both assume the
+agent can pass a file list. `ledger_import_standalone` takes a folder path and selects files
+itself. A constraint against an unreachable action spends salience without buying protection, and
+worse, it implies a parameter that does not exist — an agent trying to comply might go looking for
+it. The reachable half (never *report* either file as authored source) was kept; the rest went.
+**Where a constraint governs a tool call, check the tool's actual schema before trusting the
+constraint describes something possible.** The unreachable half survived in workflow Step 2 after
+I fixed the Constraints bullet, and only the rendered read caught the leftover.
+
+**The agent-name-in-prose hazard recurred for the fourth time in one day.** `{{agent_ledger_knowledge_archiver}}`
+sat inside constraint prose and rendered as "creation belongs to the Ledger Knowledge Archiver
+v1.9.0" — a versioned dispatchable name in a sentence about ownership. Fourth recurrence, rule
+already recorded twice. **The build-time check proposed in the entry below is now clearly worth
+building**; documentation has failed to prevent this four times running.
+
+One smaller item generalises: the `<!-- Partial include at column 0 -->` maintainer comment
+rendered into the agent-facing prompt in all three targets, spending context on advice no
+executing agent can act on. Same class as the Bootstrapper's maintainer-instruction finding. The
+rationale moved into `design_notes`, where the next maintainer will actually look. The identical
+comment remains in `ledger-bootstrapper.md` — flagged, not fixed, since Maintain mode does not
+range outside the requested persona.
+
 ### Hard-Stops Need a Gate Where the Artefact Is Actually Produced (2026-08-28)
 
 Not an audit finding — it came out of a question the user asked after the Bootstrapper audit: if
