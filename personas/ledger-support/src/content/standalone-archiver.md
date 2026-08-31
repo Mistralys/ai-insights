@@ -70,11 +70,19 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 
    > **If the `## Summary` section exists but is too brief** (a single phrase or fewer than two complete sentences): Skip this step — a partial summary is worse than none.
 
+   Also craft a `title`: a short, human-readable display name derived from the plan folder slug. The title must be:
+
+<!-- Partial include at column 0: the template engine does not propagate surrounding indentation into partial content. -->
+{{> title-crafting-guide}}
+
+   > **Example:** `2026-08-04-gui-api-enhancements-rework-1` → `"GUI API Enhancements - Rework 1"`
+
 2. **Import the plan folder:** Call `ledger_import_standalone` with:
 
    ```
    project_path: {absolute path to the plan folder}
    project_summary: {the 2–3 sentence summary crafted in Step 1, or omit if not crafted}
+   title: {the display title crafted in Step 1}
    ```
 
    **On success**, continue to Step 3.

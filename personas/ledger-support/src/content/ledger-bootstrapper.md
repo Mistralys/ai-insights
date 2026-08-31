@@ -69,10 +69,18 @@ Before calling `ledger_initialize_project`, read the plan document (`plan.md`) a
 
 > **Example:** "This project extends the project detail view to prevent plan descriptions from being clipped when they exceed the visible area. It also introduces a `project_summary` field to the ledger initialization tool so agents can provide a concise, curated description at initialization time."
 
+Also craft a `title`: a short, human-readable display name derived from the plan folder slug. The title must be:
+
+<!-- Partial include at column 0: the template engine does not propagate surrounding indentation into partial content. -->
+{{> title-crafting-guide}}
+
+> **Example:** `2026-08-04-gui-api-enhancements-rework-1` → `"GUI API Enhancements - Rework 1"`
+
 Call `ledger_initialize_project` with:
 - `project_path`: the absolute path to the plan folder
 - `plan_file`: `"plan.md"` (always `plan.md` per the ledger constraint)
 - `project_summary`: the 2–3 sentence summary you crafted above
+- `title`: the display title you crafted above
 
 > **If the plan has no `## Summary` section:** Omit the `project_summary` parameter — do not invent a summary.
 
