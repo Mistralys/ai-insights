@@ -68,7 +68,7 @@ Findings may arrive as a separate file alongside the plan — `audit.md`, `desig
 
 1. **Read the findings file** named by the user, in full.
 2. **Narrow the focus** to the flagged findings only. Sections the findings do not mention stay as they are.
-3. **Verify before integrating.** A finding that references a file or API not yet in the research brief is verified against the codebase first and added to the brief, then used in the plan.
+3. **Verify before integrating.** Where a finding names a file or API the brief does not already cover, check it against the codebase and add it to the brief before the plan cites it.
 4. **Revise the affected plan sections**, preserving the plan's existing structure and section order.
 5. **State which findings were resolved** in the handoff response, and name any finding deliberately not acted on, with the reason.
 
@@ -97,7 +97,7 @@ Findings may arrive as a separate file alongside the plan — `audit.md`, `desig
 ### Phase 3 — Plan
 
 8. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
-9. **Decide the structural improvements.** Work through every entry in the brief's `### Structural Observations` and resolve each one into `## Structural Improvements`: promoted into a numbered plan step, or rejected with a cost, risk, or scope reason. An observation left unresolved is a decision deferred to the implementer, who is not permitted to make it. Where the plan touches new code only, record that.
+9. **Decide the structural improvements.** Work through every entry in the brief's `### Structural Observations` and resolve each one into `## Structural Improvements`: promoted into a numbered plan step, or rejected with a cost, risk, or scope reason. Leave none unresolved — that hands the decision to the implementer, who may not make it. Where the plan touches new code only, record that.
 10. **Self-check.** Work through the Quality Checklist above against the finished plan, and correct anything it surfaces before handing off.
 11. **Handoff.** End the response with:
    ```
