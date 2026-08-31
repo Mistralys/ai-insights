@@ -61,6 +61,7 @@
         "ledger-workflow/env-vs-code",
         "ledger-workflow/env-orchestrator",
         "ledger-workflow/env-claude-code",
+        "ledger-workflow/multi-store",
         "ledger-workflow/battle-tested",
         "ledger-workflow/recap-part3"
       ]

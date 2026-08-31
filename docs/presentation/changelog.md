@@ -1,6 +1,15 @@
 # Presentation Slides Changelog
 
 ## v1.2.0 (2026-08-31) - **WIP UNRELEASED**
+- New Part 3 slide on the multi-store system: splitting ledger data by concern, and sharing a
+  store to give a team the same history and knowledge.
+- Added an `.ext-link` utility for outbound links in slide text; first use points at the
+  example ledger storage repository.
+- Added a screenshot carousel component; the Keeping Track slide now switches between the
+  project overview, work package states, project detail, and a stored knowledge insight.
+- Carousel screenshots are clickable, opening a fullscreen zoom lightbox that closes on any
+  click or `ESC`.
+- Carousel screenshots ship as downscaled JPGs, trimming the build output.
 - Part 3 now covers every execution environment: an overview slide plus a detail slide each
   for VS Code, the orchestrator, and Claude Code.
 - Corrected the VS Code slide: handoffs are automatic through to synthesis, and full

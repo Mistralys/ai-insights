@@ -206,6 +206,8 @@ deeper `--glass-shadow`; `.glass-card` is the flatter, cheaper card used inside 
 | `.knowledge-scopes` | Side-by-side glass panels with `h3` headings. |
 | `.persona-structure` | Numbered section list: `.section` → `.num` + `.label` + `.desc`. |
 | `.team-grid` | Four-column card grid: `.team-card` → `.team-icon` + `.team-name` + `.team-desc`. |
+| `.shot-carousel` | Switchable screenshots with a per-image caption footnote (see §7). |
+| `.shot-zoom` | Generated button wrapping a carousel image; opens the zoom lightbox (see §7). |
 
 ### Tables
 
@@ -224,6 +226,7 @@ deeper `--glass-shadow`; `.glass-card` is the flatter, cheaper card used inside 
 | `.sidenote` | Italic aside with blue left rule. |
 | `.strike` / `.better` | Red strikethrough vs. green replacement. |
 | `.info-link` | Inline button opening an info modal (see §7). |
+| `.ext-link` | Inline anchor to an external URL. The `.info-link` counterpart for a real `<a>`: same blue, same focus ring, a `↗` glyph instead of `ⓘ`. Always pair with `target="_blank"` and `rel="noopener noreferrer"`. |
 
 > Inline `style` attributes remain acceptable for genuine one-offs — a single `font-size` or
 > `margin-top` on one element. They are **not** acceptable for anything that repeats across slides;
@@ -293,6 +296,65 @@ point. Inside the modal, `↑` `↓` scroll by a step, `PgUp` / `PgDn` / `Space`
 `End` jump to the ends, `Tab` alternates pane ↔ close, and `Escape` closes. Every key is swallowed
 before Reveal sees it, so the deck never advances while the modal is open.
 
+### Screenshot carousel — for a set of related screenshots
+
+For several screenshots that make one point together, where the slide only has room for one at a
+time. A fragment declares the figures; the arrows and dots are generated at load:
+
+```html
+<div class="shot-carousel">
+  <div class="shot-stage">
+    <figure class="shot-slide">
+      <img src="img/ledger-gui.jpg" alt="…">
+      <figcaption>Filterable overview of projects</figcaption>
+    </figure>
+    <figure class="shot-slide">…</figure>
+  </div>
+</div>
+```
+
+| Knob | Default | Controls |
+|------|---------|----------|
+| `--shot-height` | `370px` | Height of the stage. Fixed, so the caption and controls never move between images. |
+| `--shot-width` | `92%` | Width of the stage within the slide. |
+| `--shot-caption-space` | `40px` | Space reserved below the image for the caption footnote. |
+| `--shot-space-above` | `20px` | Gap above the stage. Replaces the top margin a bare slide `<img>` would contribute — the carousel zeroes that margin, because inside the zoom button's flex box it overflows the box instead of spacing it. |
+
+Contracts:
+
+- Every `.shot-slide` carries exactly one `<img>` and one `<figcaption>`. The caption text also
+  becomes the dot's `aria-label`, so it must read as a standalone description.
+- Each image must be registered in `IMAGE_MAP` (§10), like any other slide image.
+- A carousel with fewer than two figures is left alone — no controls are generated.
+- The `<img>` is sized by `max-height`, not stretched to the frame with `object-fit`. The global
+  `.reveal img` shadow paints around the *element box*, so a letterboxed image would draw its
+  shadow around empty space rather than the screenshot.
+
+Behaviour: real `<button>` arrows and dots, `aria-label` from each caption, `aria-current` on the
+active dot, and `aria-hidden` maintained on the inactive figures. While focus is inside the
+controls, `←` `→` switch images and Space activates the focused button — all three are swallowed
+before Reveal sees them, so the deck never advances. Active state is signalled by dot width as
+well as colour.
+
+Each image is also wrapped in a `.shot-zoom` button at load, opening the zoom lightbox below. A
+`click to enlarge` hint is appended to the caption and marked `aria-hidden` — the trigger's own
+`aria-label` already carries it.
+
+### Zoom lightbox — for a wide image
+
+A fullscreen fit-to-viewport view of a single image. The counterpart to the screenshot modal:
+`#shot-modal` scrolls an image *taller* than any viewport, `#zoom-modal` fits a *wide* one.
+
+There is no `data-` trigger attribute — the lightbox is opened from JS via
+`openZoom(src, alt, caption, opener)`, and the carousel is currently its only caller. The whole
+overlay is the close affordance, so it carries `cursor: zoom-out` and the focus ring rather than
+hosting a close button.
+
+Behaviour: any click closes, as do `Escape`, `Enter` and Space. Focus moves to the overlay on open
+and returns to the trigger on close, and `Tab` is pinned to the overlay so focus cannot reach the
+slide behind it. Every key is swallowed before Reveal sees it. The image is capped at `84vh` so the
+caption and the close hint always stay in view.
+
 ### Recipe modal
 
 Driven by `data-modal="before"` / `data-modal="after"` on `.compare` children. Bodies come from
@@ -349,6 +411,10 @@ Motion is used only where it signals interactivity or state:
 | `transform: translateY(-2px)` + deeper shadow on hover | `.agent-card`, `.team-card`, `[data-modal]` |
 | `background` fade on hover | Toggles, modal close buttons, outline items |
 | `right` slide-in, `0.3s ease` | Outline panel |
+| `opacity` cross-fade, `0.25s ease` + dot `width` | Screenshot carousel — signals that the image changed |
+
+The zoom lightbox declares no transitions: it appears and disappears instantly, so there is nothing
+for the reduced-motion query to suppress.
 | Reveal `slide` transition, default speed | Slide changes |
 
 Do not add decorative or looping animation.
@@ -375,6 +441,14 @@ Requirements for anything newly added:
   clickable `<div>`.
 - **Focus is visible.** `.info-link:focus-visible` uses a `2px solid #90caf9` ring with
   `3px` offset. Match it.
+- **The ring goes on what the user sees.** Where a button is larger than its visible content —
+  a wrapper around a letterboxed image, say — move the ring to the descendant that is actually
+  rendered, as `.shot-zoom:focus-visible img` does. A ring tracing an invisible box reads as a
+  layout bug.
+- **Hit targets are floored in pixels.** Interactive controls need ≥ 24px in both axes. Size them
+  with a `min-width` / `min-height` in `px`, not `em` alone — Reveal scales the slide, so an `em`
+  box shrinks below the floor at smaller windows. Where the visible marker should stay small, put
+  it on a `::before` and let the button carry the target (see `.shot-dot`).
 - **Reveal steals keys.** Space advances the slide and Escape opens the overview. Any new key
   handler must call `stopImmediatePropagation()` in the capture phase, as the existing modal
   handlers do.

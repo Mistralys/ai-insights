@@ -34,6 +34,9 @@ const SLIDES_DIR = resolve(__dirname, '../slides');
 const IMAGE_MAP = {
   'img/work-package-stages.png': resolve(__dirname, '../img/work-package-stages.png'),
   'img/ledger-gui.jpg': resolve(__dirname, '../img/ledger-gui.jpg'),
+  'img/work-packages-progress.jpg': resolve(__dirname, '../img/work-packages-progress.jpg'),
+  'img/project-detail.jpg': resolve(__dirname, '../img/project-detail.jpg'),
+  'img/knowledge-repository.jpg': resolve(__dirname, '../img/knowledge-repository.jpg'),
   'img/full-vscode-workflow.png': resolve(__dirname, '../img/full-vscode-workflow.png'),
 };
 

@@ -273,6 +273,86 @@
   /* Slide images */
   .reveal img { border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
 
+  /* Screenshot carousel — stacked screenshots with a pinned caption footnote.
+     The stage is a fixed height so switching never shifts the caption or the
+     controls, however different the source aspect ratios are. */
+  /* --shot-space-above replaces the top margin a bare slide <img> would have
+     contributed; the carousel's own image is inside an absolutely positioned
+     figure, so its margin no longer affects the slide's vertical rhythm. */
+  .reveal .shot-carousel {
+    --shot-height: 370px; --shot-width: 92%; --shot-caption-space: 40px;
+    --shot-space-above: 20px;
+    margin: var(--shot-space-above) auto 0;
+  }
+  .reveal .shot-carousel .shot-stage {
+    position: relative; height: var(--shot-height);
+    width: var(--shot-width); margin: 0 auto;
+  }
+  .reveal .shot-carousel .shot-slide {
+    position: absolute; inset: 0; margin: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    opacity: 0; visibility: hidden; transition: opacity 0.25s ease;
+  }
+  .reveal .shot-carousel .shot-slide.is-active { opacity: 1; visibility: visible; }
+  /* Reveal's theme puts a 20px block margin on every img. Inside the zoom
+     button's flex box that margin overflows the box instead of spacing it,
+     eating the gap below the lead — the carousel spaces itself instead. */
+  .reveal .shot-carousel .shot-slide img {
+    max-width: 100%; max-height: 100%;
+    width: auto; height: auto; margin: 0;
+  }
+  .reveal .shot-carousel .shot-slide figcaption {
+    height: var(--shot-caption-space);
+    display: flex; align-items: center; justify-content: center; gap: 0.7em;
+    font-size: 0.58em; line-height: 1.3; color: #90a4ae;
+  }
+  .reveal .shot-carousel .shot-slide figcaption .zoom-hint {
+    font-size: 0.8em; color: #64b5f6; opacity: 0.75;
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .reveal .shot-carousel .shot-controls {
+    display: flex; align-items: center; justify-content: center; gap: 0.9em;
+    margin-top: 0.7em;
+  }
+  /* min-width/height keep the hit target at 28px even as the em box scales down. */
+  .reveal .shot-carousel .shot-arrow {
+    font: inherit; font-size: 0.6em; line-height: 1;
+    width: 1.8em; height: 1.8em; min-width: 28px; min-height: 28px;
+    padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(100, 181, 246, 0.1); color: #90caf9;
+    border: 1px solid #64b5f6; border-radius: 50%;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .reveal .shot-carousel .shot-arrow:hover {
+    background: rgba(100, 181, 246, 0.22); border-color: #90caf9; color: #fff;
+  }
+  .reveal .shot-carousel .shot-dots { display: flex; align-items: center; gap: 0.1em; }
+  /* The button is a 28px-tall hit target; the visible pill is the ::before, so
+     the dot can read small without shrinking below the minimum target size. */
+  .reveal .shot-carousel .shot-dot {
+    height: 28px; padding: 0 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; border-radius: 6px;
+  }
+  /* Active state is carried by width as well as colour, so the marker does not
+     depend on hue alone. */
+  .reveal .shot-carousel .shot-dot::before {
+    content: ''; display: block; width: 9px; height: 9px;
+    border: 1px solid #90a4ae; border-radius: 999px;
+    transition: width 0.2s ease, background 0.15s, border-color 0.15s;
+  }
+  .reveal .shot-carousel .shot-dot:hover::before {
+    border-color: #90caf9; background: rgba(144, 202, 249, 0.4);
+  }
+  .reveal .shot-carousel .shot-dot.is-active::before {
+    width: 24px; background: #64b5f6; border-color: #64b5f6;
+  }
+  .reveal .shot-carousel .shot-arrow:focus-visible,
+  .reveal .shot-carousel .shot-dot:focus-visible {
+    outline: 2px solid #90caf9; outline-offset: 3px;
+  }
+
   /* Persona structure list */
   .persona-structure { text-align: left; font-size: 0.75em; }
   .persona-structure .section { display: flex; align-items: baseline; gap: 0.5em; margin-bottom: 0.4em; }
@@ -387,6 +467,20 @@
   }
   .reveal .info-link[data-shot]::after { content: '\0000a0⤢'; }
 
+  /* Outbound link — the anchor counterpart to .info-link */
+  .reveal .ext-link {
+    color: #64b5f6; text-decoration: none;
+    border-bottom: 1px solid rgba(100, 181, 246, 0.5);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .reveal .ext-link:hover { color: #90caf9; border-bottom-color: #90caf9; }
+  .reveal .ext-link:focus-visible {
+    outline: 2px solid #90caf9; outline-offset: 3px; border-radius: 3px;
+  }
+  .reveal .ext-link::after {
+    content: '\0000a0↗'; font-size: 0.85em; opacity: 0.8;
+  }
+
   #info-modal {
     display: none; position: fixed; inset: 0; z-index: 200;
     background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -484,6 +578,53 @@
     font-family: 'JetBrains Mono', monospace; font-style: normal;
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
     border-radius: 4px; padding: 0.05em 0.4em; color: #c0c8d0;
+  }
+
+  /* Zoom lightbox — a wide image fitted to the viewport. Distinct from
+     #shot-modal, which scrolls an image taller than any screen. */
+  #zoom-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 1.2vh; padding: 3vh 3vw; cursor: zoom-out;
+  }
+  #zoom-modal.open { display: flex; }
+  #zoom-modal img {
+    max-width: 100%; max-height: 84vh; width: auto; height: auto;
+    border-radius: 10px; box-shadow: 0 16px 64px rgba(0,0,0,0.6);
+  }
+  #zoom-modal .zoom-caption {
+    margin: 0; text-align: center; max-width: 60em;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: calc(17px * var(--modal-scale)); line-height: 1.4; color: #b0bec5;
+  }
+  #zoom-modal .zoom-hint {
+    margin: 0; font-family: 'Inter', system-ui, sans-serif;
+    font-size: calc(13px * var(--modal-scale)); color: #90a4ae; font-style: italic;
+  }
+  #zoom-modal .zoom-hint kbd {
+    font-family: 'JetBrains Mono', monospace; font-style: normal;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; padding: 0.05em 0.4em; color: #c0c8d0;
+  }
+  /* The whole overlay is the close affordance, so it takes the focus ring. */
+  #zoom-modal:focus-visible { outline: 2px solid #90caf9; outline-offset: -4px; }
+
+  /* A carousel image opens the zoom lightbox — a real button so it is
+     keyboard-reachable. It takes a definite height so the image's percentage
+     max-height resolves against it rather than against the figure. */
+  .reveal .shot-carousel .shot-zoom {
+    padding: 0; border: none; background: none;
+    font: inherit; color: inherit; cursor: zoom-in;
+    border-radius: 8px;
+    width: 100%; height: calc(100% - var(--shot-caption-space));
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  /* The button spans the stage width, so the ring goes on the image — the only
+     part of it that is actually visible. */
+  .reveal .shot-carousel .shot-zoom:focus-visible { outline: none; }
+  .reveal .shot-carousel .shot-zoom:focus-visible img {
+    outline: 2px solid #90caf9; outline-offset: 3px;
   }
 
   /* Persona source toggle */
@@ -603,6 +744,10 @@
     .reveal .team-grid .team-card,
     .reveal .compare > div[data-modal],
     .reveal .info-link,
+    .reveal .ext-link,
+    .reveal .shot-carousel .shot-slide,
+    .reveal .shot-carousel .shot-arrow,
+    .reveal .shot-carousel .shot-dot::before,
     #outline-panel,
     #outline-toggle,
     #outline-toggle span,
@@ -659,6 +804,12 @@
     </div>
     <p class="shot-hint">Scroll, or <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd> <kbd>Home</kbd> <kbd>End</kbd></p>
   </div>
+</div>
+
+<div id="zoom-modal" role="dialog" aria-modal="true" aria-labelledby="zoom-modal-caption" aria-hidden="true" tabindex="-1">
+  <img id="zoom-modal-img" alt="">
+  <p class="zoom-caption" id="zoom-modal-caption"></p>
+  <p class="zoom-hint">Click anywhere or press <kbd>ESC</kbd> to close</p>
 </div>
 
 <div id="persona-toggle" title="View Recipe Curator persona source">
@@ -927,6 +1078,157 @@ Reveal.initialize({
     // Nothing behind the dialog should react to keys while it is open.
     e.stopImmediatePropagation();
   }, true);
+
+  // Zoom lightbox — fits a wide image to the viewport. Any click closes it, so the
+  // overlay itself is the close affordance rather than a dedicated button.
+  const zoomModal = document.getElementById('zoom-modal');
+  const zoomImg = document.getElementById('zoom-modal-img');
+  const zoomCaption = document.getElementById('zoom-modal-caption');
+  let zoomOpener = null;
+
+  function openZoom(src, alt, caption, opener) {
+    zoomOpener = opener || null;
+    zoomImg.src = src;
+    zoomImg.alt = alt || '';
+    zoomCaption.textContent = caption || '';
+    zoomModal.classList.add('open');
+    zoomModal.setAttribute('aria-hidden', 'false');
+    zoomModal.focus();
+  }
+
+  function closeZoom() {
+    zoomModal.classList.remove('open');
+    zoomModal.setAttribute('aria-hidden', 'true');
+    if (zoomOpener) { zoomOpener.focus(); zoomOpener = null; }
+  }
+
+  zoomModal.addEventListener('click', closeZoom);
+
+  document.addEventListener('keydown', (e) => {
+    if (!zoomModal.classList.contains('open')) return;
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      closeZoom();
+    } else if (e.key === 'Tab') {
+      // The overlay is the only stop — keep focus from reaching the slide behind it.
+      e.preventDefault();
+      zoomModal.focus();
+    }
+    // Nothing behind the lightbox should react to keys while it is open.
+    e.stopImmediatePropagation();
+  }, true);
+
+  // Screenshot carousel — .shot-carousel with .shot-slide figures; controls are generated
+  // here so a slide fragment only declares the images and their captions.
+  document.querySelectorAll('.shot-carousel').forEach(carousel => {
+    const slides = [...carousel.querySelectorAll('.shot-slide')];
+
+    // Each image becomes a zoom trigger; a button wrapper keeps it keyboard-reachable.
+    slides.forEach(slide => {
+      const img = slide.querySelector('img');
+      const caption = slide.querySelector('figcaption');
+      // Recorded before the hint span is appended, so later readers (dot labels)
+      // get the authored caption rather than the caption plus the affordance text.
+      slide.dataset.caption = caption ? caption.textContent.trim() : '';
+      if (!img || img.closest('.shot-zoom')) return;
+
+      const zoom = document.createElement('button');
+      zoom.type = 'button';
+      zoom.className = 'shot-zoom';
+      const captionText = slide.dataset.caption;
+      zoom.setAttribute('aria-label', 'Enlarge screenshot' + (captionText ? ': ' + captionText : ''));
+      img.parentNode.insertBefore(zoom, img);
+      zoom.appendChild(img);
+
+      if (caption) {
+        const hint = document.createElement('span');
+        hint.className = 'zoom-hint';
+        hint.textContent = 'click to enlarge';
+        // Visual affordance only — the trigger's own aria-label already says this.
+        hint.setAttribute('aria-hidden', 'true');
+        caption.appendChild(hint);
+      }
+
+      zoom.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openZoom(img.currentSrc || img.src, img.alt, captionText, zoom);
+      });
+      // Reveal steals Space for slide navigation; keep it as button activation here.
+      zoom.addEventListener('keydown', (e) => {
+        if (e.key !== ' ' && e.key !== 'Spacebar') return;
+        e.preventDefault();
+        e.stopPropagation();
+        zoom.click();
+      });
+    });
+
+    if (slides.length < 2) return;
+
+    const controls = document.createElement('div');
+    controls.className = 'shot-controls';
+
+    const prev = document.createElement('button');
+    prev.type = 'button';
+    prev.className = 'shot-arrow';
+    prev.innerHTML = '&#10094;';
+    prev.setAttribute('aria-label', 'Previous screenshot');
+
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'shot-arrow';
+    next.innerHTML = '&#10095;';
+    next.setAttribute('aria-label', 'Next screenshot');
+
+    const dots = document.createElement('div');
+    dots.className = 'shot-dots';
+
+    let index = 0;
+    const dotButtons = slides.map((slide, i) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'shot-dot';
+      dot.setAttribute('aria-label', slide.dataset.caption || 'Screenshot ' + (i + 1));
+      dot.addEventListener('click', () => show(i));
+      dots.appendChild(dot);
+      return dot;
+    });
+
+    function show(i) {
+      index = (i + slides.length) % slides.length;
+      slides.forEach((s, n) => {
+        s.classList.toggle('is-active', n === index);
+        s.setAttribute('aria-hidden', n === index ? 'false' : 'true');
+      });
+      dotButtons.forEach((d, n) => {
+        d.classList.toggle('is-active', n === index);
+        // aria-current, not aria-selected: these are plain buttons, not a tablist —
+        // there are no tabpanels for them to control.
+        if (n === index) d.setAttribute('aria-current', 'true');
+        else d.removeAttribute('aria-current');
+      });
+    }
+
+    prev.addEventListener('click', () => show(index - 1));
+    next.addEventListener('click', () => show(index + 1));
+
+    controls.append(prev, dots, next);
+    carousel.appendChild(controls);
+    show(0);
+
+    // Reveal owns Space and the arrow keys for slide navigation; while focus is
+    // inside the carousel they belong to the carousel instead.
+    controls.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        e.stopPropagation();
+        document.activeElement.click();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopPropagation();
+        show(index + (e.key === 'ArrowLeft' ? -1 : 1));
+      }
+    });
+  });
 
   // Persona source modal
   const personaModal = document.getElementById('persona-modal');
