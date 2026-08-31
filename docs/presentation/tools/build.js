@@ -14,6 +14,7 @@
  * Usage (run from the presentation root):
  *   node tools/build.js          → writes dist/ai-insights-slides.html
  *   node tools/build.js --watch  → rebuilds on any source file change
+ *   node tools/build.js --check  → read-only staleness check, exits 1 if stale
  *
  * No dependencies — uses only Node.js built-ins.
  */
@@ -32,7 +33,14 @@ const SLIDES_DIR = resolve(__dirname, '../slides');
 // Each entry maps a src="<filename>" in the HTML to a local PNG file.
 const IMAGE_MAP = {
   'img/work-package-stages.png': resolve(__dirname, '../img/work-package-stages.png'),
-  'img/ledger-gui.png': resolve(__dirname, '../img/ledger-gui.png'),
+  'img/ledger-gui.jpg': resolve(__dirname, '../img/ledger-gui.jpg'),
+};
+
+// Maps a file extension to its data URI MIME type.
+const MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
 };
 
 // Markdown files rendered to HTML and injected as JS string literals.
@@ -243,8 +251,8 @@ function buildOutlineData() {
 
 // ── Build ────────────────────────────────────────────────────────────────────
 
-function build() {
-  const start = performance.now();
+/** Renders the full deck to a string without touching the filesystem. */
+function render() {
   let html = readFileSync(SRC, 'utf8');
 
   // 0. Assemble slide fragments and inject outline data
@@ -256,16 +264,22 @@ function build() {
   const outlineData = buildOutlineData();
   html = html.replace('/* BUILD:OUTLINE_DATA */', JSON.stringify(outlineData));
 
-  // 1. Inline PNG images as base64 data URIs
+  // 1. Inline PNG images as base64 data URIs.
+  //    Each image is emitted exactly once into a lookup and applied at load
+  //    time; inlining per src= occurrence would duplicate the whole payload
+  //    for every slide that reuses the same image.
+  const imageData = {};
   for (const [filename, filepath] of Object.entries(IMAGE_MAP)) {
+    const ext = filename.slice(filename.lastIndexOf('.'));
+    const mime = MIME_TYPES[ext] || 'image/png';
     const b64 = readFileSync(filepath).toString('base64');
-    const dataUri = `data:image/png;base64,${b64}`;
-    // Replace src="filename" with src="data:..."
+    imageData[filename] = `data:${mime};base64,${b64}`;
     html = html.replace(
       new RegExp(`src="${filename.replace('.', '\\.')}"`, 'g'),
-      `src="${dataUri}"`
+      `data-img="${filename}"`
     );
   }
+  html = html.replace('/* BUILD:IMAGE_DATA */', JSON.stringify(imageData));
 
   // 2. Render recipe Markdown files to HTML and inject as JS strings
   for (const [placeholder, filepath] of Object.entries(RECIPE_FILES)) {
@@ -290,6 +304,13 @@ function build() {
   const slideVersion = versionMatch ? `${versionMatch[1]} &middot; ${versionMatch[2]}` : '';
   html = html.replace('<!-- BUILD:SLIDE_VERSION -->', slideVersion);
 
+  return html;
+}
+
+function build() {
+  const start = performance.now();
+  const html = render();
+
   mkdirSync(dirname(DIST), { recursive: true });
   writeFileSync(DIST, html, 'utf8');
 
@@ -299,11 +320,48 @@ function build() {
   console.log(`✓ Built dist/ai-insights-slides.html (${srcSize} KB → ${distSize} KB) in ${elapsed} ms`);
 }
 
+/**
+ * Read-only staleness check: renders the deck and compares it against the
+ * committed dist/ output. Exits 1 on any mismatch so a pre-commit hook or CI
+ * job can catch a source change whose output was never rebuilt.
+ */
+function check() {
+  const expected = render();
+
+  let actual;
+  try {
+    actual = readFileSync(DIST, 'utf8');
+  } catch {
+    console.error('✗ dist/ai-insights-slides.html is missing — run the build.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (actual === expected) {
+    console.log('✓ dist/ai-insights-slides.html is up to date.');
+    return;
+  }
+
+  const expectedLines = expected.split('\n');
+  const actualLines = actual.split('\n');
+  // -1 means every shared line matched and the files differ only in trailing length.
+  const diffIndex = expectedLines.findIndex((line, i) => line !== actualLines[i]);
+  const firstDiff = diffIndex === -1
+    ? Math.min(expectedLines.length, actualLines.length)
+    : diffIndex;
+
+  console.error('✗ dist/ai-insights-slides.html is stale — run the build.');
+  console.error(`  First difference at line ${firstDiff + 1}.`);
+  process.exitCode = 1;
+}
+
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 
-if (args.includes('--watch') || args.includes('-w')) {
+if (args.includes('--check') || args.includes('--dry-run')) {
+  check();
+} else if (args.includes('--watch') || args.includes('-w')) {
   // Watch mode: rebuild on any source file change
   const watchFiles = [
     SRC,

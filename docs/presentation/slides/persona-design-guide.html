@@ -1,0 +1,78 @@
+<section>
+  <p class="section-label">The Craft of Persona Curation</p>
+  <h2>The Persona Design Guide</h2>
+  <p class="lead">The collected principles &amp; rules of the craft, versioned like code.</p>
+  <div class="card-stack" style="--stack-size: 0.7em; --card-padding: 0.55em 1em;">
+    <div class="glass-card">
+      <strong class="accent">Distilled crafting knowledge.</strong><br>
+      <span class="muted">Risen from experience: Anatomy and section order, design patterns, tone rules, a quality
+      checklist, common pitfalls and ready-to-fill templates.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Domain-neutral, made to be distributed.</strong><br>
+      <span class="muted">Nothing in it is specific to software. Use it to craft personas
+        for all kinds of projects and topics. Several consumers already exist.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">With or without a build pipeline.</strong><br>
+      <span class="muted">The Persona Builder pipeline is not a hard requirement. Personas can
+        be crafted and maintained by hand with the guide.
+      </span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Audit trail included.</strong><br>
+      <span class="muted">Each persona records the guide version it was created or 
+        last audited for. This makes maintenance a 
+      <button type="button" class="info-link" data-info="info-audit-stamp"
+              data-info-title="Audit stamps &amp; accepted deviations">mechanical check</button>.</span>
+    </div>
+  </div>
+  <template id="info-audit-stamp">
+    <p>
+      Every persona carries metadata fields to record its last audit:
+    </p>
+    <p>
+      <code>audit_guide_version: "3.4"</code><br>
+      <code>audit_date: "2026-08-28"</code>
+    </p>
+    <p>
+      When the guide moves to a new version, this lets you identify which personas need an audit. 
+      The design guide's changelog describes the blast radius of the changes, and helps
+      with the persona upgrades.
+    </p>
+    <p>
+      Some personas legitimately cannot follow every rule. The Recipe Curator, for example,
+      keeps its reference tables inline, because it is deployed where external documents 
+      cannot be reached. That reasoning lives in the persona's design notes as portable documentation.
+    </p>
+  </template>
+  <aside class="notes">
+    This is the artifact the previous slides have been implicitly describing. Everything I've said about
+    mission, philosophy, tone and constraints is written down in one place, and that document is what I
+    hand to a model when I want a new persona.
+
+    Three things about it are worth more than its contents.
+
+    First, it is domain-neutral on purpose. There is no software vocabulary in it. That is not politeness
+    — it is what makes it portable. Other projects of mine, in completely unrelated domains, fetch this
+    exact file over HTTPS and treat it as read-only. If I let project-specific content creep in, I break
+    all of them.
+
+    Second, it does not assume you have a build system. Most people writing a persona are pasting text
+    into a web assistant, and the guide says explicitly which metadata is a build input and therefore
+    doesn't apply to them. A hand-maintained persona is a first-class case, not a degraded one.
+
+    Third, and this is the part that surprised me in practice: versioning the guide changed how
+    maintenance works. Each persona records which guide version it last passed an audit against. So when
+    I add a rule — say, the tone stratification rule in v2.7 — I don't have to remember which personas
+    predate it. The stamps tell me. I generate a status table and audit only the stale ones.
+
+    And the flip side: some personas genuinely can't follow a rule. Rather than fighting the same audit
+    finding every time, the deviation gets documented with its reason, and audits report it as an
+    accepted exception. That's the difference between a guide that gets followed and one that gets
+    quietly ignored.
+
+    Every changelog entry in that guide came from something going wrong in a real session. It's not
+    theory — it's a scar record.
+  </aside>
+</section>

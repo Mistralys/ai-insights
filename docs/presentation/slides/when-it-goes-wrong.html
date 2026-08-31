@@ -1,0 +1,55 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>When It Goes Wrong</h2>
+  <p class="lead">A stage failing is <strong class="accent">normal operation</strong>, not an incident. The ledger is built for it.</p>
+  <div class="card-stack" style="--stack-width: 820px; --stack-size: 0.68em; --stack-gap: 0.45em;">
+    <div class="glass-card">
+      <strong class="accent-green">A failure routes back, it does not stop the run.</strong><br>
+      <span class="muted">QA fails a package &rarr; the ledger sends it to the Developer with the
+      failure summary attached. The loop is the design, not a fault.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-red">Repeated rework trips a circuit breaker.</strong><br>
+      <span class="muted">Each round trip is counted. Past the threshold the package stops and
+      escalates &mdash; no infinite Developer&#8596;QA ping-pong burning tokens overnight.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-blue">Stuck and abandoned work is detectable.</strong><br>
+      <span class="muted">Packages can be blocked on a dependency, a decision, or something
+      external. A pipeline left open too long is flagged as stale and can be resumed or cancelled.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">The escape hatches leave a trail.</strong><br>
+      <span class="muted">The Project Manager can reset a rework counter or reopen a cancelled
+      package &mdash; but every override is recorded with its reason. Recovery never means quietly
+      rewriting history.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    This is the slide I would want to see if I were sitting where you are, because "nine agents in a
+    chain" invites one obvious question: what happens when one of them gets it wrong?
+
+    The first thing to internalise is that a stage failing is the system working. QA is there to
+    fail things. When it does, the ledger routes the package back to the Developer with QA's own
+    written failure summary attached, and the Developer picks up exactly what broke. That is a loop
+    by design. Earlier you saw red rework badges in the work-package screenshot — that was this
+    happening, and the project still completed.
+
+    The second is that the loop is bounded. Every round trip increments a counter on the package,
+    and past a threshold the package stops and escalates instead of continuing. That matters most in
+    the headless runner, where nobody is watching. Without a circuit breaker, a Developer and a QA
+    agent that disagree will happily disagree until you run out of budget. I would rather be told
+    the pipeline is stuck.
+
+    Third, work can be legitimately stuck rather than broken — waiting on a dependency, on a
+    decision I have not made, on something external. That is a distinct state, not a failure. And a
+    pipeline that was started but never finished, because a session crashed or a laptop closed, gets
+    flagged as stale so it can be resumed or cancelled deliberately.
+
+    Last, the overrides. The Project Manager can reset a rework counter or reopen a cancelled
+    package — the system does not paint you into a corner. But every override is written into the
+    ledger with its reason. When I come back in three weeks and wonder why a package with five
+    failed rounds shipped, the answer is in the file. Recoverability without an audit trail is just
+    a nicer way to lose information.
+  </aside>
+</section>

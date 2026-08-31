@@ -1,0 +1,59 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Agent hand-offs</h2>
+  <p class="lead">The ledger is the routing authority.</p>
+  <div class="loop-bracket" style="margin: 0.3em auto 1.8em; display: inline-flex;">
+    <div class="build-flow" style="font-size: 0.62em;">
+      <div class="box source">
+        <strong>Ask</strong><br>
+        <span class="muted" style="font-size: 0.85em;">&ldquo;What should<br>I do next?&rdquo;</span>
+      </div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #ffd54f;">&rsaquo;</div>
+      <div class="box engine">
+        <strong>Receive</strong><br>
+        <span class="muted" style="font-size: 0.85em;">A typed instruction,<br>not a suggestion</span>
+      </div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #ffd54f;">&rsaquo;</div>
+      <div class="box engine">
+        <strong>Work</strong><br>
+        <span class="muted" style="font-size: 0.85em;">Run the stage<br>it was handed</span>
+      </div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #ffd54f;">&rsaquo;</div>
+      <div class="box target">
+        <strong>Report</strong><br>
+        <span class="muted" style="font-size: 0.85em;">Result written<br>back to the ledger</span>
+      </div>
+    </div>
+    <div class="loop-label"><span class="loop-icon">&#8635;</span> state recomputed &mdash; next agent asks the same question</div>
+  </div>
+  <p style="font-size: 0.78em;margin-bottom: 2em;">
+    The route is <span class="accent-blue">derived from project state</span>, never from a prompt.<br>
+  </p>
+  <p class="sidenote">
+    Chained handoffs are depth-capped, so a derailed pipeline stops itself.
+  </p>
+  <aside class="notes">
+    This is the mechanic I most want you to take away from Part 3, because it is what separates this
+    from a prompt relay.
+
+    Watch what is absent. I do not tell the Developer that QA is next. I do not paste the QA agent's
+    instructions into a chat window. Each agent, when it starts, asks the ledger one question: what
+    should I do next? The ledger looks at the state — which packages are ready, which dependencies
+    are satisfied, which stage last passed or failed, who the work is assigned to — and returns a
+    typed instruction. The agent does that stage, writes the result back, and the state recomputes.
+    Then the next agent asks the same question.
+
+    The consequence is that routing is a function of state, not of my phrasing. Two runs from the
+    same ledger state produce the same instruction. That is what the word deterministic on the
+    orchestrator slide actually rests on — not that the model is deterministic, it plainly is not,
+    but that the coordination around it is.
+
+    It also means the chain has no privileged coordinator holding the plan in its head. There is no
+    conductor. Each agent is stateless with respect to the workflow; the ledger is the only thing
+    that knows where we are. That is precisely why it survives a session ending mid-project.
+
+    One safety note, because someone always asks: handoffs chained automatically are depth-capped.
+    If routing ever went wrong, the run stops on the cap rather than looping forever. There is a
+    generous ceiling on it, and it resets when a project completes.
+  </aside>
+</section>

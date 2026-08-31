@@ -1,0 +1,45 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Choosing the Model per Persona</h2>
+  <p class="lead">Not every persona needs the strongest model. Each one declares its own.</p>
+  <div class="card-stack" style="--stack-width: 760px; --stack-gap: 0.6em;">
+    <div class="glass-card">
+      <strong class="accent">Reasoning-heavy personas get the stronger model.</strong><br>
+      <span class="muted">Planner and Project Manager &mdash; the roles where a bad decision
+      propagates through everything downstream.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Execution personas run on the default.</strong><br>
+      <span class="muted">Developer, QA, Reviewer, Documentation &mdash; well-scoped work
+      against a plan that has already been thought through.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Assignments live outside the persona text.</strong><br>
+      <span class="muted">A model registry maps personas to models, editable in the GUI.
+      Swapping a model does not mean touching a single persona document.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    A practical question that comes up as soon as anyone considers running this seriously: which model
+    runs which persona?
+
+    Worth being precise here: the model is bound to the persona, not to a slot in the workflow. In the
+    ledger workflow the two happen to line up one-to-one, but the same persona used standalone outside
+    the workflow carries the same model assignment with it.
+
+    The principle is that the value of a stronger model is highest where judgement compounds. If the
+    Planner scopes the work badly, or the Project Manager sequences the packages wrongly, everything
+    after it inherits the mistake. Those two are worth the stronger model. The Developer working
+    against a good plan, the QA agent running the tests, the Documentation agent updating a manifest —
+    that's well-bounded work, and the default model handles it.
+
+    The important design point is where the assignment lives. It is not written into the persona
+    documents. There's a separate registry that maps each persona to a model, with a default for
+    everything unassigned, and it's editable through the GUI. When a new model version lands you
+    change the registry and rebuild — you don't go editing 24 persona files.
+
+    I'm deliberately not putting cost figures on this slide, because I haven't measured them properly.
+    The reasoning here is about where judgement matters, not about a spend calculation. If anyone wants
+    to talk cost, I'd rather do it in questions and be honest about what I don't know.
+  </aside>
+</section>

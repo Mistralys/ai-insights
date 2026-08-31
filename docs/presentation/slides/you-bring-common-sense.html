@@ -1,0 +1,64 @@
+<section>
+  <p class="section-label">Working With Models</p>
+  <h2>Request Crafting</h2>
+  <p class="lead">
+    With documentation in place, craft requests with confidence.
+  </p>
+  <div class="persona-structure" style="max-width: 860px; margin: 0 auto; font-size: 0.72em;">
+    <div class="section"><span class="num">›</span> <span class="label">Be verbose, be precise</span>
+      <span class="desc">&mdash; include everything you can think of.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Share your approach</span>
+      <span class="desc">&mdash; already know how part X should be done? Write it down.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Name the pitfalls</span>
+      <span class="desc">&mdash; include that gotcha from last year.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Include your expectations</span>
+      <span class="desc">&mdash; real-world usage scenarios go a long way.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Structure, structure</span>
+      <span class="desc">&mdash; organize it all with headers - useful for you and the model.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Review, then audit</span>
+      <span class="desc">&mdash; read it yourself, use the plan reviewer personas.</span></div>
+  </div>
+  <p style="font-size: 0.78em; margin-top: 1.6em; line-height: 1.6;">
+    It's not a race to the shortest prompt: <span class="accent">It's about providing sufficient guidance.</span>
+  </p>
+  <p class="sidenote" style="margin-top: 1.2em;">
+    The hidden foundation of a request is the project's documentation. <span class="accent-blue">Weigh what goes into the spec or the docs.</span>
+  </p>
+  <aside class="notes">
+    The previous slide was the honest limitation. This one is what you actually do about it, and all
+    four points are habits rather than tools — they cost nothing to adopt tomorrow morning.
+
+    Start with the limitation restated in one line, because it sets up all four: the model will solve
+    the problem you described, correctly and thoroughly, and possibly in entirely the wrong way, because
+    it is missing the part you know and did not mention. It will not stop and ask. It builds what was
+    asked.
+
+    Be verbose, be precise. This is the one that feels wrong to developers, because we're trained to be
+    terse. A one-line request gets a plausible answer to a question you did not quite ask. Say what the
+    thing is for, what must not change, which files are in scope, what "done" looks like. The rule of
+    thumb I use: whatever constraint I decide is too obvious to state is the one that comes back
+    violated.
+
+    Share your own approach. This one surprises people, because there's a worry that you'll bias the
+    model into agreeing with you. In practice the opposite is the risk: with no proposal on the table it
+    invents one and commits to it. Give it yours and you get a comparison instead of a guess — and
+    explicitly invite it to disagree, with reasons. Some of the best design conversations I've had this
+    year started with me proposing something mediocre and being talked out of it.
+
+    Name the pitfalls. You know where this codebase bites. The migration that has to run first, the
+    class everyone thinks is dead and isn't, the test that passes for the wrong reason. None of that is
+    in the code where it can be read. Two lines of warning in the request is the highest-value writing
+    you'll do all day. And when you hit a trap that wasn't on your list, that's exactly what the
+    knowledge store from Part 3 is for — write it down once so the next session starts with it.
+
+    Review, then audit. Two separate things. Review is you reading what came back, which we covered on
+    the last slide and which doesn't get to be selective. Audit is structural: a second agent whose only
+    job is to check the first one's work — the Plan Auditor and the Reviewer in the workflow you saw
+    earlier. A model is a poor judge of its own output and a fairly good judge of someone else's. That
+    asymmetry is worth building on.
+
+    The closing line matters. None of these four steps move the judgement off your desk. What they do is
+    make the judgement legible — turn what you know into something the model can act on, instead of
+    something it silently works around.
+  </aside>
+</section>

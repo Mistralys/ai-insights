@@ -18,12 +18,15 @@
         "nlp",
         "markdown-format",
         "persona-structure",
+        "no-prompt-needed",        
         "identity-anchor",
         "english-best",
         "domain-knowledge",
         "values-standards",
         "meet-the-team",
-        "build-your-personas"
+        "build-your-personas",
+        "persona-design-guide",
+        "recap-part1"
       ]
     },
     {
@@ -33,7 +36,8 @@
         "platforms",
         "scaling-problem",
         "build-pipeline",
-        "template-syntax"
+        "template-syntax",
+        "recap-part2"
       ]
     },
     {
@@ -41,12 +45,21 @@
       "slides": [
         "part3-divider",
         "agentic-workflow",
-        "dynamic-pipelines",
         "coordination-problem",
         "project-ledger",
+        "what-is-mcp",
+        "ledger-anatomy",
+        "routing-loop",
+        "dynamic-pipelines",
+        "when-it-goes-wrong",
+        "ledger-gui",
         "knowledge-persists",
+        "project-strategy",
+        "observation-channel",
+        "model-selection",
         "orchestrator",
-        "battle-tested"
+        "battle-tested",
+        "recap-part3"
       ]
     },
     {
@@ -56,9 +69,23 @@
       ]
     },
     {
+      "label": "Part 4 — Working With Models",
+      "slides": [
+        "part4-divider",
+        "documentation-foundation",
+        "capable-colleague",
+        "you-bring-common-sense",
+        "model-versions",
+        "ide-for-everyone",
+        "persona-vs-skill",
+        "agent-experience"
+      ]
+    },
+    {
       "label": "Closing",
       "slides": [
         "key-takeaways",
+        "questions",
         "thank-you"
       ]
     }

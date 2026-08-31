@@ -58,6 +58,7 @@
   .reveal .subtitle { font-size: 0.7em; color: #90a4ae; margin-top: 0.5em; }
   .reveal .section-label { font-size: 0.5em; text-transform: uppercase; letter-spacing: 0.15em; color: #64b5f6; margin-bottom: 0.3em; }
   .reveal .lead { font-size: 0.8em; margin-bottom: 1.8em; }
+  .reveal .lead.slim { margin-bottom: 0.8em; }
 
   /* Accent colors */
   .accent { color: #ffd54f; }
@@ -68,6 +69,49 @@
   /* Two-column layout */
   .two-col { display: flex; gap: 2em; align-items: flex-start; }
   .two-col > div { flex: 1; }
+
+  /* Card stack — the deck's default body layout: a centred, left-aligned,
+     constrained column. Per-slide density is tuned by overriding the three
+     custom properties, not by re-declaring the layout. */
+  .card-stack {
+    text-align: left;
+    max-width: var(--stack-width, 800px);
+    margin: 0 auto;
+    font-size: var(--stack-size, 0.75em);
+    display: flex;
+    flex-direction: column;
+    gap: var(--stack-gap, 0.55em);
+  }
+
+  /* Recap stack — a .card-stack sized for the longest part in the deck, so a
+     part gaining a slide does not push its recap into the nav arrows. Overriding
+     the density here defeats the purpose; shorten the copy instead. */
+  .recap-stack {
+    --stack-width: 830px;
+    --stack-size: 0.72em;
+    --stack-gap: 0.5em;
+  }
+  /* Recap items are authored as either p or div; the flex gap is the only
+     vertical rhythm, so paragraph margins would double it. */
+  .recap-stack > p { margin: 0; }
+
+  /* Glass card — a single item inside a .card-stack (or standalone). */
+  .glass-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: var(--card-padding, 0.6em 1em);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  }
+
+  /* Muted secondary copy — the deck's most-used colour. */
+  .muted { color: #90a4ae; }
+
+  /* Small uppercase category label at the top of a card. */
+  .card-eyebrow { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.12em; }
+
+  /* A quoted persona principle, set apart from the surrounding card text. */
+  .principle-quote { display: block; padding: 0.8em 0; }
 
   /* Glassmorphism base */
   .glass {
@@ -255,6 +299,15 @@
   /* Fragment highlight override */
   .reveal .fragment.highlight-current-blue.current-fragment { color: #64b5f6; }
 
+  /* Modal type scale — tracks Reveal's own slide scale so modal text matches deck text.
+     Floored and capped so extreme window sizes stay readable. */
+  #recipe-modal, #persona-modal, #info-modal {
+    --modal-scale: clamp(0.6, var(--slide-scale, 1), 1.6);
+  }
+  #recipe-modal .modal-content,
+  #persona-modal .modal-content,
+  #info-modal .modal-content { box-sizing: border-box; }
+
   /* Outline panel */
   /* Recipe modal */
   #recipe-modal {
@@ -267,10 +320,11 @@
     background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
     box-shadow: 0 16px 64px rgba(0,0,0,0.5);
-    width: 85vw; max-width: 900px; max-height: 80vh;
+    font-size: calc(22px * var(--modal-scale)); line-height: 1.6;
+    width: 41em; max-width: 85vw; max-height: 80vh;
     overflow-y: auto; padding: 2em 2.5em;
     font-family: 'Inter', system-ui, sans-serif;
-    color: #e0e0e0; font-size: 15px; line-height: 1.6;
+    color: #e0e0e0;
   }
   #recipe-modal .modal-content::-webkit-scrollbar { width: 6px; }
   #recipe-modal .modal-content::-webkit-scrollbar-track { background: transparent; }
@@ -285,11 +339,11 @@
   #recipe-modal .modal-header .modal-label-after { color: #81c784; }
   #recipe-modal .modal-close {
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px; color: #90a4ae; font-size: 14px;
+    border-radius: 8px; color: #90a4ae; font-size: 0.93em;
     padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s;
   }
   #recipe-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
-  #recipe-modal .modal-body { white-space: normal; font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.4; color: #c0c8d0; }
+  #recipe-modal .modal-body { white-space: normal; font-family: 'JetBrains Mono', monospace; font-size: 1.13em; line-height: 1.4; color: #c0c8d0; }
   #recipe-modal .modal-body ul, #recipe-modal .modal-body ol { margin: 0.3em 0; padding-left: 1.5em; }
   #recipe-modal .modal-body li { margin-bottom: 0.15em; }
   #recipe-modal .modal-body p { margin: 0.4em 0; }
@@ -316,6 +370,65 @@
     text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.6;
   }
 
+  /* Inline info trigger + modal */
+  .reveal .info-link {
+    font: inherit; color: #64b5f6; background: none; border: none;
+    padding: 0; margin: 0; cursor: pointer;
+    border-bottom: 1px dashed rgba(100, 181, 246, 0.6);
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .reveal .info-link:hover { color: #90caf9; border-bottom-color: #90caf9; }
+  .reveal .info-link:focus-visible {
+    outline: 2px solid #90caf9; outline-offset: 3px; border-radius: 3px;
+  }
+  .reveal .info-link::after {
+    content: '\0000a0ⓘ'; font-size: 0.85em; opacity: 0.8;
+  }
+
+  #info-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  #info-modal.open { display: flex; }
+  #info-modal .modal-content {
+    background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+    box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+    font-size: calc(24px * var(--modal-scale)); line-height: 1.6;
+    width: 36em; max-width: 88vw; max-height: 85vh;
+    overflow-y: auto; padding: 1.4em 1.8em;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #e0e0e0;
+  }
+  #info-modal .modal-content::-webkit-scrollbar { width: 6px; }
+  #info-modal .modal-content::-webkit-scrollbar-track { background: transparent; }
+  #info-modal .modal-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+  #info-modal .modal-header {
+    display: flex; justify-content: space-between; align-items: center; gap: 1.5em;
+    margin-bottom: 0.9em; padding-bottom: 0.6em;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #info-modal .modal-header h3 { margin: 0; font-size: 1.15em; font-weight: 600; color: #90caf9; }
+  #info-modal .modal-close {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #b0bec5; font-size: 0.82em; flex-shrink: 0;
+    padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s, color 0.15s;
+  }
+  #info-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #info-modal .modal-close:focus-visible { outline: 2px solid #90caf9; outline-offset: 2px; }
+  #info-modal .modal-body p { margin: 0 0 0.9em; }
+  #info-modal .modal-body p:last-child { margin-bottom: 0; }
+  #info-modal .modal-body strong { color: #fff; }
+  #info-modal .modal-body em { color: #b0bec5; }
+  #info-modal .modal-body code {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.88em;
+    background: rgba(100, 181, 246, 0.12); border: 1px solid rgba(100, 181, 246, 0.25);
+    border-radius: 4px; padding: 0.08em 0.4em; color: #90caf9;
+  }
+  #info-modal .modal-body ol, #info-modal .modal-body ul { margin: 0 0 0.9em; padding-left: 1.4em; }
+  #info-modal .modal-body li { margin-bottom: 0.4em; }
+
   /* Persona source toggle */
   #persona-toggle {
     position: fixed; top: 16px; right: 64px; z-index: 100;
@@ -340,10 +453,11 @@
     background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
     border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
     box-shadow: 0 16px 64px rgba(0,0,0,0.5);
-    width: 85vw; max-width: 900px; max-height: 80vh;
+    font-size: calc(22px * var(--modal-scale)); line-height: 1.6;
+    width: 41em; max-width: 85vw; max-height: 80vh;
     overflow-y: auto; padding: 2em 2.5em;
     font-family: 'Inter', system-ui, sans-serif;
-    color: #e0e0e0; font-size: 15px; line-height: 1.6;
+    color: #e0e0e0;
   }
   #persona-modal .modal-content::-webkit-scrollbar { width: 6px; }
   #persona-modal .modal-content::-webkit-scrollbar-track { background: transparent; }
@@ -356,12 +470,12 @@
   #persona-modal .modal-header h3 { margin: 0; font-size: 1.2em; font-weight: 600; color: #81c784; }
   #persona-modal .modal-close {
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px; color: #90a4ae; font-size: 14px;
+    border-radius: 8px; color: #90a4ae; font-size: 0.93em;
     padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s;
   }
   #persona-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
   #persona-modal .persona-source {
-    font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.5;
+    font-family: 'JetBrains Mono', monospace; font-size: 1.13em; line-height: 1.5;
     color: #c0c8d0; white-space: pre-wrap; word-wrap: break-word;
     background: rgba(0,0,0,0.3); border-radius: 8px; padding: 1.5em;
     border: 1px solid rgba(255,255,255,0.05);
@@ -371,7 +485,7 @@
   #persona-modal .persona-source::-webkit-scrollbar-track { background: transparent; }
   #persona-modal .persona-source::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
   #persona-modal .persona-meta {
-    font-size: 13px; color: #90a4ae; margin-bottom: 1em;
+    font-size: 0.87em; color: #90a4ae; margin-bottom: 1em;
     display: flex; gap: 2em; flex-wrap: wrap;
   }
   #persona-modal .persona-meta span { display: inline-flex; align-items: center; gap: 0.3em; }
@@ -423,6 +537,36 @@
   }
   #outline-panel .outline-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
   #outline-panel .outline-item.active { background: rgba(100, 181, 246, 0.12); color: #64b5f6; }
+
+  /* Reduced motion — keep every state change legible, drop the movement.
+     Hover feedback survives as a border/background change; only travel is removed.
+     Reveal's own slide transition is disabled in the init script. */
+  @media (prefers-reduced-motion: reduce) {
+    .reveal .pipeline .agent-card,
+    .reveal .team-grid .team-card,
+    .reveal .compare > div[data-modal],
+    .reveal .info-link,
+    #outline-panel,
+    #outline-toggle,
+    #outline-toggle span,
+    #persona-toggle,
+    #recipe-modal .modal-close,
+    #info-modal .modal-close,
+    #persona-modal .modal-close,
+    #outline-panel .outline-item {
+      transition: none;
+    }
+
+    .reveal .pipeline .agent-card:hover,
+    .reveal .team-grid .team-card:hover,
+    .reveal .compare > div[data-modal]:hover {
+      transform: none;
+    }
+
+    .reveal .pipeline .agent-card:hover {
+      border-color: rgba(100, 181, 246, 0.5);
+    }
+  }
 </style>
 </head>
 <body>
@@ -433,6 +577,16 @@
       <button class="modal-close">ESC to close</button>
     </div>
     <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div id="info-modal" role="dialog" aria-modal="true" aria-labelledby="info-modal-title" aria-hidden="true">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="info-modal-title"></h3>
+      <button class="modal-close" type="button">ESC to close</button>
+    </div>
+    <div class="modal-body" id="info-modal-body"></div>
   </div>
 </div>
 
@@ -469,6 +623,16 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
 <script>
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Images are inlined once by the build and applied here, so a screenshot reused
+// across slides costs one payload rather than one per occurrence.
+const imageData = /* BUILD:IMAGE_DATA */;
+document.querySelectorAll('[data-img]').forEach(el => {
+  const uri = imageData[el.getAttribute('data-img')];
+  if (uri) el.src = uri;
+});
+
 Reveal.initialize({
   hash: true,
   slideNumber: 'c/t',
@@ -476,7 +640,7 @@ Reveal.initialize({
   height: 720,
   margin: 0.08,
   center: true,
-  transition: 'slide',
+  transition: prefersReducedMotion ? 'none' : 'slide',
   transitionSpeed: 'default',
   plugins: [RevealNotes, RevealHighlight]
 }).then(() => {
@@ -572,6 +736,58 @@ Reveal.initialize({
     }
   }, true);
 
+  // Inline info modal — triggered by .info-link buttons carrying data-info="<template id>"
+  const infoModal = document.getElementById('info-modal');
+  const infoTitle = document.getElementById('info-modal-title');
+  const infoBody = document.getElementById('info-modal-body');
+  const infoClose = infoModal.querySelector('.modal-close');
+  let infoOpener = null;
+
+  function closeInfoModal() {
+    infoModal.classList.remove('open');
+    infoModal.setAttribute('aria-hidden', 'true');
+    if (infoOpener) { infoOpener.focus(); infoOpener = null; }
+  }
+
+  document.querySelectorAll('.info-link[data-info]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tpl = document.getElementById(el.dataset.info);
+      if (!tpl) return;
+      infoOpener = el;
+      infoTitle.textContent = el.dataset.infoTitle || '';
+      infoBody.replaceChildren(tpl.content.cloneNode(true));
+      infoModal.classList.add('open');
+      infoModal.setAttribute('aria-hidden', 'false');
+      infoClose.focus();
+    });
+    // Reveal steals Space for slide navigation; keep it as button activation here.
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.click();
+    });
+  });
+
+  infoModal.addEventListener('click', (e) => {
+    if (e.target === infoModal || e.target.closest('.modal-close')) closeInfoModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!infoModal.classList.contains('open')) return;
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      closeInfoModal();
+    } else if (e.key === 'Tab') {
+      // Only the close button is focusable inside the dialog — keep focus there.
+      e.preventDefault();
+      infoClose.focus();
+    }
+    // Nothing behind the dialog should react to keys while it is open.
+    e.stopImmediatePropagation();
+  }, true);
+
   // Persona source modal
   const personaModal = document.getElementById('persona-modal');
   const personaToggle = document.getElementById('persona-toggle');
@@ -596,6 +812,53 @@ Reveal.initialize({
     if (e.key === 'Escape' && personaModal.classList.contains('open')) {
       personaModal.classList.remove('open');
       e.stopImmediatePropagation();
+    }
+  }, true);
+
+  // ── Overflow audit ─────────────────────────────────────────────────────────
+  // Vertical overflow is the deck's most common defect: a slide that runs past
+  // the viewport collides with the nav arrows in a corner nobody is looking at.
+  // Append ?audit to the URL, or press Shift+O, to measure every slide.
+  async function auditOverflow() {
+    const sections = [...document.querySelectorAll('.reveal .slides > section')];
+    if (!sections.length) {
+      console.warn('Overflow audit needs slide mode — it cannot measure Reveal\'s scroll view.');
+      return [];
+    }
+    const restore = Reveal.getIndices();
+    const failures = [];
+    for (let i = 0; i < sections.length; i++) {
+      Reveal.slide(i);
+      // A timer, not requestAnimationFrame — rAF is throttled to a standstill in
+      // a background tab, which would stall the audit indefinitely.
+      await new Promise(r => setTimeout(r, 0));
+      const box = sections[i].getBoundingClientRect();
+      const over = Math.round(box.bottom - window.innerHeight);
+      if (over > 1) {
+        failures.push({
+          slide: i + 1,
+          title: sections[i].querySelector('h2, h1')?.textContent.trim() ?? '(untitled)',
+          overflowPx: over,
+        });
+      }
+    }
+    Reveal.slide(restore.h, restore.v);
+
+    if (failures.length) {
+      console.error('Slides overflowing the viewport:');
+      console.table(failures);
+    } else {
+      console.log('✓ No slide overflows the viewport at ' + window.innerWidth + '×' + window.innerHeight + '.');
+    }
+    return failures;
+  }
+
+  window.auditOverflow = auditOverflow;
+  if (new URLSearchParams(location.search).has('audit')) auditOverflow();
+  document.addEventListener('keydown', (e) => {
+    if (e.shiftKey && (e.key === 'O' || e.key === 'o')) {
+      e.stopImmediatePropagation();
+      auditOverflow();
     }
   }, true);
 });

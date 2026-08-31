@@ -1,0 +1,71 @@
+<section>
+  <p class="section-label">Working With Models</p>
+  <h2>Newer Is Not Simply Better</h2>
+  <p class="lead">
+    A new model version is a new colleague, not a promotion for the old one.
+  </p>
+  <div class="card-stack" style="--stack-size: 0.73em; --stack-gap: 0.6em;">
+    <div class="glass-card">
+      <strong class="accent">Capability and behaviour can shift.</strong><br>
+      <span class="muted">Opus&nbsp;5 and Sonnet&nbsp;5 for example adhere to instructions far more
+      strictly.<br>
+      Example: the Plan Auditor 
+      <button type="button" class="info-link" data-info="info-auditor-refusal"
+              data-info-title="Sonnet 5's strict adherence">refusing to modify the plan document</button>.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Monitor the first runs with new model versions.</strong><br>
+      <span class="muted">Changes will become visible in your real world projects. Get a feeling for your interactions, read the model's internal dialogue and verify results.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Persona evolution in action.</strong><br>
+      <span class="muted">Adjusting your personas is expected and encouraged. They are living documents, and fully yours to maintain.</span>
+    </div>
+  </div>
+  <p style="font-size: 0.75em; margin-top: 1.5em;">
+    Within the same version, models also evolve as providers work on them continuously.
+  </p>
+  <template id="info-auditor-refusal">
+    <p>
+      The Plan Auditor's persona said it audits plans and does not rewrite them. This was correct,
+      but sometimes I told the auditor to make small adjustments directly.
+    </p>
+    <p>
+      Sonnet 4.6 happily did so. Sonnet 5 followed the rule and <strong>declined outright</strong>.
+      It declined even after specifically giving it permission to do so in our conversation.
+    </p>
+    <p>
+        <em>
+        <span class="accent-blue">Worth noting is that nothing was broken and nothing had changed on our side: The persona's instructions were simply 
+        interpreted more strictly than before.</span>
+        </em>
+    </p>
+    <p>
+        The solution: The existing rule was correct and kept as-is. A clause was added detailing that 
+        smaller changes could be integrated directly on the user's request.
+    </p>
+  </template>
+  <aside class="notes">
+    This one costs people real time, so it's worth stating plainly: a version number going up does not
+    mean every behaviour got better. It means you have a different colleague now.
+
+    The example is ours and it's recent. The Plan Auditor is deliberately scoped to audit and not to
+    rewrite — that separation is what keeps the audit trustworthy. Older models read that as a strong
+    preference and would still make a correction if you asked them to. Opus 5 and Sonnet 5 read the
+    same sentence as a hard constraint and refused, including on direct instruction to fix a defect
+    they had just reported.
+
+    Note what happened there. Nothing regressed. The model got better at doing exactly what the
+    persona said. Our wording was just looser than we thought it was, and the older model's leniency
+    had been quietly covering for it.
+
+    So the practical advice is: when you move to a new model, watch the first few real runs. Benchmarks
+    won't tell you this — it only shows up against your personas and your project. And when you find
+    something, adjust the persona. That's not a failure of the design, that's the design working. The
+    persona is a living document; it's versioned and built from one source precisely so that this kind
+    of change is a single edit rather than a hunt through copies.
+
+    If anyone asks whether that means pinning model versions: you can, and for a production pipeline
+    it's reasonable. But you'll want to move eventually, and the same audit is waiting for you then.
+  </aside>
+</section>

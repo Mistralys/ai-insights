@@ -1,0 +1,58 @@
+<section>
+  <p class="section-label">Working With Models</p>
+  <h2>Every Session Starts From Zero</h2>
+  <p class="lead">
+    Every session, the model discovers your project anew.<br>
+    <span class="accent">Make that easy &amp; fast.</span>
+  </p>
+  <div class="persona-structure" style="max-width: 860px; margin: 0 auto; font-size: 0.72em;">
+    <div class="section"><span class="num">›</span> <span class="label">Technical manifest</span>
+      <span class="desc">&mdash; pre-fetched codebase knowledge: beats the codebase search.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Domain briefs</span>
+      <span class="desc">&mdash; what the business actually does, in its own vocabulary.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Institutional knowledge</span>
+      <span class="desc">&mdash; the things everyone knows and nobody wrote down.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">System architecture</span>
+      <span class="desc">&mdash; the wider landscape, and a &ldquo;you are here&rdquo; marker on it.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Project vision</span>
+      <span class="desc">&mdash; short, mid and long term.</span></div>
+    <div class="section"><span class="num">›</span> <span class="label">Glossary</span>
+      <span class="desc">&mdash; ties all of the above together.</span></div>
+  </div>
+  <p style="font-size: 0.76em; margin-top: 1.6em;">
+    <span class="accent-blue">This is the foundation for any meaningful agentic work.</span>
+  </p>
+  <p class="sidenote" style="margin-top: 1.2em;">
+    The best persona in the world cannot compensate for project knowledge nobody has written down.
+  </p>
+  <aside class="notes">
+    If there is one piece of homework to take from this talk, it's this slide — and it's the one that
+    pays off regardless of which tools you end up using.
+
+    Start with the amnesia. The agent that picks up your task has never seen your project. Not "has
+    forgotten" — has never seen it. That happens again on the next request, and the one after. You can
+    either let it rediscover the project every time, or you can write the project down once and hand it
+    over.
+
+    On the manifest specifically: pre-fetched knowledge beats search, and that surprises people. Letting
+    an agent grep its way around a codebase works, but it's slow, it burns context on dead ends, and
+    what it finds depends on what it happened to search for. A manifest that states the architecture,
+    the public interfaces, the conventions and the file tree up front is both cheaper and more reliable.
+    In this repo that's the project manifest — and there's a rule that if the code contradicts the
+    manifest, the code is probably what's wrong.
+
+    Being straight about what's in place here: the technical manifest, the file tree, the architecture
+    documents and the vision are all real and in daily use. Domain briefs and a proper glossary are on
+    the list rather than done. I'm putting them on the slide because the need for them is what I keep
+    running into, not because I've solved them.
+
+    The two that non-developers will care about most are institutional knowledge and the glossary. That's
+    exactly what the business-engineer workspace from Part 1 is — a division's knowledge written down
+    somewhere an agent can read it. And the glossary matters more than it sounds: most of the confusion
+    I've seen between an agent and a project comes down to one word meaning two different things.
+
+    Last point, and it connects back to AX: none of this is documentation you write for the agent's
+    benefit alone. A new colleague needs all six of these too. The agent just makes the absence
+    impossible to ignore, because it never quietly works around the gap.
+  </aside>
+</section>

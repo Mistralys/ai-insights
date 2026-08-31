@@ -1,0 +1,55 @@
+<section>
+  <p class="section-label">Working With Models</p>
+  <h2>Personas and Skills</h2>
+  <p class="lead">Clear boundaries make skills effective.</p>
+  <div class="compare" style="font-size: 0.95em;">
+    <div>
+      <div class="label after">Persona</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        <strong class="accent">The profession.</strong><br>
+        <br>
+        A developer, copywriter, designer, etc. Has identity, values, standards,
+        and a workflow.<br>
+        <br>
+        <em class="muted">"I know what my job is and how to do it well."</em><br>
+        <br>
+        <em>› Loaded for a whole session.</em>
+      </p>
+    </div>
+    <div>
+      <div class="label after">Skill</div>
+      <p style="font-size: 0.7em; text-align: left;">
+        <strong class="accent">A specific task, workflow or capability.</strong><br>
+        <br>
+        Often project-specific: A software release check, updating the changelog with 
+        a particular writing style, etc.<br>
+        <br>
+        <em class="muted">"How to do X in project Y."</em><br>
+        <br>
+        <em>› Invoked on demand.</em>
+      </p>
+    </div>
+  </div>
+  <p class="sidenote" style="margin-top: 1.2em;">
+    💡 Tip: Keep skills slim. The knowledge they need belongs in the project manifest, 
+    and the skills point there.
+  </p>
+  <aside class="notes">
+    This is the question I get asked most often, so it's worth being crisp about it.
+
+    The persona is the colleague. The skill is the runbook on their desk. You don't rewrite someone's
+    job description because a deployment procedure changed — you update the runbook.
+
+    Concrete example from this repo: the Developer persona knows how to implement a plan, review its
+    own work, and capture insights. That's the persona. But "check whether this project is ready to
+    tag a release" is project-specific — seven checks, in a fixed order, particular to this codebase.
+    That's the release-check skill, and it lives with the project rather than with the persona.
+
+    On slimness: the skills in this repo are deliberately short. When a skill needs a lot of
+    background, that background goes into a reference document and the skill links to it. Both models
+    and humans skim long documents, and a skipped step in a procedure is worse than no procedure.
+
+    Skills are built and deployed by the same pipeline as personas — source files in, platform-specific
+    output for VS Code and Claude Code out. Same discipline, different artifact.
+  </aside>
+</section>
