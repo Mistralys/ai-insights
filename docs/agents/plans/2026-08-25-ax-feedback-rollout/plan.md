@@ -1,8 +1,8 @@
 # Plan
 
 ## Plan Audit Cycles
-- Audits: none — Plan Auditor v1.7.0
-- Architectural Reviews: none — Plan Architect Reviewer v2.2.0
+- Audits: 2 — Plan Auditor v1.9.1
+- Architectural Reviews: 1 — Plan Architect Reviewer v2.3.1
 
 ## Prior Project Context
 
@@ -17,11 +17,19 @@ One insight directly governs implementation: *"Extract build-time validations in
 
 ## Summary
 
-Roll out the AX (Agent Experience) Feedback mechanism from its 5 proof-of-concept personas to all eligible personas across the three suites, with a persistence channel selected per group, while keeping AX Feedback a **pure checkpoint duty** on every persona. The rollout is gated behind two new metadata fields (`ax_feedback`, `ax_feedback_target`) so group membership is declared in YAML rather than inferred inside the partial, and so the whole change is reversible at the metadata layer.
+Roll out the AX (Agent Experience) Feedback mechanism from its 9 pre-existing AX personas (5 proof-of-concept + 4 audit-inserted) to all eligible personas across the three suites, with a persistence channel selected per group, while keeping AX Feedback a **pure checkpoint duty** on every persona. The rollout is gated behind two new metadata fields (`ax_feedback`, `ax_feedback_target`) so group membership is declared in YAML rather than inferred inside the partial, and so the whole change is reversible at the metadata layer.
 
 Three defects in the existing partial are fixed first and blocking: the `## AX Feedback` H2 that terminates the enclosing `## Workflow` section (D1), the build-system post-processor mangling the fenced template block (D2 — fixed at the root cause in `@mistralys/persona-builder` **and** worked around partial-side), and the absence of a sub-agent propagation rule. The plan also deletes the orphaned `personas/shared/partials/incident-logging.md` stub while explicitly preserving the live ledger override, and corrects a pre-existing `default_cc_tools` documentation bug plus its dead YAML keys.
 
 This plan implements `docs/agents/projects/2026-08-25-ax-feedback-rollout-spec.md`. It resolves one gap the spec did not cover: `ledger_add_project_comment` is granted to ledger agents 3–9 only, so Group B cannot include agents 1 and 2 as written.
+
+### Post-Research Amendments (2026-08-26)
+
+Persona audits for Design Guide v2.8 (commits `b1ea33ef`, `9886f61a`, `8b356d07`) merged into this branch after the plan was written. Three impacts:
+
+1. **`comms-curator` reclassified from D-off to C.** The audit inserted an AX block and confirmed it has `edit`. User decision: keep the block — the persona genuinely benefits from AX feedback. Group D-off is now `recipe-curator` only (count 1). Group C rises from 27 to 28.
+2. **Four fewer content insertions needed.** `web-gui-specialist`, `comms-curator`, `documentation-curator`, and `unit-test-auditor` already carry AX blocks from the audits. They join the "flag-only" set alongside the proof-of-concept personas.
+3. **Stale line-number references corrected.** The audits restructured many content templates. All line references in steps and Required Components have been updated to match the post-audit state.
 
 ## Architectural Context
 
@@ -45,9 +53,9 @@ This plan implements `docs/agents/projects/2026-08-25-ax-feedback-rollout-spec.m
 |---|---|---|---|---|
 | **A** | standalone `developer`, `web-gui-specialist` | 2 | `synthesis` | AX Feedback section in `synthesis.md`, compiled from the existing JSONL sink (widened with an `ax` type) |
 | **B** | ledger agents 2–9 | 8 | `ledger` | `ledger_add_project_comment`, `type: "ax"` |
-| **C** | remaining flag-enabled personas with `edit` | 27 | `sidecar` | AX sidecar file, friction-only, two-rung ladder |
-| **D-inline** | ledger agent 1; the 4 personas lacking `edit` | 5 | `inline` | Inline in the response only |
-| **D-off** | `recipe-curator`, `comms-curator` | 2 (of which `recipe-curator` is also in D-inline's `edit`-lacking set) | `ax_feedback: false` | No AX block emitted |
+| **C** | remaining flag-enabled personas with `edit` | 28 | `sidecar` | AX sidecar file, friction-only, two-rung ladder |
+| **D-inline** | ledger agent 1; the 3 standalone/support personas lacking `edit` (excl. `recipe-curator`) | 4 | `inline` | Inline in the response only |
+| **D-off** | `recipe-curator` | 1 | `ax_feedback: false` | No AX block emitted |
 
 Group membership lives entirely in YAML. The partial reads `ax_feedback_target` and emits the matching persistence instruction; it never infers group from role, suite, or tool list.
 
@@ -57,7 +65,7 @@ Group membership lives entirely in YAML. The partial reads `ax_feedback_target` 
 
 ## Rationale
 
-**A metadata flag rather than partial-side inference.** The spec's three consumers are real and verifiable: Group D exclusion (7 personas that must not write a file or must emit nothing), channel selection (4 distinct persistence targets), and rollback (without the flag, reversing the rollout means re-editing ~48 insertion sites). This is not a speculative configuration knob — every value is consumed on day one.
+**A metadata flag rather than partial-side inference.** The spec's three consumers are real and verifiable: Group D exclusion (5 personas that must not write a file or must emit nothing), channel selection (4 distinct persistence targets), and rollback (without the flag, reversing the rollout means re-editing ~48 insertion sites). This is not a speculative configuration knob — every value is consumed on day one.
 
 **`ledger_add_project_comment` over `ledger_add_observation`.** `AddObservationSchema` (`mcp-server/src/tools/observations.ts` L18–34) requires `work_package_id` and `pipeline_type` and writes a pipeline comment onto a work package. AX friction ("the handoff data was ambiguous") is not a property of that WP's code, and filing it there routes it into Synthesis's Code Insights section, which `personas/ledger/src/content/9-synthesis.md` L71 defines as exactly "observations recorded via `ledger_add_observation`". `AddProjectCommentSchema` is project-scoped with a required `agent` field and free-form `type` — a precise fit needing zero schema change.
 
@@ -76,7 +84,7 @@ Group membership lives entirely in YAML. The partial reads `ax_feedback_target` 
 | Ledger agents 1 & 2 | Grant the tool to agent 2; agent 1 inline-only | Both inline-only; grant to both | Agent 2 owns the ledger's creation, so persistence is available and its friction (plan ambiguity, decomposition gaps) is high-value. Agent 1 hands off before any ledger exists — granting it the tool would produce a guaranteed-failing call. |
 | Group A sink handling | Option A — widen the existing sink with an `ax` type | Option B — checkpoint-only, like all other non-ledger personas | These are the two longest-session personas in the standalone suite, where handoff-time recall is weakest. Widening an already-open sink's type vocabulary adds no new continuous duty. Cost is 3 bounded follow-through edits, all identified. |
 | Group C persistence format | Human-readable prose, gitignored | JSONL / machine-readable schema; centralized AX store | The consumer is the user, reading the file in or shortly after the session that produced it. Designing a parser format for an aggregator that does not exist is speculative; if centralization is ever built it can define its own format. |
-| Group D exclusion mechanism | `ax_feedback: false` in YAML | Omit the `{{> ax-feedback}}` insertion from those content templates | The flag keeps a single uniform insertion pattern across all content templates and makes exclusion auditable in one place (metadata) rather than by the absence of a line in 7 files. |
+| Group D exclusion mechanism | `ax_feedback: false` in YAML | Omit the `{{> ax-feedback}}` insertion from those content templates | The flag keeps a single uniform insertion pattern across all content templates and makes exclusion auditable in one place (metadata) rather than by the absence of a line in a content file. |
 | D2 fix location | Library fix **and** partial-side restructure | Partial-side only; library only | Partial-side only leaves the bug latent for every future partial. Library-only makes Stage 1's correctness depend on a cross-repo publish + install landing first. Doing both retires the bug class and decouples the stages. |
 | `default_cc_tools` | Fix the 4 docs and delete the dead keys | Fix docs only; split into a separate plan; delete keys only | Docs and configuration must agree. The research is already done and the change is provably inert (nothing in the library reads the key), so deferring it a third time costs more than including it. |
 | AX section tier in the Design Guide | **Recommended** — registered in the Optional Sections table with a "when to include" rule | **Required** section (superseded plan's Step 6a) | Marking it Required permanently binds every future persona to a mechanism with no measured benefit yet. The guide has no third tier, so the Optional table (which already carries a "When to Include" column) is the correct home. |
@@ -85,7 +93,7 @@ Group membership lives entirely in YAML. The partial reads `ax_feedback_target` 
 
 - **Follows** the shared-partial precedent for short, suite-agnostic behavioural fragments — `personas/shared/partials/` per `personas/docs/agents/project-manifest/constraints.md` L247, as established by `insight-capture.md` and `mcp-insight-capture.md`.
 - **Follows** the parameterised-partial pattern from `2026-08-24-insight-channel-consolidation`: the partial branches on a metadata field (`ax_feedback_target`) rather than duplicating per-suite variants.
-- **Follows** the numbered-step insertion pattern established by the 5 proof-of-concept personas — verified at `personas/ledger/src/content/3-developer.md` L177–186 (numbered step, blank line, `{{> ax-feedback}}`, then the target-conditional handoff at `N+1`).
+- **Follows** the numbered-step insertion pattern established by the 9 pre-existing AX personas — verified at `personas/ledger/src/content/3-developer.md` L177–179 (numbered step, blank line, `{{> ax-feedback}}`, then the target-conditional handoff at `N+1`).
 - **Follows** the feature-flag metadata precedent set by `has_incident_logging` (`personas/ledger/src/meta/*.yaml`, documented in `personas/docs/agents/project-manifest/api-surface.md` L218 and `variables.md` L51) for flag shape and documentation placement.
 - **Follows** the build-time validation pattern from `scripts/lib/insight-validation.js`, invoked unconditionally by `scripts/build-personas.js` L456–470 in both real and `--check` modes.
 - **Follows** the two-rung sink-path ladder from `personas/shared/partials/insight-capture.md` L7–8 (plan folder first, then a repo-relative dated directory).
@@ -113,7 +121,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 
 6. **Add the sub-agent propagation rule** to `ax-feedback.md`: a parent persona does not re-emit a sub-agent's AX block verbatim; it may merge a genuinely distinct item, attributed to the sub-agent, counting against the 3-bullet cap. Applies to the 10 sub-agent dispatchers (ledger `2-project-manager`, `7-release-engineer`, `8-documentation`, `9-synthesis`; standalone `developer`, `documentation-curator`, `manifest-curator`, `plan-refiner`, `web-gui-specialist`, `workspace-architect`).
 
-7. **Add the persistence branch** to `ax-feedback.md`, keyed on `ax_feedback_target` with four arms — `ledger` (call `ledger_add_project_comment` with `type: "ax"`, `agent: {{role}}`, no `context` required), `synthesis` (record an `ax`-typed entry in the existing sink; compile into an AX Feedback section of `synthesis.md`), `sidecar` (two-rung ladder, friction-only, append-only, non-blocking), `inline` (report in the response only, no file write). State explicitly that AX Feedback fires at the handoff checkpoint and covers design friction, while `incident-logging` fires on a system malfunction — the two duties do not overlap and both are kept.
+7. **Add the persistence branch** to `ax-feedback.md`, keyed on `ax_feedback_target` with four arms — `ledger` (call `ledger_add_project_comment` with `type: "ax"`, `agent: {{role}}`, no `context` required), `synthesis` (record an `ax`-typed entry in the existing sink; compile into an AX Feedback section of `synthesis.md`), `sidecar` (two-rung ladder, friction-only, append-only, non-blocking), `inline` (report in the response only, no file write). State explicitly that AX Feedback fires at the handoff checkpoint and covers design friction, while `incident-logging` fires on a system malfunction — the two duties do not overlap and both are kept. Update `AddProjectCommentSchema.type`'s Zod `.describe()` string in `mcp-server/src/tools/observations.ts` (currently `'Comment type: "incident", "note", or "decision"'`) to `'Comment type: "incident", "note", "decision", or "ax"'`, so the tool contract the calling agent reads matches the new persona-side convention — a one-line description-text change, not a schema change. Add a `mcp-server/changelog.md` entry for it per the workspace's changelog convention.
 
 8. **Verify the partial carries no capture sink.** Confirm `ax-feedback.md` contains no instruction to append during work — this is the invariant the whole plan exists to preserve.
 
@@ -121,7 +129,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 
 10. **Add build-time validation** as a new standalone module `scripts/lib/ax-validation.js` (mirroring `scripts/lib/insight-validation.js`), invoked unconditionally from `scripts/build-personas.js` in both real and `--check` modes alongside the existing `validateInsightFieldsInDirs` call at L456–470. It must fail the build when: `ax_feedback` is absent from any persona; `ax_feedback: true` without a valid `ax_feedback_target`; `ax_feedback_target` set while `ax_feedback: false`; `ax_feedback_target: sidecar` on a persona whose `tools:` block lacks `edit`; or `ax_feedback_target: ledger` on a persona whose `mcp_tools` lacks `ledger_add_project_comment`. Add fixture tests in `scripts/tests/`.
 
-11. **Re-verify the 5 proof-of-concept personas.** Rebuild and confirm the D1/D2 fixes produce correct output for ledger `3-developer`, ledger `9-synthesis`, standalone `developer`, `readme-curator`, and `changelog-curator` (both of its two insertion sites at L129 and L160), with no regression in their existing behaviour.
+11. **Re-verify the 9 pre-existing AX personas.** Rebuild and confirm the D1/D2 fixes produce correct output for the 5 proof-of-concept personas (ledger `3-developer`, ledger `9-synthesis`, standalone `developer`, `readme-curator`, `changelog-curator`) and the 4 audit-inserted personas (`web-gui-specialist`, `comms-curator`, `documentation-curator`, `unit-test-auditor`), with no regression in their existing behaviour.
 
 ### Stage 2 — Group B: ledger suite (8 personas)
 
@@ -129,7 +137,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 
 13. **Set the flags for ledger personas.** `ax_feedback: true` + `ax_feedback_target: ledger` on agents 2–9. `ax_feedback: true` + `ax_feedback_target: inline` on agent 1 (Planner) — no ledger exists at its handoff.
 
-14. **Insert the AX step into ledger content templates.** Agents 2, 4, 5, 6, 7, 8 need a new insertion (3 and 9 already have one and only need the flag). Follow the verified pattern: numbered step `N. **AX Feedback:** Before handing off, reflect on your session experience.`, blank line, `{{> ax-feedback}}`, then the existing target-conditional handoff block renumbered to `N+1`. Agent 1 and agent 9 have inline handoffs rather than a `handoff-block` partial — insert before the inline handoff step.
+14. **Insert the AX step into ledger content templates.** Agents 2, 4, 5, 6, 7, 8 need a new insertion (3 and 9 already have one and only need the flag). Follow the verified pattern: numbered step `N. **AX Feedback:** Before handing off, reflect on your session experience.`, blank line, `{{> ax-feedback}}`, then the existing target-conditional handoff block renumbered to `N+1`. Agent 1 has an inline handoff — insert before the inline handoff step. Agent 9 already has one at L120 and needs only the flag.
 
 15. **Audit `project_comments` readers for the new type.** Confirm each either handles or ignores `type: "ax"`: the GUI Project Comments card (`mcp-server/gui/public/views/project-detail.js` L648–674 — type-agnostic, verified), the Synthesis persona's narrative read (`personas/ledger/src/content/9-synthesis.md` L46), and Ledger Doctor's audit-trail read (`personas/ledger-support/src/content/ledger-doctor.md` L275). Note that `GET /api/insights` is already removed (404, asserted at `mcp-server/tests/gui/server-knowledge-routes.test.ts` L493–494), so `getInsights` in `mcp-server/gui/public/api-client.js` L211–221 is dead code with no live consumer to pollute.
 
@@ -139,31 +147,31 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 
 17. **Add the `ax` type filter to compilation.** `personas/shared/partials/insight-compilation.md` L3 currently compiles *every* sink entry into `{{insight_report_target}}` (the Code Insights section of `synthesis.md`). Add a type filter so `ax`-typed entries route to an AX Feedback section instead, leaving Code Insights unpolluted.
 
-18. **Fix the sink-state forcing table.** The same partial's table at L24–28 treats "marker present + entries from any agent" as "capture ran and produced material". An AX-only sink would falsely read as a clean code result. The table must count **non-`ax`** entries when classifying sink state.
+18. **Fix the sink-state forcing table.** The same partial's table at L24–28 treats "marker present + entries from any agent" as "capture ran and produced material". An AX-only sink would falsely read as a clean code result. The table must count **non-`ax`** entries when classifying sink state. Add a static test (extending `scripts/tests/ax-partial-invariants.test.js`, or a new `scripts/tests/insight-compilation-invariants.test.js`) asserting `insight-compilation.md` contains type-filtering language for `ax` and that the sink-state table's forcing-function row is keyed on non-`ax` entries — mirroring the existing static-assertion pattern for `ax-feedback.md`'s invariants rather than relying solely on the Stage 3 manual gate.
 
-19. **Add an `ax` row to each persona's Scope & Boundaries table.** Both personas declare a code-only observation territory (the pattern at `personas/ledger/src/content/3-developer.md` L150); an `ax` type contradicts it unless the table is extended.
+19. **Add an `ax` row to each persona's Scope & Boundaries table.** Both personas declare a code-only observation territory (the pattern at `personas/ledger/src/content/3-developer.md` L84); an `ax` type contradicts it unless the table is extended.
 
-20. **Insert the AX step** into `personas/standalone/src/content/web-gui-specialist.md` (standalone `developer.md` already has one at L206 and needs only the flag).
+20. **Verify the pre-existing AX blocks** in standalone `developer.md` (L228) and `web-gui-specialist.md` (L247) — both already have insertions and need only the metadata flags.
 
-### Stage 4 — Group C: sidecar personas (27 personas)
+### Stage 4 — Group C: sidecar personas (28 personas)
 
 21. **Set the flags** — `ax_feedback: true`, `ax_feedback_target: sidecar` — on the remaining standalone and ledger-support personas that hold `edit`.
 
-22. **Insert the AX step** into each Group C content template, matching the persona's structural shape (see Required Components for the per-shape mapping): single-workflow personas take one insertion; the 3 personas with a separate `## Handoff` H2 (`agents-md-curator` L323, `ctx-architect` L397, `usage-scenarios-curator` L352) take an unnumbered block before that heading; the 5 personas with no `## Workflow` H2 and the 4 with multiple mode-split workflows take one insertion per mode.
+22. **Insert the AX step** into each Group C content template that does not already have one, matching the persona's structural shape (see Required Components for the per-shape mapping): single-workflow personas take one insertion; the 3 personas with a separate `## Handoff` H2 (`agents-md-curator` L285, `ctx-architect` L452, `usage-scenarios-curator` L352) take an unnumbered block before that heading; the 6 personas with mode-scoped `### Workflow` and the 3 with multiple `## Workflow` H2s (excl. flag-off `recipe-curator`) take one insertion per mode. Five Group C personas already have AX blocks from the proof-of-concept or persona audits (`changelog-curator`, `readme-curator`, `comms-curator`, `documentation-curator`, `unit-test-auditor`) and need only the metadata flags.
 
 23. **Add both `.gitignore` patterns.** Rung 1: `/docs/agents/**/ax-feedback.md` — filename-specific, mirroring the existing `audit.md` / `research-brief.md` entries. Rung 2: `/docs/agents/ax/` — mirroring the existing `/docs/agents/insights/` entry. Add a comment stating the sidecar is a working note for the user, not a repository artefact. **Verify the rung-1 pattern does not hide `insights.jsonl`**, which is a tracked plan-folder artefact.
 
 ### Stage 5 — Group D, documentation, regeneration
 
-24. **Set Group D flags.** `ax_feedback: true` + `ax_feedback_target: inline` on the 4 personas lacking `edit` (`standalone/git-committer`, `standalone/recipe-curator`, `ledger-support/ledger-knowledge-curator`, `ledger-support/ledger-orchestrator-archaeologist`) — except `recipe-curator`, which takes `ax_feedback: false` as a user-facing output persona. `ax_feedback: false` on `comms-curator` (audience-facing prose output).
+24. **Set Group D flags.** `ax_feedback: true` + `ax_feedback_target: inline` on the 3 personas lacking `edit` (`standalone/git-committer`, `ledger-support/ledger-knowledge-curator`, `ledger-support/ledger-orchestrator-archaeologist`). `ax_feedback: false` on `recipe-curator` (user-facing output persona with no codebase interaction).
 
 25. **Update the Design Guide.** In `personas/docs/persona-design-guide.md`: register AX Feedback in the **Optional Sections** table (L87–110) with a "when to include" rule describing it as recommended for any persona that performs work on a codebase; extend Pattern 6 (L522–546) with AX Feedback as a worked example of a duty deliberately kept checkpoint-slotted *instead of* being given a sink; bump the version and prepend a history entry to the block at L15–22.
 
-26. **Add the Persona Curator checklist item.** Append a matching `- [ ]` item to the Quality Checklist in `personas/standalone/src/content/persona-curator.md` (L178–207).
+26. **Add the Persona Curator checklist item.** Append a matching `- [ ]` item to the Quality Checklist in `personas/standalone/src/content/persona-curator.md` (L184–210).
 
-27. **Re-affirm the sidecar-reference invariant.** `docs/references/insights-sidecar-reference.md` L336–337 already asserts that checkpoint-slotted partials such as `ax-feedback` do not count toward the one-side-channel cap. Make the re-affirmation explicit rather than incidental, now that `ax-feedback` is on 41 personas.
+27. **Re-affirm the sidecar-reference invariant.** `docs/references/insights-sidecar-reference.md` L336–337 already asserts that checkpoint-slotted partials such as `ax-feedback` do not count toward the one-side-channel cap. Make the re-affirmation explicit rather than incidental, now that `ax-feedback` is on 42 personas (43 minus 1 D-off).
 
-28. **Document the new metadata fields** in `personas/docs/agents/project-manifest/api-surface.md` (metadata schema table + feature-flag table) and `variables.md`, per the root `AGENTS.md` Manifest Maintenance Rule for feature flags. Update the shared-partial inventory for the deleted `incident-logging.md` stub.
+28. **Document the new metadata fields** in `personas/docs/agents/project-manifest/api-surface.md` (metadata schema table + feature-flag table) and `variables.md`, per the root `AGENTS.md` Manifest Maintenance Rule for feature flags. Update the shared-partial inventory for the deleted `incident-logging.md` stub — narrowly: correct only the `incident-logging.md` reference in the two affected rows (`developer-strict-constraints.md`, `docs-operational-protocol.md`). The same table's roughly 18 other rows referencing shared partials that no longer exist (including those two rows' own filenames) are a separate, pre-existing staleness issue predating this plan and are out of scope here.
 
 29. **Delete the orphaned shared stub.** Remove `personas/shared/partials/incident-logging.md`. **Keep `personas/ledger/src/partials/incident-logging.md`** and all 6 of its consumers unchanged. Confirm the standalone and ledger-support builds emit no `[WARN]` for a missing partial (the stub's original purpose no longer applies — no non-ledger persona references it).
 
@@ -223,6 +231,13 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 |---|---|
 | `personas/shared/partials/incident-logging.md` | Orphaned dead stub — zero references from any suite |
 
+### Modified — mcp-server tool schema description
+
+| File | Change |
+|---|---|
+| `mcp-server/src/tools/observations.ts` | `AddProjectCommentSchema.type`'s Zod `.describe()` string updated to enumerate `"ax"` alongside `"incident"`, `"note"`, `"decision"` — text only, no schema/type change |
+| `mcp-server/changelog.md` | New entry for the description-text update |
+
 ### Preserved unchanged (explicit non-targets)
 
 | File | Reason |
@@ -230,7 +245,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 | `personas/ledger/src/partials/incident-logging.md` | Live MCP channel for all 6 ledger consumers |
 | `personas/ledger/src/content/{3,4,5,6,7,8}-*.md` — the `{{> incident-logging}}` lines | The duty is kept; AX extends the channel rather than replacing it |
 | `has_incident_logging` in all 9 ledger YAML files and its 4 documentation sites | The partial it guards stays |
-| `mcp-server/src/tools/observations.ts`, `mcp-server/src/schema/root-index.ts` | `type` is already free-form `z.string()`; no schema change needed |
+| `mcp-server/src/schema/root-index.ts` | `type` is already free-form `z.string()`; no schema change needed |
 
 ### Modified — persona metadata (all 43 files)
 
@@ -246,10 +261,10 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 | Shape | Personas | Insertion |
 |---|---|---|
 | Target-conditional `handoff-block` partial | ledger 2, 4, 5, 6, 7, 8 | Numbered step + `{{> ax-feedback}}` before `{{#if target_vscode}}` |
-| Single `## Workflow`, inline handoff | ledger 1, 9; standalone `comms-curator`*, `composer-curator`, `developer`†, `git-committer`, `module-intent-architect`, `plan-architect-reviewer`, `plan-auditor`, `plan-refiner`, `planner`, `readme-curator`†, `researcher`, `unit-test-auditor`, `web-gui-specialist`; ledger-support `ledger-bootstrapper`, `ledger-claude-coordinator`, `ledger-dependency-sequencer`, `ledger-knowledge-archiver`, `ledger-knowledge-curator`, `ledger-orchestrator-archaeologist`, `ledger-orchestrator-runner`, `ledger-pipeline-configurator`, `ledger-wp-decomposer` | Single numbered-step insertion |
-| Separate `## Handoff` H2 | standalone `agents-md-curator` (L323), `ctx-architect` (L397), `usage-scenarios-curator` (L352) | Unnumbered block before the `## Handoff` heading |
-| No `## Workflow` H2 (mode-scoped `### Workflow`) | standalone `changelog-curator`† (L129, L160), `documentation-curator`, `manifest-curator`, `persona-curator`, `whatsnew-curator` | One insertion per mode |
-| Multiple `## Workflow` H2s | standalone `recipe-curator`*, `workspace-architect` (Onboard L125 / Upgrade L189); ledger-support `ledger-doctor` (3), `standalone-archiver` (Import L60 / Update L129) | One insertion per mode |
+| Single `## Workflow`, inline handoff | ledger 1, 9; standalone `composer-curator`, `developer`†, `git-committer`, `module-intent-architect`, `plan-architect-reviewer`, `plan-auditor`, `plan-refiner`, `planner`, `readme-curator`†, `researcher`, `unit-test-auditor`†, `web-gui-specialist`†; ledger-support `ledger-bootstrapper`, `ledger-claude-coordinator`, `ledger-dependency-sequencer`, `ledger-doctor`, `ledger-knowledge-archiver`, `ledger-knowledge-curator`, `ledger-orchestrator-archaeologist`, `ledger-orchestrator-runner`, `ledger-pipeline-configurator`, `ledger-wp-decomposer` | Single numbered-step insertion |
+| Separate `## Handoff` H2 | standalone `agents-md-curator` (L285), `ctx-architect` (L452), `usage-scenarios-curator` (L352) | Unnumbered block before the `## Handoff` heading |
+| No `## Workflow` H2 (mode-scoped `### Workflow`) | standalone `changelog-curator`† (L215, L235), `comms-curator`†, `documentation-curator`†, `manifest-curator`, `persona-curator`, `whatsnew-curator` | One insertion per mode |
+| Multiple `## Workflow` H2s | standalone `recipe-curator`*, `workspace-architect` (Onboard L172 / Upgrade L190); ledger-support `standalone-archiver` (Import L60 / Update L129) | One insertion per mode |
 
 \* Flag-off — no insertion. † Already has an insertion; flag only.
 
@@ -297,6 +312,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 - **Removing `has_incident_logging`** or altering the `incident-logging` duty on any ledger persona.
 - **Granting `ledger_add_project_comment` to ledger agent 1.** No ledger exists at Planner handoff time.
 - **`ledger-claude-coordinator`'s possible `todo` grant.** Merited on its own dispatch-loop grounds; a separate, optional change.
+- **Correcting the shared-partial inventory table's roughly 18 other stale rows** in `api-surface.md` beyond the `incident-logging.md` reference. Pre-existing staleness predating this plan; a separate cleanup.
 
 ## Acceptance Criteria
 
@@ -310,14 +326,14 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 - AC-08: Ledger agent 1 has `ax_feedback_target: inline` and is not granted `ledger_add_project_comment`.
 - AC-09: Every one of the 43 personas declares `ax_feedback` explicitly. No group membership is inferred inside the partial.
 - AC-10: `node scripts/build-personas.js` fails when `ax_feedback` is missing, when `ax_feedback_target` is invalid or absent while `ax_feedback: true`, when `ax_feedback_target` is set while `ax_feedback: false`, when `sidecar` is set on a persona lacking `edit`, or when `ledger` is set on a persona lacking `ledger_add_project_comment` — in both real and `--check` modes.
-- AC-11: `recipe-curator` and `comms-curator` emit no AX block in any generated target.
-- AC-12: The 4 personas lacking `edit` emit an AX block with an inline-only instruction and no file-write instruction.
+- AC-11: `recipe-curator` emits no AX block in any generated target.
+- AC-12: The 3 D-inline personas lacking `edit` (`git-committer`, `ledger-knowledge-curator`, `ledger-orchestrator-archaeologist`) emit an AX block with an inline-only instruction and no file-write instruction.
 - AC-13: No sidecar file exists after a zero-friction session on a Group C persona.
 - AC-14: After a friction session on rung 1 and on rung 2, `git status` is clean. The rung-1 pattern does not hide `insights.jsonl` or any other tracked plan-folder artefact.
 - AC-15: In all 129 generated files, `## Workflow` runs unbroken from its heading to the handoff step — no `##`-level heading intervenes.
 - AC-16: In all 129 generated files, the rendered fenced template block is byte-identical to the `ax-feedback.md` source.
 - AC-17: Per generated file, AX inclusions == AX workflow steps == handoff blocks. Every numbered workflow list runs 1..N with no gaps or repeats.
-- AC-18: The 5 proof-of-concept personas show no behavioural regression, and `changelog-curator` retains AX blocks in both of its modes.
+- AC-18: The 9 personas with pre-existing AX blocks (5 proof-of-concept + 4 audit-inserted: `web-gui-specialist`, `comms-curator`, `documentation-curator`, `unit-test-auditor`) show no behavioural regression, and `changelog-curator` retains AX blocks in both of its modes.
 - AC-19: Group A's `synthesis.md` Code Insights section contains no `ax`-typed entries, and its content is not thinned relative to a pre-change baseline.
 - AC-20: `insight-compilation.md`'s sink-state table classifies state by **non-`ax`** entry count, so an AX-only sink is not reported as a clean code result.
 - AC-21: `ai-persona-builder` tests assert that `---` and `##` inside a ``` fence are preserved byte-identically, while the pre-existing outside-fence assertions still pass.
@@ -328,6 +344,7 @@ Nothing in Stages 2–5 may begin until Stage 1's gate passes. Every unfixed def
 - AC-26: No documentation describes a `default_cc_tools` fallback chain. All five affected documents describe `cc_tools:` → `tools:`.
 - AC-27: `default_cc_tools` is absent from all three `_shared.yaml` files, and `node scripts/build-personas.js --check` reports generated output byte-identical to before its removal.
 - AC-28: `node scripts/build-personas.js` completes clean and `node scripts/generate-agents-overview.js --check` reports no staleness.
+- AC-29: `mcp-server/src/tools/observations.ts`'s `AddProjectCommentSchema.type` `.describe()` string enumerates `"ax"` alongside `"incident"`, `"note"`, and `"decision"`.
 
 ## Testing Strategy
 
@@ -356,13 +373,15 @@ Stage 3 additionally requires a **baseline comparison**: capture Code Insights o
 - `scripts/tests/ax-generated-structure.test.js` — rendered fenced AX template byte-identical to partial source in every generated file — AC-16
 - `scripts/tests/ax-generated-structure.test.js` — per generated file, AX inclusions == AX steps == handoff blocks — AC-17
 - `scripts/tests/ax-generated-structure.test.js` — every numbered workflow list runs 1..N with no gaps or repeats — AC-17
-- `scripts/tests/ax-generated-structure.test.js` — `recipe-curator` and `comms-curator` outputs contain no AX block — AC-11
-- `scripts/tests/ax-generated-structure.test.js` — the 4 `edit`-less personas emit an inline-only AX instruction with no file-write text — AC-12
-- `scripts/tests/ax-generated-structure.test.js` — `changelog-curator` output retains an AX block in both modes — AC-18
+- `scripts/tests/ax-generated-structure.test.js` — `recipe-curator` output contains no AX block — AC-11
+- `scripts/tests/ax-generated-structure.test.js` — the 3 D-inline `edit`-less personas emit an inline-only AX instruction with no file-write text — AC-12
+- `scripts/tests/ax-generated-structure.test.js` — all 9 pre-existing AX personas retain their blocks (including `changelog-curator` in both modes) — AC-18
 - `scripts/tests/ax-partial-invariants.test.js` — `ax-feedback.md` contains no append-during-work instruction — AC-01
 - `scripts/tests/ax-partial-invariants.test.js` — `ax-feedback.md` contains no reference to `ledger_add_observation` — AC-05
 - `scripts/tests/incident-logging-paths.test.js` — `personas/ledger/src/partials/incident-logging.md` exists with 6 consumers; `personas/shared/partials/incident-logging.md` does not exist — AC-02, AC-03
 - `scripts/tests/shared-yaml.test.js` — `default_cc_tools` absent from all three `_shared.yaml` files — AC-27
+- `mcp-server/tests/tools/observations.test.ts` — `AddProjectCommentSchema.type`'s `.describe()` string enumerates `"ax"` — AC-29
+- `scripts/tests/ax-partial-invariants.test.js` (or a new `scripts/tests/insight-compilation-invariants.test.js`) — `insight-compilation.md` contains `ax` type-filtering language and the sink-state table's forcing-function row is keyed on non-`ax` entries — AC-19, AC-20
 - Manual gate, Stage 2 — friction session on a ledger persona produces a `type: "ax"` project comment with a populated `agent`, rendered in the GUI card — AC-06
 - Manual gate, Stage 3 — friction session on a Group A persona routes `ax` entries to the AX section, leaving Code Insights unpolluted and un-thinned versus baseline — AC-19, AC-20
 - Manual gate, Stage 4 — zero-friction session on a Group C persona produces no sidecar file — AC-13
@@ -373,7 +392,7 @@ Stage 3 additionally requires a **baseline comparison**: capture Code Insights o
 
 - `personas/docs/persona-design-guide.md` — register AX Feedback in the Optional Sections table with a "when to include" rule; extend Pattern 6 with it as a worked example of a duty kept checkpoint-slotted instead of given a sink; bump version, prepend history entry.
 - `personas/standalone/src/content/persona-curator.md` — add the matching Quality Checklist item.
-- `personas/docs/agents/project-manifest/api-surface.md` — document `ax_feedback` and `ax_feedback_target` in the metadata schema and feature-flag tables; add `ledger_add_project_comment` to agent 2 in the allocation table (L487) and its rationale paragraph; update the shared-partial inventory for the deleted stub; correct the `default_cc_tools` claims at L151, L152, L197, L213, L406, L433.
+- `personas/docs/agents/project-manifest/api-surface.md` — document `ax_feedback` and `ax_feedback_target` in the metadata schema and feature-flag tables; add `ledger_add_project_comment` to agent 2 in the allocation table (L487) and its rationale paragraph; update the shared-partial inventory for the deleted stub (narrowly — only the `incident-logging.md` reference; the table's broader pre-existing staleness is out of scope); correct the `default_cc_tools` claims at L151, L152, L197, L213, L406, L433.
 - `personas/docs/agents/project-manifest/variables.md` — document the new fields; correct `default_cc_tools` at L85, L86, L93.
 - `personas/docs/agents/project-manifest/constraints.md` — correct constraint 10 (L84) to describe `cc_tools:` → `tools:`.
 - `personas/docs/agents/project-manifest/data-flows.md` — correct the `cc_tools_json` derivation comment (L148).
@@ -385,7 +404,8 @@ Stage 3 additionally requires a **baseline comparison**: capture Code Insights o
 - `.context/` and `CLAUDE.md` — regenerate via `node scripts/cli.js ctx-generate`.
 - `ai-persona-builder/CHANGELOG.md` — entry for the fence-aware post-processor fix.
 - `ai-persona-builder/docs/agents/project-manifest/` — update `api-surface.md` and/or `data-flows.md` if the post-processor's documented behaviour changes.
-- Root `changelog.md` — release entry referencing module versions (`> personas vX`), written after the module changelogs per the two-step workflow.
+- `mcp-server/changelog.md` — entry for the `AddProjectCommentSchema.type` `.describe()` text update (adds `"ax"` to the enumerated values agents read).
+- Root `changelog.md` — release entry referencing module versions (`> mcp vX · personas vY`), written after the module changelogs per the two-step workflow.
 
 ## Deferred Items
 
