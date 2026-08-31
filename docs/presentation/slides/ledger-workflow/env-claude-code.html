@@ -1,0 +1,52 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Claude Code</h2>
+  <p class="lead">Everything is available, but Claude Code's fundamental design makes it unreliable.</p>
+  <div class="card-stack" style="--stack-width: 840px; --stack-size: 0.67em; --stack-gap: 0.45em;">
+    <div class="glass-card">
+      <strong class="accent-green">The full toolkit is there.</strong><br>
+      <span class="muted">Same MCP server, same ledger, and every persona built for it as a native sub-agent.</span>
+    </div>
+    <div class="glass-card">
+      <strong>The coordinator is a model, not code.</strong><br>
+      <span class="muted">It can only be asked to follow the ledger's routing, there is no guarantee that it will.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-red">Long chains will drift.</strong><br>
+      <span class="muted">Whole stages can get skipped because the coordinator has decided that the stage is not needed. It's not a matter of if, but when.</span>
+    </div>
+  </div>
+  <p class="sidenote" style="margin-top: 3em;">
+    Worth watching: Compatibility with the Ledger and Claude Code&rsquo;s JS workflows is on the list to review.
+  </p>
+  <aside class="notes">
+    I want to be straight about this one rather than quietly leave it off the slide, because people
+    do use it and it does work.
+
+    Nothing is missing on the capability side. The MCP server is the same server. The personas are
+    built to Claude Code's own sub-agent format and installed as sub-agents, so they are dispatched
+    by name rather than pasted into a prompt. On paper it is the most ergonomic of the set.
+
+    The problem is the middle card, and it is a category difference rather than a quality one. In
+    Claude Code, coordination is done by a persona — a model reading the ledger's routing and being
+    asked to comply. In the orchestrator, coordination is Python: the graph dispatches the agent the
+    ledger named, and there is no step at which a model could decide otherwise. Advisory versus
+    enforced.
+
+    In practice that shows up on long runs. A stage gets skipped. The coordinator does a small piece
+    of work itself instead of delegating it, because that seemed faster. Context runs out mid-project
+    and the thread of what was already done goes with it. Those are precisely the failures that
+    motivated building the ledger, so having them reappear at the coordination layer is ironic but
+    real.
+
+    It is not unguarded, though. The ledger still refuses out-of-turn transitions, and automatic
+    handoff chains are depth-capped. So when it goes wrong it tends to stall visibly rather than
+    corrupt state quietly. That is the difference between limited and unusable.
+
+    One forward-looking note. Claude Code has been growing a workflows feature where the
+    orchestration is written in JavaScript rather than expressed as a prompt. If that holds up, it
+    addresses exactly the enforcement gap on this slide — the coordinator would be code. Reviewing it
+    against the ledger is on the list; I have not done it yet, so treat it as a thing to watch and
+    not as a shipped answer.
+  </aside>
+</section>

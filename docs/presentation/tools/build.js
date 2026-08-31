@@ -34,6 +34,7 @@ const SLIDES_DIR = resolve(__dirname, '../slides');
 const IMAGE_MAP = {
   'img/work-package-stages.png': resolve(__dirname, '../img/work-package-stages.png'),
   'img/ledger-gui.jpg': resolve(__dirname, '../img/ledger-gui.jpg'),
+  'img/full-vscode-workflow.png': resolve(__dirname, '../img/full-vscode-workflow.png'),
 };
 
 // Maps a file extension to its data URI MIME type.

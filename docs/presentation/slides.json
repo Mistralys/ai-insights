@@ -57,7 +57,10 @@
         "ledger-workflow/project-strategy",
         "ledger-workflow/observation-channel",
         "ledger-workflow/model-selection",
-        "ledger-workflow/orchestrator",
+        "ledger-workflow/execution-environments",
+        "ledger-workflow/env-vs-code",
+        "ledger-workflow/env-orchestrator",
+        "ledger-workflow/env-claude-code",
         "ledger-workflow/battle-tested",
         "ledger-workflow/recap-part3"
       ]

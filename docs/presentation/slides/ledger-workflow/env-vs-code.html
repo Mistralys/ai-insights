@@ -1,0 +1,61 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>VS Code</h2>
+  <p class="lead">Fully automated from the PM to Synthesis, in your IDE.</p>
+  <div class="card-stack" style="--stack-width: 840px; --stack-size: 0.67em; --stack-gap: 0.45em;">
+    <div class="glass-card">
+      <strong class="accent">Maximum oversight and control.</strong><br>
+      <span class="muted">The whole ledger workflow, with multiple repositories in one window. Fine-grained permission control and all advantages of an IDE.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-green">Handoffs are automatic.</strong><br>
+      <span class="muted">Each agent asks the ledger who is next and dispatches it directly. Invoke
+      the PM once and the chain runs through to synthesis.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-blue">You see all of it while it happens.</strong><br>
+      <span class="muted">Every tool call, every file edit, every handoff scrolls past in the chat. Ideal to look into what's happening.</span>
+    </div>
+  </div>
+  <p class="sidenote" style="margin-top: 3em;">
+    See an example of 
+    <button type="button" class="info-link"
+            data-shot="img/full-vscode-workflow.png"
+            data-shot-title="A full workflow run in VS Code"
+            data-shot-alt="Full-length VS Code chat transcript of one ledger workflow run, from Project Manager through to Synthesis">a full run in chat</button>
+  </p>
+  <aside class="notes">
+    This is where most of the work in this project actually happened, and the reason is the first
+    line on the slide rather than anything about agents.
+
+    A multi-root workspace means several repositories open in one window. One MCP server serves all
+    of them, writing into one store, and the store namespaces projects by repository — so two repos
+    that both produced a plan folder called something-initial-setup do not overwrite each other.
+    When a change spans the server, the personas and the orchestrator, as most of mine do, this is
+    the only driver that lets one project span them.
+
+    The thing I want to correct if you were expecting manual stepping: the handoffs are automatic. An
+    agent finishes, asks the ledger who is next, and dispatches that agent itself. I invoke the
+    Project Manager once, and the chain carries on through implementation, QA, security, review,
+    release, documentation and synthesis without me in the loop. It is the same unattended run the
+    orchestrator does.
+
+    Underneath the stages, the tedious parts are delegated further. Plan decomposition, dependency
+    ordering, ledger initialisation, plan auditing — all sub-agent dispatches that happen inline.
+    They are not steps I drive; they are steps I watch go by.
+
+    And watching is the actual reason this is my primary environment rather than the orchestrator.
+    Every tool call, every file edit, every routing decision scrolls past in the chat as it happens.
+    I am not reading a log afterwards to reconstruct what a run did — I am reading it live. When
+    something goes in a direction I would not have chosen, I intervene in the moment rather than
+    discovering it in a synthesis document two hours later.
+
+    So the trade-off is not automation versus oversight. It is the same automation, with the
+    reasoning still on screen.
+
+    If you want to see what that actually looks like, the link at the bottom opens one full run as a
+    single transcript — scroll it with the arrow keys or Page Down. It is long, and that is the point:
+    every one of those steps happened without me typing anything, and every one of them was on screen
+    while it did.
+  </aside>
+</section>

@@ -1,6 +1,14 @@
 # Presentation Slides Changelog
 
 ## v1.2.0 (2026-08-31) - **WIP UNRELEASED**
+- Part 3 now covers every execution environment: an overview slide plus a detail slide each
+  for VS Code, the orchestrator, and Claude Code.
+- Corrected the VS Code slide: handoffs are automatic through to synthesis, and full
+  visibility of the run is the differentiator rather than manual stage invocation.
+- Added a scrollable screenshot modal for images too tall to place on a slide, opened from a
+  `data-shot` `.info-link`. First use: a full-length VS Code workflow transcript.
+- The orchestrator slide was rewritten as an environment detail slide and renamed to
+  `ledger-workflow/env-orchestrator`.
 - Slide fragments now live in per-section subfolders under `slides/` (e.g. `agent-personas/`,
   `build-system/`) instead of one flat directory, matching the deck's part structure.
 - Added an overflow audit: open the deck with `?audit` or press `Shift+O` to find slides

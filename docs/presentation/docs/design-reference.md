@@ -233,7 +233,7 @@ deeper `--glass-shadow`; `.glass-card` is the flatter, cheaper card used inside 
 
 ## 7. Interactive Layer
 
-Three modals and two chrome toggles, all wired in the Reveal `.then()` callback in
+Four modals and two chrome toggles, all wired in the Reveal `.then()` callback in
 `template.html`.
 
 ### Info modal — the extensible one
@@ -262,6 +262,36 @@ inside the slide fragment, so it stays next to the text that references it:
 Behaviour: real `<button>`, keyboard-activated by Enter *and* Space (Space is intercepted so Reveal
 does not advance the slide), focus moves to the close button on open and returns to the trigger on
 close, Tab is trapped, and `Escape` / `Enter` / `Space` all close it.
+
+### Screenshot modal — for tall images
+
+For a screenshot too tall to sit on a slide, e.g. a full-length chat transcript. Uses the same
+`.info-link` trigger styling, distinguished by a `⤢` glyph instead of `ⓘ`:
+
+```html
+<button type="button" class="info-link"
+        data-shot="img/full-vscode-workflow.png"
+        data-shot-title="A full workflow run in VS Code"
+        data-shot-alt="…">See a whole run</button>
+```
+
+| Attribute | Meaning |
+|-----------|---------|
+| `data-shot` | `IMAGE_MAP` key of the image. Required, and must be registered in `tools/build.js`. |
+| `data-shot-title` | Modal heading text. |
+| `data-shot-alt` | `alt` text for the image; falls back to `data-shot-title`. |
+
+The image is resolved from the build-injected `imageData` lookup, so it costs no extra payload if the
+same file is also used on a slide.
+
+The frame is a fixed `height: 92vh` rather than a `max-height` — the image is taller than any
+viewport, so the frame claims the space rather than being sized by its content. The image fills the
+frame width; scrolling happens in `.shot-scroll`.
+
+Behaviour: focus lands on the **scroll pane**, not the close button, because arrow keys are the
+point. Inside the modal, `↑` `↓` scroll by a step, `PgUp` / `PgDn` / `Space` by a near-page, `Home` /
+`End` jump to the ends, `Tab` alternates pane ↔ close, and `Escape` closes. Every key is swallowed
+before Reveal sees it, so the deck never advances while the modal is open.
 
 ### Recipe modal
 

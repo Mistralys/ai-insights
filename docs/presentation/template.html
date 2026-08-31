@@ -301,12 +301,13 @@
 
   /* Modal type scale — tracks Reveal's own slide scale so modal text matches deck text.
      Floored and capped so extreme window sizes stay readable. */
-  #recipe-modal, #persona-modal, #info-modal {
+  #recipe-modal, #persona-modal, #info-modal, #shot-modal {
     --modal-scale: clamp(0.6, var(--slide-scale, 1), 1.6);
   }
   #recipe-modal .modal-content,
   #persona-modal .modal-content,
-  #info-modal .modal-content { box-sizing: border-box; }
+  #info-modal .modal-content,
+  #shot-modal .modal-content { box-sizing: border-box; }
 
   /* Outline panel */
   /* Recipe modal */
@@ -384,6 +385,7 @@
   .reveal .info-link::after {
     content: '\0000a0ⓘ'; font-size: 0.85em; opacity: 0.8;
   }
+  .reveal .info-link[data-shot]::after { content: '\0000a0⤢'; }
 
   #info-modal {
     display: none; position: fixed; inset: 0; z-index: 200;
@@ -428,6 +430,61 @@
   }
   #info-modal .modal-body ol, #info-modal .modal-body ul { margin: 0 0 0.9em; padding-left: 1.4em; }
   #info-modal .modal-body li { margin-bottom: 0.4em; }
+
+  /* Screenshot modal — a tall image scrolled inside a fixed frame */
+  #shot-modal {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  #shot-modal.open { display: flex; }
+  #shot-modal .modal-content {
+    background: rgba(15, 15, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+    box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+    font-size: calc(22px * var(--modal-scale)); line-height: 1.5;
+    width: 34em; max-width: 94vw;
+    /* Fixed height, not max-height: the image is far taller than any viewport,
+       so the frame should claim the space rather than be sized by its content. */
+    height: 92vh;
+    padding: 1.2em 1.2em 0.9em;
+    font-family: 'Inter', system-ui, sans-serif; color: #e0e0e0;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  #shot-modal .modal-header {
+    display: flex; justify-content: space-between; align-items: center; gap: 1.5em;
+    margin-bottom: 0.8em; padding-bottom: 0.6em; flex-shrink: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  #shot-modal .modal-header h3 { margin: 0; font-size: 1.05em; font-weight: 600; color: #90caf9; }
+  #shot-modal .modal-close {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; color: #b0bec5; font-size: 0.78em; flex-shrink: 0;
+    padding: 0.3em 0.8em; cursor: pointer; transition: background 0.15s, color 0.15s;
+  }
+  #shot-modal .modal-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #shot-modal .modal-close:focus-visible { outline: 2px solid #90caf9; outline-offset: 2px; }
+  #shot-modal .shot-scroll {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    border-radius: 10px; background: rgba(0,0,0,0.35);
+  }
+  #shot-modal .shot-scroll:focus-visible { outline: 2px solid #90caf9; outline-offset: 2px; }
+  #shot-modal .shot-scroll::-webkit-scrollbar { width: 8px; }
+  #shot-modal .shot-scroll::-webkit-scrollbar-track { background: transparent; }
+  #shot-modal .shot-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+  #shot-modal .shot-scroll img {
+    display: block; width: 100%; height: auto;
+    border-radius: 0; box-shadow: none; margin: 0;
+  }
+  #shot-modal .shot-hint {
+    flex-shrink: 0; margin: 0.7em 0 0; text-align: center;
+    font-size: 0.7em; font-style: italic; color: #90a4ae;
+  }
+  #shot-modal .shot-hint kbd {
+    font-family: 'JetBrains Mono', monospace; font-style: normal;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 4px; padding: 0.05em 0.4em; color: #c0c8d0;
+  }
 
   /* Persona source toggle */
   #persona-toggle {
@@ -553,6 +610,7 @@
     #recipe-modal .modal-close,
     #info-modal .modal-close,
     #persona-modal .modal-close,
+    #shot-modal .modal-close,
     #outline-panel .outline-item {
       transition: none;
     }
@@ -587,6 +645,19 @@
       <button class="modal-close" type="button">ESC to close</button>
     </div>
     <div class="modal-body" id="info-modal-body"></div>
+  </div>
+</div>
+
+<div id="shot-modal" role="dialog" aria-modal="true" aria-labelledby="shot-modal-title" aria-hidden="true">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="shot-modal-title"></h3>
+      <button class="modal-close" type="button">ESC to close</button>
+    </div>
+    <div class="shot-scroll" id="shot-modal-scroll" tabindex="0">
+      <img id="shot-modal-img" alt="">
+    </div>
+    <p class="shot-hint">Scroll, or <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd> <kbd>Home</kbd> <kbd>End</kbd></p>
   </div>
 </div>
 
@@ -783,6 +854,75 @@ Reveal.initialize({
       // Only the close button is focusable inside the dialog — keep focus there.
       e.preventDefault();
       infoClose.focus();
+    }
+    // Nothing behind the dialog should react to keys while it is open.
+    e.stopImmediatePropagation();
+  }, true);
+
+  // Screenshot modal — triggered by .info-link buttons carrying data-shot="img/<file>"
+  const shotModal = document.getElementById('shot-modal');
+  const shotTitle = document.getElementById('shot-modal-title');
+  const shotScroll = document.getElementById('shot-modal-scroll');
+  const shotImg = document.getElementById('shot-modal-img');
+  const shotClose = shotModal.querySelector('.modal-close');
+  let shotOpener = null;
+
+  function closeShotModal() {
+    shotModal.classList.remove('open');
+    shotModal.setAttribute('aria-hidden', 'true');
+    if (shotOpener) { shotOpener.focus(); shotOpener = null; }
+  }
+
+  document.querySelectorAll('.info-link[data-shot]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const uri = imageData[el.dataset.shot];
+      if (!uri) return;
+      shotOpener = el;
+      shotTitle.textContent = el.dataset.shotTitle || '';
+      shotImg.src = uri;
+      shotImg.alt = el.dataset.shotAlt || el.dataset.shotTitle || '';
+      shotModal.classList.add('open');
+      shotModal.setAttribute('aria-hidden', 'false');
+      shotScroll.scrollTop = 0;
+      // Focus the scroll pane, not the close button — arrow keys are the point here.
+      shotScroll.focus();
+    });
+    // Reveal steals Space for slide navigation; keep it as button activation here.
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.click();
+    });
+  });
+
+  shotModal.addEventListener('click', (e) => {
+    if (e.target === shotModal || e.target.closest('.modal-close')) closeShotModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!shotModal.classList.contains('open')) return;
+    const page = shotScroll.clientHeight * 0.9;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeShotModal();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault(); shotScroll.scrollBy({ top: 120 });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault(); shotScroll.scrollBy({ top: -120 });
+    } else if (e.key === 'PageDown' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault(); shotScroll.scrollBy({ top: page });
+    } else if (e.key === 'PageUp') {
+      e.preventDefault(); shotScroll.scrollBy({ top: -page });
+    } else if (e.key === 'Home') {
+      e.preventDefault(); shotScroll.scrollTop = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault(); shotScroll.scrollTop = shotScroll.scrollHeight;
+    } else if (e.key === 'Tab') {
+      // Scroll pane and close button are the only stops — alternate between them.
+      e.preventDefault();
+      (document.activeElement === shotClose ? shotScroll : shotClose).focus();
     }
     // Nothing behind the dialog should react to keys while it is open.
     e.stopImmediatePropagation();
