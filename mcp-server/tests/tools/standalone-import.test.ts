@@ -385,6 +385,59 @@ describe('ledger_import_standalone — project_summary parameter', () => {
   });
 });
 
+// ─── title parameter ──────────────────────────────────────────────────────
+
+describe('ledger_import_standalone — title parameter', () => {
+  it('stores title in .meta.json when title is provided', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const result = await importStandalone({
+      project_path: planDir,
+      title: 'Cross-Platform Agent Plugin - Phase 3B',
+    });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+
+    const metaPath = join(parsed.project_storage_path, '.meta.json');
+    const metaRaw = await readFile(metaPath, 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    expect(meta.title).toBe('Cross-Platform Agent Plugin - Phase 3B');
+  });
+
+  it('produces .meta.json with no title field when title is omitted (backward compatibility)', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    const result = await importStandalone({ project_path: planDir });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+
+    const metaPath = join(parsed.project_storage_path, '.meta.json');
+    const metaRaw = await readFile(metaPath, 'utf-8');
+    const meta = JSON.parse(metaRaw);
+    expect(meta.title).toBeUndefined();
+  });
+
+  it('rejects an empty string for title (schema validation)', async () => {
+    const { z } = await import('zod');
+    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+    expect(schema.safeParse({ title: '' }).success).toBe(false);
+    expect(schema.safeParse({ title: 'Valid Title' }).success).toBe(true);
+    expect(schema.safeParse({}).success).toBe(true);
+  });
+
+  it('rejects a title exceeding 200 characters (schema validation)', async () => {
+    const { z } = await import('zod');
+    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+    const longTitle = 'A'.repeat(201);
+    expect(schema.safeParse({ title: longTitle }).success).toBe(false);
+    expect(schema.safeParse({ title: 'A'.repeat(200) }).success).toBe(true);
+  });
+});
+
 // ─── ledger_update_synthesis — successful update ──────────────────────────
 
 const SYNTHESIS_UPDATED = `

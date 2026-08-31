@@ -30,6 +30,19 @@ export interface MetaCacheUpdates {
   repository_name?: string | null;
   outcome_summary?: string | null;
   project_summary?: string | null;
+  /**
+   * Optional human-readable display title. Passed in via `initializeProject()` as a
+   * cacheUpdates field. For standalone import, `importStandaloneProject()` calls
+   * `updateTitle()` directly after `writeRootIndex()` instead of going through
+   * `writeProjectMeta()`.
+   *
+   * **Semantics:** `title` is a non-nullable string — use `!== undefined` to test for
+   * presence. Contrast with nullable fields (`project_name`, `outcome_summary`, etc.)
+   * which use `'key' in cacheUpdates` semantics so that an explicit `null` can clear
+   * the stored value. `title` has no "clear" use case, so the simpler `!== undefined`
+   * check is sufficient and consistent with other non-nullable fields like `runner`.
+   */
+  title?: string;
   runner?: string;
   runner_client?: string;
   runner_version?: string;
@@ -60,6 +73,8 @@ export interface ImportStandaloneDetail {
   pipelineSummary: string[];
   /** Optional curated project summary to store in root index and .meta.json. */
   projectSummary?: string;
+  /** Optional human-readable display title. Stored in .meta.json via updateTitle(). */
+  title?: string;
 }
 
 /**
@@ -522,6 +537,8 @@ export class LedgerStore {
    *                       (nullable strings — use key-presence semantics: `'key' in cacheUpdates`
    *                       distinguishes an explicit `null` clear from an absent field that should be
    *                       left unchanged);
+   *                       `title` (non-nullable string, `!== undefined` semantics — only used by
+   *                       `initializeProject`; `importStandaloneProject` calls `updateTitle()` directly);
    *                       `runner`, `runner_client`, `runner_version` (runner metadata).
    * @param options      - Set `preserveLastUpdated: true` to retain the existing timestamp
    *                       (use for admin operations: archive, unarchive, cache refresh).
@@ -556,6 +573,9 @@ export class LedgerStore {
       date_created: existing.date_created ?? timestamp,
       last_updated: lastUpdated,
       ...(existing.title !== undefined ? { title: existing.title } : {}),
+      // Allow cacheUpdates to set or override the display title (only used by initializeProject;
+      // importStandaloneProject uses updateTitle() directly after writeRootIndex()).
+      ...(cacheUpdates !== undefined && cacheUpdates.title !== undefined ? { title: cacheUpdates.title } : {}),
       // Preserve existing cache fields unless overridden by cacheUpdates
       ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),
       ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
@@ -827,6 +847,13 @@ export class LedgerStore {
       // Write WP detail first (no meta sync), then root index (auto-syncs .meta.json).
       await this.writeWorkPackage('WP-001', wpDetail);
       await this.writeRootIndex(rootIndex);
+
+      // Apply the display title after writeRootIndex() — updateTitle() reads the
+      // .meta.json that writeRootIndex() just created via its meta-sync, so this
+      // call must come after writeRootIndex(), not before.
+      if (detail.title !== undefined) {
+        await this.updateTitle(detail.title);
+      }
 
       // Archive authored source documents inside the lock scope. Derived
       // artefacts (scenario-coverage.md, insights.jsonl) are excluded.

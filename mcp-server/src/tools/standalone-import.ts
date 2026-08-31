@@ -49,6 +49,15 @@ const ImportStandaloneSchema = z.object({
       'stored as project_summary in the root index and .meta.json, powering the GUI synopsis. ' +
       'Read the plan\'s ## Summary section and craft a concise summary before calling this tool.'
     ),
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      'Optional human-readable display title for the project (e.g. "API: Split GetTenants" or "Cross-Platform Agent Plugin - Phase 3B"). ' +
+      'Shown in the GUI project list and detail pages. When omitted, the GUI falls back to a title-cased version of the slug.'
+    ),
 });
 
 const UpdateSynthesisSchema = z.object({
@@ -270,6 +279,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
       pipelineSummary:
         outcomeSummary !== null ? [outcomeSummary] : ['Standalone plan executed.'],
       ...(args.project_summary !== undefined ? { projectSummary: args.project_summary } : {}),
+      ...(args.title !== undefined ? { title: args.title } : {}),
     });
   } catch (error) {
     return {

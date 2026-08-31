@@ -50,6 +50,7 @@ pipeline_health: {
   project_path: string; 
   plan_file: string;           // must equal 'plan.md' — enforced by Zod .refine()
   project_summary?: string;    // min(1) — human-readable description of the project intent
+  title?: string;              // min(1), max(200) — curated human-readable display title (e.g. "API: Split GetTenants"); stored in .meta.json via enrichment writeProjectMeta call; takes precedence over slug-derived title-casing in the GUI
 }) => Promise<MCPResult>
 ```
 
@@ -129,6 +130,7 @@ All tools (except `ledger_initialize_project`) now accept `cwd_path` directly �
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
   project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. min(1). Whitespace-only strings pass validation but are not useful.
+  title?: string;           // Optional. min(1), max(200). Curated human-readable display title (e.g. "API: Split GetTenants"). Stored in .meta.json via updateTitle() after writeRootIndex(). Takes precedence over slug-derived title-casing in the GUI.
 }) => Promise<MCPResult>
 ```
 
@@ -152,7 +154,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 **Produced project record:**
 - `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
-- `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
+- `.meta.json`: auto-synced by `writeRootIndex()` inside the lock, then `title` written via `updateTitle()` when provided (ordering constraint: `updateTitle()` must run after `writeRootIndex()` since it reads the `.meta.json` that `writeRootIndex()` creates).
 - `plan.md` and `synthesis.md`, plus optional `usage-scenarios.md`, archived to `{ledgerRoot}/{repoName}/{slug}/`. Derived `scenario-coverage.md` is excluded.
 
 **Response shape (on success):**

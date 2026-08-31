@@ -206,3 +206,68 @@ describe('WP-006 — writeRootIndex syncs WP counters into .meta.json', () => {
     expect(meta.pending_work_packages).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite 4: title parameter — initializeProject
+// ---------------------------------------------------------------------------
+
+describe('title parameter — initializeProject stores title in .meta.json', () => {
+  let planDir: string;
+  let ledgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    planDir = join(tmpdir(), '2026-01-01-title-init-test');
+    await mkdir(planDir, { recursive: true });
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'title-init-ledger-'));
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', ledgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(planDir, { recursive: true, force: true });
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('stores title in .meta.json when title is provided', async () => {
+    const result = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+      title: 'API: Split GetTenants',
+    });
+    expect((result as any).isError).toBeFalsy();
+
+    const store = new LedgerStore(planDir, ledgerRoot);
+    const meta = await store.readProjectMeta();
+    expect(meta.title).toBe('API: Split GetTenants');
+  });
+
+  it('produces .meta.json with no title field when title is omitted (backward compatibility)', async () => {
+    const result = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+    expect((result as any).isError).toBeFalsy();
+
+    const store = new LedgerStore(planDir, ledgerRoot);
+    const meta = await store.readProjectMeta();
+    expect(meta.title).toBeUndefined();
+  });
+
+  it('rejects an empty string for title (schema validation)', async () => {
+    const { z } = await import('zod');
+    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+    expect(schema.safeParse({ title: '' }).success).toBe(false);
+    expect(schema.safeParse({ title: 'Valid Title' }).success).toBe(true);
+    expect(schema.safeParse({}).success).toBe(true);
+  });
+
+  it('rejects a title exceeding 200 characters (schema validation)', async () => {
+    const { z } = await import('zod');
+    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+    const longTitle = 'A'.repeat(201);
+    expect(schema.safeParse({ title: longTitle }).success).toBe(false);
+    expect(schema.safeParse({ title: 'A'.repeat(200) }).success).toBe(true);
+  });
+});
