@@ -1,6 +1,14 @@
 # Presentation Slides Changelog
 
 ## v1.2.0 (2026-08-31) - **WIP UNRELEASED**
+- New Part 1 slide on trigger anchoring: a persona's limit is instruction salience, not length,
+  with an info modal on gates that only look observable.
+- Title and cross-reference audit: corrected two mislabelled section labels, the README Curator
+  team-card description, and three speaker-note pointers naming the wrong slide or part.
+- Part 1 now matches the injected persona source: workflow steps, section names and the
+  constraints heading were stale, and the line and step counts have been dropped.
+- New opening slide on the project philosophy: focus on what works with any model, and on
+  tooling that stays under our own control.
 - New Part 3 slide on the multi-store system: splitting ledger data by concern, and sharing a
   store to give a team the same history and knowledge.
 - Added an `.ext-link` utility for outbound links in slide text; first use points at the

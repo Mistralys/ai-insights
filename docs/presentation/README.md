@@ -100,7 +100,7 @@ Slide fragments never declare a `<style>` block and never load an external asset
 |----------|-----------|
 | [Persona Design Guide](../../personas/docs/persona-design-guide.md) | The artifact Part 1 describes. |
 | [Ledger workflow guide](../../personas/ledger/README.md) | The nine-agent workflow shown in Part 3. |
-| [Multi-store guide](../references/multi-store-guide.md) | The store model behind the "One Server, Several Stores" slide. |
+| [Multi-store guide](../references/multi-store-guide.md) | The store model behind the "Shared Memory" slide. |
 | [Agents overview](../references/agents-overview.md) | Every persona across all three suites. |
 | [Workflow specification](../../mcp-server/docs/agents/workflow-specification/README.md) | State machines and routing behind the ledger slides. |
 | [Docs site index](../index.md) | Publishes the built deck. |

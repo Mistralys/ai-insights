@@ -8,14 +8,17 @@
     <div class="section"><span class="num">3</span> <span class="label">Inputs</span> <span class="desc">— What the user can provide</span></div>
     <div class="section"><span class="num">4</span> <span class="label">Outputs</span> <span class="desc">— Templates with exact format (recipe, meal plan)</span></div>
     <div class="section"><span class="num">5</span> <span class="label">Reference Data</span> <span class="desc">— Kitchen equipment, Rainbow Eating table</span></div>
-    <div class="section"><span class="num">6</span> <span class="label">Strict Constraints</span> <span class="desc">— Nutrition targets, no tuna, metric only</span></div>
+    <div class="section"><span class="num">6</span> <span class="label">Core Rules</span> <span class="desc">— Nutrition targets, no tuna, metric only</span></div>
     <div class="section"><span class="num">7</span> <span class="label">Workflow</span> <span class="desc">— Step-by-step processing pipeline (anchored last)</span></div>
   </div>
   <br>
-  <p class="accent" style="font-size: 0.75em;">276 lines — not a one-liner.</p>
+  <p class="accent" style="font-size: 0.75em;">A few hundred lines &mdash; not a one-liner.</p>
   <aside class="notes">
     The structure matters. Mission comes first because it's the most important context for the AI. The
     workflow comes last because it anchors the behavior — the AI has already absorbed the context and
     constraints by the time it reaches the step-by-step instructions.
+
+    Section names vary between personas — this one calls its constraints Core Rules, and it carries two
+    reference tables rather than one. The order is what stays fixed.
   </aside>
 </section>

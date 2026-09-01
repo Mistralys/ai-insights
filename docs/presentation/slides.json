@@ -5,6 +5,7 @@
       "slides": [
         "opening/title",
         "opening/intro",
+        "opening/philosophy",
         "opening/agenda"
       ]
     },
@@ -23,6 +24,7 @@
         "agent-personas/english-best",
         "agent-personas/domain-knowledge",
         "agent-personas/values-standards",
+        "agent-personas/trigger-anchoring",
         "agent-personas/meet-the-team",
         "agent-personas/build-your-personas",
         "agent-personas/persona-design-guide",

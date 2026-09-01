@@ -863,7 +863,7 @@
       AI specialists to help me in my daily software architect and development work.
     </div>
     <div class="glass-card">
-      <strong class="accent">An agentic workflow:</strong><br>
+      <strong class="accent">An agentic coding workflow:</strong><br>
       A group of interconnected agents used to implement features autonomously.
     </div>
   </div>
@@ -872,6 +872,47 @@
     personas and surfaces edge cases in agent behavior, handoff logic, and quality standards. The
     current persona set is battle-tested — shaped by real failures and real fixes, not theoretical
     design. This is what gives confidence that the crafting principles work in practice.
+  </aside>
+</section>
+
+<section>
+  <p class="section-label">Opening</p>
+  <h2>Focusing On The Essentials</h2>
+  <p class="lead">
+    A little stability in an extremely fast-moving environment.
+  </p>
+  <div class="card-stack" style="--stack-width: 790px; --stack-size: 0.74em; --stack-gap: 0.6em;">
+    <div class="glass-card">
+      <strong class="accent">What works with any model.</strong><br>
+      <span class="muted">Clear language, explicit structure and good documentation are effective
+      across providers and valuable over the long-term.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Tooling I control.</strong><br>
+      <span class="muted">Plain Markdown, my own build system, my own ledger. Nothing here depends
+      on a vendor feature that can change or disappear the next week.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Portable by default.</strong><br>
+      <span class="muted">When the landscape shifts, only the output target changes. The personas,
+      the workflow and the accumulated knowledge stay where they are.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    This is the guiding principle behind everything that follows, and it explains a lot of the design
+    choices later in the deck.
+
+    The field moves fast enough that anything built on a specific provider's feature set has a short
+    shelf life. So the bet here is deliberately conservative: invest only in the parts that are stable.
+    Clear instructions and good documentation work on every model I have tried, and they will keep
+    working, because they are about communication rather than about a particular implementation.
+
+    The second half is ownership. The persona sources are Markdown files in a Git repository. The
+    build system is mine. The ledger is mine. If a platform changes its instruction format, that is a
+    build target update, not a rewrite. If a platform disappears, nothing of substance is lost.
+
+    Worth being honest about the trade-off: this means passing on some provider-specific conveniences.
+    That is the price of not having to redo the work every few months.
   </aside>
 </section>
 
@@ -945,8 +986,8 @@
       <p><strong>My family actively uses it :)</strong></p>
       <p class="muted">Non-technical, universally relatable.<br>Everyone understands cooking.</p>
       <p style="margin-top: 0.8em; font-size: 0.9em;">
-        <span class="accent-blue">›</span> 276 lines of structured instructions<br>
-        <span class="accent-blue">›</span> 7-step processing workflow<br>
+        <span class="accent-blue">›</span> Hundreds of lines of structured instructions<br>
+        <span class="accent-blue">›</span> Separate workflows per operating mode<br>
         <span class="accent-blue">›</span> Equipment table, nutrition targets<br>
         <span class="accent-blue">›</span> Output templates with exact format
       </p>
@@ -961,7 +1002,7 @@
     We'll use the Recipe Curator throughout the presentation. It's a real production persona from our
     standalone suite. Non-technical, universally relatable — everyone understands cooking. It demonstrates
     every concept we'll cover: identity anchoring, domain knowledge, structured workflow, strict constraints,
-    and output templates. 276 lines — this is not a one-liner prompt.
+    and output templates. Several hundred lines — this is not a one-liner prompt.
   </aside>
 </section>
 
@@ -1012,19 +1053,23 @@
   <h2>Natural Language Programming</h2>
   <p class="lead">Writing personas <strong>is</strong> programming — without code.</p>
   <div style="text-align: left; font-size: 0.7em; max-width: 700px; margin: 0 auto;">
-    <p>The Recipe Curator agent's <strong>Workflow</strong> section:</p>
+    <p>The Recipe Curator agent's <strong>Workflow &mdash; Single Recipe</strong> section:</p>
     <ol>
-      <li>Check In <em class="muted">— ask what they've cooked recently</em></li>
-      <li>Understand the Request <em class="muted">— quick lookup or weekly plan?</em></li>
-      <li>Survey Options <em class="muted">— generate 3+ candidates across traditions</em></li>
-      <li>Adapt &amp; Compose <em class="muted">— tailor to household</em></li>
-      <li>Format Output <em class="muted">— use the standard template</em></li>
+      <li>Session Opener <em class="muted">— check in, open the ledger, read the request</em></li>
+      <li>Choose Culinary Direction <em class="muted">— confirm, or default to Discovery</em></li>
+      <li>Gather Candidates <em class="muted">— produce the brief; no selection yet</em></li>
+      <li>Select the Candidate <em class="muted">— best fit against the Core Rules</em></li>
+      <li>Preview Selection <em class="muted">— iterate until the chef confirms</em></li>
+      <li>Adapt &amp; Compose <em class="muted">— tailor to the household</em></li>
+      <li>Format the Output <em class="muted">— use the Recipe Format template</em></li>
+      <li>Update the Recipe Ledger <em class="muted">— append the ID and name</em></li>
       <li>Verify Targets <em class="muted">— check nutrition &amp; color coverage</em></li>
+      <li>Self-Check <em class="muted">— walk the Quality Checklist</em></li>
       <li>Handoff <em class="muted">— end with status marker</em></li>
     </ol>
   </div>
   <br>
-  <p style="font-size: 0.7em; color: #90a4ae;">Same logical structure as a software program. You define inputs, outputs, control flow, and error handling.</p>
+  <p style="font-size: 0.7em; color: #90a4ae;"><span class="accent-blue">Same logical structure as a software program.</span> You define inputs, outputs, control flow, and error handling.</p>
   <aside class="notes">
     This is the key insight for the technical audience: persona curation IS programming. For the non-technical
     audience: it's a recipe for how the AI should think. You debug personas the same way you debug code —
@@ -1050,8 +1095,8 @@
     The entire Recipe Curator persona is a single Markdown file.
   </p>    
   <aside class="notes">
-    This is the actual Recipe Curator persona — 276 lines of Markdown. No JSON, no YAML config, no
-    proprietary format. The headings create semantic structure that the AI interprets naturally.
+    This is the actual Recipe Curator persona, a few hundred lines of Markdown. No JSON, no YAML config,
+    no proprietary format. The headings create semantic structure that the AI interprets naturally.
     Markdown is the lingua franca of AI instructions. Click the document icon in the top right at
     any time to see the full source.
   </aside>
@@ -1067,15 +1112,18 @@
     <div class="section"><span class="num">3</span> <span class="label">Inputs</span> <span class="desc">— What the user can provide</span></div>
     <div class="section"><span class="num">4</span> <span class="label">Outputs</span> <span class="desc">— Templates with exact format (recipe, meal plan)</span></div>
     <div class="section"><span class="num">5</span> <span class="label">Reference Data</span> <span class="desc">— Kitchen equipment, Rainbow Eating table</span></div>
-    <div class="section"><span class="num">6</span> <span class="label">Strict Constraints</span> <span class="desc">— Nutrition targets, no tuna, metric only</span></div>
+    <div class="section"><span class="num">6</span> <span class="label">Core Rules</span> <span class="desc">— Nutrition targets, no tuna, metric only</span></div>
     <div class="section"><span class="num">7</span> <span class="label">Workflow</span> <span class="desc">— Step-by-step processing pipeline (anchored last)</span></div>
   </div>
   <br>
-  <p class="accent" style="font-size: 0.75em;">276 lines — not a one-liner.</p>
+  <p class="accent" style="font-size: 0.75em;">A few hundred lines &mdash; not a one-liner.</p>
   <aside class="notes">
     The structure matters. Mission comes first because it's the most important context for the AI. The
     workflow comes last because it anchors the behavior — the AI has already absorbed the context and
     constraints by the time it reaches the step-by-step instructions.
+
+    Section names vary between personas — this one calls its constraints Core Rules, and it carries two
+    reference tables rather than one. The order is what stays fixed.
   </aside>
 </section>
 
@@ -1163,7 +1211,7 @@
   <br>
   <p style="font-size: 0.7em; color: #90a4ae;">
     From the Recipe Curator:<br>
-    <em>"Match the User's Language — respond in the language the user writes in."</em><br><br>
+    <em>"Match the Chef's Language &mdash; respond in the language the chef writes in."</em><br><br>
     The persona is in English. The output adapts to the user.
   </p>
   <aside class="notes">
@@ -1239,6 +1287,84 @@
 </section>
 
 <section>
+  <p class="section-label">What Makes a Persona Powerful</p>
+  <h2>Trigger Anchoring</h2>
+  <p class="lead">Length is not the limiting factor. <span class="accent">Salience beats volume.</span></p>
+  <div class="equipment-table">
+    <table>
+      <thead><tr><th>What the instruction is</th><th>What makes it fire</th><th>Survives?</th></tr></thead>
+      <tbody>
+        <tr><td>The task itself</td><td>Carries the session's momentum</td><td class="accent-green">Never dropped</td></tr>
+        <tr><td>Tied to an action</td><td>The tool call it forbids or requires</td><td class="accent-green">Very high</td></tr>
+        <tr><td>A numbered step with an output slot</td><td>The step and the empty slot</td><td class="accent-green">High</td></tr>
+        <tr><td>&ldquo;Keep an eye out for&hellip;&rdquo;</td><td class="accent-red">Nothing</td><td class="accent-red">Lowest</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size: 0.75em; margin-top: 1.3em;">
+    Models recall long documents fine. What decays is an instruction's <span class="accent">activation</span> at the moment it should apply.<br>
+    Every duty gets
+    an explicit trigger:
+    <button type="button" class="info-link" data-info="info-observable-gate"
+            data-info-title="Real gates and gates that only look real">an action, a checkpoint, or an output slot</button>.
+  </p>
+  <template id="info-observable-gate">
+    <p>
+      The trigger has to be something that <strong>visibly happens</strong> &mdash; not something the
+      agent decides has happened.
+    </p>
+    <p>
+      <span class="strike">&ldquo;After each chunk of work, note what you observed.&rdquo;</span><br>
+      This reads like a gate, but the boundary never announces itself. The moment never feels right,
+      so the note is never written &mdash; and the omission is invisible.
+    </p>
+    <p>
+      <span class="better">&ldquo;After each file edit, before opening the next file, append what you
+      observed.&rdquo;</span><br>
+      A file edit is observable. The gate fires.
+    </p>
+    <p>
+      The same logic sets the budget: reliability declines with tool calls and context churn, not with
+      word count. A persona whose sessions run long needs more <em>checkpoints</em>, not more prose.
+      Adding prose adds volume without adding triggers.
+    </p>
+  </template>
+  <aside class="notes">
+    This is the most counter-intuitive thing I have learned writing these, and it took a genuine
+    failure to see it.
+
+    The instinct everyone has &mdash; me included &mdash; is that a persona has a length budget. Write
+    too much and the model starts dropping things, so keep it short. That instinct is wrong, and acting
+    on it makes personas worse. Models handle long documents perfectly well; the recall is not the
+    problem.
+
+    What actually fails is activation. The instruction is still in context, the model could quote it
+    back to you, but it does not fire at the moment it applies &mdash; because the agent is absorbed in
+    the primary task and nothing in the session forced it to check. So the question to ask of any
+    instruction is not "is this too much text?" but "what makes the model look at this at the right
+    moment?"
+
+    Read the table bottom-up, because the bottom row is where every persona I have written went wrong
+    first. "Keep an eye out for X while you work" has no trigger at all. It depends entirely on the
+    instruction spontaneously resurfacing while attention is elsewhere. It reads like a reasonable
+    request and it is, in practice, close to a no-op.
+
+    The three rows above it all have something that forces the check. The task itself carries the
+    session. An action gate is checked at the moment of the tool call, because the tool call is the
+    trigger. A numbered step with an output slot is forced by the empty slot &mdash; the report has a
+    hole in it until the work is done.
+
+    The practical rule that follows: converting a duty is not about rewording it more emphatically. It
+    is about finding it a trigger. Same words, attached to an observable event, behave completely
+    differently.
+
+    The info link covers the trap I fell into, which is worth mentioning if there is time: a gate that
+    delegates the trigger back to the agent's own judgement is not a gate. "After each chunk" sounds
+    observable and is not.
+  </aside>
+</section>
+
+<section>
   <p class="section-label">Beyond a single persona</p>
   <h2>Meet the Team</h2>
   <p class="lead">24 standalone personas &mdash; each a specialist you can invoke on demand.</p>
@@ -1270,8 +1396,8 @@
     </div>
     <div class="team-card">
       <div class="team-icon">ℹ️</div>
-      <div class="team-name">Readme Curator</div>
-      <div class="team-desc">Structured commits with plan traceability</div>
+      <div class="team-name">README Curator</div>
+      <div class="team-desc">Landing-page READMEs: hook, features, quick start</div>
     </div>
     <div class="team-card">
       <div class="team-icon">📋</div>
@@ -1333,7 +1459,7 @@
 </section>
 
 <section>
-  <p class="section-label">The Craft of Persona Curation</p>
+  <p class="section-label">Beyond a single persona</p>
   <h2>The Persona Design Guide</h2>
   <p class="lead">The collected principles &amp; rules of the craft, versioned like code.</p>
   <div class="card-stack" style="--stack-size: 0.7em; --card-padding: 0.55em 1em;">
@@ -1889,9 +2015,9 @@
     Then the next agent asks the same question.
 
     The consequence is that routing is a function of state, not of my phrasing. Two runs from the
-    same ledger state produce the same instruction. That is what the word deterministic on the
-    orchestrator slide actually rests on — not that the model is deterministic, it plainly is not,
-    but that the coordination around it is.
+    same ledger state produce the same instruction. That is the sense in which this is deterministic —
+    not that the model is, it plainly is not, but that the coordination around it is. Worth keeping in
+    mind for the execution environments later in this part, because that is the property they differ on.
 
     It also means the chain has no privileged coordinator holding the plan in its head. There is no
     conductor. Each agent is stateless with respect to the workflow; the ledger is the only thing
@@ -1904,7 +2030,7 @@
 </section>
 
 <section>
-  <p class="section-label">Building a virtuous chain</p>
+  <p class="section-label">Interconnecting multiple agents</p>
   <h2>Dynamic Pipelines</h2>
   <p class="lead" style="margin-bottom: 0.8em">Not every task needs all 9 stages. The PM agent decides on the stage sequencing.</p>
   <img data-img="img/work-package-stages.png" alt="Work packages with different pipeline configurations"
@@ -2626,8 +2752,8 @@
     running into, not because I've solved them.
 
     The two that non-developers will care about most are institutional knowledge and the glossary. That's
-    exactly what the business-engineer workspace from Part 1 is — a division's knowledge written down
-    somewhere an agent can read it. And the glossary matters more than it sounds: most of the confusion
+    exactly what the business-engineer workspace a few slides from now is — a division's knowledge written
+    down somewhere an agent can read it. And the glossary matters more than it sounds: most of the confusion
     I've seen between an agent and a project comes down to one word meaning two different things.
 
     Last point, and it connects back to AX: none of this is documentation you write for the agent's
@@ -2849,8 +2975,8 @@
 
     What makes this example work is that the agents can read the actual source material — the
     repositories are in the workspace, and Jira and Confluence are connected through MCP servers,
-    which I'll come back to in Part 3. The agents aren't recalling things from training data. They're
-    reading the division's own documents.
+    the same mechanism the ledger uses back in Part 3. The agents aren't recalling things from
+    training data. They're reading the division's own documents.
 
     The takeaway for the team leads and section heads: the barrier here is not programming ability.
     It's being willing to organise your material and describe the specialists you want. If you own a
@@ -3071,7 +3197,7 @@ Reveal.initialize({
   const panel = document.getElementById('outline-panel');
 
   // Build outline from build-injected outline data
-  const outlineData = [{"label":"Opening","startIndex":0,"count":3},{"label":"Part 1 — Agent Personas","startIndex":3,"count":16},{"label":"Part 2 — Build System","startIndex":19,"count":6},{"label":"Part 3 — Ledger & Workflow","startIndex":25,"count":21},{"label":"Demo","startIndex":46,"count":1},{"label":"Part 4 — Working With Models","startIndex":47,"count":8},{"label":"Closing","startIndex":55,"count":3}];
+  const outlineData = [{"label":"Opening","startIndex":0,"count":4},{"label":"Part 1 — Agent Personas","startIndex":4,"count":17},{"label":"Part 2 — Build System","startIndex":21,"count":6},{"label":"Part 3 — Ledger & Workflow","startIndex":27,"count":21},{"label":"Demo","startIndex":48,"count":1},{"label":"Part 4 — Working With Models","startIndex":49,"count":8},{"label":"Closing","startIndex":57,"count":3}];
 
   const allSections = document.querySelectorAll('.reveal .slides > section');
   let html = '';

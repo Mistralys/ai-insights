@@ -44,9 +44,9 @@
     Then the next agent asks the same question.
 
     The consequence is that routing is a function of state, not of my phrasing. Two runs from the
-    same ledger state produce the same instruction. That is what the word deterministic on the
-    orchestrator slide actually rests on — not that the model is deterministic, it plainly is not,
-    but that the coordination around it is.
+    same ledger state produce the same instruction. That is the sense in which this is deterministic —
+    not that the model is, it plainly is not, but that the coordination around it is. Worth keeping in
+    mind for the execution environments later in this part, because that is the property they differ on.
 
     It also means the chain has no privileged coordinator holding the plan in its head. There is no
     conductor. Each agent is stateless with respect to the workflow; the ledger is the only thing
