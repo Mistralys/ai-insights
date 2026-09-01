@@ -1,0 +1,55 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Shared Memory</h2>
+  <p class="lead">Ledger data can be loaded from multiple independent stores.</p>
+  <div class="card-stack" style="--stack-width: 850px; --stack-size: 0.66em; --stack-gap: 0.45em;">
+    <div class="glass-card">
+      <strong class="accent">Split by concern.</strong><br>
+      <span class="muted">Company work in one store, open source libraries in another. You decide the split, 
+        knowledge is collated from all to bring it together.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Self-contained storage.</strong><br>
+      <span class="muted">Each store contains its own projects, repository registry, and knowledge base.
+      You decide where the folder comes from - a network share, a git repository...</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-green">Team-friendly.</strong><br>
+      <span class="muted">Sharing a store means consumers inherit the full project history and accumulated
+      knowledge, and can contribute to it.</span>
+    </div>
+  </div>
+  <p class="sidenote">
+    My recommendation: Add your stores from Git repositories for full history and change tracking
+    (<a class="ext-link" href="https://github.com/Mistralys/ledger-storage" target="_blank"
+        rel="noopener noreferrer">Mistralys' example</a>).
+  </p>
+  <aside class="notes">
+    A ledger store is just a directory, and that turns out to matter more than it sounds.
+
+    Because it is a directory, there can be more than one of them. I run two: one for company
+    projects, one for my own open source libraries. They are not partitions of a single database —
+    each store is fully self-contained, with its own project tree, its own repository registry, and
+    its own knowledge base. The server holds them all at once and routes each operation to the right
+    one, based on which store the repository is registered in. I never pick a store by hand.
+
+    Why split at all? Separation of concerns, mostly. Company history should not travel with a
+    library I publish publicly, and the two have genuinely different knowledge — different
+    conventions, different tooling, different lessons. Keeping them apart means a query against one
+    is not diluted by the other. The practical benefit is that each store can be synced, backed up,
+    or handed over independently, because nothing outside it points inward.
+
+    Now the part that changes how this is used. Access to the store is access to everything in it.
+    Put a store somewhere a team can reach — a shared drive, a synced folder, whatever the
+    organisation already trusts — and every member of that team starts from the same accumulated
+    history. Every project anyone runs writes back into it. The knowledge base is no longer my
+    knowledge base; it is the team's.
+
+    And note what is not required for that: no shared repository, no central service, no accounts.
+    The unit of sharing is a folder. If your team can share a folder, your team can share a ledger.
+
+    One honest note on concurrency. Writes are file-locked, so parallel access is safe rather than
+    merely lucky, but this is coordination through a filesystem — it suits a team working across
+    different projects far better than several people driving the same project at the same moment.
+  </aside>
+</section>

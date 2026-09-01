@@ -249,9 +249,30 @@ content/3-developer.md
 
 Agent 2 does **not** use the `{{#if has_detect_project}}` guard. Instead, it directly embeds `{{> mcp-preflight-verify-no-detect}}`, which uses "Step 1" numbering and references a "target project_path" rather than a resolved one. This is because the PM always receives an explicit path from the Planner.
 
-### Agent 1 (Planner) — Minimal Template
+### Agent 1 (Planner) — Shared With the Standalone Twin
 
-Agent 1 uses `{{> agent-roster}}` only. No MCP partials, no handoff block, no incident logging. It produces a plan document and does not interact with the ledger.
+Agent 1 has no handoff-block partial and no incident logging — it prints its handoff verbatim and produces a plan document rather than driving the ledger. It does use the MCP pre-flight header partials, since it calls `ledger_get_repository_context` and `ledger_search_insights` for strategic context.
+
+Beyond `{{> agent-roster}}`, Agent 1 shares six `planner-*` partials with the standalone Planner. The two personas are the same role under two deployment contexts, so the shared blocks live in `personas/shared/partials/` and each persona contributes only its genuine divergences:
+
+```
+content/1-planner.md                      content/planner.md  (standalone)
+│                                         │
+├── {{> agent-roster}}                    │   (ledger only — no roster in standalone)
+├── {{> planner-philosophy}} ───────────── ┤   identical
+├── {{> planner-operating-modes}} ──────── ┤   identical
+├── … MCP tools table + pre-flight …      │   (ledger only — has_mcp: true)
+├── {{> planner-research-brief-template}}─ ┤   {{#if has_mcp}} gates ## Strategic Context
+├── {{> planner-output-template}} ──────── ┤   {{#if has_ledger_workflow}} gates
+│                                         │     ## Plan Audit Cycles, ## Recommended Workflow
+│                                         │   {{#if has_mcp}} gates ## Prior Project Context
+├── … Rework Handling (own text) …        │   (standalone omits the audit-counter step)
+├── {{> planner-core-rules}} ───────────── ┤   {{planner_implementer_ref}} differs
+├── {{> planner-quality-checklist}} ────── ┤   identical
+└── … Workflow (own text) …               │   (differs: MCP steps, workflow assessment)
+```
+
+The four genuine divergences are the agent roster, the MCP block, the ledger-gated plan sections, and the handoff status (`READY_FOR_PM` + `RECOMMENDED_WORKFLOW` vs. `COMPLETE`). Everything else is shared. A change to planning methodology belongs in the partial, not in either persona.
 
 ---
 
@@ -286,4 +307,109 @@ How generated personas reach end users and the MCP server:
        │
        ▼
   Project Ledger MCP Server
+``` 
+
+---
+
+## 5. Persona Audit Process
+
+Periodic compliance checks ensure all personas conform to the current Persona Design Guide. The process combines a generator script with the Persona Curator agent.
+
+### Lifecycle
+
 ```
+  Guide updated (new version)
+       │
+       ▼
+  node scripts/generate-persona-audit.js
+       │  reads: all personas/*/src/meta/*.yaml
+       │  reads: all personas/*/src/content/*.md (composition tier)
+       │  reads: personas/docs/persona-design-guide.md (version + changelog)
+       │  reads: personas/docs/audits/annotations.json (Notes column)
+       │  derives: guide version at each persona's last-updated date
+       │  derives: audit status from audit_guide_version vs current guide
+       │  derives: tier from partial + conditional counts in source
+       ▼
+  personas/docs/audits/status.md  (fully generated)
+       │  sorted oldest-first per suite
+       │  columns: Version, Last Updated, Guide, Audited, Tier, Status, Notes
+       ▼
+  Persona Curator (Audit mode)
+       │  reads: persona-design-guide.md
+       │  reads: personas/*/src/content/<persona>.md
+       │  evaluates: Quality Checklist compliance
+       ▼
+  ┌─── Verdict ───┐
+  │               │
+  PASS        NEEDS WORK
+  │               │
+  │               ▼
+  │          Fix issues (Maintain mode)
+  │               │
+  │               ▼
+  │          Re-audit
+  │               │
+  ▼               │
+  Stamp YAML  ◄───┘
+  │  audit_guide_version: "{GUIDE_VERSION}"
+  │  audit_date: "YYYY-MM-DD"
+  │  changelog: prepend version bump entry
+  ▼
+  Regenerate tracking doc
+       │  node scripts/generate-persona-audit.js
+       ▼
+  Summary shows updated Current / Stale / Unaudited counts
+```
+
+### File Layout
+
+The audit record lives in `personas/docs/audits/`, split by who writes it:
+
+| File | Written by | Contents |
+|---|---|---|
+| `status.md` | Generator | Per-persona tracking table. Regenerated wholesale — never hand-edit. |
+| `notes.md` | Hand | Audit methodology, generalising findings, roll-forward reasoning. Cumulative. |
+| `annotations.json` | Hand | Notes-column text keyed by suite + persona YAML stem. Missing key → empty cell. |
+
+The split exists because `status.md` is derived entirely from YAML and source composition,
+so anything hand-written inside it is lost on the next run.
+
+### Tier Derivation
+
+Tier is computed from each persona's content file, not stored in YAML:
+
+| Condition | Tier | Meaning |
+|---|---|---|
+| No `{{> partial}}` and no `{{#if}}` / `{{#unless}}` | `A` | Rendered output is the source plus frontmatter; design guide v3.3's rendered-output requirement does not apply. |
+| Otherwise | `B (Np/Mc)` | N partials, M conditionals — the assembled document must be read to be verified. |
+
+Because it is derived, a persona that gains its first partial flips A → B automatically,
+surfacing that its existing audit stamp no longer covers everything the guide requires.
+
+### Status Derivation
+
+The script reads `audit_guide_version` from each persona's YAML metadata and compares it against the current guide version:
+
+| `audit_guide_version` | Current Guide | Derived Status |
+|---|---|---|
+| absent | any | Unaudited |
+| matches current | e.g. `"2.8"` = `"2.8"` | Current (PASS) |
+| older version | e.g. `"2.5"` < `"2.8"` | Stale — re-audit needed |
+
+### CLI
+
+```bash
+# Write personas/docs/audits/status.md (default)
+node scripts/generate-persona-audit.js
+
+# Preview without writing
+node scripts/generate-persona-audit.js --stdout
+
+# Write elsewhere
+node scripts/generate-persona-audit.js -o /tmp/audit-preview.md
+
+# Override guide version label
+node scripts/generate-persona-audit.js --guide-version 3.0
+```
+
+Also available via `node scripts/cli.js generate-persona-audit`.

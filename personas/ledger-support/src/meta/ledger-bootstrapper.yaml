@@ -4,7 +4,10 @@ description: "Mechanically initialize the project ledger: create all Work Packag
 vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
+audit_guide_version: "3.4"
+audit_date: "2026-08-28"
 changelog: |
+  1.4.0 (2026-08-28): First audit (guide v3.4) — Inputs restructured around the PM's two-argument dispatch; every ledger_create_work_package parameter now names its source document; added Stage Ownership table so assigned_to is derived rather than guessed; added a protocol Constraints block; report gained Failures and Flagged slots with explicit none-forms; dropped the unused edit tool grant
   1.3.0 (2026-08-04): Removed spec file creation and verification steps; protocol reduced from 7 to 5 steps; description promoted to required field in ledger_create_work_package
   1.2.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
   1.1.0 (2026-05-19): WP spec template carries all draft fields verbatim; no summarization
@@ -14,12 +17,11 @@ tools:
   - vscode
   - execute
   - read
-  - edit
   - search
   - central_pm/*
 
 # overview metadata
 identity: "Technical Program Manager — Ledger Initialization Operator"
-use_when: "Invoked by the Project Manager (Stage 2) after WP definitions are ready"
+use_when: "Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written"
 key_behavior: |
-  Creates the project in the ledger, registers all WPs, sets dependencies and pipeline stages, and verifies the final state matches expectations
+  Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations

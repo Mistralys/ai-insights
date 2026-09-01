@@ -64,6 +64,70 @@
    - **Separation of concerns.** Persona content defines identity, methodology, and decision-making framework. Reference documents are consulted knowledge — analogous to config loaded at runtime, not hardcoded into source.
    - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
 
+<a name="c4c"></a>
+5c. **Recurring Operating Philosophy principles use their canonical name from the registry below.** The [Persona Design Guide](../../persona-design-guide.md) § "Recurring Principles Across a Persona Suite" defines the naming rules; this registry is the project-local vocabulary those rules operate on. The guide is a distributed document used to curate persona suites in unrelated projects and domains, so the inventory of *this* project's principles belongs here rather than in the guide.
+
+   **Canonical names:**
+
+   | Canonical Name | Meaning | Carried By |
+   |---|---|---|
+   | **Durable Over Precise** | A statement that stays true across commits beats a precise one that goes stale. Counts, tallies, and inventories are the standard illustration. | AGENTS.md Curator, Manifest Curator, Module Intent Architect, Documentation Curator, README Curator, Unit Test Auditor, CTX Architect |
+   | **Every Artefact Earns Its Place** | An artefact justifies the cost it imposes or it does not belong; exhaustiveness is not a virtue. The cost differs by domain — ongoing maintenance for the Workspace Architect, diluted signal for the CTX Architect — but the test is the same. Distinct from the Dependency Curator's **The Smallest Sufficient Move Carries the Least Risk**, which weighs upgrade distance rather than whether a thing earns its keep. | CTX Architect, Workspace Architect |
+   | **Stratified Authority** | Command voice earns its weight from scarcity; a document written entirely in directives flattens into noise. | AGENTS.md Curator, Manifest Curator, Persona Curator |
+   | **A Few Right Files Beat Many** | Targeted reading of the files where a question actually turns beats a wide sweep of the repository. The Sequencer applies it to candidate dependency pairs, the WP Decomposer to uncertain WP boundaries, the Pipeline Configurator to the symbols a narrowed stage chain depends on — same claim, different unit of uncertainty. | Ledger Dependency Sequencer, Ledger WP Decomposer, Ledger Pipeline Configurator |
+   | **The Upstream Stage Already Looked** | Codebase facts recorded by an earlier pipeline stage are findings, not guesses, and re-deriving them spends the session twice. Deliberately named for the *relationship* rather than the specific predecessor: the Sequencer inherits the WP Decomposer's Code Observations, the WP Decomposer inherits the Planner's research brief, the Pipeline Configurator inherits both. A per-predecessor name ("The Decomposer Already Looked") forks on every new consumer. | Ledger Dependency Sequencer, Ledger WP Decomposer, Ledger Pipeline Configurator |
+   | **A Missing Stage Costs More Than an Extra One** | Where two error directions have unequal cost, the cheap error is the correct default under uncertainty. Stated for pipeline stages: a redundant stage costs one run, a missing one ships a defect nothing downstream catches. Related to the Sequencer's **A Wrong Edge Costs More Than a Missing One**, which is the same asymmetry argument in the opposite direction for its own domain — both stay split, since unifying them would assert that the cheap error is the same error in both. | Ledger Pipeline Configurator |
+   | **The Acceptance Criteria Decide, Not the Title** | A work item's declared label is not evidence of what it does; its deliverables and acceptance criteria are. | Ledger Pipeline Configurator |
+   | **Context Completes the Insight** | A knowledge entry that cannot be acted on without its originating project has not carried its context. The Archiver applies it when deciding what narrative to commit; the Curator applies it when deciding whether a surviving entry still carries enough — same claim, opposite ends of an entry's life. The *type* of context differs by scope in both: class-of-problem framing for `global`, concrete identifiers for `repository`. | Ledger Knowledge Archiver, Ledger Knowledge Curator |
+   | **The 30-Second Rule** | A reader reaches orientation within half a minute; anything slower belongs in a deeper document. | AGENTS.md Curator, Module Intent Architect |
+   | **Long-Term Stability Over Expediency**, **Growth Is the Default**, **Completeness Over Deferral**, **The Practitioner's Eye** | The shared Developer philosophy. | `personas/shared/partials/developer-philosophy.md` — rendered by both the ledger and standalone Developer personas; never duplicated inline |
+   | **Growth Is the Default**, **Completeness Over Deferral**, **Long-Term Stability Over Expediency** | The shared Planner philosophy. Same three canonical names as the Developer philosophy above, stated for the planning domain (a plan step rather than a class) — the two partials carry different bodies under the same names, which is the guide's "bodies are authored, not copied" rule applied across suites. | `personas/shared/partials/planner-philosophy.md` — rendered by both the ledger and standalone Planner personas; never duplicated inline |
+   | **Refactoring Is Always on the Table**, **Adjacent Improvement Is the Only Improvement** | Planner-only by design. Reshaping scope and adjacent improvements are decided *in the plan*, never during implementation — the Developer's scope table deliberately excludes refactoring campaigns and routes anything it notices into observations, which feed a rework plan. Adding either principle to a Developer persona would break that division of labour. | `personas/shared/partials/planner-philosophy.md` — must **not** be extended to the Developer personas |
+
+   **Known collisions — deliberately not unified:**
+
+   | Name | Why it stays split |
+   |---|---|
+   | **Quality Over Quantity** | The two knowledge personas (Archiver, Curator) mean a sparse knowledge base outperforms a dense one — one meaning, shared, and canonical between them. The Recipe Curator means fewer, better ingredients. That second meaning is coincidence, not a shared principle — unifying it with the knowledge sense would assert a relationship that does not exist. The Recipe Curator may not reference the knowledge meaning, nor the knowledge personas the ingredient one. |
+
+   A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
+
+<a name="c4d"></a>
+5d. **Published artifacts carry no project-specific content.** Some files in this repository are consumed by unrelated downstream projects, which fetch them over HTTPS and overwrite their local copy on every sync. AI-Insights-specific content added to one of them ships to every consumer, and they cannot remove it — the next sync restores it.
+
+   **Published artifacts:**
+
+   | Artifact | How to recognise it | Downstream consumption |
+   |---|---|---|
+   | `personas/docs/persona-design-guide.md` | `**License:**` / `**Author:**` / `**Source:**` header block | Fetched by `nexus-personas` (`scripts/sync-persona-design-guide.js`, plus a scheduled Gitea Actions workflow); local copies also exist in `hcp-editor` and `nexus-plugins` |
+   | `personas/standalone/src/content/persona-curator.md` | Consumed as source by downstream builds | Fetched by the same sync script; downstream treats its local copy as read-only under a MUST-level constraint |
+
+   **Rules:**
+
+   - **The guide is domain-neutral.** Downstream suites cover non-coding domains — recipes, content curation, research. A rule stated in the guide holds for any persona suite; an inventory, a file path under `personas/ledger/`, or a reference to this workspace's tooling does not belong there. Project-specific vocabulary and conventions go into this constraints document instead, as C5c does.
+   - **The Persona Curator degrades gracefully.** Instructions in the Curator reference project infrastructure conditionally ("where the project maintains a registry…"), never unconditionally. A step that assumes this workspace's layout is a step that misfires in every downstream project.
+   - **One section heading is a hard downstream contract; the rest are unverified.** `nexus-personas` injects a partial into `persona-curator.md` by anchoring on the literal string `\n\n## Operating Philosophy\n`, and its sync throws a hard error when the anchor is missing. That heading is load-bearing and must not be renamed or removed. Other top-level headings in either file have no *known* consumer, but downstream projects are not fully surveyed — so flag a proposed rename for the user and let them confirm, rather than either applying it silently or refusing it outright. Adding a heading and reordering existing ones are both safe. (`## Strict Constraints` → `## Core Rules` was renamed in the Curator on 2026-08-26 after the user confirmed no consumer.)
+   - **Version and changelog are the sync signal.** Both files carry a version and changelog block that downstream consumers read to detect drift. Content changes bump the guide's version in the same change.
+
+   > **Why this needs stating:** these files look exactly like ordinary project documentation from inside the workspace — same directory, same Markdown, same Git history. The only in-file signal is the header block, which is easy to read past. When in doubt, check whether the file appears in the table above.
+
+<a name="c4e"></a>
+5e. **This project's persona layout is not the layout the Persona Curator can assume.** Because `persona-curator.md` is published (C5d), it describes persona work in role terms — "the project's copy of the guide", "the persona's metadata file", "per-target output directories" — rather than naming paths. Downstream consumers use a flat `personas/src/` + `personas/meta/` layout with no suite subdivision and different target directories, so a hardcoded path in that file is wrong everywhere except here.
+
+   The concrete values for **this** workspace:
+
+   | Concept (as the Curator names it) | This project's path |
+   |---|---|
+   | The project's copy of the Design Guide | `personas/docs/persona-design-guide.md` — the first entry in the Curator's lookup order, so no search is needed here. The filename is invariant across projects; only the directory varies (downstream consumers use `docs/persona-design-guide.md`). Moving this file requires updating that lookup order, since it would otherwise fall through to the search fallback. |
+   | Persona source content files | `personas/ledger/src/content/`, `personas/standalone/src/content/`, `personas/ledger-support/src/content/` |
+   | Persona metadata files | `personas/{suite}/src/meta/` (see [C2a](#c2a) for the full directory table) |
+   | Per-target generated output | `personas/{suite}/vs-code/`, `personas/{suite}/claude-code/`, `personas/{suite}/deep-agents/` — never edited ([C1](#c1)) |
+   | Metadata fields for a new persona | `slug`, `name`, `description`, `id`, `vs_file_name`, `cc_file_name`, `tools`, `changelog` (see [C11](#c11)–[C15](#c15) for naming rules) |
+   | The project's persona changelog | `personas/changelog.md` |
+   | The persona build command | `node scripts/build-personas.js` ([C3](#c3) covers the full edit → build → sync workflow) |
+
+   An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
+
 ---
 
 ## Naming & File Conventions
@@ -181,7 +245,6 @@
 23. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — the library emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).
 
 <a name="c29"></a>
-<a name="c38"></a>
 <a name="c48"></a>
 24. **`mcp_server_name` in `_shared.yaml` controls the MCP server reference** everywhere in generated output and must match the server key used by `scripts/install-mcp-global.js` (default: `central_pm`). If the server name changes, update this field, rebuild personas, and update `install-mcp-global.js` — see the Cross-System Dependencies table in `AGENTS.md`.
 
@@ -195,6 +258,26 @@
    > **Suite-wide changes:** If a single change affects multiple personas (e.g., editing a shared partial), update each affected persona's `changelog:` field individually and document all of them in one `personas/changelog.md` entry. For changes affecting every persona in a suite, prefer bumping `default_version` in `_shared.yaml` with a dated entry rather than updating every YAML file individually.
 
    Omitting any of these steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata in the `changelog:` field.
+
+---
+
+## Audit Tracking
+
+<a name="c50a"></a>
+25a. **`audit_guide_version` and `audit_date` track design guide compliance.** Two optional YAML metadata fields record whether a persona has been audited against the Persona Design Guide:
+
+   ```yaml
+   audit_guide_version: "2.8"
+   audit_date: "2026-08-25"
+   ```
+
+   - **`audit_guide_version`** — the version of the Persona Design Guide the persona was last audited against. Set by the Persona Curator on a PASS verdict.
+   - **`audit_date`** — the date the audit was performed. Set alongside `audit_guide_version`.
+   - **Not set on NEEDS WORK** — personas that fail audit retain their previous values (or none) until fixes are applied and the persona is re-audited.
+   - **Consumed by `scripts/generate-persona-audit.js`** — the audit tracking script reads these fields to auto-derive status: current (matches the latest guide version), stale (audited against an older version), or unaudited (fields absent).
+   - **Not consumed by the build system** — these fields are silently ignored by the template engine and have no effect on generated output.
+   - **Process state does not belong here.** These two fields are facts about the persona. Facts about the *audit process* — "paired audit with twin", "tone fix only" — go in `personas/docs/audits/annotations.json` instead, keyed by suite and persona YAML stem. The two have different lifecycles, and mixing them puts editorial commentary into build-input metadata.
+   - **The audit record lives in `personas/docs/audits/`**, split three ways: `status.md` (fully generated — never hand-edit), `notes.md` (hand-written narrative, cumulative), and `annotations.json` (Notes-column text). See that folder's `README.md`.
 
 ---
 

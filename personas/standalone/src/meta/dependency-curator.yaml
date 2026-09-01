@@ -1,0 +1,33 @@
+slug: dependency-curator
+name: "Dependency Curator"
+description: "Audit third-party dependencies for security advisories, upstream abandonment and in-constraint updates, and produce migration plans for major-version upgrades."
+vs_file_name: dependency-curator.agent.md
+id: standalone-dependency-curator
+cc_file_name: dependency-curator.md
+changelog: |
+  1.2.1 (2026-08-26): Rewrote two Operating Philosophy principles from imperative into indicative mood per design guide v3.0
+  1.2.0 (2026-08-26): Added the Dependency Decision Ledger and a Record mode — decisions and rationale accumulate across sessions, expired decisions surface as findings, and deferred upgrade research is revalidated rather than re-derived
+  1.1.0 (2026-08-26): Added upstream maintenance status, lock file integrity, declaration hygiene and exposure-tiered advisory priority; corrected Yarn and Poetry commands; added transitive override, license, support window, workspace and update automation coverage
+  1.0.0 (2026-08-26): Initial release — dependency maintenance auditing and major-version upgrade planning across Composer, npm, pip, Cargo and Go
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - browser
+  - agent
+  - todo
+
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"
+
+# overview metadata
+identity: "Dependency & Supply Chain Engineer"
+use_when: "Reviewing dependency health, chasing security advisories, or planning a major-version upgrade"
+modes: |
+  Maintenance (in-constraint updates and advisories)
+  Upgrade (major-version migration planning)
+  Record (write a dependency decision to the ledger)

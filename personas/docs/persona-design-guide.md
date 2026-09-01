@@ -1,15 +1,30 @@
+<!--
+  PUBLISHED ARTIFACT — domain-neutral, no project-specific content.
+  Downstream projects fetch this file over HTTPS and overwrite their local copy
+  on every sync, across non-coding domains (recipes, curation, research).
+  Project-specific inventories and conventions belong in that project's own
+  constraints. Top-level headings are a downstream anchor contract: renaming one 
+  is a breaking change.
+-->
+
 # Persona Design Guide
 
-> A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
+> A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 2.8
-**Last Updated:** 2026-08-24
+**Version:** 3.4
+**Last Updated:** 2026-08-27
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall.
+- v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
+- v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
+- v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
+- v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
+- v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
 - v2.8 - 2026-08-24: Added design rule for self-contained sub-sections: reusable partials and dedicated procedure blocks consolidate their constraints into their own Constraints heading rather than scattering them inline.
 - v2.7 - 2026-08-24: Added Core Philosophy principle 7 (Tone Stratification); reserved imperative voice for Rules & Constraints only; rewrote checklist tone item to enforce stratification; added "All-imperative monotone" pitfall; fixed Mission template wording.
 - v2.6 - 2026-08-24: Added Pattern 15 rules for observable-action gating, own-step placement, and skipped-duty visibility; expanded Pattern 6 with session-start sink opening and liveness markers; added related checklist items and two pitfalls.
@@ -165,8 +180,8 @@ This section is optional but highly recommended for complex or judgment-heavy ro
 ```markdown
 ## Operating Philosophy
 
-- **{PRINCIPLE_NAME}:** {One–two sentence explanation of the principle.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
+- **{Nominal or declarative title — never verb-initial}:** {One–two sentences stating the principle as a claim about the domain, not an instruction to the agent.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
 ```
 
 Or, when a unifying metaphor applies:
@@ -186,16 +201,35 @@ Or, when a unifying metaphor applies:
 
 - **Name each principle.** Bold term + explanation sentence. This makes principles scannable and referenceable (e.g., “Apply the 30-Second Rule here”).
 - **Encode judgment, not procedure.** Principles describe *how to think*, not *what to do*. Steps belong in the Workflow.
-- **Frame positively — values over prohibitions.** Philosophy principles express what the agent *prioritizes*, *prefers*, or *values* — not what it must avoid. Use language like "Prefer X over Y", "Value X", "Favor X when…". If a principle starts with "Do not" or "Never", it is a constraint and belongs in Rules & Constraints.
+- **Frame positively — values over prohibitions.** Philosophy principles express what the agent *prioritizes* or *values*, not what it must avoid. A principle that opens with "Do not" or "Never" is a constraint and belongs in Rules & Constraints.
+- **State principles in the indicative mood.** Polarity and mood are independent axes, and the philosophy section requires both: *positive* polarity and *indicative* mood. A principle is a statement about the world the agent works in ("Advisories outrank freshness"), not an instruction addressed to the agent ("Prefer advisories over freshness"). Both are positively framed; only the first is descriptive. Imperative phrasings — "Prefer X", "Favor X", "Use X", "Read X", "Keep X", "Treat X as…" — are positively framed *commands*, and they belong in Rules & Constraints. See Core Philosophy §7 (Tone Stratification).
+- **Titles are nominal or declarative, never verb-initial.** A principle's title sets the mood its body follows, so drift starts in the title. "Read the Changelog, Not the Version Number" is a command and pulls the body into command voice; "The Changelog Decides, Not the Version Number" is a claim and pulls the body into prose. Titles take the form of a noun phrase ("Evidence Over Availability"), a comparison ("Maintenance Status Outranks Version Distance"), or a statement ("State Is Measured, Rationale Is Remembered").
 - **Keep it short.** 3–6 principles is the sweet spot. More than that and the agent can't hold them all in working memory.
 - **Use when the agent faces frequent ambiguity.** Not every persona needs a philosophy. A mechanical agent (like a Ledger Initializer) can operate entirely from its workflow. A judgment-heavy agent (like a README Writer or Documentation Curator) needs principles to navigate the gray areas.
+
+**The "You Should" Test:**
+
+Prepend *"You should"* to a principle's title and to the first clause of its body. If the result reads naturally, the principle is imperative and needs rewriting as a statement about the world.
+
+| Imperative (fails the test) | Indicative (passes) |
+|---|---|
+| Prefer the Smallest Sufficient Move | The Smallest Sufficient Move Carries the Least Risk |
+| Favor Depth Over Breadth | Depth Outranks Breadth |
+| Value Structure Over Prose | Structure Before Content |
+| Keep the Reference Authoritative | The Reference Is Authoritative |
+| Treat Seasonality as a Constraint | Seasonality Bounds the Menu |
+| Choose Fewer, Better Ingredients | Fewer Ingredients Carry More Flavour |
+| Verify Figures Before Reporting Them | Verified Figures Only |
+| Read the Source, Not the Summary | The Source Decides, Not the Summary |
+
+The rewrite is mechanical: the imperative verb becomes a claim about how the domain behaves, and the agent's obligation to act on it is left implicit. Where an obligation genuinely must be enforced, the principle stays as a value statement here and a matching hard rule is added to Rules & Constraints.
 
 **Philosophy vs. Constraint — Litmus Test:**
 
 | If the principle… | It belongs in… | Example |
 |---|---|---|
 | Describes what the agent *values or prioritizes* | Operating Philosophy | "**Structure Before Content:** A well-structured document with average prose outperforms brilliant prose in a disorganized layout." |
-| Expresses a *preference between two valid approaches* | Operating Philosophy | "**Depth Over Breadth:** Prefer thorough coverage of fewer items over shallow coverage of many." |
+| Expresses a *preference between two valid approaches* | Operating Philosophy | "**Depth Outranks Breadth:** Thorough coverage of a few items is worth more than shallow coverage of many." |
 | States what the agent *must not do* | Rules & Constraints | "Do not modify files outside the current work package." |
 | Defines a *hard boundary with an alternative action* | Rules & Constraints | "Never invent APIs — verify existence using filesystem tools before referencing." |
 
@@ -207,6 +241,25 @@ Or, when a unifying metaphor applies:
 | Module Documenter | Code-Discovery Protocol | The 30-Second Rule, Intent Over Implementation, Ecosystem View, Documentation Tiering |
 | README Writer | The README Funnel | Landing-page funnel: Hook → Features → Requirements → Quick Start → Learn More |
 | Config Generator | (unnamed) | Documentation as Infrastructure, Generated Over Hand-Written, README = Why / Architecture = What, Convention Over Configuration, Minimal Viable Coverage |
+
+#### Recurring Principles Across a Persona Suite
+
+Once a collection grows past a handful of personas, some principles begin to recur. Naming a principle is what makes it referenceable — the value of "Apply the 30-Second Rule here" depends on that name meaning one thing everywhere it appears. Two failure modes follow, and they are opposites:
+
+| Failure | Symptom | Consequence |
+|---|---|---|
+| **Name forking** | One principle acquires several names across personas ("Counts Age Badly", "Durable Over Precise", "Counts Are a Maintenance Liability") | The principle cannot be referenced, and an audit cannot distinguish a persona that lacks it from one that calls it something else |
+| **Name collision** | One name covers two unrelated principles in different domains | A shared name asserts a shared principle that does not exist, and a reader who follows the reference finds something else |
+
+**Design Rules:**
+
+- **One meaning per name.** Two personas using the same name state the same underlying principle. Where two principles differ in substance, they take different names.
+- **Prefer the general claim over its symptom.** Where a principle and its most common illustration compete for the name, the principle wins — it extends to illustrations not yet encountered. "Durable Over Precise" covers stale counts, stale dates, and stale version numbers; "Counts Age Badly" covers only the first.
+- **Bodies are authored, not copied.** Each persona illustrates the principle with its own domain's examples. A count in an audit report is not a count in a README, and a principle about ingredient quality is not one about knowledge-base quality. Verbatim duplication across personas is a signal the principle belongs in a shared partial instead.
+- **Extraction into a partial is reserved for whole sections.** A single recurring bullet stays inline under its canonical name. Partials are warranted when two personas share an *entire* philosophy section — typically the same role under two deployment contexts — not when they overlap on one principle.
+- **Maintain the vocabulary where the personas live.** A collection large enough to fork names is large enough to need a registry of canonical names, their meanings, and the personas carrying them. That registry is project-specific and belongs with the project's own conventions, not in this guide.
+
+> **Scope note:** This guide is domain-neutral. A persona suite may cover software engineering, content curation, cooking, research, or anything else, and the principles that recur within one suite are rarely meaningful to another. The rules above describe how to keep a vocabulary coherent; the vocabulary itself is always local to the project.
 
 ---
 
@@ -782,6 +835,10 @@ Before shipping a new persona, verify:
 - [ ] **Single responsibility.** The mission describes one clear outcome.
 - [ ] **Operating Philosophy is present** if the role requires judgment in ambiguous situations.
 - [ ] **Operating Philosophy uses positive framing.** Principles express values and preferences, not prohibitions. Any "Do not" / "Never" statements belong in Constraints.
+- [ ] **Every philosophy principle passes the "You should" test.** Prepend "You should" to each title and to the first clause of each body. Anything that reads naturally is imperative and needs rewriting as a statement about the domain. Applied bullet by bullet, not to the section as a whole.
+- [ ] **No philosophy title is verb-initial.** Titles are noun phrases, comparisons, or statements — never commands ("Read X", "Prefer X", "Keep X", "Use X", "Treat X…").
+- [ ] **Every sentence of a principle body is indicative, not just the first.** Drift commonly appears in a trailing sentence where a principle slides from claim into instruction ("… Reserve imperative language for …").
+- [ ] **Recurring principles use their canonical name** as recorded by the project's own principle vocabulary, where one exists. A principle appearing in a second persona is registered at that point.
 - [ ] **Inputs are specific.** Each input names its source and format.
 - [ ] **Capabilities sub-section exists** if the agent needs to run tests, execute commands, or write files.
 - [ ] **Outputs have a defined location.** The agent knows exactly where to save its work.
@@ -808,10 +865,13 @@ Before shipping a new persona, verify:
 - [ ] **Generation-time constraints are restated in the output template.** Style rules that fire while writing (e.g., "no counts") appear as authoring instructions inside the relevant template slots, not only in the Constraints section.
 - [ ] **Rarely-fired conditionals have a workflow checkpoint.** Every "if present / if applicable" rule is backed by an explicit workflow step that forces the check each session.
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
+- [ ] **Explanatory prose carries one idea per sentence and names its actor.** Abstract subjects, back-references ("that asymmetry", "which is why"), register words, and bolted-on qualifiers are removed in a dedicated pass after the draft exists — not while writing it. Constraints are exempt. (See Prose Density.)
 - [ ] **Tone is stratified: descriptive prose for content sections, imperative commands for constraints only.** Mission, Philosophy, Inputs, Workflow, and Operational Protocol use explanatory language. Only Rules & Constraints use imperative voice ("Do not", "Never", "Must"). If the whole persona reads like a list of commands, the constraints section loses its signal. See Core Philosophy §7.
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
+- [ ] **The rendered output has been read end to end,** where a build system assembles the persona. Partials and variables hide duplication, wrong substitutions, and tone breaks that only the assembled document shows. (See Verifying Rendered Output.)
+- [ ] **Deliberate guide deviations are recorded in `design_notes`,** where the persona carries metadata. Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
 
 ---
 
@@ -888,9 +948,9 @@ Use this for complex, judgment-heavy, or multi-agent personas. Remove sections t
 
 ## Operating Philosophy
 
-- **{PRINCIPLE_NAME}:** {Explanation of the guiding principle.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
-- **{PRINCIPLE_NAME}:** {Explanation.}
+- **{Nominal or declarative title}:** {The principle as a claim about the domain, in the indicative mood.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
+- **{Nominal or declarative title}:** {Statement of the principle.}
 
 ---
 
@@ -1031,6 +1091,122 @@ This applies to persona source files in `src/content/`. The build system and tem
 
 ---
 
+## Prose Density
+
+A persona's explanatory sections have a second failure mode alongside imperative drift, and it comes from the same place: density reads as competence. A sentence carrying three clauses of reasoning looks like the writer understood the problem, so a draft reaches for it whenever the work should appear considered. The prose ends up performing thought rather than transmitting it.
+
+The obvious cost is that a maintainer struggles to read it. The larger cost is that the instruction stops firing. An abstract sentence is understood perfectly on the way in and still fails to surface at the moment it applies, because nothing in it names anything the agent is about to do. Both of these carry the same claim:
+
+| Overloaded | Plain |
+|---|---|
+| Confidence in a graph comes from checking the pairs where coupling is plausible, not from reading the repository. | You get a better graph by opening the four files where two items might touch than by reading all forty. |
+
+Only the second one surfaces while the agent is choosing which file to open. This is Core Philosophy §6 (Salience Beats Volume) at sentence scale: comprehension was never the bottleneck, activation is.
+
+**Four habits produce most of it:**
+
+| Habit | Overloaded | Plain |
+|---|---|---|
+| **Abstract subject** — no actor in the sentence | "Verification is targeted at suspected pairs" | "You open only the files where two items might touch" |
+| **Back-reference** — pointing at a claim instead of making it | "That asymmetry is why an unproven link is worth less than a recorded caveat" | State the asymmetry and stop |
+| **Register word** — a longer word carrying no extra meaning | artefact, arbiter, by construction, leverage | file, decides, always, use |
+| **Bolted-on second thought** — a qualifier that kept a finished sentence alive | "…which makes them both the cheapest starting point and a place where re-checking buys nothing" | Two sentences, or cut the second half |
+
+**Rules:**
+
+- **One idea per sentence.** Where an em-dash or a "which" clause adds a second thought to a sentence that was already complete, split it or drop it.
+- **Name the actor.** Abstract subjects — "confidence", "verification", "the analysis", "coverage" — hide who does what. A person, a file, or a tool belongs in the subject slot.
+- **Say the claim once, never point back at it.** "That asymmetry", "which is why", "this makes it", "the result is" all reference something stated moments earlier instead of stating it.
+- **The plain word wins ties.** Where an everyday word carries the same meaning, the longer one is decoration.
+- **Length is a signal, not a verdict.** A sentence past roughly thirty words, or holding more than one em-dash, is worth re-reading. A long sentence with one idea and a named actor is fine.
+- **Constraints are exempt.** Rules & Constraints are terse imperatives by design, and their compression is the source of their weight. This section governs explanatory prose only.
+- **Never trade accuracy for brevity.** The plain version makes the same claim with the same precision. Where shortening would drop a real qualifier, the qualifier becomes its own sentence.
+- **Catch it in a dedicated pass, not while drafting.** Overloaded phrasing arrives in the draft looking correct and survives an unaided review, exactly as imperative mood does. What removes it is re-reading the prose after it exists, with no other objective competing for attention.
+
+---
+
+## Verifying Rendered Output
+
+A persona assembled by a build system is never read as a whole while it is being written. The source is a set of fragments — a content file, shared partials pulled in by reference, variables resolved from metadata, sections gated behind feature flags — and each fragment reads as coherent in isolation. The assembled document is the only artifact the agent ever sees, and it is the first place where the persona can be judged as a single document rather than as a set of parts. Reviewing the source verifies the parts; only reading the rendered output verifies the persona.
+
+This is not a build-integrity check. A build that emits no errors proves the templates resolved, not that the result reads as one coherent document. The defects this catches are semantic, and they are invisible in a source diff:
+
+| Defect | Why the source hides it |
+|--------|-------------------------|
+| **Duplication between a partial and an inline section** | Each says it once; only the assembled document says it twice. |
+| **Variables resolving to the wrong value — or to nothing** | The source shows the placeholder, not the substitution. |
+| **Broken tone stratification** | A partial written in imperative voice looks fine alone and flattens the constraints section once inlined. |
+| **Section order and duplicated headings** | Injected partials land in an order the content file does not show. |
+| **Contradictions across fragments** | Two partials can each be correct and still instruct the agent to do opposite things. |
+| **60-Second Rule violations** | Length and density are properties of the assembled document alone. |
+
+**Rules:**
+
+- **Run the build and read the rendered output after every source change.** Read the full document end to end, not the diff — the defects above are relational, and a diff shows only the fragment that moved.
+- **Read one rendered file per affected target where targets differ.** A change that resolves cleanly for one output target can drop a section or mangle a frontmatter field in another.
+- **Never treat a clean build as verification.** A successful build reports that the template engine found everything it referenced. It says nothing about whether the result is consistent.
+- **Never edit rendered output.** Generated files are overwritten on the next build. A defect seen in the output is traced back to the content file, partial, or metadata field that produced it, and fixed there.
+- **Where the persona has no build step, this section does not apply.** A persona authored directly into a system-prompt field is already its own rendered output; verification is re-reading the text before pasting it.
+
+---
+
+## Governance Metadata
+
+A persona's metadata carries three fields that exist purely to govern the persona's relationship with this guide. None of them is read by a build system or rendered into persona output — they are durable records for the humans and agents who audit and maintain the persona over time.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `audit_guide_version` | `string` | The version of this guide the persona was last audited against (e.g. `"2.9"`). |
+| `audit_date` | `string` | ISO date of that audit (e.g. `"2026-08-26"`). |
+| `design_notes` | block scalar | Deliberate, documented deviations from this guide, each with its rationale. |
+
+### Metadata Without a Build System
+
+Not every persona is compiled. A persona written as a system prompt for a web-based assistant — a Gemini Gem, a Claude Project, a custom GPT — is authored once and pasted into a text field, with no build step and no output targets. Metadata serves two distinct purposes, and only one of them survives that context:
+
+| Purpose | Examples | Needed without a build system? |
+|---|---|---|
+| **Build inputs** | Per-target output filenames, tool lists, template flags, slugs and ids the build resolves | No. These describe a compilation step that does not exist. |
+| **Governance and provenance** | `version`, changelog, `audit_guide_version`, `audit_date`, `design_notes` | Optional, and valuable for any persona expected to be maintained over time. |
+
+**Rules:**
+
+- **Carry only the metadata the persona's deployment needs.** A build-driven persona declares whatever its build requires. A hand-maintained persona carries governance fields at most, and the build-input fields are simply inapplicable — their absence is not a defect.
+- **The author chooses where governance metadata lives, or whether to keep it.** With no metadata file to hold them, the options are frontmatter at the top of the persona document, a short header block in prose, or nothing at all. For a persona the author maintains alone and revises in place, omitting them entirely is a legitimate choice — the fields exist to answer questions across time and across maintainers, and a persona with neither has nothing to record.
+- **Ask rather than assume.** Adding a metadata block to a persona destined for a system-prompt text field imposes structure the author may not want, and some assistants render frontmatter as literal text. Where the deployment context is not stated, the author's intent decides.
+- **A missing audit stamp is not a failed audit.** Where a persona carries no metadata, an audit reports its verdict to the author directly instead of stamping it. The absence of a stamp says nothing about compliance.
+
+### Audit Stamps
+
+`audit_guide_version` and `audit_date` are written **only** when a persona passes an audit. A persona that fails retains its previous stamp (or none) until the findings are fixed and it is re-audited. Together the two fields answer the maintenance question this guide's evolution creates: *which personas predate the rules I just added?* Comparing a persona's stamp against the guide's current version identifies stale personas without re-reading them.
+
+```yaml
+audit_guide_version: "2.9"
+audit_date: "2026-08-26"
+```
+
+### Design Notes
+
+Some personas cannot follow every rule in this guide, and the reason is legitimate. A persona deployed as a system prompt for a web-based LLM cannot reference external documents, so the usual advice to extract bulky reference material into a separate file does not apply — and neither does the 60-Second Rule that the inline material breaks. Without a record, each audit re-derives the same finding, and each auditor must independently reason its way to the same conclusion.
+
+`design_notes` makes that reasoning durable. Each entry names the rule being deviated from and the constraint that forces the deviation:
+
+```yaml
+design_notes: |
+  Reference material stays inline (equipment table, Rainbow Eating Reference): this persona is
+  deployed as a system prompt for web LLMs, where external documents cannot be reliably
+  accessed. The "extract reference material" guidance and the 60-Second Rule do not apply.
+```
+
+**Design Rules:**
+
+- **Name the rule and the reason.** An entry that states only what the persona does ("keeps its reference tables inline") is not actionable — an auditor cannot tell whether it is an accepted exception or an undocumented defect. The rule being waived and the constraint forcing the waiver both belong in the entry.
+- **Reserve it for guide deviations.** This field is not a general comment field. Implementation notes, ideas for future revisions, and observations about the persona's behavior belong in the persona's changelog or in project documentation. A field that accumulates unrelated notes loses the property that makes it useful: everything in it is binding.
+- **Deviations are accepted, not re-flagged.** A documented deviation is a decision already made. Audits report these as accepted exceptions rather than findings — see the Persona Curator's audit workflow.
+- **Undocumented deviations remain defects.** The field records decisions; it does not grant blanket permission. A deviation with no entry is a finding, and adding an entry to silence a legitimate finding without a real constraint behind it defeats the mechanism.
+
+---
+
 ## Common Pitfalls
 
 | Pitfall | Symptom | Fix |
@@ -1044,7 +1220,8 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Rework re-runs the full workflow** | Agent wastes time and context re-doing work that was fine | Add a Rework Handling section that narrows focus to flagged issues |
 | **Shared content is copy-pasted** | Inconsistencies creep in across personas when one is updated | Extract shared instructions into reusable partials |
 | **No Operating Philosophy** | Agent makes inconsistent judgment calls across sessions | Add named guiding principles that encode how to think |
-| **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive values ("Prefer X over Y"); move prohibitions into Rules & Constraints |
+| **Philosophy reads like constraints** | Philosophy section is full of "Do not" and "Never" — duplicates or competes with Constraints | Rewrite principles as positive value statements ("X outranks Y"); move prohibitions into Rules & Constraints |
+| **Positively framed commands in philosophy** | Principles avoid "Do not" but still address the agent directly — "Prefer X", "Favor Y", "Read Z, not W". Polarity is correct, mood is not, so the section still reads as instructions and drains signal from Constraints | Apply the "You should" test to every principle. Convert each imperative into a claim about the domain: "Prefer the smallest sufficient move" → "The smallest sufficient move carries the least risk". Fix verb-initial titles first — the body usually follows |
 | **All-imperative monotone** | Every section — Mission, Philosophy, Inputs, Workflow — uses command voice ("Do X", "Never Y"), making the Constraints section indistinguishable from the rest of the document | Reserve imperative language for Rules & Constraints only. Rewrite other sections in descriptive, explanatory prose: explain *what* and *why*, not *must* and *must not*. The tonal contrast is what makes constraints visible. See Core Philosophy §7 (Tone Stratification) |
 | **Constraints lack alternatives** | Agent knows what not to do but freezes on what to do instead | Add the alternative action to each constraint |
 | **Inline procedure bloats the workflow** | Workflow exceeds 10 steps and is hard to follow | Extract the core procedure into an Operational Protocol |
@@ -1056,3 +1233,5 @@ This applies to persona source files in `src/content/`. The build system and tem
 | **Constraint stated far from where it fires** | Rule holds in the final templated output but is violated in intermediate outputs (e.g., counts appear in a mid-session summary) | Restate the constraint as an authoring instruction inside the output template slot where it applies (Pattern 15) |
 | **Conditional rule with no rehearsal** | "If present, do X" rules are skipped in the rare sessions where the condition actually holds | Add an explicit workflow step that performs the check every session (Pattern 15) |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
+| **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
+| **Overloaded prose** | Sections read as authoritative but a maintainer cannot scan them, and abstractly-phrased duties never fire because no sentence names anything the agent is about to do | Run a dedicated density pass after drafting: one idea per sentence, a named actor in the subject slot, no back-references, plain words over register words (see Prose Density) |

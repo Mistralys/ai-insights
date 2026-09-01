@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-08-25
+> **Generated:** 2026-08-26
 > **Total Personas:** 43
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -167,7 +167,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v1.2.1)
+### AGENTS.md Curator (v1.4.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -178,7 +178,7 @@ Generate, update, and maintain AGENTS.md files — the operating manual for AI a
 
 ---
 
-### Changelog Curator (v1.4.0)
+### Changelog Curator (v1.5.0)
 
 **Identity:** Release Communications Editor
 
@@ -189,7 +189,7 @@ Produce clean, scannable changelogs from Git history or rewrite verbose agent-ge
 
 ---
 
-### Communications Curator (v1.0.0)
+### Communications Curator (v1.1.0)
 
 **Identity:** Head of Product Communications
 
@@ -200,7 +200,7 @@ Produce clear, engaging, audience-appropriate content from technical source mate
 
 ---
 
-### Composer Curator (v1.0.1)
+### Composer Curator (v1.1.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -210,18 +210,18 @@ Verify that the project's composer.json file is set up correctly for agentic cod
 
 ---
 
-### CTX Architect (v1.2.1)
+### CTX Architect (v1.3.0)
 
 **Identity:** Context Documentation Architect
 
 Design, generate, and maintain CTX Generator context documentation configurations — from root project setup to per-module configs.
 
-- **Modes:** Bootstrap, New Module, Update
+- **Modes:** Bootstrap, New Module, Update, Audit
 - **Use When:** Setting up .context/ documentation infrastructure for a project, adding a new module's context config, or updating existing context docs
 
 ---
 
-### Developer — Standalone (v1.7.2)
+### Developer — Standalone (v1.8.0)
 
 **Identity:** Staff Software Engineer
 
@@ -233,7 +233,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.0.1)
+### Documentation — Standalone (v1.1.0)
 
 **Identity:** Technical Writing Manager
 
@@ -244,7 +244,7 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 ---
 
-### Git Committer (v1.7.0)
+### Git Committer (v1.8.0)
 
 **Identity:** Configuration Management Engineer
 
@@ -254,7 +254,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.0.7)
+### Manifest Curator (v1.1.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -265,7 +265,7 @@ Create, update, and audit project manifests — the source of truth for AI agent
 
 ---
 
-### Module Intent Architect (v1.0.4)
+### Module Intent Architect (v1.1.0)
 
 **Identity:** Staff Software Architect
 
@@ -275,7 +275,7 @@ Infers and documents the purpose, role, and dependencies of specific code module
 
 ---
 
-### Persona Curator (v1.4.0)
+### Persona Curator (v1.5.0)
 
 **Identity:** Agent Design Architect
 
@@ -286,7 +286,7 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.2.0)
+### Plan Architect Reviewer (v2.3.0)
 
 **Identity:** Principal Software Architect
 
@@ -297,7 +297,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.7.0)
+### Plan Auditor (v1.9.0)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -308,7 +308,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.4.0)
+### Plan Refiner (v1.6.0)
 
 **Identity:** Plan Quality Director
 
@@ -330,7 +330,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.4.0)
+### README Curator (v1.5.0)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -351,7 +351,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.2.0)
+### Researcher (v1.3.0)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -361,7 +361,7 @@ Research solutions to complex problems through known patterns or creative thinki
 
 ---
 
-### Unit Test Auditor (v1.1.1)
+### Unit Test Auditor (v1.2.0)
 
 **Identity:** Lead QA Auditor & Test Architect
 
@@ -382,7 +382,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.3.2)
+### Web GUI Specialist (v1.4.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -393,7 +393,7 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.0.1)
+### WHATSNEW Curator (v1.1.0)
 
 **Identity:** Release Notes Editor
 
@@ -403,7 +403,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.0.0)
+### Workspace Architect (v1.1.0)
 
 **Identity:** Workspace Infrastructure Architect
 

@@ -5,4 +5,4 @@ You are a sub-agent of the **Project Manager** (Technical Program Manager). You 
 3. **{{agent_ledger_pipeline_configurator}}** — Assigns pipeline stages to each Work Package
 4. **{{agent_ledger_bootstrapper}}** — Initializes the project ledger with all Work Packages
 
-Your input comes from the previous stage. Your output feeds into the next stage.
+The list above is the order of work: each stage builds on what the stages before it produced.

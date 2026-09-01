@@ -31,8 +31,14 @@ Each sub-project maintains its own detailed manifest:
 | Module | Manifest Location |
 |--------|-------------------|
 | **MCP Server** | [`mcp-server/docs/agents/project-manifest/`](mcp-server/docs/agents/project-manifest/README.md) |
+| **MCP Server GUI** | [`mcp-server/gui/docs/agents/project-manifest/`](mcp-server/gui/docs/agents/project-manifest/README.md) |
 | **Personas** | [`personas/docs/agents/project-manifest/`](personas/docs/agents/project-manifest/README.md) |
 | **Orchestrator** | [`orchestrator/docs/agents/project-manifest/`](orchestrator/docs/agents/project-manifest/README.md) |
+
+> **Constraints are split by domain.** The MCP server manifest carries five constraints documents
+> (`constraints.md` for core infrastructure, plus `-workflow`, `-testing`, `-code-style`, and
+> `-storage`); the personas manifest carries three. Cite constraints by heading, not by number —
+> numbering was removed from the MCP server documents after repeated collisions.
 
 **See also:** [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) — state machines, routing, handoffs, and edge cases (MCP server scope).
 
@@ -86,7 +92,8 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Add/remove dependency | `tech-stack.md` |
 | Add new file/directory | `file-tree.md` |
 | Change architectural pattern | `tech-stack.md`, `README.md` |
-| Add constraint/convention | `constraints.md` |
+| Add constraint/convention | The matching `constraints-*.md` (workflow / testing / code-style / storage), or `constraints.md` for infrastructure |
+| Change anything under `mcp-server/gui/` | `mcp-server/gui/docs/agents/project-manifest/` — the GUI owns its own manifest |
 | Change data flow | `data-flows.md` |
 | Modify public method signature | `api-surface.md` |
 | Rename/move file | `file-tree.md`, `api-surface.md` (if public) |
@@ -112,7 +119,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Add OS-specific code or dependency | This `AGENTS.md` → Cross-Platform Policy; affected sub-project's `constraints.md` |
 | Add root-level script | Root `README.md` |
 | Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, regenerate `.context/` |
-| Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints.md` |
+| Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints-workflow.md` |
 | Change changelog convention | This `AGENTS.md` → Changelog Convention section; Changelog Curator persona source |
 
 ---
@@ -135,6 +142,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Working in… | Consult… |
 |-------------|----------|
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
+| `mcp-server/gui/` | [GUI manifest](mcp-server/gui/docs/agents/project-manifest/README.md) — not the MCP server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
 | `personas/standalone/src/` | Personas manifest |
 | `personas/ledger-support/src/` | Personas manifest |
@@ -150,7 +158,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 |---------------|-------------|
 | Grep entire workspace for a tool name | Search `mcp-server/…/api-surface.md` |
 | Read generated persona files to understand template logic | Read `personas/…/api-surface.md` + `data-flows.md` |
-| Read 10 source files to understand status transitions | Read `mcp-server/…/constraints.md` |
+| Read 10 source files to understand status transitions | Read the Workflow Specification §6.2 |
 | Search code to find where a file lives | Check `file-tree.md` (mcp-server) or `.context/` tree (personas) |
 | Get a full module overview (API + source + tests) | Read `.context/{module}/` generated docs | Manifest `api-surface.md` | Source code |
 
@@ -167,10 +175,10 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
 | `.context/project-manifest.md` | Root manifest hub (module links, cross-system deps) |
 | `.context/mcp-server/overview.md` | MCP server README |
-| `.context/mcp-server/manifest-readme.md` | MCP server manifest: project overview |
+| `.context/mcp-server/manifest-readme.md` | MCP server manifest: project overview + GUI sub-manifest hub |
 | `.context/mcp-server/manifest-api-surface.md` | MCP server manifest: full API surface |
-| `.context/mcp-server/manifest-constraints.md` | MCP server manifest: constraints and conventions |
-| `.context/mcp-server/manifest-tech-stack.md` | MCP server manifest: tech stack and patterns |
+| `.context/mcp-server/manifest-constraints.md` | MCP server manifest: all five constraints documents + GUI constraints |
+| `.context/mcp-server/manifest-tech-stack.md` | MCP server manifest: tech stack and patterns (core + GUI) |
 | `.context/mcp-server/manifest-data-flows.md` | MCP server manifest: data flows |
 | `.context/mcp-server/manifest-file-tree.md` | MCP server manifest: annotated file tree |
 | `.context/mcp-server/workflow-spec-state.md` | Workflow spec: overview, state machines, data model |
@@ -182,7 +190,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/mcp-server/source-gui-frontend.md` | MCP server GUI: frontend source |
 | `.context/orchestrator/overview.md` | Orchestrator README |
 | `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
-| `.context/orchestrator/manifest.md` | Orchestrator project manifest |
+| `.context/orchestrator/manifest.md` | Orchestrator project manifest (incl. `decisions.md`) |
 | `.context/orchestrator/tests.md` | Test suite directory tree |
 | `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
 | `.context/personas/overview.md` | Personas README |
@@ -211,6 +219,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | **Cross-project role mismatch** | Both `AGENT_ROLES` and `KNOWN_ROLES` derive from `shared/workflow-manifest.json` — run `node scripts/validate-workflow-manifest.js` to verify the manifest is self-consistent. Verify persona YAML `role` fields are valid manifest role names (validated automatically by `build-personas.js`). Flag any divergence. | MUST |
 | **Unclear which manifest applies** | If change touches both sub-projects, consult both. When in doubt, default to the MCP server manifest. | SHOULD |
 | **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/`, `personas/standalone/src/`, or `personas/ledger-support/src/`) and change the template source. | MUST |
+| **Published artifact needs change** | `personas/docs/persona-design-guide.md` and `personas/standalone/src/content/persona-curator.md` are fetched by unrelated downstream projects covering non-coding domains. Keep both domain-neutral — project-specific inventories go in `personas/docs/agents/project-manifest/constraints.md` (C5d). Top-level heading renames break a downstream sync anchor: flag them, never apply silently. | MUST |
 | **Breaking change proposed** | Document in work package. Flag for review. Never implement silently. | MUST |
 | **Dependency not in tech stack** | Justify before adding. Update relevant `tech-stack.md`. | SHOULD |
 
@@ -259,6 +268,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Storage layout version | `mcp-server/src/storage/migrate-namespaced.ts` → `STORAGE_VERSION` constant | `mcp-server/src/storage/ledger-store.ts` (`LedgerStore`) — reads/writes `{ledgerRoot}/{repoName}/{slug}/`; `mcp-server/gui/api.ts` — `handleListProjects`, `handleGetProject`, and related handlers; `mcp-server/gui/server.ts` — static-file serving for ledger artefacts; `mcp-server/src/gui/handlers/run-log-handlers.ts` — constructs run-log paths; `orchestrator/src/cli.py` — log-copy path (`plan_dir.parents[3].name or "unknown"` → `{repo_name}/{slug}/orchestrator/logs/`) |
 | `.orchestrator-run.json` sidecar | `orchestrator/src/cli.py` → `_write_run_metadata()` | `mcp-server/gui/api.ts` → `handleGetRunMetadata()` (reads the file and returns it as JSON); `mcp-server/gui/public/api-client.js` → `getRunMetadata(slug)` (client-side consumer); `mcp-server/gui/public/views/project-detail.js` (resume-button rendering and click handler); fields: `thread_id`, `plan_path`, `slug`, `started_at`, `is_resume`, `dry_run`, `log_filename`, `pid`, `result` (null while running → SUCCESS/INTERRUPTED/ERROR), `error`, `duration_s` |
 | Changelogs | Root `changelog.md` (Git-tagged releases) | `mcp-server/changelog.md`, `orchestrator/changelog.md`, `personas/changelog.md` (module-level detail, not tagged). Root entry references module versions via `> mcp vX · personas vY · orchestrator vZ`. |
+| Published artifacts (external consumers) | `personas/docs/persona-design-guide.md` (carries a `**License:**` / `**Author:**` / `**Source:**` header); `personas/standalone/src/content/persona-curator.md` | Fetched over HTTPS by unrelated downstream projects — `nexus-personas` (`scripts/sync-persona-design-guide.js` + a scheduled Gitea Actions workflow), with local copies in `hcp-editor` and `nexus-plugins`. Downstream overwrites its copy on every sync and treats it as read-only, so project-specific content added here cannot be removed downstream. Downstream suites cover non-coding domains, so both files stay domain-neutral; this project's own principle vocabulary and conventions live in `personas/docs/agents/project-manifest/constraints.md` (C5c, C5d). Top-level headings are an anchor contract — `nexus-personas` injects a partial keyed on the literal `\n\n## Operating Philosophy\n` and hard-errors when it is absent. |
 | Knowledge Collection (Synthesis persona) | `personas/shared/partials/synthesis-knowledge-collection.md` | `mcp-server/src/tools/knowledge.ts` → `ledger_add_insight`, `ledger_search_insights` (tools the Synthesis persona calls); `personas/ledger/src/meta/9-synthesis.yaml` → `mcp_tools` array (must list both tools for IDE persona tool tables). The `.knowledge/` store lives at `{ledgerRoot}/.knowledge/` — same ledger root as all other ledger operations. Insights use `scope: 'global'` (cross-repository knowledge) or `scope: 'repository'` (codebase-level knowledge stored in `{repository_name}-insights.json`). There is no `'project'` scope. |
 | Model Registry | `personas/model-registry/` files: `default.json` (shipped defaults, Git-tracked), `local.json` (user-registered models, gitignored, auto-created on first access), `assignments.json` (per-persona UUID assignments + default model, gitignored, auto-created on first access) | GUI API (`mcp-server/gui/api-models.ts`) — CRUD handlers for models, assignments, replace-model, and persona rebuild; `mcp-server/src/gui/model-registry.ts` — file I/O layer (`readModels`, `writeModels`, `readAssignments`, `writeAssignments`, `loadDefaults`, `getResolvedAssignments`); Orchestrator consumption (`orchestrator/src/utils/persona_models.py` → `extract_persona_model_slugs()` reads YAML at startup for per-stage model selection); build system consumption (`scripts/build-personas.js` generates `personas/name-mapping.json` which `PUT /api/model-assignments` validates persona IDs against). UUID-based assignment keys ensure slug renames do not cascade into `assignments.json`. |
 | `project_summary` field | `ledger_initialize_project` → `InitializeProjectSchema.project_summary` (tool parameter, `z.string().min(1).optional()`); `ledger_import_standalone` → `ImportStandaloneSchema.project_summary` (same constraints — optional, min(1), key-presence semantics) | `mcp-server/src/tools/project-lifecycle.ts` → spreads into root index + `writeProjectMeta()` enrichment call; `mcp-server/src/tools/standalone-import.ts` → key-presence spread through `importStandalone()` → `LedgerStore.importStandaloneProject()` → root index and auto-synced to `.meta.json` via `writeRootIndex()`; `mcp-server/src/schema/root-index.ts` → `RootIndexSchema.project_summary` (storage, `.nullable().optional()`); `mcp-server/src/schema/project-meta.ts` → `ProjectMetaSchema.project_summary` (storage, `.nullable().optional()`); `mcp-server/gui/public/views/project-detail.js` → `.plan-synopsis` IIFE prefers `project_summary` over `extractSynopsis()` when set. `personas/ledger-support/src/content/ledger-bootstrapper.md` → Step 2 of the Bootstrapping Protocol (the agent-side implementation: reads the plan's `## Summary` section, crafts a 2–3 sentence plain-text summary, and passes it as `project_summary` to `ledger_initialize_project`; changing the field's constraints — min length, formatting rules — requires updating this step). `personas/ledger-support/src/content/standalone-archiver.md` → Workflow — Import Mode, Step 1 (the equivalent agent-side implementation for standalone imports: reads the plan's `## Summary` section, crafts a 2–3 sentence plain-text summary, and passes it as `project_summary` to `ledger_import_standalone`; skip guards apply when `## Summary` is absent or too brief; changing the field's constraints requires updating this step as well). |
@@ -326,7 +336,12 @@ This workspace uses a **hub-and-spoke changelog model**: each sub-project mainta
 5. **House style applies everywhere.** All changelogs follow the Changelog Curator's house style: flat bullet list with category prefixes, no `### Added/Changed/Fixed` sub-headers, ≤ 100-char lines.
 6. **Version bumps:** Root version follows SemVer based on the most significant change across all modules. Module versions are incremented independently.
 7. **`scripts/extract-changelog-entry.js`** parses the topmost root changelog entry for CI/GitHub Actions release automation.
-8. **Personas changelog is summary-only:** Since each persona has an integrated changelog, `personas/changelog.md` entries should summarize the most relevant changes per release — not list every individual per-persona change.
+8. **Personas changelog is summary-only:** Since each persona has an integrated changelog, `personas/changelog.md` entries summarize outcomes only — rationale, implementation mechanism, and file-level detail belong exclusively in that persona's own YAML `changelog` field, never here.
+   - **Guardrail:** cap each release entry at roughly one bullet per affected persona or per cross-cutting theme (shared partials, build tooling, docs). Needing 5+ individual per-persona bullets under one theme is a sign to group them into a single thematic bullet instead.
+   - **Anti-pattern** (rationale-laden, restates mechanism — do not write this): *"Standalone: Redesigned the Persona Curator to fix a tone violation in its Core Philosophy section, converting three imperative-mood principles to indicative mood and adding a Philosophy Tone Pass step to its own validation workflow so it can catch the same issue in personas it audits going forward."*
+   - **Good pattern** (outcome-only, one line — write this instead): *"Standalone: Persona Curator gained a Philosophy Tone Pass and accepted-deviation reporting."*
+   - This duplication risk is specific to `personas/changelog.md`, since personas carry their own integrated changelogs to defer detail to. `mcp-server/changelog.md` and `orchestrator/changelog.md` have no equivalent per-item changelog — rule 5's single-line house style is the existing safeguard there.
+   - `scripts/build-personas.js` now warns (never fails) when the newest entry exceeds mechanical line/bullet/sentence-per-bullet thresholds, via `scripts/lib/changelog-size-check.js`.
 
 ### Two-Step Workflow
 
@@ -391,6 +406,8 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | `scripts/generate-agents-overview.js` | Generate `docs/agents-overview.md` from persona YAML metadata across all three suites. Supports `--check` / `--dry-run` for staleness detection. Invokable via `node scripts/cli.js generate-overview`. Called automatically by `cmdBuildMaintain` after the persona build step. |
 | `scripts/lib/health-checks.js` | **Shared health-check registry** — checks across three cost tiers: instant (< 5 ms, file-existence/mtime), fast (< 50 ms, JSON reads), slow (100 ms – 2 s, subprocess). The CLI main menu displays all instant-tier checks as status lines. Exports `HEALTH_CHECKS: Array<HealthCheck>` and `runChecks(costFilter)`. Not a runnable script; imported by consumers in `scripts/` (CLI status line, doctor command, preflight flows). Must not import from `scripts/cli.js` or `SETUP_COMPONENTS`. |
 | `scripts/lib/insight-validation.js` | **`insight_agent` field validation** for persona YAML metadata. Exports `validateInsightFields(meta, filePath)` (single-file) and `validateInsightFieldsInDirs(dirs)` (batch). Fails the build when: (a) `insight_agent` differs from `role` (ledger personas only — standalone personas without `role` are exempt); (b) exactly one of `insight_agent` / `insight_report_target` is defined. Called unconditionally by `scripts/build-personas.js` in both real and `--check` modes. |
+| `scripts/lib/philosophy-tone.js` | **Operating Philosophy mood check** for persona content files (Persona Design Guide v3.0). Exports `extractPhilosophyPrinciples(markdown)`, `checkPhilosophyTone(markdown, filename)` (single-file) and `checkPhilosophyToneInDirs(dirs)` (batch). Flags verb-initial principle titles and imperative body openings, which the guide requires to be stated in the indicative mood. Called unconditionally by `scripts/build-personas.js` over the three suite `src/content/` directories **and `personas/shared/partials/`** — a philosophy section extracted into a partial must stay within tone coverage. **Warns, never fails**, since the detector is a heuristic and a legitimate declarative may open with an unrecognised verb. |
+| `scripts/lib/changelog-size-check.js` | **Newest-entry size/verbosity check** for `personas/changelog.md` (Changelog Convention rule 8, summary-only). Exports `extractLatestChangelogEntry(markdown)` and `checkChangelogEntrySize(markdown, filename, options)`, plus the `MAX_ENTRY_LINES` / `MAX_BULLETS` / `MAX_SENTENCES_PER_BULLET` threshold constants. Scoped to only the first `## v` heading in the file — the entry about to land, never historical entries. Called unconditionally by `scripts/build-personas.js` as the final warning block. **Warns, never fails**, since a mechanical line/bullet/sentence count cannot judge prose quality on its own. |
 | `scripts/lib/ledger-dirs.js` | **Canonical project-directory discovery for root-level scripts.** Loads `LedgerStore.listAllProjectDirs()` from the compiled `mcp-server/dist/` output (rebuilding it when stale, same freshness guard as `import-standalone.js`) and re-exports it as `listAllProjectDirs(storeRoot)`. Every root-level script that needs to enumerate ledger project directories (`scripts/backfill-duration.js`, `scripts/import-standalone.js`, `scripts/lib/store-commands.js` → `storeList()`) calls this helper instead of re-implementing flat-vs-namespaced layout detection — that logic is owned exclusively by `LedgerStore.listAllProjectDirs()` in `mcp-server/src/storage/ledger-store.ts`. |
 | `scripts/lib/store-commands.js` | Pure-JavaScript implementation of the `store` CLI command group (cross-device ledger sync plan, WP-006); **public command functions** consumed by `scripts/cli.js → cmdStore()`: `storeInit`, `storeAdd`, `storeRemove`, `storeList`, `storeSetDefault`, `storeConflicts`, `storeStatus`, `storeRepoAdd`, `storeRepoMove`, `storeRepoList`; **exported for test isolation only** (not public CLI API): `resolveConfigPath`, `expandPath`, `registryPath`, `loadConfig`, `saveConfig`, `loadRegistry`, `saveRegistry` — these I/O helpers let tests pre-seed config/registry files in temporary directories via the `configPath` override parameter; `saveConfig()` and `storeInit()` additionally accept `_storesDirOverride` for test isolation (overrides the `~/.ai-insights/` directory used for `mkdirSync`); `storeRemove()` sets `default_store: null` when the last store is removed (the resulting invalid config causes `loadStoresConfig()` to return null and fall back to legacy single-store mode on next server load); file formats are compatible with the TypeScript `StoresConfigSchema` and `RepositoryRegistrySchema`; cross-platform (uses `path.join`/`path.resolve`, no shell deps). |
 | `scripts/install-mcp-global.js` | Stable-shim strategy for user-level MCP server registration across VS Code and Claude Code; installs `~/.ai-insights/bin/launch-server.js`, merges `central_pm` into VS Code user-level `mcp.json`, and optionally registers with Claude Code. Supports `--dry-run`. Called by the `scripts/cli.js` `install-mcp` command and the `global-mcp` `SETUP_COMPONENT`. |
@@ -415,8 +432,10 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | Look up template syntax | [personas/…/api-surface.md](personas/docs/agents/project-manifest/api-surface.md) |
 | Find a file in mcp-server | [mcp-server/…/file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) |
 | Find a file in personas | `.context/personas/file-structure.md` (auto-generated) |
-| See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) |
+| See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) (core) — plus [workflow](mcp-server/docs/agents/project-manifest/constraints-workflow.md), [testing](mcp-server/docs/agents/project-manifest/constraints-testing.md), [code style](mcp-server/docs/agents/project-manifest/constraints-code-style.md), [storage](mcp-server/docs/agents/project-manifest/constraints-storage.md) |
+| See GUI constraints | [mcp-server/gui/…/constraints.md](mcp-server/gui/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
+| See orchestrator design decisions | [orchestrator/…/decisions.md](orchestrator/docs/agents/project-manifest/decisions.md) |
 | Understand the 9-agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
 | Review past discussions | [discussions/](docs/discussions/) |

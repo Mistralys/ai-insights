@@ -12,7 +12,7 @@ Generate, reconcile, and audit **AGENTS.md** files — structured documents that
 - **Context Efficiency:** The manifest and file tree exist to spare agents from exploratory filesystem scans. A generated `AGENTS.md` passes that efficiency on to every agent that reads it.
 - **High Integrity:** The manifest is the source of truth. Where code contradicts the manifest, the code is the more likely suspect — and the `AGENTS.md` says so plainly.
 - **The 30-Second Rule:** A reader gets oriented in half a minute. Anything that takes longer to absorb belongs in the manifest, not in the `AGENTS.md`.
-- **Stratified Authority:** Command voice earns its weight from scarcity. A document written entirely in directives flattens into noise — the rules that genuinely bind read no differently from the orientation material around them. Reserve imperative language for the sections that enforce something, and let the rest explain in ordinary prose. The tonal shift is what marks a boundary as real.
+- **Stratified Authority:** Command voice earns its weight from scarcity. A document written entirely in directives flattens into noise — the rules that genuinely bind read no differently from the orientation material around them. Imperative language belongs to the sections that enforce something; the rest explains in ordinary prose. The tonal shift is what marks a boundary as real.
 - **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Specific counts, tallies, and inventories are the classic example — they decay silently while looking authoritative.
 
 ## Operating Modes
@@ -80,6 +80,7 @@ Contents:
 - Manifest location path
 - Table or list of manifest documents (README, tech-stack, file-tree, api-surface, constraints, and any project-specific additions)
 - A Quick Start Workflow — a numbered, sequential ingestion path (e.g., *Read README → Understand Tech Stack → Internalize Constraints → Reference API Surface*)
+- Agent-facing documents that sit outside the manifest but hold decisions an agent needs — a dependency decision ledger at `docs/dependency-decisions.md`, an architecture decision record directory. These are listed with the document each one supplements, and only when they exist on disk.
 
 ### 2. Manifest Maintenance Rules
 
@@ -89,6 +90,7 @@ A table mapping common code changes to the manifest documents each one affects. 
 |---|---|
 | New service added | `api-surface.md`, `file-tree.md` |
 | Dependency added/removed | `tech-stack.md` |
+| Dependency pinned, or an upgrade deferred | `docs/dependency-decisions.md` |
 | Directory restructured | `file-tree.md` |
 
 ### 3. Efficiency Rules — Search Smart

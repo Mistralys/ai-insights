@@ -743,13 +743,13 @@ export class LedgerStore {
   *   - Archives `planFile`, `synthesisFile`, and optional `usageScenariosFile`
   *     from `planPath` to `storageDir`.
    *
-   * Constraints satisfied:
-   *   - **Constraint 1**: All JSON writes use `atomicWriteJson()` (via the
-   *     `@internal` `writeWorkPackage` and `writeRootIndex` methods).
-   *   - **Constraint 2**: The entire write sequence is performed within a
-   *     single write lock acquired via `withLock(storageDir)`.
-   *   - **Constraint 2c**: Tool code must not call `@internal` storage
-   *     primitives directly; all writes flow through this `LedgerStore` method.
+   * Constraints satisfied (see docs/agents/project-manifest/constraints.md):
+   *   - *All File I/O Must Be Atomic*: JSON writes use `atomicWriteJson()` (via
+   *     the `@internal` `writeWorkPackage` and `writeRootIndex` methods).
+   *   - *Dual-File Updates Require Locking*: the entire write sequence runs
+   *     within a single write lock acquired via `withLock(storageDir)`.
+   *   - *`writeWorkPackage` and `writeRootIndex` Are Internal*: tool code must
+   *     not call those primitives directly; writes flow through this method.
    *
    * The produced project structure satisfies all existing lifecycle guards —
    * `computeHealedStatus` sees `totalWps=1`, `pendingWps=0`,

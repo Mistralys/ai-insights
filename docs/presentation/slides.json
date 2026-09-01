@@ -3,63 +3,96 @@
     {
       "label": "Opening",
       "slides": [
-        "title",
-        "intro",
-        "agenda"
+        "opening/title",
+        "opening/intro",
+        "opening/philosophy",
+        "opening/agenda"
       ]
     },
     {
       "label": "Part 1 — Agent Personas",
       "slides": [
-        "part1-divider",
-        "persona-what",
-        "recipe-curator",
-        "persona-difference",
-        "nlp",
-        "markdown-format",
-        "persona-structure",
-        "identity-anchor",
-        "english-best",
-        "domain-knowledge",
-        "values-standards",
-        "meet-the-team",
-        "build-your-personas"
+        "agent-personas/part1-divider",
+        "agent-personas/persona-what",
+        "agent-personas/recipe-curator",
+        "agent-personas/persona-difference",
+        "agent-personas/nlp",
+        "agent-personas/markdown-format",
+        "agent-personas/persona-structure",
+        "agent-personas/no-prompt-needed",
+        "agent-personas/identity-anchor",
+        "agent-personas/english-best",
+        "agent-personas/domain-knowledge",
+        "agent-personas/values-standards",
+        "agent-personas/trigger-anchoring",
+        "agent-personas/meet-the-team",
+        "agent-personas/build-your-personas",
+        "agent-personas/persona-design-guide",
+        "agent-personas/recap-part1"
       ]
     },
     {
       "label": "Part 2 — Build System",
       "slides": [
-        "part2-divider",
-        "platforms",
-        "scaling-problem",
-        "build-pipeline",
-        "template-syntax"
+        "build-system/part2-divider",
+        "build-system/platforms",
+        "build-system/scaling-problem",
+        "build-system/build-pipeline",
+        "build-system/template-syntax",
+        "build-system/recap-part2"
       ]
     },
     {
       "label": "Part 3 — Ledger & Workflow",
       "slides": [
-        "part3-divider",
-        "agentic-workflow",
-        "dynamic-pipelines",
-        "coordination-problem",
-        "project-ledger",
-        "knowledge-persists",
-        "orchestrator",
-        "battle-tested"
+        "ledger-workflow/part3-divider",
+        "ledger-workflow/agentic-workflow",
+        "ledger-workflow/coordination-problem",
+        "ledger-workflow/project-ledger",
+        "ledger-workflow/what-is-mcp",
+        "ledger-workflow/ledger-anatomy",
+        "ledger-workflow/routing-loop",
+        "ledger-workflow/dynamic-pipelines",
+        "ledger-workflow/when-it-goes-wrong",
+        "ledger-workflow/ledger-gui",
+        "ledger-workflow/knowledge-persists",
+        "ledger-workflow/project-strategy",
+        "ledger-workflow/observation-channel",
+        "ledger-workflow/model-selection",
+        "ledger-workflow/execution-environments",
+        "ledger-workflow/env-vs-code",
+        "ledger-workflow/env-orchestrator",
+        "ledger-workflow/env-claude-code",
+        "ledger-workflow/multi-store",
+        "ledger-workflow/battle-tested",
+        "ledger-workflow/recap-part3"
       ]
     },
     {
       "label": "Demo",
       "slides": [
-        "demo-divider"
+        "demo/demo-divider"
+      ]
+    },
+    {
+      "label": "Part 4 — Working With Models",
+      "slides": [
+        "working-with-models/part4-divider",
+        "working-with-models/documentation-foundation",
+        "working-with-models/capable-colleague",
+        "working-with-models/you-bring-common-sense",
+        "working-with-models/model-versions",
+        "working-with-models/ide-for-everyone",
+        "working-with-models/persona-vs-skill",
+        "working-with-models/agent-experience"
       ]
     },
     {
       "label": "Closing",
       "slides": [
-        "key-takeaways",
-        "thank-you"
+        "closing/key-takeaways",
+        "closing/questions",
+        "closing/thank-you"
       ]
     }
   ]

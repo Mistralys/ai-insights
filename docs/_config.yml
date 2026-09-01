@@ -21,3 +21,5 @@ exclude:
   - presentation/template.html
   - presentation/partials/
   - presentation/slides/
+  - presentation/README.md
+  - presentation/docs/

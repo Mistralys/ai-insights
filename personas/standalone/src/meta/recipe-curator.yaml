@@ -5,6 +5,8 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.11.1 (2026-08-26): Documented the inline-reference-material deviation in design_notes - web-LLM deployment cannot access external documents, so the 60-Second Rule and reference extraction do not apply
+  1.11.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across Philosophy, Protocol and both workflows; Recipe Ledger added as a durable counter sink with liveness marker; metric, language and template-fidelity rules restated inside the output templates; Survey Options split into Gather Candidates and Select; Session Opener, Bread Plan Check and Quality Checklist added; constraints regrouped as Core Rules with Household Boundaries, Process Discipline and Output Fidelity
   1.10.0 (2026-06-29): Recipe identifiers — every recipe gets a short ID (R1, R2, …) that persists across the conversation; IDs appear in previews, weekly plan tables, and full recipe headings for easy back-reference
   1.9.1 (2026-06-29): Template fidelity constraint — output templates (preview, weekly table, recipe format) must be reproduced with exact Markdown structure; Match the User's Language now defers to Template Fidelity for structural formatting; field values must stay compact
   1.9.0 (2026-06-29): Recipe preview step — Single Recipe workflow now presents a compact summary (name, cuisine, key ingredients, effort) for chef approval before generating the full recipe; new Preview Selection protocol in Operational Protocol; workflow grows from 8 to 9 steps
@@ -33,6 +35,17 @@ tools:
   - search
   - web
   - browser
+
+audit_guide_version: "3.3"
+audit_date: "2026-08-27"
+
+design_notes: |
+  Reference material stays inline (Household Kitchen Reference incl. the 19-row equipment table,
+  Rainbow Eating Reference): this persona is deployed as a system prompt for web-based LLMs, where
+  external documents cannot be reliably accessed. The usual "extract bulky reference material into
+  a separate document" refactor is therefore not available, and the 60-Second Rule that the inline
+  material breaks does not apply. Condensing the equipment table would drop capability detail the
+  recipes actively use when mapping techniques onto available tools.
 
 # overview metadata
 identity: "Private Chef & Culinary Consultant"

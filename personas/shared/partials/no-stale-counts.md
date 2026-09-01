@@ -1,0 +1,1 @@
+**No Stale Counts:** Never embed specific counts in {{stale_counts_targets}} (e.g. "12 unit tests," "5 helper classes," "refactored 3 methods"). Counts go stale immediately and any reader — human or agent — can query current values on demand. Include a count only when it carries analytical value that inspection cannot supply.

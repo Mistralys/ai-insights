@@ -216,6 +216,8 @@ Use these flags in content templates to write platform-conditional blocks:
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
+| `has_ledger_workflow` | `bool` | no | Gates the ledger-only sections of `planner-output-template.md` (`## Plan Audit Cycles`, `## Recommended Workflow`). Carried only by Agent 1 (`true`) and the standalone Planner (`false`). |
+| `planner_implementer_ref` | `string` | no | Substituted into `planner-core-rules.md` as `{{planner_implementer_ref}}` — names who receives the plan (`"TPM and Engineer"` for ledger, `"implementer"` for standalone). Required by both Planner personas. |
 | `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
 | `identity` | `string` | yes | Short role title matching the `**Identity: {{identity}}.**` mission header. Required in all ledger personas. Used by `scripts/generate-agents-overview.js`. |
 | `description` | `string` | yes | Mission summary sentence(s) displayed under the Identity line in the overview document. Used by `scripts/generate-agents-overview.js`. |
@@ -224,6 +226,17 @@ Use these flags in content templates to write platform-conditional blocks:
 | `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line rendered in the overview. |
 | `modes` | block scalar | no | Newline-delimited operating modes. Rendered in the overview for personas with distinct modes. |
 | `insight_pipeline_type` | `string` | no | Pipeline type value substituted into `mcp-insight-capture.md` as `{{insight_pipeline_type}}` (e.g. `"implementation"`, `"qa"`, `"code-review"`). Required for ledger personas that include the `mcp-insight-capture` partial (agents 3–6, 8). Must match the persona's pipeline type from `PIPELINE_AGENT_MAP`. |
+| `dev_work_unit` | `string` | no | Substituted into `developer-dual-role.md` — the unit of work the persona implements. Required by both Developer personas, alongside `dev_work_scope`. |
+| `dev_work_scope` | `string` | no | Substituted into `developer-dual-role.md` — what the two parallel duties span. Pairs with `dev_work_unit`. |
+| `stale_counts_targets` | `string` | no | Substituted into `no-stale-counts.md` — the output surfaces the rule covers. Required by personas including that partial. |
+| `insight_reporting_intro` | `string` | no | Substituted into `insight-reporting-rules.md` — the lead-in naming where the observation summary lands. Required by personas including that partial, alongside `insight_compile_source` and `insight_nothing_found`. |
+| `insight_compile_source` | `string` | no | Substituted into `insight-reporting-rules.md` rule 1 — names the artefact the summary is compiled from. Pairs with `insight_reporting_intro`. |
+| `insight_nothing_found` | `string` | no | Substituted into `insight-reporting-rules.md` rule 4 — the suite-specific nothing-found form. Pairs with `insight_reporting_intro`. |
+| `insight_reviewer_ref` | `string` | no | Substituted into `insight-scope-and-types.md` — names who owns the out-of-scope column. Required by personas including that partial, alongside the other two `insight_*` scope fields. |
+| `insight_routing` | `string` | no | Substituted into `insight-scope-and-types.md` — one sentence naming where a recorded observation travels downstream. Pairs with `insight_reviewer_ref`. |
+| `insight_type_context` | `string` | no | Substituted into `insight-scope-and-types.md` — the lead-in sentence above the observation `type` table. Pairs with `insight_reviewer_ref`. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`, which writes `personas/docs/audits/status.md`. Not used by the build system. Audit *process* notes belong in `personas/docs/audits/annotations.json`, not here. |
+| `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 ---
 
@@ -439,7 +452,16 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `modes` | block scalar | no | Newline-delimited operating modes. Used in the overview for personas with distinct modes. |
 | `notes` | `string` | no | Optional freeform note rendered as a **Notes:** bullet in the overview. |
 | `insight_agent` | `string` | no | Value written to the JSONL `agent` key in `insights.jsonl` (e.g. `"Developer"`, `"Web GUI Specialist"`). Required for standalone personas that include the insight partials. Must be paired with `insight_report_target`. |
+| `brief_tag` | `string` | no | Research brief entry tag the persona draws on, substituted into `research-brief-protocol.md` (e.g. `"[verify]"`, `"[arch]"`). Required for personas including that partial, alongside the other four `brief_*` fields. |
+| `brief_purpose` | `string` | no | Sentence fragment naming what the brief gives a head start on (e.g. `"grounding verification"`). Pairs with `brief_tag`. |
+| `brief_contributor` | `string` | no | Attribution name used in the `[added by: …, unverified]` prefix when appending to the brief. Pairs with `brief_tag`. |
+| `brief_authority` | `string` | no | Phrase naming what remains authoritative over the brief (e.g. `"independent verification"`). Pairs with `brief_tag`. |
+| `brief_report_file` | `string` | no | The persona's own report filename, used to contrast facts (brief) against judgments (report) — e.g. `"audit.md"`. Pairs with `brief_tag`. |
 | `insight_report_target` | `string` | no | Human phrase naming where the curated insight section lands. Must be paired with `insight_agent`. |
+| `has_ledger_workflow` | `bool` | no | Gates the ledger-only sections of `planner-output-template.md`. Set to `false` on the standalone Planner so `## Plan Audit Cycles` and `## Recommended Workflow` are omitted. |
+| `planner_implementer_ref` | `string` | no | Substituted into `planner-core-rules.md` as `{{planner_implementer_ref}}` — `"implementer"` for the standalone Planner. |
+| `audit_guide_version` | `string` | no | Persona Design Guide version this persona was last audited against (e.g. `"2.8"`). Set by the Persona Curator on PASS verdict. Consumed by `scripts/generate-persona-audit.js`, which writes `personas/docs/audits/status.md`. Not used by the build system. Audit *process* notes belong in `personas/docs/audits/annotations.json`, not here. |
+| `audit_date` | `string` | no | Date of the last audit in `YYYY-MM-DD` format. Set alongside `audit_guide_version`. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
@@ -556,11 +578,21 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | Partial | Used By | Embeds Variables / Notes |
 |---------|---------|-------------------------|
 | `agent-roster.md` | All 9 agents | `{{roster_rendered}}` |
-| `planner-output-template.md` | Agent 1 | *(none)* |
-| `planner-core-rules.md` | Agent 1 | *(none)* |
+| `planner-philosophy.md` | Agent 1, Planner (Standalone) | *(none)* — the three canonical principles registered in [C5c](constraints.md#c4c) |
+| `planner-operating-modes.md` | Agent 1, Planner (Standalone) | *(none)* — mode table, detection rule, and deferred-item triage |
+| `planner-research-brief-template.md` | Agent 1, Planner (Standalone) | Gates `## Strategic Context` behind `{{#if has_mcp}}` |
+| `planner-output-template.md` | Agent 1, Planner (Standalone) | Gates `## Plan Audit Cycles` and `## Recommended Workflow` behind `{{#if has_ledger_workflow}}`, and `## Prior Project Context` + `## Knowledge Base Reconciliation` behind `{{#if has_mcp}}`. Embeds `{{agent_plan_auditor}}` / `{{agent_plan_architect_reviewer}}` inside the ledger-gated block only, and `{{agent_ledger_knowledge_curator}}` inside the MCP-gated block only |
+| `planner-core-rules.md` | Agent 1, Planner (Standalone) | `{{planner_implementer_ref}}` — who receives the plan (`"TPM and Engineer"` for ledger, `"implementer"` for standalone). The insight-routing rule under Scope & Boundaries is gated on `{{#if has_mcp}}` |
+| `planner-quality-checklist.md` | Agent 1, Planner (Standalone) | *(none)* for the shared items; the reconciliation item is gated on `{{#if has_mcp}}` and embeds `{{agent_ledger_knowledge_curator}}` |
+| `knowledge-ownership.md` | Agent 1, Agent 9, Standalone Developer | `{{agent_ledger_knowledge_archiver}}`, `{{agent_ledger_knowledge_curator}}`. Emits its own `## Knowledge Base Ownership` heading — consumers include it at top level, never under a wrapper heading. Answers *who to ask* via a need→custodian routing table, and points an overtaken entry at the Curator's Targeted Reconciliation mode. Deliberately names no MCP tools: the tool grants belong to the custodians, and a consuming persona holds none of them, so listing them describes capabilities the reader cannot use. Carries one constraint (report an overtaken entry) — the prohibitions it once repeated were dropped as redundant with naming the owner. Agent 9 and the Standalone Developer follow it with one paragraph naming where their dispatch happens; Agent 1 adds none, since its own workflow step and the plan template state the duty at the point it fires. |
 | `pm-output-format.md` | Agent 2 | *(none)* |
 | `developer-operational-protocol.md` | Agent 3 | *(none)* |
 | `developer-strict-constraints.md` | Agent 3 | Embeds `{{> incident-logging}}` — resolves via ledger override layer; requires a stub in `shared/` for non-ledger suites |
+| `developer-dual-role.md` | Agent 3, Standalone Developer | `{{dev_work_unit}}` (the unit of work — Work Package vs. scoped plan document), `{{dev_work_scope}}` (what the parallel duties span — `"every work package"` vs. `"the plan"`). The numbered Implementation / Code Insight Observer pair in the Mission section. |
+| `insight-observer-intro.md` | Agent 3, Standalone Developer | *(none)* — mechanism-neutral by design: says observations "get recorded" without naming the sink or the ledger, so both suites share one paragraph. |
+| `no-stale-counts.md` | Agent 3, Standalone Developer | `{{stale_counts_targets}}` (the surfaces the rule covers — `"documentation, summaries, or pipeline comments"` vs. `"documentation, summaries, or synthesis output"`). Rendered as a single `* {{> no-stale-counts}}` bullet inside a Strict Constraints list; the partial emits no leading bullet marker of its own. |
+| `insight-reporting-rules.md` | Agent 3, Standalone Developer | `{{insight_reporting_intro}}` (lead-in naming where the summary lands), `{{insight_compile_source}}` (what rule 1 compiles from — ledger observations vs. `insights.jsonl`), `{{insight_nothing_found}}` (the nothing-found form for rule 4). Six numbered rules shared verbatim. |
+| `insight-scope-and-types.md` | Agent 3, Standalone Developer | `{{insight_reviewer_ref}}` (who owns the out-of-scope column — `"the Reviewer agent"` / `"a formal reviewer"`), `{{insight_routing}}` (one sentence naming where recorded observations travel: Synthesis → rework plan for ledger, `synthesis.md` Code Insights → Planner for standalone), `{{insight_type_context}}` (lead-in above the type table — pipeline comments vs. sink append). Carries the Scope & Boundaries table, the out-of-scope-routing rationale, the five `type` values, and the priority guidelines. **Not** used by the Web GUI Specialist, which has a UI-specific scope table and its own `type` vocabulary (`visual-bug`, `ux-friction`, `accessibility-gap`, …). |
 | `insight-capture.md` | Standalone Developer, Web GUI Specialist | `{{insight_agent}}`; placement: inside the observation section, after type/priority definitions. Contains the two-rung sink location ladder (resolve-once), flat JSONL schema with a concrete example line, append-only rules, non-blocking fallback, and retention note. |
 | `insight-compilation.md` | Standalone Developer, Web GUI Specialist | `{{insight_agent}}`, `{{insight_report_target}}`; placement: beside the output-format / report-template section. Contains compile-from-sink instructions (all entries, never filtered by `agent`), cross-agent corroboration note, lenient consumption, and forcing function (nothing-found type `improvement` hardcoded). |
 | `mcp-insight-capture.md` | Agents 3–6, 8 | `{{insight_pipeline_type}}`; placement: inside the observation section. Contains `ledger_add_observation` call shape with `loc`, action-gate rule, and retry-then-track fallback. Replaces `insight-capture.md` + `insight-compilation.md` for ledger personas. |
@@ -578,6 +610,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
 | `summary-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
+| `research-brief-protocol.md` | Plan Auditor, Plan Architect Reviewer | `{{brief_tag}}`, `{{brief_purpose}}`, `{{brief_contributor}}`, `{{brief_authority}}`, `{{brief_report_file}}`; placement: after Outputs, before the Operational Protocol. Contains the orient / size-estimate / contribute-back steps and a consolidated Constraints block. Consumers must supply all five variables, provide a **Research brief** line in their output template, and carry both a brief-existence workflow checkpoint and a contribute-back step. |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 

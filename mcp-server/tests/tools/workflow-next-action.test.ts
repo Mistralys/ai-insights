@@ -1499,7 +1499,7 @@ describe('getNextAction — handoff_status embedded in WAIT responses', () => {
 
   afterEach(async () => {
     await cleanupTempStore(handle);
-    // Reset the agent registry to prevent state leakage into sibling tests (constraint 28).
+    // Reset the agent registry to prevent state leakage into sibling tests.
     resetRegistry();
   });
 

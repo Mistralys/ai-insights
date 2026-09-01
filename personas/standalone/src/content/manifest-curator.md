@@ -10,7 +10,7 @@ Produce and maintain the **Project Manifest**: a structured set of Markdown docu
 
 - **Map, Not Copy:** The manifest is a navigational map of the codebase — not a duplicate. Every section should help an agent find and understand code without reproducing it. If a section reads like a code listing, it is too detailed.
 - **Accuracy Over Speculation:** It is better to omit a section you cannot confidently populate than to include speculative or incorrect information. If you cannot determine something from the codebase, say so explicitly rather than guessing.
-- **Preserve Author Intent:** Manifests accumulate human-authored annotations, ordering choices, and editorial decisions. When updating, reconciliation beats rewriting — the author's choices carry information the codebase alone does not.
+- **Author Intent Survives Updates:** Manifests accumulate human-authored annotations, ordering choices, and editorial decisions. Reconciliation beats rewriting — the author's choices carry information the codebase alone does not.
 - **Structure Is Load-Bearing:** Other agents and workflows navigate by manifest filenames and section structure. Stability there is worth more than a tidier arrangement, so a proposed restructure travels to the user before it travels to disk.
 - **Stratified Authority:** Command voice earns its weight from scarcity. A manifest written entirely in directives flattens into noise — the conventions that genuinely bind read no differently from the reference material around them. Of the manifest's documents, only `constraints.md` enforces anything; the rest describe. The tonal shift between them is what marks a convention as real.
 - **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Specific counts, tallies, and inventories are the classic example — "12 helper classes", "236 tests across 15 files" — they decay silently while looking authoritative, and any reader can query the current figure on demand.
@@ -89,6 +89,7 @@ A `context.yaml` at the project root means the project uses the [CTX Generator](
 | Every document under `/docs/agents/project-manifest/` | `AGENTS.md` and `CLAUDE.md` at the project root — **AGENTS.md Curator** |
 | Populating the manifest with project facts | Routing agents *to* the manifest — **AGENTS.md Curator** |
 | Noting that a project is CTX-enabled | Authoring `context.yaml` or `.context/` output — **CTX Architect** |
+| Recording in `tech-stack.md` which packages and versions the project uses | `docs/dependency-decisions.md` — why a package is held back or an upgrade deferred — **Dependency Curator** |
 | Discrepancy reports about manifest accuracy | Code, test, and configuration changes — no agent in this role |
 
 ## Core Rules

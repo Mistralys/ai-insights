@@ -243,7 +243,7 @@ describe('resolveFailAgent', () => {
 
 // ─── describePipelineTypes (drift-detection) ────────────────────────────────
 // Ensures the helper stays in sync with PIPELINE_TYPES so future additions
-// propagate automatically to all MCP JSON Schema annotations (Constraint 68).
+// propagate automatically to all MCP JSON Schema annotations.
 
 describe('describePipelineTypes', () => {
   it('output starts with the provided prefix', () => {

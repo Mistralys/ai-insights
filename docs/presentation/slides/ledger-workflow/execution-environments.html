@@ -1,0 +1,50 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Where the Ledger Runs</h2>
+  <p class="lead">Multiple environments can be used to work with the ledger.</p>
+  <div class="card-stack" style="--stack-width: 850px; --stack-size: 0.68em; --stack-gap: 0.5em;">
+    <div class="glass-card">
+      <span class="card-eyebrow accent-green">Preferred</span><br>
+      <strong>VS Code</strong> &mdash; <span class="muted">fully automated but with optimum oversight.</span><br>
+      <span class="muted">Also supports multi-repository workspaces.</span>
+    </div>
+    <div class="glass-card">
+      <span class="card-eyebrow accent-blue">Secondary</span><br>
+      <strong>Orchestrator</strong> &mdash; <span class="muted">one command runs the whole chain,
+      headless.</span><br>
+      <span class="muted">For work that needs no human decision mid-run.</span>
+    </div>
+    <div class="glass-card">
+      <span class="card-eyebrow accent">Limited</span><br>
+      <strong>Claude Code</strong> &mdash; <span class="muted">same tools, but a model does the
+      coordinating.</span><br>
+      <span class="muted">Routing is advisory rather than enforced, which makes it unreliable.</span>
+    </div>
+  </div>
+  <br>
+  <p class="sidenote">
+    All environments use the same personas, MCP tools and ledger state.
+  </p>
+  <aside class="notes">
+    Before the demo, one thing worth being explicit about: the ledger is not a VS Code feature. It is
+    a server and a directory of files, and several different things can drive it.
+
+    The distinction that matters is who decides what happens next. In every case the ledger computes
+    the answer — but who asks, and who is bound by the reply, differs.
+
+    VS Code is where I do most of the work, and it is primary for one concrete reason more than any
+    other: a multi-root workspace. Several repositories open at once, one MCP server, one store, and
+    projects namespaced per repository. Nothing else gives me that.
+
+    The orchestrator is secondary — not weaker, narrower. It is the best of them when the work
+    qualifies for it, and the qualification is strict: the plan has to be settled and the project has
+    to be able to build and test itself without me.
+
+    Claude Code is honestly labelled limited. Everything is available there — the MCP server, the
+    personas, sub-agent dispatch. What is missing is enforcement: the thing choosing the next agent
+    is itself a model, so it can simply not follow the routing. It works, and I would not leave a
+    long chain running in it overnight.
+
+    The slides that follow take each one in turn.
+  </aside>
+</section>

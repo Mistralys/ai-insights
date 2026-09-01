@@ -4,7 +4,11 @@ description: "Determine which pipeline stages should be active for each Work Pac
 vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
+audit_guide_version: "3.4"
+audit_date: "2026-08-28"
+
 changelog: |
+  1.2.0 (2026-08-28): First full audit (guide v3.4) — 14 findings, all resolved. Inputs rewritten to match the PM's single-folder-path dispatch contract, replacing the four-item list and the "if the plan document is available" hedge. Added an Operating Philosophy with four principles, two of them the canonical "The Upstream Stage Already Looked" and "A Few Right Files Beat Many" (C5c). Added a Codebase Verification capability — the narrowing pre-requisites always required reading source that Capabilities never authorised. Split the fused classify-and-verify workflow step into triage / verify / assign per Pattern 14, and gave the Guardrail Notes slot an explicit nothing-found form so a clean run reads differently from a skipped one. Decision Criteria gained its own Constraints block; headings de-imperativised; handoff now emits the full persona name
   1.1.0 (2026-07-09): Verification-only chain gains state-changing operation pre-requisite; Workflow Step 2 adds AC coverage check for CLI commands; quality checklist item added for side-effect verification
   1.0.2 (2026-05-18): Write step references Output Location; subagent handoff precision improved
   1.0.1 (2026-04-30): Overall improvements

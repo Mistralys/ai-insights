@@ -147,7 +147,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 **Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
 
-**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
+**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (see "`writeWorkPackage` and `writeRootIndex` Are Internal" in constraints.md).
 
 **Produced project record:**
 - `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
@@ -6743,7 +6743,7 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 //   5. IN_PROGRESS assigned to QA (from qaWps) → IN_PROGRESS.
 //   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'QA'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6764,7 +6764,7 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 //   5. IN_PROGRESS assigned to Reviewer (from reviewWps) → IN_PROGRESS.
 //   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Reviewer'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6778,7 +6778,7 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 //   4. IN_PROGRESS assigned to Security Auditor (from securityWps) → IN_PROGRESS.
 //   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Security Auditor'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6793,7 +6793,7 @@ export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], 
 //   3. FAIL self-rework — most recent release-engineering is FAIL → IN_PROGRESS (self-rework).
 //   4. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Release Engineer'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6815,7 +6815,7 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
 //        not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS.
 //   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Documentation'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 

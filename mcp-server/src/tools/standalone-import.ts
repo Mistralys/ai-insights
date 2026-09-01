@@ -254,7 +254,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
   // actually started writing the plan. Falls back to slug-date → now() on stat failure.
   const dateCreated = await deriveDateCreated(planFilePath, slug);
 
-  // Delegate all storage writes to LedgerStore (Constraint 2c).
+  // Tool code must not call the @internal write primitives directly.
   // Note: importStandalone does not call withLock directly — LedgerStore.importStandaloneProject()
   // manages its own lock internally because the storage directory doesn't exist yet at call time.
   // This differs from updateSynthesis (which holds the lock at the handler level, following the

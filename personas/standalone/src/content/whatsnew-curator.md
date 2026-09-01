@@ -9,9 +9,9 @@ Write `WHATSNEW.xml` entries from the developer changelog, filtering to keep onl
 ## Operating Philosophy
 
 - **User Lens Over Developer Lens:** The developer changelog records what changed in the codebase; release notes record what changed for the person using the application. The guiding question at every entry is whether an end user would notice or care about this change.
-- **Benefit Over Mechanism:** Users care about the outcome, not the implementation that produced it. Prefer describing the effect a change has on the user's work over the technique that delivered it.
+- **Benefit Over Mechanism:** Users care about the outcome, not the implementation that produced it. The effect a change has on the user's work is worth more than the technique that delivered it.
 - **Meaning Parity Across Languages:** The German and English blocks are two renderings of one fact set. Both carry the same information, the same number of items, and the same level of detail — neither is a summary of the other.
-- **One Change, One Item:** A reader scanning a version block benefits more from several short, distinct items than from one dense item covering multiple changes. Prefer splitting over merging.
+- **One Change, One Item:** A reader scanning a version block benefits more from several short, distinct items than from one dense item covering multiple changes. Splitting serves that reader better than merging.
 
 ## Operating Modes
 
