@@ -12,13 +12,20 @@
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
 **Version:** 3.4
-**Last Updated:** 2026-08-27
+**Last Updated:** 2026-09-01
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the concept index for easier document navigation.
+- v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
+- v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
+- v3.1 - 2026-08-26: Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener.
+- v3.0 - 2026-08-26: Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall.
+- v2.9 - 2026-08-26: Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item.
+- v3.5 - 2026-09-01: Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet.
 - v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall.
 - v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
 - v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
@@ -36,6 +43,62 @@
 - v2.0 - 2026-04-11: Major revision — expanded section-by-section guides with templates; added Placeholder Syntax with curly braces (`{}`).
 - v1.1 - 2026-04-11: Fixed missing Outputs entry in the recommended section order table.
 - v1.0 - 2026-03-26: Initial release.
+
+---
+
+## Concept Index
+
+This guide names its constructs so personas and audits can cite them: "apply Pattern 15", "this breaks the 60-Second Rule", "that title fails the 'You Should' Test". A name is only worth having if a reader can resolve it, so every named construct is listed here with the section that defines it.
+
+Read the gloss column when you arrive with the wrong word. Someone asking "how long may a persona be?" will not search for "60-Second Rule", and someone asking "why does everything sound like an order?" will not search for "Tone Stratification".
+
+| Concept | What it covers | Defined in |
+|---|---|---|
+| **60-Second Rule** | A persona is readable in under a minute; longer means the structure needs extracting. | [The 60-Second Rule](#the-60-second-rule) |
+| **Audit Stamps** | `audit_guide_version` and `audit_date`, written only when a persona passes an audit. | [Audit Stamps](#audit-stamps) |
+| **Capabilities Sub-Section** | Explicit authorization to act, not merely to read. | [3. Inputs](#3-inputs) |
+| **Constraint Naming** | `Strict Constraints` for action roles, `Core Rules` for analytical ones. | [5. Rules & Constraints](#5-rules--constraints) |
+| **Decision Logic** | The explicit pass/fail gate a judging persona applies. | [Pattern 4](#pattern-4-decision-logic-the-gono-go-gate) |
+| **Design Notes** | `design_notes`, the record of deliberate deviations from this guide. | [Design Notes](#design-notes) |
+| **Forcing Function** | An output slot a side-channel duty cannot legitimately leave empty. | [Pattern 6](#pattern-6-the-observation-side-channel) |
+| **Handoff Block** | The machine-readable terminal status that ends every persona. | [7. Handoff](#7-handoff) |
+| **Identity Line** | The bold `**Identity: {TITLE}.**` that opens a Mission. | [1. Mission](#1-mission) |
+| **Incremental Capture Sink** | A scratch file written during the work and compiled from at handoff. | [Pattern 6](#pattern-6-the-observation-side-channel) |
+| **Liveness Marker** | The session-start line that separates "ran, found nothing" from "never ran". | [Pattern 6](#pattern-6-the-observation-side-channel) |
+| **Metadata Without a Build System** | Build-input fields versus governance fields, and which survive a system-prompt deployment. | [Metadata Without a Build System](#metadata-without-a-build-system) |
+| **Name Forking / Name Collision** | The two ways a suite's principle vocabulary decays. | [Recurring Principles](#recurring-principles-across-a-persona-suite) |
+| **Named Evaluation Criteria** | The lens a persona evaluates through, before it reaches the gate. | [Pattern 10](#pattern-10-named-evaluation-criteria) |
+| **Observation Side-Channel** | A secondary duty running in parallel with the primary task. | [Pattern 6](#pattern-6-the-observation-side-channel) |
+| **Operating Modes** | Named modes with a trigger table and one workflow each. | [Pattern 3](#pattern-3-operating-modes) |
+| **Operational Protocol** | A procedure extracted out of the workflow and referenced from it. | [6. Workflow](#6-workflow) |
+| **Output Template** | The literal document structure the persona fills in. | [Pattern 5](#pattern-5-output-templates) |
+| **Phase Homogeneity** | One cognitive job per workflow phase. | [Pattern 14](#pattern-14-task-separation) |
+| **Philosophy vs. Constraint Litmus Test** | Which of the two sections a given principle belongs in. | [2. Operating Philosophy](#2-operating-philosophy) |
+| **Placeholder Syntax** | `{SCREAMING_SNAKE}` for slots, `{Sentence case}` for instructions, never `<angle brackets>`. | [Placeholder Syntax](#placeholder-syntax) |
+| **Professional Metaphor** | The senior professional role that frames every persona. | [Pattern 1](#pattern-1-the-professional-metaphor) |
+| **Prose Density** | Overloaded explanatory prose, and the pass that removes it. | [Prose Density](#prose-density) |
+| **Pseudo Action Gate** | A duty gated on an agent-judged boundary instead of something observable. | [Pattern 15](#pattern-15-trigger-anchoring) |
+| **Recommended Section Order** | The fourteen-section skeleton and the reasoning behind its order. | [Persona Anatomy](#recommended-section-order) |
+| **Reference-Heavy Roles** | Embedding domain reference material inside the persona. | [Pattern 8](#pattern-8-reference-heavy-roles) |
+| **Rework Handling** | Narrow re-entry for work bounced back by a downstream agent. | [Pattern 7](#pattern-7-rework-handling) |
+| **Salience Beats Volume** | Activation, not word count, sets a persona's practical limit. | [Core Philosophy §6](#core-philosophy) |
+| **Salience Classes** | The durability ranking of duties by what triggers them. | [Pattern 15](#pattern-15-trigger-anchoring) |
+| **Scope Boundary Table** | The explicit line between two adjacent personas. | [Pattern 2](#pattern-2-scope-boundary-tables) |
+| **Self-Validation Checklist** | The persona checking its own output before it hands off. | [Pattern 12](#pattern-12-self-validation-checklist) |
+| **Sub-Agent Delegation** | Named inputs, an expected output, and a validation step per delegation. | [Pattern 9](#pattern-9-sub-agent-delegation) |
+| **Task Separation** | Research and production never share a workflow step. | [Pattern 14](#pattern-14-task-separation) |
+| **Tone Stratification** | Descriptive prose in content sections, imperatives in constraints only. | [Core Philosophy §7](#core-philosophy) |
+| **Tool Integration** | The section describing an external system's interface. | [Pattern 13](#pattern-13-tool-integration-sections) |
+| **Trigger Anchoring** | Every duty is foreground, action-gated, or checkpoint-slotted. | [Pattern 15](#pattern-15-trigger-anchoring) |
+| **Verifying Rendered Output** | Reading the assembled persona rather than its source fragments. | [Verifying Rendered Output](#verifying-rendered-output) |
+| **Worked Example** | A before/after pair for a transformation a template cannot convey. | [Pattern 11](#pattern-11-worked-examples) |
+| **"You Should" Test** | The mood check that catches imperative philosophy principles. | [2. Operating Philosophy](#2-operating-philosophy) |
+
+**Rules:**
+
+- **A new named construct is registered in the same edit that introduces it.** An index that lags behind the guide is worse than none — it answers authoritatively and omits the newest thing.
+- **The index glosses, it does not define.** Where a row and its section disagree, the section wins, and the row is corrected.
+- **A construct cited by name has a section to cite.** Where a name is used as a proper noun but lives only in a checklist bullet or a table cell, it is promoted to a section rather than indexed in place.
 
 ---
 
@@ -118,6 +181,20 @@ Add these when the persona's role demands them:
 | **Value/Priority Matrix** | When the persona must categorize findings by severity or value. | Test Auditor (stability value), Security Auditor (OWASP severity) |
 | **Tool Integration** | When the persona interacts with an external system (API server, test runner, CI, package manager). Keeps tool-specific instructions separate from the core workflow. | Developer (external API tools), QA (API tools + test environment) |
 | **Reference Material** | When the persona needs domain-specific reference data embedded in the persona (style guides, schemas, mappings). Place before the workflow so the agent has internalized it before executing. | Changelog Writer (house style), Config Generator (YAML schema), Release Notes Writer (category mappings, translation guide) |
+
+### The 60-Second Rule
+
+A well-designed persona can be read and understood in under a minute. The rule diagnoses structure rather than length: a persona that takes longer is usually not too long, but too flat. Detail that belongs in a sub-section, an Operational Protocol, or a reference block has been left in the main body. The reader meets every level of the persona at once and has to sort them.
+
+Extract that detail rather than deleting it. A twelve-step workflow becomes a five-step workflow referencing an Operational Protocol; an inline style guide becomes a Reference Material section placed before the workflow. Both keep the content and restore the top-level read.
+
+Time the assembled document, not the source file. A source file that reads quickly can render into something that does not, once partials and reference blocks are inlined — see [Verifying Rendered Output](#verifying-rendered-output).
+
+**Rules:**
+
+- **Time the top-level read, not the whole document.** The question is how long it takes to learn who the agent is, what it produces, and what it must not do. Reference material and protocols are consulted, not read start to finish.
+- **A breach names a section to extract.** "Too long" is not actionable on its own. The finding identifies which block leaves the main body and where it goes.
+- **The rule yields to a documented constraint.** A persona that cannot reference external material — one deployed as a system prompt with no filesystem — carries its reference inline and records the deviation in `design_notes`. See [Design Notes](#design-notes).
 
 ---
 
@@ -869,7 +946,7 @@ Before shipping a new persona, verify:
 - [ ] **Tone is stratified: descriptive prose for content sections, imperative commands for constraints only.** Mission, Philosophy, Inputs, Workflow, and Operational Protocol use explanatory language. Only Rules & Constraints use imperative voice ("Do not", "Never", "Must"). If the whole persona reads like a list of commands, the constraints section loses its signal. See Core Philosophy §7.
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
-- [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
+- [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too flat — the finding names the block to extract into a sub-section or an Operational Protocol. (See The 60-Second Rule.)
 - [ ] **The rendered output has been read end to end,** where a build system assembles the persona. Partials and variables hide duplication, wrong substitutions, and tone breaks that only the assembled document shows. (See Verifying Rendered Output.)
 - [ ] **Deliberate guide deviations are recorded in `design_notes`,** where the persona carries metadata. Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
 
