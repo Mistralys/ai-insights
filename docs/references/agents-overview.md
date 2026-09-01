@@ -3,8 +3,8 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-08-26
-> **Total Personas:** 43
+> **Generated:** 2026-09-01
+> **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
 
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.2.0)
+### Stage 1 — Planner (v2.6.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.8.0)
+### Stage 2 — Project Manager (v3.9.0)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.10.1)
+### Stage 3 — Developer (v3.16.0)
 
 **Identity:** Staff Software Engineer
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.10.1)
+### Stage 6 — Reviewer (v3.10.2)
 
 **Identity:** Principal Systems Architect
 
@@ -167,7 +167,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v1.4.0)
+### AGENTS.md Curator (v1.5.1)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -210,7 +210,7 @@ Verify that the project's composer.json file is set up correctly for agentic cod
 
 ---
 
-### CTX Architect (v1.3.0)
+### CTX Architect (v1.3.3)
 
 **Identity:** Context Documentation Architect
 
@@ -221,7 +221,18 @@ Design, generate, and maintain CTX Generator context documentation configuration
 
 ---
 
-### Developer — Standalone (v1.8.0)
+### Dependency Curator (v1.2.1)
+
+**Identity:** Dependency & Supply Chain Engineer
+
+Audit third-party dependencies for security advisories, upstream abandonment and in-constraint updates, and produce migration plans for major-version upgrades.
+
+- **Modes:** Maintenance (in-constraint updates and advisories), Upgrade (major-version migration planning), Record (write a dependency decision to the ledger)
+- **Use When:** Reviewing dependency health, chasing security advisories, or planning a major-version upgrade
+
+---
+
+### Developer — Standalone (v1.13.0)
 
 **Identity:** Staff Software Engineer
 
@@ -233,7 +244,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.1.0)
+### Documentation — Standalone (v1.1.1)
 
 **Identity:** Technical Writing Manager
 
@@ -254,7 +265,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.1.0)
+### Manifest Curator (v1.2.1)
 
 **Identity:** Technical Knowledge Architect
 
@@ -265,7 +276,7 @@ Create, update, and audit project manifests — the source of truth for AI agent
 
 ---
 
-### Module Intent Architect (v1.1.0)
+### Module Intent Architect (v1.1.1)
 
 **Identity:** Staff Software Architect
 
@@ -275,7 +286,7 @@ Infers and documents the purpose, role, and dependencies of specific code module
 
 ---
 
-### Persona Curator (v1.5.0)
+### Persona Curator (v1.15.0)
 
 **Identity:** Agent Design Architect
 
@@ -286,7 +297,7 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.3.0)
+### Plan Architect Reviewer (v2.3.1)
 
 **Identity:** Principal Software Architect
 
@@ -297,7 +308,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.9.0)
+### Plan Auditor (v1.9.1)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -308,7 +319,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.6.0)
+### Plan Refiner (v1.6.1)
 
 **Identity:** Plan Quality Director
 
@@ -319,7 +330,7 @@ Orchestrate iterative plan refinement: architectural review, finding integration
 
 ---
 
-### Planner — Standalone (v2.0.1)
+### Planner — Standalone (v2.3.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -330,7 +341,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.5.0)
+### README Curator (v1.5.1)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -340,7 +351,7 @@ Produces a human‑optimized README.md that follows a landing‑page funnel: Hoo
 
 ---
 
-### Recipe Curator (v1.10.0)
+### Recipe Curator (v1.11.1)
 
 **Identity:** Private Chef & Culinary Consultant
 
@@ -351,7 +362,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.3.0)
+### Researcher (v1.3.1)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -361,7 +372,7 @@ Research solutions to complex problems through known patterns or creative thinki
 
 ---
 
-### Unit Test Auditor (v1.2.0)
+### Unit Test Auditor (v1.2.1)
 
 **Identity:** Lead QA Auditor & Test Architect
 
@@ -371,7 +382,7 @@ Audit unit test coverage of specific codebase modules — identify untested path
 
 ---
 
-### Usage Scenarios Curator (v1.2.0)
+### Usage Scenarios Curator (v1.2.1)
 
 **Identity:** Product Usage Scenario Analyst
 
@@ -393,7 +404,7 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.1.0)
+### WHATSNEW Curator (v1.1.1)
 
 **Identity:** Release Notes Editor
 
@@ -403,7 +414,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.1.0)
+### Workspace Architect (v1.2.0)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -417,14 +428,14 @@ Onboard and maintain development repositories for the AI Insights persona ecosys
 
 ## Ledger-Support Personas
 
-### Ledger Bootstrapper (v1.3.0)
+### Ledger Bootstrapper (v1.4.0)
 
 **Identity:** Technical Program Manager — Ledger Initialization Operator
 
 Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete.
 
-- **Use When:** Invoked by the Project Manager (Stage 2) after WP definitions are ready
-- **Key Behavior:** Creates the project in the ledger, registers all WPs, sets dependencies and pipeline stages, and verifies the final state matches expectations
+- **Use When:** Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written
+- **Key Behavior:** Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
 
 ---
 
@@ -439,7 +450,7 @@ Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger 
 
 ---
 
-### Ledger Dependency Sequencer (v1.3.0)
+### Ledger Dependency Sequencer (v1.4.4)
 
 **Identity:** Technical Program Manager — Dependency Analyst
 
@@ -449,7 +460,7 @@ Map dependencies between Work Packages, identify parallelization opportunities, 
 
 ---
 
-### Ledger Doctor (v1.3.0)
+### Ledger Doctor (v1.3.1)
 
 **Identity:** Senior Workflow Reliability Engineer
 
@@ -460,7 +471,7 @@ Audit and repair ledger workflow projects: diagnose deadlocks, fix state corrupt
 
 ---
 
-### Ledger Knowledge Archiver (v1.8.0)
+### Ledger Knowledge Archiver (v1.9.0)
 
 **Identity:** Head of Operations — Retrospective Knowledge Analyst
 
@@ -471,18 +482,18 @@ Extract and commit reusable knowledge from completed ledger project folders into
 
 ---
 
-### Ledger Knowledge Curator (v1.2.0)
+### Ledger Knowledge Curator (v1.4.0)
 
 **Identity:** Knowledge Base Librarian
 
 Audit knowledge base entries for value, accuracy, and relevance — edit, merge, or delete entries that fail quality thresholds.
 
-- **Modes:** Global Maintenance, Project Maintenance
-- **Use When:** The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity
+- **Modes:** Global Maintenance, Project Maintenance, Targeted Reconciliation
+- **Use When:** The knowledge base has grown and needs quality review — removing low-value entries, merging duplicates, improving clarity — or a completed change has overtaken specific stored insights
 
 ---
 
-### Ledger Orchestrator Archaeologist (v1.0.1)
+### Ledger Orchestrator Archaeologist (v1.0.2)
 
 **Identity:** Forensic Operations Analyst
 
@@ -503,7 +514,7 @@ Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run 
 
 ---
 
-### Ledger Pipeline Configurator (v1.1.0)
+### Ledger Pipeline Configurator (v1.2.0)
 
 **Identity:** Technical Program Manager — Pipeline Stage Analyst
 
@@ -513,7 +524,7 @@ Determine which pipeline stages should be active for each Work Package based on 
 
 ---
 
-### Ledger WP Decomposer (v1.3.0)
+### Ledger WP Decomposer (v1.5.1)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 
@@ -540,6 +551,6 @@ Import a completed standalone plan folder into the project ledger for archival a
 | Suite | Count | Description |
 |-------|-------|-------------|
 | Ledger Pipeline | 9 | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |
-| Standalone | 23 | On-demand utility agents for planning, documentation, code review, release management, and more |
+| Standalone | 24 | On-demand utility agents for planning, documentation, code review, release management, and more |
 | Ledger-Support | 11 | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |
-| **Total** | **43** | |
+| **Total** | **44** | |
