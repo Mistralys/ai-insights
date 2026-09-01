@@ -40,8 +40,20 @@ if [ -n "$STAGED_PY" ]; then
   fi
 fi
 
-# Warn if source files changed but .context/ was not updated — advisory only
+# Warn if presentation sources changed but dist/ was not rebuilt — advisory only
 STAGED=$(git diff --cached --name-only)
+SLIDES_CHANGED=$(echo "$STAGED" | grep -cE '^docs/presentation/(template\.html|slides\.json|slides/|partials/|img/|changelog\.md)' || true)
+
+if [ "$SLIDES_CHANGED" -gt 0 ]; then
+  if ! (cd docs/presentation && node tools/build.js --check > /dev/null 2>&1); then
+    echo ""
+    echo "WARNING: Presentation sources changed but dist/ is stale."
+    echo "  Rebuild with: docs/presentation/build.sh"
+    echo ""
+  fi
+fi
+
+# Warn if source files changed but .context/ was not updated — advisory only
 SRC_CHANGED=$(echo "$STAGED" | grep -cE '^(mcp-server/src/|orchestrator/src/|personas/|scripts/|shared/)' || true)
 CTX_CHANGED=$(echo "$STAGED" | grep -c '^\.context/' || true)
 
