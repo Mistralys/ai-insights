@@ -1,6 +1,8 @@
 # Personas Changelog
 
 ## v3.32.0 - **WIP UNRELEASED**
+- Design Guide v3.4: added a Concept Index resolving every named construct to its section, and
+  promoted the 60-Second Rule to a section of its own.
 - Design Guide v2.9: accepted guide deviations had nowhere to live, so every audit re-derived the same
   findings and each auditor had to independently reason its way to the same conclusion; a new
   Governance Metadata section documents `design_notes` alongside the existing audit stamp fields.
