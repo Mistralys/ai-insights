@@ -14,9 +14,23 @@
 
 <a name="c6"></a>
 <a name="b2"></a>
-2. **Nested `{{#if}}` blocks are not supported.** The template engine uses a single-pass regex that stops at the first `{{/if}}` encountered. Nesting `{{#if}}` inside another `{{#if}}` will silently produce incorrect output. Flatten nested conditions to separate top-level `{{#if}}` blocks or extract to partials.
+2. **Nested `{{#if}}` blocks are supported, but only inside an `{{else}}` branch.** The engine resolves conditionals innermost-first, so a `{{#if}}` may nest inside the `{{else}}` branch of an outer `{{#if}}` — this is the required pattern for three-way, per-target content (see `constraints.md` §C20 and the live example in `personas/ledger/src/content/2-project-manager.md`):
 
-   **Anti-pattern:**
+   ```
+   {{#if target_vscode}}
+   … VS Code–specific content …
+   {{else}}
+   {{#if target_deep_agents}}
+   … Deep Agents–specific content …
+   {{else}}
+   … Claude Code–specific content …
+   {{/if}}
+   {{/if}}
+   ```
+
+   `{{else if flag}}` chains are also supported and are normalised internally into the nested form above before resolution. What is **not** supported is nesting a second `{{#if}}` directly inside the truthy branch of an outer `{{#if}}` (i.e. before any `{{else}}`) — the engine's innermost-first resolution has no way to disambiguate which `{{/if}}` closes which opener in that position. Flatten that case to a single compound boolean instead:
+
+   **Unsupported (nested inside the truthy branch, no `{{else}}`):**
    ```
    {{#if platform_vscode}}
      {{#if feature_enabled}}
@@ -24,7 +38,6 @@
      {{/if}}
    {{/if}}
    ```
-   The inner `{{/if}}` terminates the outer block prematurely, leaving stray `{{/if}}` and `{{#if feature_enabled}}` markers in the output.
 
    **Correct pattern:**
    ```
@@ -114,7 +127,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
     The explicit `version:` field in per-persona YAML is **inert once a `changelog` field is present** — do not add or update `version:` manually.
 
-    > **Known limitation — generated frontmatter `version:` vs. `name-mapping.json` version.** The `changelog:`-based version derivation described above applies to `build-personas.js`'s internal `resolveVersionFromChangelog` helper (which writes `name-mapping.json`). The library's frontmatter generator uses the same `resolveChangelogMeta()` logic, **but only from `@mistralys/persona-builder` v2.5.0 onward**. With v2.4.x (and older) installed, the library falls back to `default_version` from `_shared.yaml` for the frontmatter `version:` field regardless of the persona's `changelog:` content. This causes a visible discrepancy: `name-mapping.json` and `agent_*` template variables will reflect the latest changelog version, while generated VS Code / Claude Code frontmatter will show the older `default_version` value. The fix is to update `@mistralys/persona-builder` to ≥ 2.5.0. This is a dependency-staleness issue, not a source authoring error — **do not** add an explicit `version:` field to persona YAML as a workaround.
+    > **Resolved — generated frontmatter `version:` vs. `name-mapping.json` version.** Earlier releases of `@mistralys/persona-builder` (< v2.5.0) fell back to `default_version` from `_shared.yaml` for the frontmatter `version:` field regardless of a persona's `changelog:` content, causing `name-mapping.json` to show a newer version than generated frontmatter. `personas/package.json` now pins `^2.6.0`, which uses the shared `resolveChangelogMeta()` logic in both places — this discrepancy no longer applies. Do not add an explicit `version:` field to persona YAML; it remains inert regardless of installed library version.
 
 <a name="c38"></a>
 <a name="b11"></a>

@@ -1,18 +1,23 @@
 # Project Manifest: Ledger Personas Build System
 
-**Version:** 1.2.0  
-**Last Updated:** 2026-03-15  
-**Purpose:** Templated build system for generating the 9 ledger-enabled AI agent persona files
+**Purpose:** Templated build system for generating persona files across the ledger, standalone, and ledger-support suites
 
 ---
 
 ## Overview
 
-The **Ledger Personas Build System** is a Node.js-based template engine that assembles the 9 ledger persona Markdown files from structured YAML metadata and Markdown content/partial templates. The generated personas define the behaviour of AI agents in a multi-agent software development workflow backed by the [Project Ledger MCP Server](../../../../mcp-server/README.md).
+The **Ledger Personas Build System** is a Node.js-based template engine that assembles persona Markdown files from structured YAML metadata and Markdown content/partial templates, across three suites:
 
-Generated persona files are consumed in two ways:
+- **Ledger** (`ledger/`) — 9 personas for the multi-agent software development workflow backed by the [Project Ledger MCP Server](../../../../mcp-server/README.md)
+- **Standalone** (`standalone/`) — special-purpose personas with no ledger dependency
+- **Ledger-Support** (`ledger-support/`) — MCP-dependent utility sub-agents invoked as delegates from ledger personas
+
+Each suite is built for three output targets: **VS Code** (`.agent.md`), **Claude Code** (plain `.md`), and **Deep Agents** (plain `.md`, consumed directly by the orchestrator).
+
+Generated persona files are consumed in three ways:
 - **Directly** — users copy-paste persona content into AI IDE chat sessions
-- **Via sync** — `sync-personas.js` copies generated files to VS Code's User prompts directory (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
+- **Via sync** — `sync-personas.js` copies VS Code and Claude Code output to VS Code's User prompts directory (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
+- **Via the orchestrator** — the Deep Agents output is read directly off disk by `orchestrator/src/config.py`, with no sync step
 
 ---
 
@@ -28,6 +33,7 @@ Generated persona files are consumed in two ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
+| [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---
 
@@ -38,7 +44,7 @@ Generated persona files are consumed in two ways:
 node scripts/build-personas.js
 ```
 
-> Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all suites (`ledger`, `standalone`) for both targets (`vscode`, `claude-code`).
+> Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all three suites (`ledger`, `standalone`, `ledger-support`) for all three targets (`vscode`, `claude-code`, `deep-agents`).
 
 **Check for stale output (CI-friendly):**
 ```bash

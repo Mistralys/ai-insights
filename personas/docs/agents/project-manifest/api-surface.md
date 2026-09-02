@@ -256,6 +256,7 @@ How persona YAML fields map to generated frontmatter output across all targets:
 | `model` | `model` → `default_model` → `cc_model` | `cc_model` → resolved `model` | — | `cc_model` | — |
 | `role` | YAML `role` | YAML `role` | — | — | — |
 | `tools` | `tools[]` → `tools_json` | `cc_tools[]` → `cc_tools_json` | `tools[]` → `tools_list` | `cc_tools[]` → `cc_tools_list` | — |
+| `name` composition | `'{{number}} - {{role}} v{{version}}'` | `cc_file_name` stem | `'{{name}} v{{version}}'` — plain YAML `name` plus version appended by the template | `cc_file_name` stem | `id` |
 | `version` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | Auto from `changelog` | — |
 | `last_updated` | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | Auto from `changelog` date | — |
 | `author` | `_shared.author` | `_shared.author` | `_shared.author` | `_shared.author` | — |
@@ -270,6 +271,7 @@ How persona YAML fields map to generated frontmatter output across all targets:
 - **`cc_description`** — For ledger personas: computed from `_shared.roster[]` matching the persona's `number` (`title + " — " + short`). For standalone personas: falls back to the YAML `description` field.
 - **`model`** — Resolution chain: `persona.model` → `_shared.default_model` → `_shared.cc_model` → `'inherit'`. Uses `||` (falsy-skip).
 - **`cc_name`** — Derived from `cc_file_name` with `.md` stripped. Ledger: `N-role` (e.g. `3-developer`); standalone: plain slug.
+- **`name` (standalone VS Code)** — `'{{name}} v{{version}}'`. The YAML `name` field holds the plain display name only (e.g. `"Researcher"`) — do not include the version in it; the frontmatter template appends `v{{version}}` automatically.
 - **Conditional blocks** — `mcpServers` in standalone CC frontmatter uses `{{#if mcp_server_name}}` — the block is omitted entirely when the field is absent.
 
 ### What Each Platform Consumes
@@ -346,16 +348,18 @@ mcpServers:
 
 ### Standalone — VS Code (`FRONTMATTER_STANDALONE_VSCODE`)
 
-Written to `personas/standalone/vs-code/`. No `role`. Uses the persona `name` field directly (set in YAML). Output filename is determined by `vs_file_name`.
+Written to `personas/standalone/vs-code/`. No `role`. The persona `name` field holds the plain display name only — the template appends the version. Output filename is determined by `vs_file_name`.
 
 ```yaml
 ---
 id: {{id}}
-name: '{{name}}'
+name: '{{name}} v{{version}}'
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
+{{#if last_updated}}
 last_updated: {{last_updated}}
+{{/if}}
 vs_file_name: {{vs_file_name}}
 tools: [{{tools_list}}]
 ---
@@ -469,7 +473,7 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 
 | Agent | `has_mcp` | `has_detect_project` | `self_documenting_note` | `has_incident_logging` |
 |-------|-----------|----------------------|-------------------------|------------------------|
-| 1 — Planner | — | — | — | — |
+| 1 — Planner | ✓ | — | — | — |
 | 2 — Project Manager | ✓ | — | — | — |
 | 3 — Developer | ✓ | ✓ | ✓ | ✓ |
 | 4 — QA | ✓ | ✓ | ✓ | ✓ |

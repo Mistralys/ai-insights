@@ -55,7 +55,7 @@ Any field in `_shared.yaml` or a per-persona YAML is available as `{{field_name}
 | Variable | Type | Example Value |
 |----------|------|---------------|
 | `{{slug}}` | `string` | `researcher` |
-| `{{name}}` | `string` | `Researcher v1.2.0` |
+| `{{name}}` | `string` | `Researcher` — plain display name only; the frontmatter template appends `v{{version}}` (see `api-surface.md` § Standalone VS Code frontmatter) |
 | `{{description}}` | `string` | `Research solutions to complex problems...` |
 | `{{id}}` | `string` | `standalone-researcher` |
 | `{{vs_file_name}}` | `string` | `researcher.agent.md` |
