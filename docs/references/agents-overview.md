@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-01
+> **Generated:** 2026-09-02
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -167,7 +167,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v1.5.1)
+### AGENTS.md Curator (v1.6.1)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -265,7 +265,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.2.1)
+### Manifest Curator (v1.4.2)
 
 **Identity:** Technical Knowledge Architect
 
