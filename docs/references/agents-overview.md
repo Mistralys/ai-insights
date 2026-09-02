@@ -265,7 +265,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.4.2)
+### Manifest Curator (v1.6.0)
 
 **Identity:** Technical Knowledge Architect
 

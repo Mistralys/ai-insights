@@ -641,7 +641,7 @@
     "number": null,
     "id": "standalone-manifest-curator",
     "role": "Manifest Curator",
-    "version": "1.4.2",
+    "version": "1.6.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
