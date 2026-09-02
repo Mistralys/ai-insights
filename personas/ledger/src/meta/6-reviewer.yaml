@@ -4,7 +4,10 @@ vs_file_name: 6-reviewer.agent.md
 id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
+audit_guide_version: "3.5"
+audit_date: "2026-09-02"
 changelog: |
+  3.11.0 (2026-09-02): Guide v3.5 audit — added Strict Constraints, Outputs, and Capabilities sections; reunited Documentation-Forward tiering with Fix-Forward and extracted its convention into Reference Material; added Rework Handling for RUN_REVIEW re-engagement and self-rework; added a ledger_search_insights protocol step; merged the expediency principle into the canonical "Long-Term Stability Over Expediency"; folded "PASS with Fix-Forward" into PASS; fixed drifted overview fields; removed redundant "---" separators
   3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; retitled "Challenge Expediency" and "Reward Durable Design"
   3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; Deep Dive and capture steps retargeted to ledger calls
@@ -64,7 +67,7 @@ mcp_tools:
 # overview metadata
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
-inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded via ledger_add_observation"
+inputs: "Implemented code + QA results"
+outputs: "Review verdict (PASS/FAIL) with detailed findings and review insight observations recorded via ledger_add_observation"
 key_behavior: |
-  Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
+  Evaluates maintainability, best practices, performance, and long-term fit against the Review Dimensions. Applies trivial Fix-Forward edits directly and can bounce Blocking issues back to the Developer.
