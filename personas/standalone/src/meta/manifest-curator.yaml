@@ -5,6 +5,7 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.6.0 (2026-09-02): Added the Changed-Code Intersection — comparing documents only to each other cannot catch a coherent document the code moved out from under, so Update and Audit now read the diff of every changed file the manifest names; added the emphatic-claims rule, since a fact stated absolutely is re-checked least and falsified most; delegation briefs now carry fact provenance
   1.5.0 (2026-09-02): Gained read-only Git history as a verification capability, applied at the agent's discretion; added the Reverted Decisions search as one named use of it, since a decision made and later undone is a constraint nobody wrote down; curation log entries gained a Commit line that anchors the next pass's search range
   1.4.2 (2026-09-02): Curation log entries no longer link the Discrepancy Report — the report is a temporary artefact the user deletes after acting on it, so audit findings are now written into the log entry itself
   1.4.1 (2026-09-02): Audit fixes — the Adjacent Document Check now mirrors the AGENTS.md Curator's boundary, catching unsourced codebase facts and divergent Project Stats entries; the file-absence conditional gained a workflow checkpoint; added the Findings Travel Further Than Fixes principle shared with the AGENTS.md Curator
