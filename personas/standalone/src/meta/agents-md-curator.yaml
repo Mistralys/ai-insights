@@ -5,6 +5,8 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  1.6.1 (2026-09-02): Audit fixes — merged Manifest First and High Integrity into Truth Upstream, Routing Downstream; added the Findings Travel Further Than Fixes principle shared with the Manifest Curator; tightened the Manifest Boundary opener
+  1.6.0 (2026-09-02): Added The Manifest Boundary — the manifest states what is true, AGENTS.md states what to do about it; every codebase fact is now sourced from the manifest or reported as a gap, Project Stats is sourced from tech-stack.md, and all three workflows carry a boundary check
   1.5.1 (2026-08-26): Rewrote a trailing imperative sentence in the Stratified Authority philosophy principle into indicative mood
   1.5.0 (2026-08-26): Routes agents to decision documents that sit outside the manifest, including the dependency decision ledger
   1.4.0 (2026-08-25): Register Map — tone stratification now applies to the generated AGENTS.md
@@ -32,5 +34,5 @@ modes: |
   Update
   Audit
 
-audit_guide_version: "3.3"
-audit_date: "2026-08-27"
+audit_guide_version: "3.4"
+audit_date: "2026-09-02"
