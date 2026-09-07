@@ -18,7 +18,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
-import { _internal } from '../../src/tools/standalone-import.js';
+import { _internal, ImportStandaloneSchema } from '../../src/tools/standalone-import.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 
 const { importStandalone, updateSynthesis } = _internal;
@@ -374,20 +374,34 @@ describe('ledger_import_standalone — project_summary parameter', () => {
     expect(root.project_summary).toBeUndefined();
   });
 
-  it('rejects an empty string for project_summary (schema validation)', async () => {
-    // The ImportStandaloneSchema uses z.string().min(1) for project_summary.
-    // Verify that min(1) constraint rejects empty strings.
-    const { z } = await import('zod');
-    const schema = z.object({ project_summary: z.string().min(1).optional() });
-    expect(schema.safeParse({ project_summary: '' }).success).toBe(false);
-    expect(schema.safeParse({ project_summary: 'valid' }).success).toBe(true);
-    expect(schema.safeParse({}).success).toBe(true);
+  it('rejects an empty string for project_summary (schema validation)', () => {
+    expect(ImportStandaloneSchema.safeParse({ project_summary: '' }).success).toBe(false);
+    expect(ImportStandaloneSchema.safeParse({ project_summary: 'valid' }).success).toBe(true);
+    expect(ImportStandaloneSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('rejects a whitespace-only string for project_summary (trim().min(1) constraint)', () => {
+    expect(ImportStandaloneSchema.safeParse({ project_summary: '   ' }).success).toBe(false);
   });
 });
 
 // ─── title parameter ──────────────────────────────────────────────────────
 
 describe('ledger_import_standalone — title parameter', () => {
+  it('persists title in root index when provided', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    await importStandalone({
+      project_path: planDir,
+      title: 'Cross-Platform Agent Plugin - Phase 3B',
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.title).toBe('Cross-Platform Agent Plugin - Phase 3B');
+  });
+
   it('stores title in .meta.json when title is provided', async () => {
     await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
     await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
@@ -406,6 +420,17 @@ describe('ledger_import_standalone — title parameter', () => {
     expect(meta.title).toBe('Cross-Platform Agent Plugin - Phase 3B');
   });
 
+  it('omits title from root index when not provided (backward compatibility)', async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    await importStandalone({ project_path: planDir });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.title).toBeUndefined();
+  });
+
   it('produces .meta.json with no title field when title is omitted (backward compatibility)', async () => {
     await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
     await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
@@ -421,20 +446,20 @@ describe('ledger_import_standalone — title parameter', () => {
     expect(meta.title).toBeUndefined();
   });
 
-  it('rejects an empty string for title (schema validation)', async () => {
-    const { z } = await import('zod');
-    const schema = z.object({ title: z.string().min(1).max(200).optional() });
-    expect(schema.safeParse({ title: '' }).success).toBe(false);
-    expect(schema.safeParse({ title: 'Valid Title' }).success).toBe(true);
-    expect(schema.safeParse({}).success).toBe(true);
+  it('rejects an empty string for title (schema validation)', () => {
+    expect(ImportStandaloneSchema.safeParse({ title: '' }).success).toBe(false);
+    expect(ImportStandaloneSchema.safeParse({ title: 'Valid Title' }).success).toBe(true);
+    expect(ImportStandaloneSchema.safeParse({}).success).toBe(true);
   });
 
-  it('rejects a title exceeding 200 characters (schema validation)', async () => {
-    const { z } = await import('zod');
-    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+  it('rejects a whitespace-only string for title (trim().min(1) constraint)', () => {
+    expect(ImportStandaloneSchema.safeParse({ title: '   ' }).success).toBe(false);
+  });
+
+  it('rejects a title exceeding 200 characters (schema validation)', () => {
     const longTitle = 'A'.repeat(201);
-    expect(schema.safeParse({ title: longTitle }).success).toBe(false);
-    expect(schema.safeParse({ title: 'A'.repeat(200) }).success).toBe(true);
+    expect(ImportStandaloneSchema.safeParse({ title: longTitle }).success).toBe(false);
+    expect(ImportStandaloneSchema.safeParse({ title: 'A'.repeat(200) }).success).toBe(true);
   });
 });
 

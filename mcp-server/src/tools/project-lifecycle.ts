@@ -542,11 +542,13 @@ export const InitializeProjectSchema = z.object({
     ),
   project_summary: z
     .string()
+    .trim()
     .min(1)
     .optional()
     .describe('Optional curated summary of the project plan. Displayed on the GUI project detail page instead of the auto-extracted plan synopsis when provided.'),
   title: z
     .string()
+    .trim()
     .min(1)
     .max(200)
     .optional()
@@ -671,6 +673,7 @@ async function initializeProject(
     server_version: SERVER_VERSION,
     ...runnerInfo,
     ...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {}),
+    ...(args.title !== undefined ? { title: args.title } : {}),
   };
 
   try {

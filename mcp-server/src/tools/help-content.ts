@@ -157,14 +157,16 @@ not yet exist, it is silently skipped and reported in \`archive_skipped\`.
 
 ## Optional Parameters
 
-**\`project_summary\`** (string, min 1 char) — A curated 2–3 sentence plain-text summary of the
+**\`project_summary\`** (string, min 1 char after trimming) — A curated 2–3 sentence plain-text summary of the
 project. Displayed on the GUI project detail page instead of the auto-extracted plan synopsis.
-Omitting it leaves the field absent (backward-compatible).
+Omitting it leaves the field absent (backward-compatible). Whitespace-only input is trimmed
+before validation, so a string with no non-whitespace character is rejected.
 
-**\`title\`** (string, min 1 char, max 200 chars) — A human-readable display title for the project
+**\`title\`** (string, min 1 char after trimming, max 200 chars) — A human-readable display title for the project
 (e.g. \`"API: Split GetTenants"\` or \`"Cross-Platform Agent Plugin - Phase 3B"\`). Shown in the
 GUI project list and detail pages. When omitted, the GUI falls back to a title-cased version of
-the slug.
+the slug. Whitespace-only input is trimmed before validation, so a string with no non-whitespace
+character is rejected.
 
 ## Response Fields
 - All root index fields (plan_file, date_created, status, work_packages, etc.)
@@ -1174,17 +1176,18 @@ If both are provided, \`project_path\` takes precedence.
 
 ## Optional Parameters
 
-**\`project_summary\`** (string, min 1 char) — A curated 2–3 sentence plain-text summary of the
+**\`project_summary\`** (string, min 1 char after trimming) — A curated 2–3 sentence plain-text summary of the
 project. When provided, stored as \`project_summary\` in the root index and \`.meta.json\`, and
 displayed in the GUI synopsis panel. Read the plan's \`## Summary\` section and craft a concise
 summary before calling this tool. Omitting it leaves the field absent (backward-compatible).
-Note: the \`min(1)\` constraint only checks length — whitespace-only strings pass. Provide a
-meaningful summary with at least one non-whitespace character.
+Whitespace-only input is trimmed before validation, so a string with no non-whitespace character
+is rejected.
 
-**\`title\`** (string, min 1 char, max 200 chars) — A human-readable display title for the project
+**\`title\`** (string, min 1 char after trimming, max 200 chars) — A human-readable display title for the project
 (e.g. \`"API: Split GetTenants"\` or \`"Cross-Platform Agent Plugin - Phase 3B"\`). Shown in the
 GUI project list and detail pages. When omitted, the GUI falls back to a title-cased version of
-the slug.
+the slug. Whitespace-only input is trimmed before validation, so a string with no non-whitespace
+character is rejected.
 
 ## Validation (evaluated in order)
 1. At least one of \`project_path\` or \`cwd_path\` must be provided.

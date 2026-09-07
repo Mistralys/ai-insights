@@ -2124,6 +2124,19 @@ describe('initializeProject — project_summary parameter', () => {
     }
   });
 
+  it('schema rejects a whitespace-only project_summary string (trim().min(1) constraint)', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      project_summary: '   ',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const err = result.error.issues.find((i) => i.path.includes('project_summary'));
+      expect(err).toBeDefined();
+    }
+  });
+
   it('persists project_summary in project-ledger.json when provided', async () => {
     const summary = 'Integration test: summary stored in root index.';
     await initializeProject({
@@ -2170,5 +2183,145 @@ describe('initializeProject — project_summary parameter', () => {
     const store = new LedgerStore(planDir, tempLedgerRoot);
     const meta = await store.readProjectMeta();
     expect('project_summary' in (meta as any)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rework: initializeProject title parameter — mirrors project_summary above
+// ---------------------------------------------------------------------------
+describe('initializeProject — title parameter', () => {
+  let planDir: string;
+  let tempLedgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp-title-'));
+    planDir = join(tmpdir(), '2026-08-28-title-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('schema accepts a valid title string', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      title: 'API: Split GetTenants',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('schema accepts objects without title', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('schema rejects an empty title string (min(1) constraint)', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      title: '',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const err = result.error.issues.find((i) => i.path.includes('title'));
+      expect(err).toBeDefined();
+    }
+  });
+
+  it('schema rejects a title exceeding 200 characters (max(200) constraint)', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      title: 'A'.repeat(201),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const err = result.error.issues.find((i) => i.path.includes('title'));
+      expect(err).toBeDefined();
+    }
+  });
+
+  it('schema rejects a whitespace-only title string (trim().min(1) constraint)', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+      title: '   ',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const err = result.error.issues.find((i) => i.path.includes('title'));
+      expect(err).toBeDefined();
+    }
+  });
+
+  it('persists title in project-ledger.json when provided', async () => {
+    const title = 'API: Split GetTenants';
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+      title,
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.title).toBe(title);
+  });
+
+  it('omits title from project-ledger.json when not provided', async () => {
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect('title' in root).toBe(false);
+  });
+
+  // The .meta.json persistence/omission cases for `title` are already covered
+  // by 'title parameter — initializeProject stores title in .meta.json' in
+  // meta-enrichment.test.ts — not duplicated here.
+
+  it('persists title in the root index even when .meta.json enrichment fails (resilience)', async () => {
+    const title = 'Resilience Test Title';
+    // writeProjectMeta is called twice during initializeProject: once inside
+    // writeRootIndex()'s auto-sync (must succeed so the root index write completes),
+    // and once for the non-fatal enrichment cache refresh in step 6 (forced to fail
+    // here). This isolates the resilience assertion to the enrichment step only.
+    const original = LedgerStore.prototype.writeProjectMeta;
+    const writeProjectMetaSpy = vi
+      .spyOn(LedgerStore.prototype, 'writeProjectMeta')
+      .mockImplementationOnce(function (this: LedgerStore, ...args: Parameters<typeof original>) {
+        return original.apply(this, args);
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('simulated enrichment failure');
+      });
+
+    try {
+      const result = await initializeProject({
+        project_path: planDir,
+        plan_file: 'plan.md',
+        title,
+      });
+      expect((result as any).isError).toBeFalsy();
+      expect(JSON.parse((result as any).content[0].text).enrichment_cached).toBe(false);
+    } finally {
+      writeProjectMetaSpy.mockRestore();
+    }
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.title).toBe(title);
   });
 });

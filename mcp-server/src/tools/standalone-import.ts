@@ -22,7 +22,7 @@ const USAGE_SCENARIOS_ARCHIVE_FILENAME = 'usage-scenarios.md';
 
 // ─── Input Schema ─────────────────────────────────────────────────────────
 
-const ImportStandaloneSchema = z.object({
+export const ImportStandaloneSchema = z.object({
   project_path: z
     .string()
     .optional()
@@ -42,6 +42,7 @@ const ImportStandaloneSchema = z.object({
     ),
   project_summary: z
     .string()
+    .trim()
     .min(1)
     .optional()
     .describe(
@@ -51,6 +52,7 @@ const ImportStandaloneSchema = z.object({
     ),
   title: z
     .string()
+    .trim()
     .min(1)
     .max(200)
     .optional()

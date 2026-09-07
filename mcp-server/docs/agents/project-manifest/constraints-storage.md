@@ -192,7 +192,9 @@ const ledgerPath = expectedRepo
 
 **Canonical example:** `CompleteSynthesisSchema.outcome_summary` is `z.string().min(10)` (input); `ProjectMetaSchema.outcome_summary` is `z.string().nullable().optional()` (storage).
 
-**Second instance:** `InitializeProjectSchema.project_summary` is `z.string().min(1)` (input, optional — absent is valid but empty string is not); `RootIndexSchema` and `ProjectMetaSchema` declare it as `z.string().nullable().optional()` (storage). Bridge logic in `initializeProject()` uses a conditional spread to omit the field entirely when not provided.
+**Second instance:** `InitializeProjectSchema.project_summary` is `z.string().trim().min(1)` (input, optional — absent is valid but an empty or whitespace-only string is not); `RootIndexSchema` and `ProjectMetaSchema` declare it as `z.string().nullable().optional()` (storage). Bridge logic in `initializeProject()` uses a conditional spread to omit the field entirely when not provided. `InitializeProjectSchema.title` and `ImportStandaloneSchema.title` follow the same input shape (`z.string().trim().min(1).max(200)`), and `title` was extended onto `RootIndexSchema` (`.nullable().optional()`) to close a resilience gap where `title` previously reached only `.meta.json` and was lost if enrichment failed.
+
+**Nullable/non-nullable pairing gotcha:** `RootIndexSchema.title` is nullable for shape parity with `project_summary`, but `MetaCacheUpdates.title` is intentionally non-nullable (no "clear title" use case). The auto-sync bridge in `writeRootIndex()` must coalesce a theoretical `null` to `undefined` rather than propagate it — watch for the same mismatch if a future field is added to both schemas with differing nullability.
 
 **Anti-pattern:**
 ```typescript

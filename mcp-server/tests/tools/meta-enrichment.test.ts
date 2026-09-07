@@ -13,7 +13,7 @@ import { tmpdir } from 'os';
 import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
 import { ProjectMetaSchema } from '../../src/schema/project-meta.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
-import { _internal } from '../../src/tools/project-lifecycle.js';
+import { _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 
@@ -255,19 +255,19 @@ describe('title parameter — initializeProject stores title in .meta.json', () 
     expect(meta.title).toBeUndefined();
   });
 
-  it('rejects an empty string for title (schema validation)', async () => {
-    const { z } = await import('zod');
-    const schema = z.object({ title: z.string().min(1).max(200).optional() });
-    expect(schema.safeParse({ title: '' }).success).toBe(false);
-    expect(schema.safeParse({ title: 'Valid Title' }).success).toBe(true);
-    expect(schema.safeParse({}).success).toBe(true);
+  it('rejects an empty string for title (schema validation)', () => {
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md', title: '' }).success).toBe(false);
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md', title: 'Valid Title' }).success).toBe(true);
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md' }).success).toBe(true);
   });
 
-  it('rejects a title exceeding 200 characters (schema validation)', async () => {
-    const { z } = await import('zod');
-    const schema = z.object({ title: z.string().min(1).max(200).optional() });
+  it('rejects a whitespace-only string for title (trim().min(1) constraint)', () => {
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md', title: '   ' }).success).toBe(false);
+  });
+
+  it('rejects a title exceeding 200 characters (schema validation)', () => {
     const longTitle = 'A'.repeat(201);
-    expect(schema.safeParse({ title: longTitle }).success).toBe(false);
-    expect(schema.safeParse({ title: 'A'.repeat(200) }).success).toBe(true);
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md', title: longTitle }).success).toBe(false);
+    expect(InitializeProjectSchema.safeParse({ project_path: '/tmp/x', plan_file: 'plan.md', title: 'A'.repeat(200) }).success).toBe(true);
   });
 });
