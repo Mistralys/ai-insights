@@ -22,7 +22,7 @@ const USAGE_SCENARIOS_ARCHIVE_FILENAME = 'usage-scenarios.md';
 
 // ─── Input Schema ─────────────────────────────────────────────────────────
 
-const ImportStandaloneSchema = z.object({
+export const ImportStandaloneSchema = z.object({
   project_path: z
     .string()
     .optional()
@@ -42,12 +42,23 @@ const ImportStandaloneSchema = z.object({
     ),
   project_summary: z
     .string()
+    .trim()
     .min(1)
     .optional()
     .describe(
       'Optional curated 2–3 sentence plain-text summary of the project. When provided, ' +
       'stored as project_summary in the root index and .meta.json, powering the GUI synopsis. ' +
       'Read the plan\'s ## Summary section and craft a concise summary before calling this tool.'
+    ),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      'Optional human-readable display title for the project (e.g. "API: Split GetTenants" or "Cross-Platform Agent Plugin - Phase 3B"). ' +
+      'Shown in the GUI project list and detail pages. When omitted, the GUI falls back to a title-cased version of the slug.'
     ),
 });
 
@@ -270,6 +281,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
       pipelineSummary:
         outcomeSummary !== null ? [outcomeSummary] : ['Standalone plan executed.'],
       ...(args.project_summary !== undefined ? { projectSummary: args.project_summary } : {}),
+      ...(args.title !== undefined ? { title: args.title } : {}),
     });
   } catch (error) {
     return {

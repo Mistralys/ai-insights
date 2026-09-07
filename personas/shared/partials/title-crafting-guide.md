@@ -1,0 +1,5 @@
+- **Short and scannable** — typically 3–6 words; capture the feature or theme without restating the full plan name
+- **Proper capitalization** — title case for all words except articles, prepositions, and conjunctions; preserve acronyms in uppercase (e.g., API, GUI, MCP)
+- **Rework/phase separator** — append ` - Rework {N}` or ` - Phase {N}` when the slug contains those suffixes (e.g., `-rework-1`, `-phase-2`), using a space-hyphen-space separator
+- **Slug-derived** — expand the slug's kebab-case words into readable words; never invent a title that contradicts the slug
+- **Plain text only** — no Markdown formatting (no bold, backticks, or brackets)

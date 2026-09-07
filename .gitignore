@@ -9,8 +9,9 @@
 /docs/agents/**/work-packages-draft.md
 /docs/agents/**/audit.md
 /docs/agents/**/design-review.md
-/docs/agents/**/research-brief.md
+/docs/agents/implementation-history/**/research-brief.md
 /docs/agents/insights/
+/docs/agents/**/insights.jsonl
 
 /mcp-server/dist/
 /personas/node_modules/
