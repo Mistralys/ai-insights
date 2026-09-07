@@ -1,0 +1,77 @@
+<section>
+  <p class="section-label">What Makes a Persona Powerful</p>
+  <h2>Trigger Anchoring</h2>
+  <p class="lead">Length is not the limiting factor. <span class="accent">Salience beats volume.</span></p>
+  <div class="equipment-table">
+    <table>
+      <thead><tr><th>What the instruction is</th><th>What makes it fire</th><th>Survives?</th></tr></thead>
+      <tbody>
+        <tr><td>The task itself</td><td>Carries the session's momentum</td><td class="accent-green">Never dropped</td></tr>
+        <tr><td>Tied to an action</td><td>The tool call it forbids or requires</td><td class="accent-green">Very high</td></tr>
+        <tr><td>A numbered step with an output slot</td><td>The step and the empty slot</td><td class="accent-green">High</td></tr>
+        <tr><td>&ldquo;Keep an eye out for&hellip;&rdquo;</td><td class="accent-red">Nothing</td><td class="accent-red">Lowest</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size: 0.75em; margin-top: 1.3em;">
+    Models recall long documents fine. What decays is an instruction's <span class="accent">activation</span> at the moment it should apply.<br>
+    Every duty gets
+    an explicit trigger:
+    <button type="button" class="info-link" data-info="info-observable-gate"
+            data-info-title="Real gates and gates that only look real">an action, a checkpoint, or an output slot</button>.
+  </p>
+  <template id="info-observable-gate">
+    <p>
+      The trigger has to be something that <strong>visibly happens</strong> &mdash; not something the
+      agent decides has happened.
+    </p>
+    <p>
+      <span class="strike">&ldquo;After each chunk of work, note what you observed.&rdquo;</span><br>
+      This reads like a gate, but the boundary never announces itself. The moment never feels right,
+      so the note is never written &mdash; and the omission is invisible.
+    </p>
+    <p>
+      <span class="better">&ldquo;After each file edit, before opening the next file, append what you
+      observed.&rdquo;</span><br>
+      A file edit is observable. The gate fires.
+    </p>
+    <p>
+      The same logic sets the budget: reliability declines with tool calls and context churn, not with
+      word count. A persona whose sessions run long needs more <em>checkpoints</em>, not more prose.
+      Adding prose adds volume without adding triggers.
+    </p>
+  </template>
+  <aside class="notes">
+    This is the most counter-intuitive thing I have learned writing these, and it took a genuine
+    failure to see it.
+
+    The instinct everyone has &mdash; me included &mdash; is that a persona has a length budget. Write
+    too much and the model starts dropping things, so keep it short. That instinct is wrong, and acting
+    on it makes personas worse. Models handle long documents perfectly well; the recall is not the
+    problem.
+
+    What actually fails is activation. The instruction is still in context, the model could quote it
+    back to you, but it does not fire at the moment it applies &mdash; because the agent is absorbed in
+    the primary task and nothing in the session forced it to check. So the question to ask of any
+    instruction is not "is this too much text?" but "what makes the model look at this at the right
+    moment?"
+
+    Read the table bottom-up, because the bottom row is where every persona I have written went wrong
+    first. "Keep an eye out for X while you work" has no trigger at all. It depends entirely on the
+    instruction spontaneously resurfacing while attention is elsewhere. It reads like a reasonable
+    request and it is, in practice, close to a no-op.
+
+    The three rows above it all have something that forces the check. The task itself carries the
+    session. An action gate is checked at the moment of the tool call, because the tool call is the
+    trigger. A numbered step with an output slot is forced by the empty slot &mdash; the report has a
+    hole in it until the work is done.
+
+    The practical rule that follows: converting a duty is not about rewording it more emphatically. It
+    is about finding it a trigger. Same words, attached to an observable event, behave completely
+    differently.
+
+    The info link covers the trap I fell into, which is worth mentioning if there is time: a gate that
+    delegates the trigger back to the agent's own judgement is not a gate. "After each chunk" sounds
+    observable and is not.
+  </aside>
+</section>

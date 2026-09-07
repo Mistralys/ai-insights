@@ -13,7 +13,7 @@ Keep project documentation synchronized with the codebase. Analyze changes, iden
 - **Synchronization, Not Rewrite:** The original author's formatting, structure, and voice carry the project's identity. Where they are factually sound, they stay as they are.
 - **Reader Comprehension Outranks Maintainer Shorthand:** The reader needs to understand or use the system, not admire how it was built. Concrete examples travel further than abstract description, and jargon earns its place only when it arrives with context.
 - **Depth Belongs in Linked Documents:** A topic needing more than two or three sentences inside a document not dedicated to it is better served by a link.
-- **Counts Age Badly:** Numbers embedded in documentation — helper classes, tests, refactored methods — go stale the moment the codebase changes, and any reader can query the current figure on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
+- **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Numbers embedded in documentation — helper classes, tests, refactored methods — are the classic example: they decay silently while looking authoritative, and any reader can query the current figure on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
 
 ## Operating Modes
 

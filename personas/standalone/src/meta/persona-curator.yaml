@@ -1,10 +1,29 @@
+# PUBLISHED ARTIFACT — src/content/persona-curator.md is fetched by downstream
+# projects and overwritten locally on every sync. Keep instructions project-neutral
+# (conditional references only) and treat top-level heading renames as breaking:
+# nexus-personas injects a partial by anchoring on "\n\n## Operating Philosophy\n".
+# See personas/docs/agents/project-manifest/constraints.md (C5d).
 slug: persona-curator
 name: "Persona Curator"
 description: "Create, audit, and maintain AI agent personas according to the Persona Design Guide."
 vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
+audit_guide_version: "3.4"
+audit_date: "2026-08-27"
+
 changelog: |
+  1.15.0 (2026-08-27): Added a Prose Density Pass alongside the Philosophy Tone Pass - overloaded explanatory prose costs an instruction its trigger as well as its readability, and like imperative mood it survives an unaided review, so it now has its own numbered step in all three modes and a Minor-or-Major audit criterion; guide v3.4 carries the domain-neutral rules
+  1.14.0 (2026-08-27): Rendered output is now verified rather than assumed - guide v3.3 requires reading the assembled persona end to end after every build, since partials and variables keep duplication, wrong substitutions and tone breaks out of the source diff; Create and Maintain gained a build-and-read step, Audit evaluates rendered coherence, and a clean build no longer counts as verification
+  1.13.0 (2026-08-26): Constraints are now grouped under Core Rules - the guide pairs that heading with categorized rule groups, so the twelve flat bullets became six named groups (authority, scope, source integrity, published artifacts, documented deviations, bookkeeping); the rename was cleared with the user first, since the heading sits in a published artifact
+  1.12.0 (2026-08-26): Self-audit fixes - added the missing Outputs section and a Decision Logic section defining the PASS/NEEDS WORK threshold the audit stamp hangs on; the reproduced Quality Checklist was replaced by a reference to the guide's own after drifting eleven items behind it; constraints and the tone-pass protocol now precede the mode workflows per the guide's ordering, the mode table moved into its own Operating Modes section, and the tone principle adopted the registry's canonical Stratified Authority name
+  1.11.0 (2026-08-26): Metadata handling is now conditional on deployment - a persona pasted into a system-prompt field has no build step, so build-input fields are inapplicable and governance fields are the author's choice; Create asks where the persona will be deployed, Audit skips the stamp where no metadata exists, and bookkeeping no longer assumes a changelog to update
+  1.10.1 (2026-08-26): Added an explicit guide lookup order - the filename is invariant, so the two conventional directories are probed first and a repository-wide search is the documented last resort rather than the default
+  1.10.0 (2026-08-26): Replaced every hardcoded AI-Insights path with role terms - downstream consumers use a flat source layout, so the previous paths resolved to nothing outside this workspace; concrete values now live in the personas constraints (C5e)
+  1.9.0 (2026-08-26): Added published-artifact constraints - project-specific content must not enter externally consumed files, and top-level heading renames in them are breaking changes because downstream sync scripts anchor on literal headings
+  1.8.0 (2026-08-26): Philosophy Tone Pass extended to every sentence of a principle body, not just the opener; comparison-idiom titles exempted; added a canonical-name check against the project's principle vocabulary, reported as a finding where no registry exists
+  1.7.0 (2026-08-26): Philosophy Tone Pass - dedicated protocol with its own workflow step in all three modes, catching positively framed imperatives in Operating Philosophy sections via the "You should" test; own philosophy section rewritten into the indicative mood
+  1.6.0 (2026-08-26): design_notes metadata field - Audit mode reads documented guide deviations before evaluating and records them at the new Accepted severity instead of re-flagging them; Create and Maintain modes write entries; constraints guard against using the field to silence findings
   1.5.0 (2026-08-25): Audit mode stamps audit_guide_version and audit_date on persona YAML metadata for declarative compliance tracking
   1.4.0 (2026-08-24): Replaced "Imperative, Not Suggestive" philosophy with Tone Stratification; updated audit and quality checklist items to enforce two-register tone rule
   1.3.0 (2026-06-13): Updated Create workflow + Version bookkeeping constraint to use changelog: block scalar; prohibit standalone version: and last_updated: fields

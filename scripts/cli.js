@@ -1075,7 +1075,7 @@ const COMMANDS = [
     key:         null,
     label:       'Generate persona audit',
     category:    'Validation & Utilities',
-    description: 'Generate a persona audit tracking document (sorted oldest-first, with guide version)',
+    description: 'Regenerate personas/docs/audits/status.md from persona metadata and source composition',
     run:         cmdGeneratePersonaAudit,
   },
   {

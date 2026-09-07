@@ -59,7 +59,7 @@ Each step is a separate agent invocation. The PM passes structured output from o
 
 ## Persona Catalog
 
-All 23 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
+All standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 
 > **Note:** Ledger workflow utility agents previously listed here (PM sub-agent cluster, ledger-doctor, etc.) have moved to `personas/ledger-support/`. See [ledger-support/README.md](../ledger-support/README.md).
 
@@ -72,6 +72,7 @@ All 23 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 | `comms-curator` | Communications Curator | Produce clear, engaging, audience-appropriate content from technical source material — release notes, user responses, stakeholder briefs, and presentation slides. | `comms-curator.agent.md` | `comms-curator.md` |
 | `composer-curator` | Composer Curator | Verify that the project's composer.json file is set up correctly for agentic coding. | `composer-curator.agent.md` | `composer-curator.md` |
 | `ctx-architect` | CTX Architect | Design, generate, and maintain CTX Generator context documentation configurations — from root project setup to per-module configs. | `ctx-architect.agent.md` | `ctx-architect.md` |
+| `dependency-curator` | Dependency Curator | Audit third-party dependencies for security advisories and in-constraint updates, and produce migration plans for major-version upgrades. | `dependency-curator.agent.md` | `dependency-curator.md` |
 | `developer-standalone` | Developer (Standalone) | Implement scoped plan documents without ledger workflow, including code insights, a `synthesis.md` output, and optional archival. | `developer-standalone.agent.md` | `developer-standalone.md` |
 | `documentation-curator` | Documentation (Standalone) | Analyze codebase changes, identify documentation gaps, and update READMEs, API references, and architecture guides. | `documentation-curator.agent.md` | `documentation-curator.md` |
 | `git-committer` | Git Committer | Analyze uncommitted changes and organize them into comprehensive, categorized commits with plan traceability. | `git-committer.agent.md` | `git-committer.md` |

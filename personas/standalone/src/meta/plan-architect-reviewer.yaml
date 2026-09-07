@@ -5,6 +5,7 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.1 (2026-08-26): Rewrote all five Operating Philosophy principles into indicative mood per design guide v3.0; retitled "Confirm What Works", "Stay Within the Scope Boundary" and "Favor Durable Structures"
   2.3.0 (2026-08-25): Guide v2.8 audit — split alternative gathering from verdict assignment into separate phases; consolidated three overlapping criteria lists into one canonical Evaluation Dimensions set; added Scope Boundaries table; structured the Researcher delegation as its own workflow step; added research brief and contribute-back workflow checkpoints; removed the unreachable Audit Cycle Tracking rule
   2.2.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
   2.1.0 (2026-07-16): Added "Favor Durable Structures" principle to Operating Philosophy — prefer growth-accommodating designs over expedient shortcuts
@@ -37,5 +38,5 @@ identity: "Principal Software Architect"
 use_when: "Reviewing a plan's architectural decisions before implementation begins"
 notes: "Runs in parallel with the Plan Auditor; never blocks it"
 
-audit_guide_version: "2.8"
-audit_date: "2026-08-25"
+audit_guide_version: "3.2"
+audit_date: "2026-08-26"

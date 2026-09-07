@@ -1,0 +1,40 @@
+<section>
+  <p class="section-label">Opening</p>
+  <h2>Focusing On The Essentials</h2>
+  <p class="lead">
+    A little stability in an extremely fast-moving environment.
+  </p>
+  <div class="card-stack" style="--stack-width: 790px; --stack-size: 0.74em; --stack-gap: 0.6em;">
+    <div class="glass-card">
+      <strong class="accent">What works with any model.</strong><br>
+      <span class="muted">Clear language, explicit structure and good documentation are effective
+      across providers and valuable over the long-term.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Tooling I control.</strong><br>
+      <span class="muted">Plain Markdown, my own build system, my own ledger. Nothing here depends
+      on a vendor feature that can change or disappear the next week.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Portable by default.</strong><br>
+      <span class="muted">When the landscape shifts, only the output target changes. The personas,
+      the workflow and the accumulated knowledge stay where they are.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    This is the guiding principle behind everything that follows, and it explains a lot of the design
+    choices later in the deck.
+
+    The field moves fast enough that anything built on a specific provider's feature set has a short
+    shelf life. So the bet here is deliberately conservative: invest only in the parts that are stable.
+    Clear instructions and good documentation work on every model I have tried, and they will keep
+    working, because they are about communication rather than about a particular implementation.
+
+    The second half is ownership. The persona sources are Markdown files in a Git repository. The
+    build system is mine. The ledger is mine. If a platform changes its instruction format, that is a
+    build target update, not a rewrite. If a platform disappears, nothing of substance is lost.
+
+    Worth being honest about the trade-off: this means passing on some provider-specific conveniences.
+    That is the price of not having to redo the work every few months.
+  </aside>
+</section>

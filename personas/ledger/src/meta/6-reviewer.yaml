@@ -5,6 +5,7 @@ id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
 changelog: |
+  3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; retitled "Challenge Expediency" and "Reward Durable Design"
   3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; Deep Dive and capture steps retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries

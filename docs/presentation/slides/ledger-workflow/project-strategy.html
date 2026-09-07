@@ -1,0 +1,67 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>The architect's vision</h2>
+  <p class="lead">
+    Every decision you make is coloured by your vision of where the codebase is going.<br>
+    <span class="accent">Write it down, and the agents get the same lens.</span>
+  </p>
+  <div class="card-stack" style="--stack-size: 0.73em;">
+    <div class="glass-card">
+      <strong class="accent">Short term</strong>
+      <span class="muted">&mdash; what is being worked towards now.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Mid term</strong>
+      <span class="muted">&mdash; what is coming, and worth leaving room for.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Long term</strong>
+      <span class="muted">&mdash; the direction that rules approaches out.</span>
+    </div>
+  </div>
+  <p style="font-size: 0.76em; margin-top: 1.4em;">
+    The planner weaves it into the plan &mdash; as a result,
+    <span class="accent">the whole pipeline inherits the vision</span>.
+  </p>
+  <p style="font-size: 0.8em; margin-top: 0.6em;">
+    Same feature request. Shared vision. <strong class="accent-green">A different architecture.</strong>
+  </p>
+  <aside class="notes">
+    This is the most underestimated slide in the deck, so I want to be direct about why it matters.
+
+    As a software architect, this vision lives in me. I don't consult it — I apply it in every decision,
+    continuously, whether I'm reviewing a pull request or naming a class. It's not a document I open.
+    It's the lens I look through. And that's exactly the problem: an agent doesn't have it. It sees the
+    feature request and nothing else.
+
+    Think about what I actually do when handed a feature request. I don't just solve it. I ask what else
+    is coming. Is this the third variant of something that should have been generalised two variants
+    ago? Is the module I'm about to extend the one being replaced next quarter? Should this be a quick
+    fix because the whole area is due for a rewrite, or built properly because it's load-bearing for the
+    next two years?
+
+    None of that is answerable from the feature request. It's answerable from the strategy. And it
+    doesn't change whether you build the feature — it changes its shape. Same requirement, three
+    horizons, three genuinely different architectures.
+
+    Writing the strategy down per repository is what puts that lens in front of the Planner. And here's
+    the part that gets overlooked: it doesn't stop at the Planner. It colours the entire plan — the work
+    package boundaries, the sequencing, what gets abstracted and what stays concrete. Every stage after
+    that works from that plan. The Developer implements against it, the Reviewer evaluates against it,
+    the Documentation agent describes it. So the whole pipeline inherits the vision from one declaration,
+    without a single downstream persona needing to know it exists.
+
+    Concretely: the Planner calls the ledger for the repository context before it drafts anything. That
+    returns the three horizons plus the history of prior projects in this repository. If a vision is
+    declared, the Planner validates the plan against it. If none is declared it proceeds anyway — but
+    then it's planning purely for today, and you get today's solution.
+
+    One clarification, because the previous slide's footnote could mislead: the vision is declared per
+    repository, not per project. It's long-lived context that every project in that repository inherits —
+    the right granularity, because strategy outlives features.
+
+    The honest caveat: the strategy is only as good as what you wrote in it. This is not the system
+    inferring your roadmap. It's the system making sure your roadmap is in the room when the plan gets
+    written, instead of living in your head or in a slide deck nobody opened.
+  </aside>
+</section>

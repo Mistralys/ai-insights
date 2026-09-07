@@ -1,5 +1,31 @@
 # Personas Changelog
 
+## v3.32.0 - **WIP UNRELEASED**
+
+**This release completes a design-guide compliance sweep across the persona roster and fixes
+three long-standing agent bugs.** Every ledger-support persona passed its first design-guide
+audit, and a new Dependency Curator joins the standalone roster. The Persona Design Guide itself
+advances with a Concept Index and governance metadata for tracking accepted deviations.
+
+- Standalone: Fixed Git Committer's corrupted safety rule, WHATSNEW Curator's silent Rewrite
+  mode, and Changelog Curator writing entries before user approval.
+- Standalone: Added Dependency Curator for dependency audits and major-version migration
+  planning.
+- Standalone: A guide-compliance sweep redesigned most personas with tone fixes, scope
+  boundaries, self-validation checklists, and clearer workflow phase separation.
+- Global: Stored insights are now mutable only by the Knowledge Curator, which gained a
+  Targeted Reconciliation mode for entries a completed plan overtook.
+- Global: Shared partials now cover the Planner and Developer personas across the ledger
+  and standalone suites, reducing duplicated maintenance.
+- Support: Every ledger-support persona (Dependency Sequencer, WP Decomposer, Pipeline
+  Configurator, Bootstrapper, Knowledge Curator, Knowledge Archiver, Standalone Archiver)
+  passed its first design-guide audit.
+- Docs: Persona Design Guide advanced with a Concept Index and governance metadata for
+  tracking accepted deviations, and documented that downstream projects fetch it and the
+  Persona Curator content as breaking-change anchors.
+- Build: Added automated checks that flag imperative-voice philosophy principles and an
+  oversized newest changelog entry.
+
 ## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 
 **Ledger agents now route code observations through `ledger_add_observation` instead of writing

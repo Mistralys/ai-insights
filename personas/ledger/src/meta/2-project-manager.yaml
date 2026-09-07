@@ -7,6 +7,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.9.0 (2026-08-28): New workflow step 2 verifies research-brief.md exists before dispatching any sub-agent, with a Missing Research Brief report block naming the gitignore as the usual cause and the Planner as the only remedy; research brief added to Inputs and the file layout; sub-agent context list corrected to the paths actually passed
   3.8.0 (2026-08-04): Removed Spec File Verification protocol and AC fidelity check; WP specs now live exclusively in the ledger, no work/ directory
   3.7.7 (2026-07-24): Replace ledger_help with ledger_ping in mcp_tools for MCP server reachability preflight
   3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner

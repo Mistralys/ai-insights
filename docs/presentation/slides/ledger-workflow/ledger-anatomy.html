@@ -1,0 +1,60 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>What Is Actually In It</h2>
+  <p class="lead">Plain JSON files on disk, outside the repository and without additional dependencies.</p>
+  <div class="card-stack" style="--stack-width: 840px; --stack-size: 0.64em; --stack-gap: 0.4em;">
+    <div class="glass-card">
+      <strong>The ledger index</strong><br>
+      <span class="muted">Project status, the plan it was built from, every work package and its
+      state, project-level comments.</span>
+    </div>
+    <div class="glass-card">
+      <strong>Individual work packages</strong><br>
+      <span class="muted">Detailed description, status, dependencies on other work packages,
+      acceptance criteria and more.</span>
+    </div>
+    <div class="glass-card">
+      <strong>Progress tracking</strong><br>
+      <span class="muted">Pipelines with stage type, PASS or FAIL, timestamps and duration, 
+        artifacts touched and the agent's work summary.</span>
+    </div>
+    <div class="glass-card">
+      <strong>Observations &amp; insights</strong><br>
+      <span class="muted">Anything an agent noticed during its work. Possible improvements, 
+        technical debt and other insights adjacent to the work being done.
+      </span>
+    </div>
+    <div class="glass-card">
+      <strong>The synthesis</strong><br>
+      <span class="muted">The post-work summary of the project, written once the last stage
+        completes.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    I keep calling the ledger a notebook, so let me show you what is actually in it, because the
+    plainness of it is the point.
+
+    It is a directory per project, sitting outside the repository. An index tracking the project as a
+    whole, one entry per work package, the progress record of every pipeline stage, the observation
+    channel, and at the end the synthesis.
+
+    Two of these are worth pausing on. Acceptance criteria are not prose — each one carries a met
+    flag, which turns "is this done?" from a judgement call into a lookup, and makes it the contract
+    between the Developer and QA. And every stage records the agent's own summary of what it did, in
+    its own words. When QA fails a package, the reason is written down, addressed to whoever picks it
+    up next.
+
+    The observations line is the one people underestimate. Those are things an agent noticed while
+    doing something else — technical debt, a fragile pattern, an improvement worth making later. None
+    of it was asked for. It accumulates because each specialist looks at the work through a different
+    lens, and it becomes the raw material for the knowledge store two slides from now.
+
+    Then the deliberately plain part: it is JSON on disk. I can open it in an editor. I can grep it.
+    Git can diff it. I can sync the whole store between machines with any file-sync tool. There is no
+    server to run, no schema migration to fear, no vendor holding the data.
+
+    That plainness is not laziness. It is the reason the same ledger can be driven from VS Code or
+    headless from the command line without either side knowing the other exists. Both just read and
+    write files.
+  </aside>
+</section>

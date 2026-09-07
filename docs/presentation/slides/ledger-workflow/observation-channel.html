@@ -1,0 +1,48 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>The Observation Channel</h2>
+  <p class="lead slim">Ledger personas make observations on task or task-adjacent matters.</p>
+  <div class="card-stack" style="--stack-size: 0.7em;">
+    <div class="glass-card">
+      <strong class="accent">Things you would notice</strong>
+      <span class="muted">&mdash; a fragile pattern, a missing test, technical debt, possible improvements and refactorings.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">Captured as it happens</strong>
+      <span class="muted">&mdash; appended the moment it's noticed without acting on it, so it does not disrupt the model's workflow.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent">All stages contribute</strong>
+      <span class="muted">&mdash; each of the personas record their observations: Developer, QA, Security Auditor, Reviewer and more.</span>
+    </div>
+  </div>
+  <p style="font-size: 0.76em; margin-top: 1.2em;">
+    <span class="accent-blue">The ledger records it all.</span><br>
+    This allows consistently leaving the code in a better state than you found it.<br>
+  </p>
+  <aside class="notes">
+    I called this the observation channel twice already without showing it, so here it is.
+
+    Every agent in the pipeline has one job description and a much wider field of view. The Developer
+    is implementing a work package, but while doing that it notices a fragile helper three files over,
+    or a naming inconsistency that has nothing to do with today's task. QA is verifying acceptance
+    criteria, but it also notices a test gap nobody asked it to close. None of that belongs in the
+    current work package — fixing it would blur the boundary between what was scoped and what wasn't
+    — but none of it should be lost either.
+
+    So it gets written down instead, appended to the project's own log the moment it's noticed. Not
+    batched at the end of the session, not reconstructed from memory during the wrap-up — captured at
+    the actual moment of contact with the code, because that is the only moment the observation is
+    cheap and complete. Wait until later and you get a plausible-sounding summary instead of what was
+    actually seen.
+
+    Each specialist writes in its own vocabulary — a code smell, a piece of technical debt, an
+    accessibility gap, a security concern — but the shape is the same everywhere: what was noticed,
+    where, and how urgent it is.
+
+    None of this is the verdict. It's raw material. What happens to it next is the knowledge slide you
+    already saw: Synthesis reads the accumulated log at the end of the project and distills it into
+    the knowledge store, so the next project — potentially in a different repository — starts a
+    little smarter than this one did.
+  </aside>
+</section>

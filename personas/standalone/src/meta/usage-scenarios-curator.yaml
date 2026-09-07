@@ -5,6 +5,7 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.2.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.2.0 (2026-08-20): Added Change Management for evolving GUI features: feature changes are scenario
     changes first and the plan references scenarios by [SCnn] ID; materially changed approved
     scenarios get a [MODIFIED] tag with both checkboxes unticked (the sole sanctioned untick), and

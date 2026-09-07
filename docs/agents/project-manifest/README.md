@@ -33,12 +33,32 @@ Each sub-project has its own detailed manifest following a consistent structure:
 |----------|---------|
 | [README.md](../../../mcp-server/docs/agents/project-manifest/README.md) | Project overview, MCP server purpose, development commands |
 | [tech-stack.md](../../../mcp-server/docs/agents/project-manifest/tech-stack.md) | TypeScript runtime, Zod, MCP SDK, architectural patterns |
-| [constraints.md](../../../mcp-server/docs/agents/project-manifest/constraints.md) | Atomic writes, file locking, STDIO discipline, schema rules |
+| [constraints.md](../../../mcp-server/docs/agents/project-manifest/constraints.md) | **Core** — atomic writes, file locking, STDIO discipline, schema rules, manifest authoring |
+| [constraints-workflow.md](../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md) | Status transitions, claiming, pipelines, handoffs, workflow gotchas |
+| [constraints-testing.md](../../../mcp-server/docs/agents/project-manifest/constraints-testing.md) | Test isolation, fixtures, helper mandate, mocking policy |
+| [constraints-code-style.md](../../../mcp-server/docs/agents/project-manifest/constraints-code-style.md) | Naming, loops, compiler strictness, JSDoc, Zod schema shape |
+| [constraints-storage.md](../../../mcp-server/docs/agents/project-manifest/constraints-storage.md) | Knowledge store, multi-store architecture, known limitations |
 | [file-tree.md](../../../mcp-server/docs/agents/project-manifest/file-tree.md) | Annotated directory structure for mcp-server/ |
-| [api-surface.md](../../../mcp-server/docs/agents/project-manifest/api-surface.md) | 19 MCP tools, LedgerStore class, utility functions |
+| [api-surface.md](../../../mcp-server/docs/agents/project-manifest/api-surface.md) | MCP tools, LedgerStore class, utility functions |
 | [data-flows.md](../../../mcp-server/docs/agents/project-manifest/data-flows.md) | Initialization, pipeline execution, handoff, detection flows |
 
 **See also:** [Workflow Specification](../../../mcp-server/docs/agents/workflow-specification/README.md) — state machines, routing, handoffs, and edge cases.
+
+### MCP Server GUI
+
+**Location:** [`mcp-server/gui/docs/agents/project-manifest/`](../../../mcp-server/gui/docs/agents/project-manifest/README.md)
+
+The GUI maintains its own manifest for the vanilla-JS frontend and the standalone HTTP server.
+Changes under `mcp-server/gui/` are documented here, not in the MCP server manifest.
+
+| Document | Purpose |
+|----------|---------|
+| [README.md](../../../mcp-server/gui/docs/agents/project-manifest/README.md) | GUI manifest hub |
+| [constraints.md](../../../mcp-server/gui/docs/agents/project-manifest/constraints.md) | No-build-step rule, ES5 frontend, routing, security headers, route table, port convention |
+| [api-surface.md](../../../mcp-server/gui/docs/agents/project-manifest/api-surface.md) | REST routes and handler signatures |
+| [data-flows.md](../../../mcp-server/gui/docs/agents/project-manifest/data-flows.md) | Request dispatch, polling, rendering flows |
+| [ui-components.md](../../../mcp-server/gui/docs/agents/project-manifest/ui-components.md) | View and widget inventory |
+| [file-tree.md](../../../mcp-server/gui/docs/agents/project-manifest/file-tree.md) | Annotated directory structure for gui/ |
 
 ### Personas
 
@@ -61,6 +81,8 @@ Each sub-project has its own detailed manifest following a consistent structure:
 | Document | Purpose |
 |----------|---------|
 | [README.md](../../../orchestrator/docs/agents/project-manifest/README.md) | Orchestrator manifest hub — links to topic-specific docs |
+| [constraints.md](../../../orchestrator/docs/agents/project-manifest/constraints.md) | Prompt architecture, supervisor routing, LangGraph specifics, storage paths |
+| [decisions.md](../../../orchestrator/docs/agents/project-manifest/decisions.md) | Rejected alternatives and IDE/orchestrator divergences |
 | [architecture.md](../../../orchestrator/docs/architecture.md) | Stage nodes, MCP tool wrapping, workflow state management |
 | [supervisor-routing.md](../../../orchestrator/docs/supervisor-routing.md) | Deterministic supervisor dispatch model |
 | [public-api.md](../../../orchestrator/docs/public-api.md) | CLI, graph construction, supervisor, and utility entry points |

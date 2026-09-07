@@ -1,0 +1,48 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>The Orchestrator</h2>
+  <p class="lead">One command runs the whole chain with the ledger at the helm.</p>
+  <div class="card-stack" style="--stack-width: 840px; --stack-size: 0.67em; --stack-gap: 0.45em;">
+    <div class="glass-card">
+      <strong class="accent">A supervisor graph dispatches, not a model.</strong><br>
+      <span class="muted">The graph asks the ledger who is next and invokes exactly that agent. The most reliable routing end to end.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-blue">Each stage is sandboxed.</strong><br>
+      <span class="muted">The project path is injected, work outside the claimed package is refused,
+      and calls after a stage closes are blocked. Checkpoints allow rollbacks and resuming.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-green">Dialogues are captured.</strong><br>
+      <span class="muted">All model dialogues are logged and can be viewed in the GUI for each work
+        package and stage, during and after the run.</span>
+    </div>
+    <div class="glass-card">
+      <strong class="accent-red">No multi-repo support.</strong><br>
+      <span class="muted">Unless specifically setting up the project's folder structure for multi-repo support.</span>
+    </div>
+  </div>
+  <aside class="notes">
+    This is the one I reach for when the work qualifies, and the first card is why.
+
+    In the IDE, I am the one who reads the handoff and invokes the next agent. Here a LangGraph
+    supervisor does it: it queries the ledger for the next action and invokes exactly the agent the
+    ledger named. There is no point in the loop where a model gets to have an opinion about the
+    route. That is the difference from Claude Code on the next slide, stated as concretely as I can.
+
+    Because nobody is watching, each stage runs with its tools wrapped. The project path is injected
+    so an agent cannot address the wrong project. Attempts to touch a work package it has not claimed
+    are refused. Once a stage has closed its pipeline, further calls are blocked. Guardrails that are
+    a nicety with a human present are load-bearing without one.
+
+    Failure handling is built for unattended running too. If a stage throws, the pipeline it opened is
+    auto-cancelled rather than left orphaned for me to clean up. Checkpointing means a run can resume
+    from the last good state instead of starting over. And every tool call is written to a structured
+    log, which is what makes a run reviewable after the fact — the GUI you saw reads it.
+
+    The last card is the important one, because this is secondary rather than primary for a reason.
+    The plan has to be settled — the orchestrator will not stop to ask what I meant. And the project
+    has to verify itself: build, tests, linting, all runnable without a human. Where that holds, this
+    is the driver I would pick. Where it does not, the IDE is the honest choice.
+  </aside>
+</section>

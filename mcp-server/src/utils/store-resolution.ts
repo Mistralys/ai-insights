@@ -4,7 +4,8 @@ import { inferProjectRootFromPlanPath, deriveRepoName } from './ledger-root.js';
 /**
  * Extracts the ledger root string from an unknown parameter value.
  * Guards against the MCP SDK injecting a RequestHandlerExtra object as the
- * second positional argument to handler functions (see constraint 58).
+ * second positional argument to handler functions — see "MCP SDK Injects
+ * RequestHandlerExtra" in docs/agents/project-manifest/constraints-code-style.md.
  *
  * @param val - The raw value passed as `_ledgerRoot` by the MCP SDK or a test
  * @returns The string value if `val` is a string, otherwise `undefined`

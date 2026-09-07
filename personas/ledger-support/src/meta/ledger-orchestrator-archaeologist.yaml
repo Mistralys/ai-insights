@@ -5,6 +5,7 @@ vs_file_name: ledger-orchestrator-archaeologist.agent.md
 id: standalone-ledger-orchestrator-archaeologist
 cc_file_name: ledger-orchestrator-archaeologist.md
 changelog: |
+  1.0.2 (2026-08-26): Rewrote trailing imperative sentences in two philosophy principles into indicative mood
   1.0.1 (2026-07-23): Domain knowledge audit fixes — remove non-existent `halt` action, add `halted_wp_cancelled`; fix `route` field description to distinguish WP-routing vs early-routing fields; fix `metadata.checkpoint_ns` → `metadata.langgraph_checkpoint_ns`; fix `lc_versions` key casing (`langchain-core` → `langchain_core`)
   1.0.0 (2026-07-23): Initial release — forensic analysis of orchestrator logs and dialogue chunks
 

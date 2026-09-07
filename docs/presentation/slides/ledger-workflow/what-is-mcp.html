@@ -1,0 +1,70 @@
+<section>
+  <p class="section-label">Interconnecting multiple agents</p>
+  <h2>Reach For The MCP Stars<sup style="font-size: 50%">*</sup></h2>
+  <p class="lead">
+    The ledger uses the <strong class="accent">Model Context Protocol</strong> to bring everything together.
+  </p>
+  <div class="card-stack" style="--stack-width: 820px; --stack-size: 0.7em; --stack-gap: 0.65em;">
+    <div class="glass" style="padding: 0.65em 1em;">
+      <span class="accent-blue card-eyebrow">Connecting systems</span><br>
+      <strong>Fully technology independent.</strong> One standard to connect your models to apps and systems regardless of their underlying technology.
+    </div>
+    <div class="glass" style="padding: 0.65em 1em;">
+      <span class="accent card-eyebrow">Plug &amp; Play</span><br>
+      <strong>Add capabilities and knowledge.</strong>
+      <span class="muted">Connected MCP servers can add a host of capabilities and access to vast knowledge stores.</span>
+    </div>
+    <div class="glass" style="padding: 0.65em 1em;">
+      <span class="accent-green card-eyebrow">Removing boundaries</span><br>
+      <strong>For models &amp; people.</strong>
+      <span class="muted">Models can work more efficiently, and you gain a new way to use your tools through them (Jira &amp; Confluence, for example).</span>
+    </div>
+  </div>
+  <p style="font-size: 0.75em; margin-top: 1.4em;">
+    Did you know?
+    <button type="button" class="info-link" data-info="info-human-mcp"
+            data-info-title="A human as an MCP server">A human can be an MCP server.</button>
+  </p>
+  <template id="info-human-mcp">
+    <p>
+      Picture an MCP server that exposes a single tool: <code>ask_expert</code>.
+    </p>
+    <ol>
+      <li>The agent hits a question it cannot answer from the codebase and calls <code>ask_expert</code>.</li>
+      <li>The server forwards the query as a message to your phone.</li>
+      <li>You read it and reply.</li>
+      <li>Your answer comes back as the tool's result.</li>
+    </ol>
+    <p>
+      From the model's point of view, nothing unusual happened — it called a tool and got a
+      result. The tool just happened to be <strong>you</strong>.
+    </p>
+  </template>
+  <p class="sidenote" style="margin-top: 1.2em;">
+    <sup>*</sup>Literally. NASA and other space agencies use models and MCP extensively for image analysis and processing.
+  </p>
+  <aside class="notes">
+    This slide is about what MCP means, not how it works. Two ways to tell it, one for each half
+    of the room.
+
+    For the developers: do the maths on the old way. Five AI products, five internal systems —
+    that's twenty-five separate integrations to write and maintain. With MCP it's five servers,
+    and every agent you add later gets all of them for free. Our ledger is nothing special here;
+    it just sits on that network next to Jira and Confluence.
+
+    Worth stressing the middle card, because people hear "tools" and stop there. A server can
+    just as easily hand over knowledge: a glossary of your domain terms, a product catalogue,
+    the history of what the team already tried. The model was trained on the general world —
+    the server is how it learns about yours. Our ledger is exactly that kind of server: it gives
+    the agents the project's memory, not a new ability.
+
+    For the stakeholders: the last card and the closing line are the real point. This is as much
+    about control as it is about capability. The model can be as clever as it likes — it can still
+    only do the things we handed it, and each of those checks its input. New abilities come from
+    plugging in more servers; the control stays in one place. That's what makes it safe to point
+    at real project data.
+
+    And the quiet punchline for both: it's an open standard, so none of this is locked to one
+    vendor or one editor. The tools will change; the work you put in here survives that.
+  </aside>
+</section>

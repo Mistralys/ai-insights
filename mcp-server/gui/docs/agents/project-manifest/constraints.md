@@ -1,5 +1,52 @@
 # Constraints & Conventions — MCP Server GUI
 
+> **Scope:** Every convention governing the GUI — the vanilla-JS frontend and the standalone HTTP
+> server that serves it, including its REST handler modules (`gui/api*.ts`) and route table.
+>
+> **Companion documents (MCP server core):**
+> [Core](../../../../docs/agents/project-manifest/constraints.md) ·
+> [Workflow](../../../../docs/agents/project-manifest/constraints-workflow.md) ·
+> [Testing](../../../../docs/agents/project-manifest/constraints-testing.md) ·
+> [Code Style](../../../../docs/agents/project-manifest/constraints-code-style.md) ·
+> [Storage & Knowledge](../../../../docs/agents/project-manifest/constraints-storage.md)
+>
+> Entries here are numbered for historical continuity, but cite them by heading — the core
+> manifest dropped numbering after repeated collisions.
+
+## Contents
+
+**Frontend**
+
+- [1. No Build Step](#1-no-build-step)
+- [2. ES5-Compatible JavaScript](#2-es5-compatible-javascript-frontend)
+- [3. Global Namespace Pattern](#3-global-namespace-pattern)
+- [4. Hash-Based Routing Convention](#4-hash-based-routing-convention)
+- [5. View Module Naming](#5-view-module-naming)
+- [6. CSS Theming System](#6-css-theming-system)
+- [12. Error Handling Convention](#12-error-handling-convention-frontend)
+- [13. HTML Generation Convention](#13-html-generation-convention)
+- [14. Version Busting Convention](#14-version-busting-convention)
+- [18. CSS Class Derivation From API Values](#18-css-class-derivation-from-api-values-is-only-safe-for-zod-enum-validated-fields)
+- [19. JSDoc Closure-Dependency Documentation](#19-jsdoc-closure-dependency-documentation-for-gui-helpers)
+- [20. API Client `@throws` JSDoc](#20-api-client-methods-that-reject-on-server-error-must-carry-throws-jsdoc)
+
+**Backend**
+
+- [7. Security Constraints](#7-security-constraints-backend)
+- [8. STDIO Discipline](#8-stdio-discipline)
+- [9. Route Dispatch Ordering and Sub-Builder Composition](#9-route-dispatch-ordering-and-sub-builder-composition)
+- [10. Deprecated Route Convention](#10-deprecated-route-convention)
+- [11. Polling Convention](#11-polling-convention)
+- [15. Dual-Format Endpoint Pattern](#15-dual-format-endpoint-pattern-formatstructured)
+- [16. Hot-Reload After Store Config Writes](#16-hot-reload-after-store-config-writes)
+- [21. Handler Domain Split — One File per API Domain](#21-handler-domain-split--one-file-per-api-domain)
+- [22. Path-Traversal Guards Must Come First](#22-path-traversal-guards-must-come-first)
+- [23. GUI Port Convention](#23-gui-port-convention--live-3420-vs-dev-3460)
+
+**Reference**
+
+- [24. Known Limitations](#24-known-limitations)
+
 ---
 
 ## 1. No Build Step
@@ -162,7 +209,7 @@ All responses include:
 
 ## 9. Route Dispatch Ordering and Sub-Builder Composition
 
-Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to six non-exported domain sub-builders (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread. When adding a route, add it to the appropriate sub-builder. The table is organized into three sections:
+Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to non-exported domain sub-builders — `buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildProjectRoutes` — composed via spread. When adding a route, add it to the appropriate sub-builder; the spread ordering in `buildRoutes()` must not be changed, since it is what preserves the section ordering below. Each sub-builder receives only the closure variables its handlers require. The table is organized into three sections:
 
 - **Section A** — Body-parsing routes (`PUT`, `PATCH`, `POST`). These routes use `readJsonBody()` and have no `noBody` flag.
 - **Section B** — Keyword-specific body-free routes (`noBody: true`). Both active namespaced (`/:repo/:slug/keyword`) and deprecated flat (`/:slug/keyword`) variants live here. **Section B MUST precede Section C** — this is a load-bearing ordering constraint, not cosmetic. A Section C catch-all regex would shadow keyword-specific routes if declared first.
@@ -264,7 +311,177 @@ Every write handler in `api-stores.ts` (`handleAddStore`, `handleImportStore`, `
 
 ---
 
-## 17. Known Limitations
+## 18. CSS Class Derivation From API Values Is Only Safe for Zod-Enum-Validated Fields
+
+CSS class derivation from raw API values is only safe when the field is a Zod-enum-validated type. For non-enum fields, apply `escapeHtml()` or a whitelist map.
+
+**Rationale:** The pattern `(field).toLowerCase().replace(/ /g, '_')` generates a CSS class string from a server-supplied value. If the field is a closed Zod enum, the server guarantees the value is one of a finite safe set — class injection is not possible. If the field is a free-form string (`z.string()`), a tampered ledger JSON (or a future schema relaxation) could insert arbitrary characters into a `class=""` attribute, enabling CSS injection or layout-breaking attacks.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — open string field; output is injected into class="" without escaping
+var cls = (someOpenStringField || '').toLowerCase().replace(/ /g, '_');
+el.innerHTML = '<span class="badge ' + cls + '">…</span>';
+```
+
+**Correct patterns:**
+```javascript
+// ✅ OPTION A — field is a closed Zod enum (safe by schema contract)
+// p.status is WorkPackageStatus — a Zod enum with a fixed value set
+var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
+
+// ✅ OPTION B — whitelist map (safe for any field type)
+var STATUS_CLASS = { READY: 'ready', IN_PROGRESS: 'in_progress', COMPLETE: 'complete', BLOCKED: 'blocked', CANCELLED: 'cancelled' };
+var cls = STATUS_CLASS[p.status] || 'unknown';
+
+// ✅ OPTION C — escapeHtml() before insertion (safe for any field type)
+var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
+```
+
+**Scope:** Applies to all client-side JavaScript in `gui/public/`. When adding new attribute values derived from API data, determine whether the field is enum-backed before using the raw-derivation pattern.
+
+---
+
+## 19. JSDoc Closure-Dependency Documentation for GUI Helpers
+
+Every closure-scoped helper function in `gui/public/views/*.js` that reads or mutates variables from its enclosing scope MUST include a `Closure dependencies (from <parent>() scope):` JSDoc block listing each closed-over variable with a one-line description of whether it is read-only or mutated by this helper.
+
+**Example:**
+```javascript
+/** Injects action buttons into the rendered table.
+ *
+ *  Closure dependencies (from renderOrchestrator() scope):
+ *    `expandedIds`   — mutated; toggle clicks update row expansion state.
+ *    `refreshQueue`  — read-only; called after Kill/Dismiss actions. */
+function _bindQueueActions(container, entries) { /* ... */ }
+```
+
+**Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function.
+
+**Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
+---
+
+## 20. API Client Methods That Reject on Server Error Must Carry `@throws` JSDoc
+
+Any method in `gui/public/api-client.js` that can reject its returned Promise with a structured server error object MUST include a `@throws` JSDoc tag documenting the shape of that error:
+
+```javascript
+/**
+ * @throws {{ code: string, message: string }} On non-ok response from the server.
+ */
+```
+
+**Scope:** Applies to all methods in the Model Registry group (`getModels`, `saveModels`, `loadDefaultModels`), the Persona group (`getAssignments`, `updateAssignments`, `replaceAssignedModel`, `rebuildPersonas`, `getPersonas`), and any future API method that may reject with a structured error. Methods that never reject with a structured error object (e.g. methods that return `null` on 404) are exempt.
+
+**Rationale:** `api-client.js` has no TypeScript types. Without `@throws` JSDoc, callers have no machine-readable signal that error objects carry `code` and `message` properties — critical for correct `catch` block handling. The tag is the only inline contract available in a plain-JS, no-build-step environment.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — caller has no documented error shape
+getModels: async function () { /* ... */ },
+```
+
+**Correct pattern:**
+```javascript
+// ✅ CORRECT — error shape is documented for callers and tooling
+/**
+ * @throws {{ code: string, message: string }}
+ */
+getModels: async function () { /* ... */ },
+```
+
+---
+
+## 21. Handler Domain Split — One File per API Domain
+
+Each API domain owns a dedicated handler module imported by `server.ts`. No handler code for these domains may be added to or remain in `gui/api.ts`.
+
+| Module | Owns |
+|--------|------|
+| `gui/api-knowledge.ts` | `/api/knowledge*` handlers, `KnowledgeUpdateBodySchema`, `KnowledgeMoveBodySchema`, `KnowledgeListParams`, `parseKnowledgeId` |
+| `gui/api-repos.ts` | `/api/repos*` handlers, `RepoCreateBodySchema`, `RepoUpdateBodySchema`, `RepoListItem`, `assertNoFolderNameConflicts` |
+| `gui/api-stores.ts` | `/api/stores/*` handlers, their Zod body schemas, `StoreListItem` |
+| `gui/api-models.ts` | Model registry and persona-assignment handlers |
+
+**Rationale:** `gui/api.ts` had grown into a maintenance liability. Extracting each domain into its own module isolates ownership and prevents drift back into `api.ts`. Each extracted module re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
+
+**Implication for `gui/server.ts`:** Import domain handlers from their own module — never from `./api.js`. All routes are registered in the unified `buildRoutes()` table and dispatched by `dispatchRoute()`.
+
+**Domain-specific notes:**
+
+- **`POST /api/repos` returns 201, not 200.** This is intentional — correct REST practice for resource creation. All other mutation routes return 200. The 201 is set via the `statusCode: 201` field on the route entry and must not be changed.
+- **`RepoCreateBodySchema` and `RepoUpdateBodySchema` are `@internal`.** They are exported so tests can construct validated shapes without duplicating schema logic. They are not a stable public API — keep them marked `@internal` when editing `api-repos.ts`.
+- **Store route ordering:** literal-path routes (`/api/stores/import`, `/api/stores/order`, `/api/stores/conflicts`) MUST be registered before parameterized `:storeId` routes (`/api/stores/:storeId`, `/api/stores/:storeId/default`) to prevent shadowing.
+- **`handleGetStoresEnriched` replaces `handleGetStores`.** `handleGetStoresEnriched(ledgerRoot)` returns `StoreListItem[]` enriched with `is_default`, `is_git`, and optional `ahead`/`behind` fields. Do not re-add a bare `handleGetStores` to `api.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — domain handler in api.ts, or re-exported via api.ts
+export async function handleListRepos(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — handler in the dedicated module
+// gui/api-repos.ts
+export async function handleListRepos(...) { /* ... */ }
+
+// gui/server.ts
+import { handleListRepos } from './api-repos.js';
+```
+
+---
+
+## 22. Path-Traversal Guards Must Come First
+
+Every GUI API handler that accepts a path segment parameter must call its corresponding guard as the **first** statement (slug) or **second** statement (wpId), before any other processing.
+
+| Guard | Parameter | Placement |
+|-------|-----------|-----------|
+| `assertSafeSlug(slug)` | project slug or repo name | 1st statement |
+| `assertSafeWpId(wpId)` | work-package ID | 2nd statement (after `assertSafeSlug`) |
+
+**Rejection criteria (both guards):** throws `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty (`''`), contains a forward slash (`/`), or contains a double dot (`..`).
+
+**Rationale:** Returning `NOT_FOUND` rather than `FORBIDDEN` on traversal attempts is intentional — it avoids leaking structural information about the server's file system, and is consistent with the standard "project not found" response.
+
+**Implementation:** Both guards are module-private (not exported). They must not be bypassed or called after other parameter-dependent operations. `assertSafeSlug` in `gui/api.ts` delegates to `assertSafeSegment()` from `src/utils/path-validator.ts`; the copy in `gui/server.ts` still performs an inline `SAFE_SLUG_REGEX.test()` — see the core manifest's [Known Limitations](../../../../docs/agents/project-manifest/constraints-storage.md#known-limitations).
+
+**Acceptance-criteria wording:** see [Path-Traversal Acceptance Criteria Use 404 Wording](../../../../docs/agents/project-manifest/constraints-testing.md#path-traversal-acceptance-criteria-use-404-wording).
+
+---
+
+## 23. GUI Port Convention — LIVE (3420) vs. DEV (3460)
+
+The GUI server uses **port 3420** as its default. This port is reserved for the **LIVE workspace** — the installed production copy of the MCP server that agents use during active ledger workflows. When running the GUI from the **DEV workspace** (this repository, a feature branch, or any development build), always pass `--port 3460`:
+
+```bash
+# ✅ CORRECT — DEV workspace / feature branch
+node scripts/run-gui.js -- --port 3460
+
+# ✅ CORRECT — LIVE workspace (default; no flag needed)
+node scripts/run-gui.js
+```
+
+**Rationale:** The LIVE and DEV workspaces can run simultaneously on the same machine. Without distinct ports, a DEV GUI process silently shadows the LIVE instance (or vice versa), causing agents mid-workflow to read stale or incorrect ledger data from the wrong server.
+
+**Anti-pattern:**
+```bash
+# ❌ WRONG — launching a DEV GUI on the default port while LIVE is running
+node scripts/run-gui.js   # collides with the LIVE instance on port 3420
+```
+
+**Port registry:**
+
+| Port | Workspace | When to Use |
+|------|-----------|-------------|
+| 3420 | LIVE (production install) | Default; leave unset for the installed, workflow-active build |
+| 3460 | DEV / feature branch | Always pass `--port 3460` when running from this repository |
+
+---
+
+## 24. Known Limitations
 
 | Limitation | Impact |
 |------------|--------|
@@ -275,3 +492,4 @@ Every write handler in `api-stores.ts` (`handleAddStore`, `handleImportStore`, `
 | CORS locked to localhost | Cannot access from remote machines without modification. |
 | Queue file locking gap | TypeScript uses atomic rename; Python uses `.run-queue.lock`. Concurrent writes could race (low risk). |
 | No authentication | Local development tool; assumes trusted network. |
+| Markdown rendered without HTML sanitization | All markdown rendering (`work-package.js`, `project-detail-dialogues.js`, plan/synthesis views) passes content through `marked.parse()` without DOMPurify or equivalent. Acceptable because all rendered content is server-authored by MCP tools from agent pipelines. If the system ever accepts markdown from untrusted sources (user-submitted descriptions, external imports), a sanitization step must be added before rendering. |

@@ -10,9 +10,9 @@ Produce a precise, human-editable set of user usage scenarios from a scoped plan
 
 - **Scenarios Are the Source of Truth:** Feature changes are scenario changes first; the plan references scenarios by `[SCnn]` ID rather than restating them.
 - **User Intent Before Components:** Model what an actor is trying to accomplish, not the internal component hierarchy.
-- **Observable Evidence:** Accept coverage only when the plan or implementation provides an observable response, state, or artifact for the stated step.
-- **Human Editing Is a Feature:** Keep generated scenarios clear, stable, and easy for a human to refine before verification.
-- **Deterministic Classification:** Apply the same evidence and verdict rules to every scenario so repeated verification is comparable.
+- **Observable Evidence:** Coverage is real only where the plan or implementation provides an observable response, state, or artifact for the stated step. Anything less is an assumption wearing a verdict.
+- **Human Editing Is a Feature:** Generated scenarios exist to be refined by a human before verification, which makes clarity and stability part of their function rather than polish.
+- **Deterministic Classification:** The same evidence and verdict rules across every scenario are what make repeated verification comparable.
 - **Coverage Without Ownership Creep:** Surface gaps for the plan owner or implementer; do not repair their documents or code.
 
 ## Operating Modes

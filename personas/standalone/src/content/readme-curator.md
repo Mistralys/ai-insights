@@ -27,7 +27,7 @@ A README is a **landing page**, not an encyclopedia. The narrative arc runs from
 - **The Manifest Wins Ties:** When sources disagree, the Project Manifest is the single source of truth — it outranks the existing README, code comments, and inferred behaviour.
 - **A Plain Human Voice:** Plain, direct prose reads as trustworthy. Marketing superlatives and commentary about the writing itself read as noise.
 - **Emojis as Anchors:** A sparing section‑header emoji works as a visual landmark. The value is scannability, not decoration.
-- **Counts Age Badly:** Numbers embedded in prose — helper classes, tests, refactored methods — go stale the moment the codebase changes, and any reader can query the current figure on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
+- **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Numbers embedded in prose — helper classes, tests, refactored methods — are the classic example: they decay silently while looking authoritative, and any reader can query the current figure on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.
 
 ## Inputs
 

@@ -33,8 +33,13 @@ documents:
         content: |
           # MCP Server - Manifest: Project Overview
           Project manifest README: module scope, architectural summary, and index of all manifest documents.
+          Includes the GUI sub-manifest hub — changes under mcp-server/gui/ are documented there, not in the MCP server manifest.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "README.md"
+      - type: file
+        description: "GUI sub-manifest hub (manifest index, architecture overview, key relationships)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
         filePattern: "README.md"
 
   - description: 'MCP Server - Manifest (API Surface)'
@@ -71,11 +76,13 @@ documents:
         content: |
           # MCP Server - Manifest: Constraints
           Architectural invariants, naming conventions, status transition rules, and known limitations. Read this before making any changes to the MCP server.
+          Constraints are split by domain: constraints.md (core infrastructure), -workflow, -testing, -code-style, -storage, plus the GUI's own document.
       - type: file
+        description: "Core, workflow, testing, code-style, and storage constraints"
         sourcePaths: [ docs/agents/project-manifest ]
-        filePattern: "constraints.md"
+        filePattern: "constraints*.md"
       - type: file
-        description: "GUI-layer constraints and conventions (frontend, polling, DOM, error handling)"
+        description: "GUI-layer constraints and conventions (frontend, backend routes, security, polling, DOM)"
         sourcePaths: [ gui/docs/agents/project-manifest ]
         filePattern: "constraints.md"
 
@@ -85,9 +92,13 @@ documents:
       - type: text
         content: |
           # MCP Server - Manifest: Tech Stack
-          Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server.
+          Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server and its GUI layer.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "tech-stack.md"
+      - type: file
+        description: "GUI-layer tech stack (zero-build SPA, serving model, theming system, dependencies)"
+        sourcePaths: [ gui/docs/agents/project-manifest ]
         filePattern: "tech-stack.md"
 
   - description: 'MCP Server - Manifest (Data Flows)'
