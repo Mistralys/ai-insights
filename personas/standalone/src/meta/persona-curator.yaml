@@ -13,6 +13,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.16.0 (2026-09-08): Added Reduce mode — an audit's unit is the single statement and its remedy is almost
+    always an addition, so repeated auditing grew personas past the point their owners could review them while
+    reporting no defect; the mode judges what each statement buys, cuts modes before features and features
+    before rules, and puts the scope decisions to the user. Guide v3.5 carries the domain-neutral procedure
   1.15.0 (2026-08-27): Added a Prose Density Pass alongside the Philosophy Tone Pass - overloaded explanatory prose costs an instruction its trigger as well as its readability, and like imperative mood it survives an unaided review, so it now has its own numbered step in all three modes and a Minor-or-Major audit criterion; guide v3.4 carries the domain-neutral rules
   1.14.0 (2026-08-27): Rendered output is now verified rather than assumed - guide v3.3 requires reading the assembled persona end to end after every build, since partials and variables keep duplication, wrong substitutions and tone breaks out of the source diff; Create and Maintain gained a build-and-read step, Audit evaluates rendered coherence, and a clean build no longer counts as verification
   1.13.0 (2026-08-26): Constraints are now grouped under Core Rules - the guide pairs that heading with categorized rule groups, so the twelve flat bullets became six named groups (authority, scope, source integrity, published artifacts, documented deviations, bookkeeping); the rename was cleared with the user first, since the heading sits in a published artifact
@@ -48,3 +52,4 @@ modes: |
   Create
   Audit
   Maintain
+  Reduce
