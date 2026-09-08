@@ -3,7 +3,8 @@
   "ledger": {
     "1-planner": "Paired audit with standalone twin; v3.3/v3.4 delta pass applied — rendered read caught a missing Outputs entry",
     "3-developer": "Paired audit with standalone twin — 11 findings, all resolved",
-    "6-reviewer": "Tone fix only"
+    "5-security-auditor": "First audit — 17 findings resolved, 1 withdrawn; Medium severity now blocks, and the audit runs area-by-area with capture interleaved",
+    "6-reviewer": "First full audit — 17 findings, all resolved; gained Strict Constraints, Outputs, Capabilities, and Rework Handling"
   },
   "standalone": {
     "ctx-architect": "Principle renamed to canonical \"Every Artefact Earns Its Place\" (C5c)",
