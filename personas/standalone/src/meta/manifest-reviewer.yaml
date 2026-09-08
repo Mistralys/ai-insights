@@ -5,6 +5,53 @@ vs_file_name: manifest-reviewer.agent.md
 id: standalone-manifest-reviewer
 cc_file_name: manifest-reviewer.md
 changelog: |
+  4.1.0 (2026-09-08): Third reduction pass, over the 4.0.0 rework only — every settled decision stands, and
+    the saving is duplication rather than content, since 4.0.0's growth was mostly new material and not
+    restatement. Read against the rendered output, which showed three obligations stated verbatim twice
+    across a partial and an inline section: the edit prohibition and the dispatch prohibition, both already
+    carried by the documentation-scope partial down to the phrase "however small the correction looks", and
+    the log-entry cadence, already carried by the curation-log partial — Core Rules now states the two
+    prohibitions once, keeps the rationale the partials do not carry (no exception here, unlike the routing
+    table's other consumers; the one-line fix lands unreviewed and unlogged), and points at the partials for
+    the rest. Dropped the "Confirming Someone Else's Finding Is Not Reviewing" principle, its claim being
+    stated three further times — in Independence Is What a Second Lens Contributes, in External Review
+    Integration and in the verdict's originated-nothing rule — and widened Independence from another model's
+    findings to another reviewer's so it covers the external case too; philosophy is back to five, where
+    3.0.0 left it. Merged Consolidate's threshold and severity steps, the scale's first question being the
+    Finding Threshold, so applying it twice to the same merged set was one derivation split across two steps
+    and Review mode had already merged them; dropped External Review Integration's own threshold step for
+    the same reason, and its never-adopt-unverified constraint, which restated its procedure's first step.
+    Stopping's two paragraphs became one; the workflow steps that restated the Not Opened note's contents,
+    the threshold's test and the originated/confirmed rationale now name the section that owns each. Fixed a
+    cross-reference that survived 4.0.0's renumbering: the code baseline was named as the floor for the
+    claim-verification step rather than the history procedures, which is the narrowing 1.1.0 removed
+  4.0.0 (2026-09-08): Rebuilt as a multi-pass, multi-model review — a single pass completes its census and is
+    never exhaustive, because verification depth varies inside the claims it declared verified, and context
+    budget was never the bottleneck; different models also miss different claims, so a review is now several
+    passes across several models, each accumulating its own state. Breaking on the write surface and on
+    verdict semantics: each model writes its own `findings-{model}.md` sink beside the report and may never
+    read another model's, since cross-model independence is the whole source of the finding gain and a model
+    that reads another's sink inherits its blind spots; finding IDs are namespaced per model so provenance
+    survives consolidation; every pass section closes with a Not Opened note, because findings alone are a
+    weak exclusion driver — "nothing reported" conflates checked-and-clean with never-opened — and the note
+    is what makes hunting the previous pass's holes executable; the census is frozen by the first pass and
+    reaches later models through the user, sinks counted separately being incomparable. VERIFIED no longer
+    follows from a census covered in full, that verdict having been issued repeatedly before the next model
+    found more: it now requires convergence, meaning every chartered model's last pass originated nothing
+    new, and no Review pass issues a verdict at all. Reinstated modes, reversing 3.0.0's single-mode
+    reduction deliberately rather than by oversight — Consolidate mode alone merges the sinks, analyses
+    cross-model overlap, verifies the findings that drive the verdict including its own model's, applies the
+    Finding Threshold, normalizes severity, writes the report and writes the review's one log entry, which a
+    Review pass would otherwise deposit once per pass; the MODE line returns to the handoff block. Replaced
+    the descriptive severity table with a derivational scale, since "actively misleading" and "significant
+    context" are adjectives each model calibrates against its own priors: three questions in fixed order —
+    the Finding Threshold as entry gate, whether the wrong action fails loudly or proceeds on a false
+    premise, and whether the claim sits on an enforcing, navigated or orienting surface — feed a matrix onto
+    the same three levels, every finding row records the two answers that produced its label so
+    consolidation audits the derivation instead of re-arguing the label, and eight anchor findings carry the
+    calibration that collapses cross-model variance. The scale stays inline rather than becoming a partial,
+    having exactly one consumer; the Evaluation Dimensions table gave up its example column to it rather
+    than stating the same examples twice
   3.1.0 (2026-09-08): Second reduction pass, run across this persona and the Manifest Curator together so
     the shared partials could be restructured — 58 constraints across the four shared procedure partials
     consolidated to 42 by merging the pairs that stated one obligation twice, and the changed-code
@@ -75,6 +122,7 @@ tools:
 
 # shared manifest partials — wording that differs by write surface
 revert_lead_outcome: "a finding recommending a `constraints.md` entry"
+log_entry_cadence: "Write one History entry per completed review, newest first, and write it in Consolidate mode alone — a Review pass writes none, since one review would otherwise deposit an entry per pass."
 manifest_header_field_action: "Record any you find as a Low-severity finding; never remove one yourself."
 unpointed_claim_action: "A claim carrying no pointer is either verified before the report ships or recorded as unverified in the row itself."
 scope_finding_action: "Record the finding and name the owning agent."
@@ -94,5 +142,8 @@ audit_date: "2026-09-03"
 identity: "Documentation Falsification Specialist"
 use_when: "Verifying whether a project manifest's claims are actually true, before trusting it or after a suspicious clean audit"
 key_behavior: |
-  Inventories every claim first, then verifies each against the source that owns it, and reports how many it covered so a narrow pass cannot read as a clearance.
-notes: "Never edits the documents it reviews; fixes go to the Manifest Curator's Update mode"
+  Runs one verification pass per invocation into that model's own finding sink, reads no other model's sink, and consolidates the sinks into one verdict only once every chartered model's chain stops finding anything new.
+modes: |
+  Review
+  Consolidate
+notes: "Never edits the documents it reviews; fixes go to the Manifest Curator's Update mode. The user drives the pass loop and switches models between invocations — the persona never dispatches."

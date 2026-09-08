@@ -5,6 +5,11 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  2.6.1 (2026-09-08): Inherited the curation-log partial's split of entry cadence from entry format, made when
+    the Manifest Reviewer became multi-pass and stopped writing an entry per pass — the cadence rule is now a
+    per-persona value, and this persona's own cadence is unchanged at one entry per Create or Update pass; the
+    partial's prose no longer asserts one entry per pass in general, and the review-entry paragraph names the
+    mode that writes it
   2.6.0 (2026-09-08): Reduction pass — the Self-Validation Checklist dropped from 32 items to 9, since all
     but those nine restated a Core Rule, a shared-partial constraint or a workflow step, and a checklist
     that long is read as a formality rather than worked through; philosophy from 10 principles to 7,
@@ -87,6 +92,7 @@ subagents:
 
 # shared manifest partials — wording that differs by write surface
 revert_lead_outcome: "a `constraints.md` entry"
+log_entry_cadence: "Write one History entry per completed pass, newest first, in every mode."
 manifest_header_field_action: "Remove any you find, never add one, and mention the removal in the pass summary."
 unpointed_claim_action: "A claim carrying no pointer is verified before handoff or marked `<!-- TODO: verify -->`; it is never left standing on the strength of already being written down."
 scope_finding_action: "Everything else in scope is acted on per *Routing*."
