@@ -5,6 +5,15 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.3.0 (2026-09-08): The shared ownership table gained a size triage, so a document belonging to another agent
+    is now corrected here when the fix is small and dispatched to its owner when it is not; the dispatch
+    mechanics block moved into that partial, the delegation table narrowed to the three recurring briefs, and
+    the Update summary gained a Documents Routed block. The triage itself is stated only in the partial — this
+    persona references it rather than restating it. Audit mode is exempt and says so: it writes nothing and
+    dispatches nobody
+  1.2.0 (2026-09-03): Scope boundaries replaced with the shared documentation ownership table, which names concepts
+    documents and glossaries as this persona's own territory and gives changelogs and diagrams an explicit owner \u2014
+    previously all three fell outside every routing table, so a wrong one had nowhere to go
   1.1.1 (2026-08-26): Renamed "Counts Age Badly" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
   1.1.0 (2026-08-26): Design Guide v2.8 audit fixes — reframed Operating Philosophy as positive values and de-imperativised the Mission, Modes, Inputs, Outputs and all three workflows; extracted a shared Documentation Research operational protocol so every mode gathers and verifies facts into a brief before writing, and reordered Create mode to verify before writing; added a Session Conditionals checkpoint rehearsing the three delegation conditions every session; replaced the Delegation rules with a Sub-Agent Delegation section carrying a scope boundary table, per-agent inputs, expected outputs and a mandatory review step; added Update-mode change summary template and restated the no-counts rule inside the template slots; added a self-validation Quality Checklist, a no-stale-counts constraint, and audit-mode and approval rails; hoisted the Output Template above Core Rules; specified input formats; removed redundant separators
   1.0.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
@@ -19,6 +28,17 @@ tools:
   - web
   - agent
   - todo
+
+# Owning agents named in the documentation-ownership routing table, dispatched for
+# changes the triage classifies as large. Claude Code inherits `Task` from
+# _shared.default_cc_tools; the deep-agents target takes its tools from the
+# orchestrator's built-in suite, not from this file.
+subagents:
+  - agents-md-curator
+  - readme-curator
+  - manifest-curator
+  - changelog-curator
+  - ctx-architect
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
