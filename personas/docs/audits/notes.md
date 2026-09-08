@@ -10,6 +10,140 @@
 
 ---
 
+### Ledger Security Auditor — First Audit (2026-09-02)
+
+Eighteen findings raised, seventeen resolved and one withdrawn under challenge, two Critical and
+nine Major. The second ledger pipeline persona audited in a day, and the first with **no Rules &
+Constraints section at all** — which turned out to explain most of the rest of the report.
+
+**A persona with no constraints section has nowhere to put a constraint, so its constraints go
+wherever they fit.** The two that existed had drifted into a protocol step (Verbatim AC Text, as
+step 7 of a review methodology) and into a conditional appended after the Insight Observer, which
+rendered as an orphaned `*` bullet under no parent list. Neither placement is visible as wrong in
+the source: the protocol step reads like a step, and the conditional reads like every other
+`{{#if has_incident_logging}}` block in the suite. The consequence was the guide's
+*all-imperative monotone* pitfall arriving by omission rather than by tone — the document had no
+register shift left to make, because nothing in it was marked as a boundary. **Where a persona
+lacks a constraints section, the finding is not "add the section" but "find where its constraints
+went"** — they are always somewhere, and each location is its own defect.
+
+**A tool granted in metadata and ungoverned in content is a live scope risk, not a documentation
+gap.** The persona held `edit` in its `tools:` list with no Capabilities entry mentioning writes
+and no constraint forbidding them. An auditor that can edit is one plausible-looking step from
+remediating what it finds, which bypasses the QA gate the Developer's pipeline sits behind. This
+is the Pipeline Configurator's grant/duty mismatch in its third variant: there the content
+demanded more than Capabilities granted, here the metadata granted more than any section
+governed. **The check is bidirectional — read `tools:` against Capabilities in both directions,
+and treat an unexplained grant as seriously as a missing one.** The fix was to drop `edit` rather
+than to govern it, since the audit writes nothing.
+
+**Note the `permissionMode: acceptEdits` residue.** The Claude Code target still declares it,
+inherited from `_shared.yaml`, for a persona that is now explicitly read-only. It is harmless —
+there are no edits to accept — but it is only visible in the rendered frontmatter, and a
+suite-wide default cannot express a per-persona exception. Flagged, not fixed: changing it needs
+a `cc_permission_mode` override mechanism that does not exist yet.
+
+**Severity vocabularies fork silently when the same word appears in two channels.** Medium was
+verdict-affecting in the Insight Observer's boundary sentence and explicitly non-blocking in both
+the severity table and Decision Logic — three statements, two answers, all written to look
+authoritative. `improvement` was worse: it named an observation type *and* a pipeline-comment
+type, with different meanings. The fix was to make severity the single discriminator (severity
+decides verdict *and* channel, stated once in one table) and to rename the colliding observation
+type to `posture`. **Where a persona routes findings through two channels, check that the routing
+rule is stated once — a rule stated in three places is a rule with three versions.**
+
+The user resolved both open questions toward the stricter reading: Medium now blocks, and the
+audit runs area-by-area with capture interleaved. The second decision is what turned the
+fourteen audit areas into a real Pattern 15 loop — previously the ten OWASP categories were
+sub-bullets of protocol step 2 while capture was step 4, so the numbering instructed the agent to
+sweep everything and then capture, while step 2's inline prose said "before starting the next".
+**Two contradictory gates in one protocol resolve to the weaker one**, because the numbering is
+what the agent follows.
+
+Two smaller items generalise. The persona declared `ledger_search_insights` with the purpose
+"before starting verification" and never called it from any step — a duty with a stated timing
+and no step to fire it. And the agent-name-in-prose hazard recurred for the fifth time: I wrote
+`{{agent_6_reviewer}}` into a Scope Boundaries sentence and a constraint, which would have
+rendered as "they belong to the 6 - Reviewer v3.11.0". Caught before the build this time, by
+grepping my own edit for the variable pattern rather than by reading the output. **That grep is
+cheap enough to run on every persona edit**, and it is the closest thing to the build-time check
+proposed three entries above.
+
+### A Withdrawn Finding: the Nothing-Found Rule Is Already the Liveness Marker (2026-09-02)
+
+One finding from the audit above did not survive the user's challenge, and the correction is worth
+more than the finding was.
+
+I raised a Minor finding claiming that QA, the Reviewer, and the Security Auditor lost their
+liveness signal when the `insights.jsonl` sink was replaced by `ledger_add_observation` in 3.9.0 —
+that "ran and found nothing" had become indistinguishable from "never ran". The fix I applied was
+a clause in the Security Auditor's `summary` slot requiring the agent to state whether capture had
+run. The user pushed back on the premise: the ledger already records which stages ran, and this is
+mostly a standalone-agent concern.
+
+**They were right, and for a stronger reason than the one they gave.** Pipeline `status` and
+`completed_at` only prove the *foreground* task ran, which was never in question. What makes a
+dedicated liveness marker unnecessary is the **nothing-found rule** all five of these personas
+already carry — four state it inline, and the Developer inherits it from
+`insight-reporting-rules.md` rule 4 ("Never leave it empty"). An agent that engaged with the duty
+and found nothing still writes one observation saying so.
+
+**But that observation is not a liveness marker, and conflating the two is what made my first
+draft of the fix confusing.** A `session-start` marker asserts nothing about the work — it is pure
+bookkeeping. "The audited scope holds no hardening opportunities" is a *finding*: it tells the next
+cycle something the code alone does not. The two mechanisms happen to share a side effect (both
+distinguish an absent duty from a clean result) and are otherwise unrelated. **A finding that
+doubles as evidence of its own duty does not need a bookkeeping entry beside it, but it must not be
+described as one either** — the moment it reads as bookkeeping, an agent has a reason to treat it
+as skippable overhead.
+
+**The sink needed a `session-start` marker because a file has an empty state; a ledger pipeline
+does not.** An empty `insights.jsonl` and a missing one were both "no data", so the marker had to
+be manufactured. `ledger_add_observation` writes into an array that only ever grows, and the
+nothing-found observation *is* the positive artifact. The 3.9.0 migration did not lose the liveness
+signal — it made the separate marker redundant. **The generalising lesson: a liveness mechanism
+designed for one storage medium does not automatically transfer, and its absence in the new medium
+is not automatically a defect. Ask what the two indistinguishable states actually are before
+concluding one exists.**
+
+My fix was also the weaker mechanism replacing the stronger one. A `summary` clause is a
+self-reported claim, and an agent that forgot to capture will write "observations recorded" with
+the same confidence as one that did. Reverted.
+
+**The real gap was one level up, in Synthesis, and it is the classic self-absorbing forcing
+function.** The data distinguishes the two states; the *report* collapsed them. Synthesis's Output
+Format said "omit this section if no observations were recorded", so zero observations rendered
+identically to a clean project — the section simply vanished and nobody learned that five pipelines
+had skipped their duty. The standalone suite had solved this properly in
+`insight-compilation.md`, whose three-state table reports "capture never ran" explicitly and
+forbids back-filling; the ledger path had no equivalent because Synthesis stopped including that
+partial in 3.11.0. **When a mechanism moves from a partial to a native implementation, the
+partial's forcing functions do not move with it** — worth checking the abandoned partial for
+guarantees the replacement dropped.
+
+Synthesis 3.12.0 now carries an Observation Capture Coverage section: the five pipelines that
+carry the duty, a two-state table, and four constraints. Two states rather than the standalone
+version's three, since no marker is needed. QA, the Reviewer, and the Developer needed no changes
+at all — the finding never applied to them.
+
+**The user caught a second overclaim in my own fix, of exactly the kind I had just withdrawn.**
+The first draft's table said an empty pipeline meant "the nothing-found rule never fired, so
+capture was skipped". It does not: the rule is itself a forcing function, and forcing functions
+fail too. The agent may have captured faithfully and omitted the closing clean-scope observation.
+Both leave the same hole, and the ledger cannot tell them apart. The prescribed *action* was
+unaffected — report the absence either way — so only the claim needed narrowing, and a fourth
+constraint now forbids attributing a cause at all. **The lesson is narrow and repeatable: a
+mechanism's output tells you the mechanism's state, never why it is in that state. Two failure
+modes upstream of one empty slot are indistinguishable downstream of it**, and a report that names
+one of them sends the reader to investigate a stage that may have worked. That is the same defect
+as the WP Decomposer's misdiagnosing error message, recorded on 2026-08-28 — third appearance of
+the "error message names the wrong cause" class.
+
+Also fixed in the same pass: the section implied every WP carries all five pipelines. The Pipeline
+Configurator narrows stage chains per WP, so most carry fewer, and a pipeline that never ran is
+not a gap. **A coverage table listing what *can* exist reads as a checklist of what *must*
+exist unless it says otherwise.**
+
 ### Ledger Standalone Archiver — First Audit (2026-08-28)
 
 Sixteen findings, eight Major, none Critical. The fifth support persona audited in a day, and the

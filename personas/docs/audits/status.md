@@ -17,14 +17,7 @@ Recent guide updates that personas should be checked against:
 
 | Guide Version | Key Changes |
 |---|---|
-| v3.4 | Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the concept index for easier document navigation. |
-| v3.3 | Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall. |
-| v3.2 | Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step. |
-| v3.1 | Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener. |
-| v3.0 | Separated polarity from mood in Operating Philosophy — positive framing no longer implies imperative phrasing; replaced the v2.3 "Prefer X over Y" templates with indicative ones; added the "You should" test with a rewrite table; added the verb-initial title rule; added two checklist items and the "Positively framed commands in philosophy" pitfall. |
-| v2.9 | Added Governance Metadata section documenting `audit_guide_version`, `audit_date` and the new `design_notes` field; documented deviations are now accepted exceptions rather than repeat audit findings; added related checklist item. |
-| v3.5 | Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet. |
-| v3.4 | Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. |
+| v3.4 | Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet. |
 | v3.3 | Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall. |
 | v3.2 | Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step. |
 | v3.1 | Added "Recurring Principles Across a Persona Suite" — name forking vs. name collision, the general-claim-over-symptom rule, and when a shared bullet warrants a partial (whole sections only); the vocabulary itself stays project-local. Clarified that the mood rule applies to every sentence of a principle body, not just its opener. |
@@ -61,14 +54,14 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 | # | Persona | Version | Last Updated | Guide | Audited | Tier | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 1 | Release Engineer | v3.7.4 | 2026-08-04 | v2.4 | — | B (12p/7c) | — |  |
-| 2 | Synthesis | v3.11.0 | 2026-08-24 | v2.8 | — | B (9p/4c) | — |  |
-| 3 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 4 | Security Auditor | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
-| 5 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
-| 6 | Reviewer | v3.10.2 | 2026-08-26 | v3.2 | — | B (13p/5c) | — | Tone fix only |
-| 7 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
-| 8 | Project Manager | v3.9.0 | 2026-08-28 | v3.4 | — | B (10p/6c) | — |  |
-| 9 | Planner | v2.6.0 | 2026-08-31 | v3.4 | v3.4 | B (10p/1c) | PASS | Paired audit with standalone twin; v3.3/v3.4 delta pass applied — rendered read caught a missing Outputs entry |
+| 2 | QA | v3.9.1 | 2026-08-25 | v2.8 | — | B (13p/5c) | — |  |
+| 3 | Documentation | v3.10.1 | 2026-08-25 | v2.8 | — | B (13p/6c) | — |  |
+| 4 | Developer | v3.16.0 | 2026-08-27 | v3.4 | v3.3 | B (20p/4c) | PASS (v3.3) | Paired audit with standalone twin — 11 findings, all resolved |
+| 5 | Project Manager | v3.9.0 | 2026-08-28 | v3.4 | — | B (10p/6c) | — |  |
+| 6 | Planner | v2.6.0 | 2026-08-31 | v3.4 | v3.4 | B (10p/1c) | PASS | Paired audit with standalone twin; v3.3/v3.4 delta pass applied — rendered read caught a missing Outputs entry |
+| 7 | Security Auditor | v3.10.0 | 2026-09-02 | v3.4 | v3.4 | B (13p/5c) | PASS | First audit — 17 findings resolved, 1 withdrawn; Medium severity now blocks, and the audit runs area-by-area with capture interleaved |
+| 8 | Reviewer | v3.11.0 | 2026-09-02 | v3.4 | v3.5 | B (13p/5c) | PASS (v3.5) | First full audit — 17 findings, all resolved; gained Strict Constraints, Outputs, Capabilities, and Rework Handling |
+| 9 | Synthesis | v3.12.0 | 2026-09-02 | v3.4 | — | B (9p/4c) | — |  |
 
 ### Standalone Suite (24 personas)
 
@@ -97,7 +90,7 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 | 21 | Workspace Architect | v1.2.0 | 2026-08-27 | v3.4 | v3.3 | B (0p/2c) | PASS (v3.3) | 7 findings, all resolved — 2 were rendered-output defects invisible in source |
 | 22 | Planner (Standalone) | v2.3.0 | 2026-08-31 | v3.4 | v3.4 | B (6p/0c) | PASS | Paired audit with ledger twin; v3.3/v3.4 delta pass applied |
 | 23 | AGENTS.md Curator | v1.6.1 | 2026-09-02 | v3.4 | v3.4 | A | PASS |  |
-| 24 | Manifest Curator | v1.4.1 | 2026-09-02 | v3.4 | v3.4 | B (0p/1c) | PASS |  |
+| 24 | Manifest Curator | v1.6.0 | 2026-09-02 | v3.4 | v3.4 | B (0p/1c) | PASS |  |
 
 ### Ledger Support Suite (11 personas)
 
@@ -119,14 +112,14 @@ Sorted oldest-first within each suite so the most outdated personas are at the t
 
 | Suite | Total | Current | Stale | Unaudited | Remaining |
 |---|---|---|---|---|---|
-| Ledger | 9 | 1 | 1 | 7 | 8 |
+| Ledger | 9 | 2 | 2 | 5 | 7 |
 | Standalone | 24 | 4 | 19 | 1 | 20 |
 | Ledger Support | 11 | 6 | 0 | 5 | 5 |
-| **Total** | **44** | **11** | **20** | **13** | **33** |
+| **Total** | **44** | **12** | **21** | **11** | **32** |
 
 **Stale** personas hold a real PASS at an older guide version — their remaining work
 depends on tier. **Unaudited** personas have never been through a Quality Checklist at
 any version, and that is where the substantive backlog sits.
 
-Of the 20 stale, 13 are Tier B (composed — need a rendered read) and
+Of the 21 stale, 14 are Tier B (composed — need a rendered read) and
 7 are Tier A (no composition — eligible for roll-forward on the guide's own terms).
