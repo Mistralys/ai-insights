@@ -11,14 +11,15 @@
 
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.4
-**Last Updated:** 2026-09-01
+**Version:** 3.5
+**Last Updated:** 2026-09-08
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.5 - 2026-09-08: Added "The Reduction Pass" — an audit's unit is the individual statement and its remedy is almost always an addition, so auditing is monotonic and cannot find bloat, which is a property of the set rather than of any member; the pass asks what each statement buys given a competent reader, cuts multipliers before content, and treats the enforcement triple as a budget. Added the related checklist item and pitfall.
 - v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet.
 - v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
 - v3.2 - 2026-08-26: Added "Metadata Without a Build System" — separates build-input metadata from governance metadata, and makes both optional for personas authored directly as system prompts (Gemini Gems, Claude Projects, custom GPTs); the Governance Metadata section no longer presupposes a metadata file or a build step.
@@ -72,6 +73,7 @@ Read the gloss column when you arrive with the wrong word. Someone asking "how l
 | **Prose Density** | Overloaded explanatory prose, and the pass that removes it. | [Prose Density](#prose-density) |
 | **Pseudo Action Gate** | A duty gated on an agent-judged boundary instead of something observable. | [Pattern 15](#pattern-15-trigger-anchoring) |
 | **Recommended Section Order** | The fourteen-section skeleton and the reasoning behind its order. | [Persona Anatomy](#recommended-section-order) |
+| **Reduction Pass** | The counter-audit: what each statement buys, and what an agent needs no telling. | [The Reduction Pass](#the-reduction-pass) |
 | **Reference-Heavy Roles** | Embedding domain reference material inside the persona. | [Pattern 8](#pattern-8-reference-heavy-roles) |
 | **Rework Handling** | Narrow re-entry for work bounced back by a downstream agent. | [Pattern 7](#pattern-7-rework-handling) |
 | **Salience Beats Volume** | Activation, not word count, sets a persona's practical limit. | [Core Philosophy §6](#core-philosophy) |
@@ -939,6 +941,7 @@ Before shipping a new persona, verify:
 - [ ] **Tone is stratified: descriptive prose for content sections, imperative commands for constraints only.** Mission, Philosophy, Inputs, Workflow, and Operational Protocol use explanatory language. Only Rules & Constraints use imperative voice ("Do not", "Never", "Must"). If the whole persona reads like a list of commands, the constraints section loses its signal. See Core Philosophy §7.
 - [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
+- [ ] **Every rule carrying the full enforcement triple needed it.** Prose plus an action gate plus a checkpoint is three statements for one obligation — correct for the few rules the persona actually fails on, and salience spent for nothing everywhere else. (See The Reduction Pass.)
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too flat — the finding names the block to extract into a sub-section or an Operational Protocol. (See The 60-Second Rule.)
 - [ ] **The rendered output has been read end to end,** where a build system assembles the persona. Partials and variables hide duplication, wrong substitutions, and tone breaks that only the assembled document shows. (See Verifying Rendered Output.)
 - [ ] **Deliberate guide deviations are recorded in `design_notes`,** where the persona carries metadata. Any rule the persona knowingly breaks has an entry naming the rule and the constraint forcing the deviation. (See Governance Metadata.)
@@ -1195,6 +1198,50 @@ Only the second one surfaces while the agent is choosing which file to open. Thi
 
 ---
 
+## The Reduction Pass
+
+An audit asks whether each statement in a persona is correct, compliant, and anchored. Its unit is the individual statement, and the remedy for nearly every finding it produces is an addition — a rule, a checklist item, a workflow step. That makes auditing monotonic: each pass can only grow the persona. A persona audited three times in succession is larger each time, and every statement in it is individually defensible.
+
+Bloat is not a property of any statement. It is a property of the set, and an audit examines members rather than the set, so no number of audits finds it. What finds it is a separate operation asking the opposite question — not "is this correct?" but "what does this buy, given the reader is a competent agent?" A finding is a statement whose removal would not change what the agent does, and the remedy is deletion or merging.
+
+| | Audit | Reduction Pass |
+|---|---|---|
+| **Question** | Is each statement true, compliant, anchored? | What does each statement buy? |
+| **Unit** | The statement | The statement's marginal effect on behaviour |
+| **Finding** | A statement that is wrong, missing, or unanchored | A statement whose removal changes nothing |
+| **Remedy** | Add or correct | Delete or merge |
+| **Bias** | Grows the persona | Shrinks it |
+
+This is not the [60-Second Rule](#the-60-second-rule) under another name. That rule diagnoses flatness and its remedy is extraction — the content stays and moves somewhere the reader meets it later. A reduction pass judges whether the content earns a place anywhere in the persona. Extraction answers "the reader meets too much at once"; reduction answers "the reader does not need this at all". A persona can pass the 60-Second Rule and still be twice the size it needs.
+
+**Five forms recur:**
+
+| Form | Tell |
+|---|---|
+| **A statement the agent honours untold** | The instruction describes ordinary competence or restates a capability the deployment already governs. |
+| **Elaboration of a rule already stated** | A table of worked examples all carrying one idea, where the idea is one sentence. |
+| **One rule stated on four surfaces** | The same obligation appears as prose, a constraint, a checklist item, and a workflow step. |
+| **Machinery around one capability** | A single feature reaches every section of the persona — its own reference block, a step in each mode, checklist items, constraints, an output-template variant. |
+| **A mode that earns less than it multiplies** | Each mode costs every later feature another statement, so a thinly-used mode inflates everything added after it. |
+
+**Cut multipliers before content.** Modes multiply: a persona with three of them states each new rule three times, and removing one removes weight from every future addition as well as the current document. Features come next, then rules, and only then wording. A pass that starts at the sentence level removes the least and takes the longest.
+
+**Rules:**
+
+- **The counterfactual-competence test decides.** Would a capable agent, not given this instruction, do the wrong thing? Where the answer is no, the instruction goes. What survives is what the agent could not have known: the domain's arbitrary conventions, the boundaries between this persona and its neighbours, and the failure modes specific to this work.
+- **The enforcement triple is a budget, not a template.** [Trigger Anchoring](#pattern-15-trigger-anchoring) states a rule in prose, gates it on an action, and slots it into a checkpoint — three statements for one obligation. That expenditure is correct for the two or three rules a persona genuinely fails on. Spent by default it produces a document whose every rule shouts, which is [Salience Beats Volume](#core-philosophy) inverted.
+- **A reduction finding names what the persona would stop doing.** "This could be shorter" is not actionable. The finding states which instruction goes and what behaviour is being entrusted to the agent's own competence instead.
+- **The author is the wrong reducer.** An author holds the rationale for every line, and holding the rationale is what makes each line look necessary. The pass asks what a reader lacking that rationale needs, which an author cannot simulate. Reduction runs on fresh context.
+- **Scope decisions belong to the persona's owner.** Whether a mode or a capability survives is not a design question the pass can settle on its own, and those decisions move more weight than every wording cut combined. The pass surfaces them and waits.
+- **Reduction never removes a convention.** An arbitrary rule of the domain — a required document structure, a naming scheme, a handoff format — is unknowable from first principles however obvious it looks to whoever wrote it. Length is never a reason to drop one.
+- **Restore narrowly.** Some of what a pass removes was added to fix an observed failure, and reduction bets the agent generalises from the compressed statement instead. Where a specific failure returns, its own scaffolding comes back — not the apparatus it arrived with.
+
+**What triggers a pass:** the persona's owner can no longer hold it in mind; several consecutive versions added and removed nothing; a workflow outgrew its step count again; a single new capability required edits in four or more places. None of these is a defect any audit reports, and the first is the one that matters.
+
+A reduction pass is also worth re-running as models improve. The line between what an agent must be told and what it can be trusted to do moves, and every instruction on the wrong side of it is spending salience that the rules which still matter need.
+
+---
+
 ## Verifying Rendered Output
 
 A persona assembled by a build system is never read as a whole while it is being written. The source is a set of fragments — a content file, shared partials pulled in by reference, variables resolved from metadata, sections gated behind feature flags — and each fragment reads as coherent in isolation. The assembled document is the only artifact the agent ever sees, and it is the first place where the persona can be judged as a single document rather than as a set of parts. Reviewing the source verifies the parts; only reading the rendered output verifies the persona.
@@ -1305,3 +1352,4 @@ design_notes: |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
 | **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
 | **Overloaded prose** | Sections read as authoritative but a maintainer cannot scan them, and abstractly-phrased duties never fire because no sentence names anything the agent is about to do | Run a dedicated density pass after drafting: one idea per sentence, a named actor in the subject slot, no back-references, plain words over register words (see Prose Density) |
+| **Audit-driven accretion** | Every rule is individually defensible, no audit reports a defect, and the owner can no longer review the persona. Successive versions added and removed nothing | Run a reduction pass, which asks what each statement buys rather than whether it is correct. Cut modes before features, features before rules, rules before wording (see The Reduction Pass) |
