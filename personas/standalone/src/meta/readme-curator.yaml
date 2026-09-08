@@ -5,6 +5,14 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.6.0 (2026-09-08): Added the An Adjective Is a Claim principle
+    and a wording-verification step, and made The Manifest Wins Ties fire on the existing README's own claims —
+    both close gaps where invented wording or stale claims survived a rewrite by looking like existing content.
+    Displaced content is now placed, not just named: a size triage decides between a direct edit and dispatching
+    the owning agent, with its own workflow step so stripped material never ends the session unplaced. Reduction
+    pass: cut three Guiding Principles (Link Over Inline, A Plain Human Voice, Emojis as Anchors) that duplicated
+    an existing Strict Constraint or the Output Template note with no added "why", and merged the Terminal Access
+    and Whole-File Rewrite capability bullets, which described the same rm+create_file mechanic twice
   1.5.1 (2026-08-26): Renamed "Counts Age Badly" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
   1.5.0 (2026-08-26): Design Guide v2.8 audit fixes — reframed Operating Philosophy as positive values and de-imperativised the funnel table, Inputs, and Outputs; consolidated the three overlapping grounding constraints and added scope, deletion, link-verification, no-Git-write and no-meta-commentary rails; split the mixed research/production workflow steps and added a consolidated README brief between gathering and writing; added a session-start conditional checkpoint for the Synthesis Report and the rewrite-vs-edit decision; gave link verification its own step; restated the no-counts, no-architecture and copy-paste rules inside the Output Template slots; specified input paths and formats; removed redundant separators
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
@@ -24,8 +32,19 @@ tools:
   - agent
   - todo
 
-audit_guide_version: "3.2"
-audit_date: "2026-08-26"
+# Owning agents named in the documentation-ownership routing table, dispatched for
+# changes the triage classifies as large. Claude Code inherits `Task` from
+# _shared.default_cc_tools; the deep-agents target takes its tools from the
+# orchestrator's built-in suite, not from this file.
+subagents:
+  - agents-md-curator
+  - documentation-curator
+  - manifest-curator
+  - changelog-curator
+  - ctx-architect
+
+audit_guide_version: "3.4"
+audit_date: "2026-09-03"
 
 # overview metadata
 identity: "Developer Experience (DX) Storyteller"
