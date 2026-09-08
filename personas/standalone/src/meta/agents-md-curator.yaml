@@ -5,6 +5,13 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.1.0 (2026-09-08): Findings outside `AGENTS.md` are now acted on rather than only reported — the shared
+    ownership table carries a size triage that corrects small errors in place and dispatches the owning agent
+    for anything larger, without asking the user first. The previous "never edit, never dispatch" pair read as
+    an absolute prohibition to rule-following models, which left a one-word path error standing while the report
+    named an owner nobody invoked. The triage is stated once in the partial and referenced from there; only the
+    two persona-specific exceptions are spelled out here — a manifest gap always dispatches however small it
+    looks, and a project with no manifest at all still goes to the user
   2.0.0 (2026-09-08): Reduction pass, and nested-repository support. The persona had accreted across three
     successive design-guide audits until it took longer to review than the file it maintains, so everything an
     agent does without being told came out: Audit mode is gone and Update now reports what it changed, the five
@@ -36,6 +43,17 @@ tools:
   - web
   - agent
   - todo
+
+# Owning agents named in the documentation-ownership routing table, dispatched for
+# changes the triage classifies as large. Claude Code inherits `Task` from
+# _shared.default_cc_tools; the deep-agents target takes its tools from the
+# orchestrator's built-in suite, not from this file.
+subagents:
+  - manifest-curator
+  - documentation-curator
+  - readme-curator
+  - changelog-curator
+  - ctx-architect
 
 # overview metadata
 identity: "Agent Operations (AgentOps) Architect"
