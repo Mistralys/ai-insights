@@ -19,7 +19,7 @@ An open-source toolkit that brings **structure, persistence, and role separation
 - [Project Overview](references/project-overview) — High-level overview: philosophy, components, and goals
 - [Persona Quickstart Guide](references/persona-quickstart) — How to create your own AI agent persona (for web or IDE)
 - [Orchestrator User Guide](references/orchestrator-user-guide) — End-to-end walkthrough: preparing plans, running workflows, monitoring via the GUI
-- [Agent Persona Overview](references/agents-overview) — All 42 agent personas: roles, modes, inputs, and outputs
+- [Agent Persona Overview](references/agents-overview) — Every agent persona across all three suites: roles, modes, inputs, and outputs
 - [Workflow, Ledger & Orchestrator](references/workflow-and-ledger) — How the agentic workflow operates end-to-end
 - [Multi-Store Guide](references/multi-store-guide) — Multiple ledger directories: setup, CLI reference, and migration
 - [GUI Usage Scenarios](references/usage-scenarios/) — Acceptance-verification scenarios for the MCP Server Dashboard, grouped by GUI area
