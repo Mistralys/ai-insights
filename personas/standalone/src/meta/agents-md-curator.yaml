@@ -5,12 +5,23 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.0.0 (2026-09-08): Reduction pass, and nested-repository support. The persona had accreted across three
+    successive design-guide audits until it took longer to review than the file it maintains, so everything an
+    agent does without being told came out: Audit mode is gone and Update now reports what it changed, the five
+    section descriptions collapse into one table, the four overlapping statements of the write surface into one,
+    and the checklist from seventeen items to six — Create runs eight steps rather than thirteen, Update seven
+    rather than ten. Nested repositories are handled for the first time: a sub-project earns its own file once it
+    has a manifest to route to, each file names those beneath it with the condition for preferring one, and a
+    rule is stated only in the topmost file it applies to. Nesting is unbounded, so a file's parent is the
+    nearest one above it, and each file sources facts from its own manifest with no other standing as a
+    fallback. The boundary check now covers every section, since a fact stated inside a MUST row reads as a rule
+    and is never re-examined as a claim
   1.6.1 (2026-09-02): Audit fixes — merged Manifest First and High Integrity into Truth Upstream, Routing Downstream; added the Findings Travel Further Than Fixes principle shared with the Manifest Curator; tightened the Manifest Boundary opener
   1.6.0 (2026-09-02): Added The Manifest Boundary — the manifest states what is true, AGENTS.md states what to do about it; every codebase fact is now sourced from the manifest or reported as a gap, Project Stats is sourced from tech-stack.md, and all three workflows carry a boundary check
   1.5.1 (2026-08-26): Rewrote a trailing imperative sentence in the Stratified Authority philosophy principle into indicative mood
   1.5.0 (2026-08-26): Routes agents to decision documents that sit outside the manifest, including the dependency decision ledger
   1.4.0 (2026-08-25): Register Map — tone stratification now applies to the generated AGENTS.md
-  1.3.0 (2026-08-25): Tone stratification, dedicated Operating Modes section, audit severity scale
+  1.3.0 (2026-08-25): Tone stratification and a dedicated Operating Modes section
   1.2.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
   1.2.0 (2026-04-30): Comprehensive rewrite to imperative voice
   1.1.0 (2026-03-20): Creates CLAUDE.md companion file alongside AGENTS.md
@@ -28,11 +39,8 @@ tools:
 
 # overview metadata
 identity: "Agent Operations (AgentOps) Architect"
-use_when: "Setting up a new repository for agent workflows, or auditing an existing AGENTS.md for completeness"
+use_when: "Setting up a new repository for agent workflows, or reconciling a stale AGENTS.md against the current codebase"
 modes: |
   Create
   Update
-  Audit
 
-audit_guide_version: "3.4"
-audit_date: "2026-09-02"
