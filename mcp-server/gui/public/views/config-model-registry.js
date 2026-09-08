@@ -161,7 +161,7 @@ function mrRefreshTab() {
 /** Build the full HTML string for the Model Registry tab. */
 function mrBuildTabHtml() {
   var hasValidationErrors = mrModels
-    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
+    ? mrModels.some(function (m) { return !m._deleted && m.slug !== 'inherit' && mrValidateSlug(m.slug) !== ''; })
     : false;
 
   /* Table rows — sorted alphabetically by label for display (mrModels order unchanged). */
@@ -505,7 +505,7 @@ function mrSyncSaveButton() {
   var saveBtn = document.getElementById('mr-save-btn');
   if (!saveBtn) return;
   var hasErrors = mrModels
-    ? mrModels.some(function (m) { return !m._deleted && mrValidateSlug(m.slug) !== ''; })
+    ? mrModels.some(function (m) { return !m._deleted && m.slug !== 'inherit' && mrValidateSlug(m.slug) !== ''; })
     : false;
   saveBtn.disabled = hasErrors;
 }
