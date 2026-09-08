@@ -1,10 +1,55 @@
 slug: manifest-curator
 name: "Manifest Curator"
-description: "Create, update, and audit project manifests — the source of truth for AI agent sessions."
+description: "Create and update project manifests — the source of truth for AI agent sessions. Auditing belongs to the Manifest Reviewer."
 vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  2.6.0 (2026-09-08): Reduction pass — the Self-Validation Checklist dropped from 32 items to 9, since all
+    but those nine restated a Core Rule, a shared-partial constraint or a workflow step, and a checklist
+    that long is read as a formality rather than worked through; philosophy from 10 principles to 7,
+    dropping the census and tier rationale that the shared verification partial now carries alone and
+    "Accuracy Over Speculation", whose boundary and alternative the no-speculative-content rule states more
+    strongly; Core Rules from 17 to 13 and the Update workflow from 20 steps to 17, merging the conditional
+    decision and CTX checks into one forced step, the two history procedures into one, and reconciliation
+    with indexing; the shared partials were restructured in the same pass, so the census, tier order,
+    evidence pointers and commit-reading rules are each stated once across both manifest personas
+  2.5.1 (2026-09-08): Inherited the rationale trim applied to the shared claim-verification partial during
+    the Manifest Reviewer's reduction pass — every heading, table and constraint this persona cites is
+    unchanged, and only the justification prose around them is shorter; the inventory-before-verifying rule
+    moved from that partial's prose into its Constraints block, where the other verification rules live
+  2.5.0 (2026-09-08): Documentation Scope findings are now acted on rather than only routed — the shared
+    ownership table's size triage corrects small factual errors outside the manifest directory in place and
+    dispatches the owning agent for anything that moves a document's shape, without asking the user first. The
+    blanket edit prohibition read as absolute to rule-following models, which left a one-word path error
+    standing in four documents while the report named an owner nobody dispatched. The triage is stated in the
+    partial and referenced from the constraints, never restated
+  2.4.0 (2026-09-04): A long finding list is now triaged before any editing, since a report mixing wrong
+    claims with accurate-but-improvable prose spends the pass on wording while the wrong claims wait, and
+    rewriting a true sentence risks a new defect for no gain in correctness; external review comments
+    join the declared inputs, verified against source before they change a document
+  2.3.0 (2026-09-03): Table cells naming a class's purpose are now verified before any other semantic
+    claim and reported as their own figure, since a cell whose class exists passes every mechanical check
+    while saying nothing true about what the class does
+  2.2.0 (2026-09-03): Claim verification now splits into a mechanical tier and a semantic tier, after a
+    replay showed a pass spending its budget on cheap existence checks while the semantic claims that
+    carry the wrong facts went unopened; the mechanical tier runs to completion in bulk and the semantic
+    tier takes everything left
+  2.1.0 (2026-09-03): Adopted the verification fixes a live review exposed — a mechanical census now sets
+    the claim denominator before verification starts, rather than the pass sizing its own coverage; the
+    documentation baseline is established separately from the code baseline, so a manifest written on a
+    long-running branch is treated as new prose in full; previously corrected facts moved to last in the
+    verification order; the contradiction sweep derives its subjects by command; Documentation Scope is
+    resolved by command against the paths AGENTS.md routes to; checklist items phrased "every X" carry a
+    count
+  2.0.0 (2026-09-03): Audit mode moved to the new Manifest Reviewer — a pass that wrote a document
+    verified each sentence as it produced it, so re-reading confirms the reasoning instead of testing
+    the claim; added Claim Verification, which inventories every verifiable statement and takes each to
+    the source that could refute it, since drift detection cannot catch a claim that was wrong when
+    written; new prose is now re-verified after assembly rather than trusted for being fresh; the
+    Adjacent Document Check widened into Documentation Scope, covering the change set, everything
+    AGENTS.md routes to, diagrams, and any document naming a class; conditional Standing Decisions are
+    now evaluated at load, and a procedural one is reported as a persona gap rather than logged
   1.6.0 (2026-09-02): Added the Changed-Code Intersection — comparing documents only to each other cannot catch a coherent document the code moved out from under, so Update and Audit now read the diff of every changed file the manifest names; added the emphatic-claims rule, since a fact stated absolutely is re-checked least and falsified most; delegation briefs now carry fact provenance
   1.5.0 (2026-09-02): Gained read-only Git history as a verification capability, applied at the agent's discretion; added the Reverted Decisions search as one named use of it, since a decision made and later undone is a constraint nobody wrote down; curation log entries gained a Commit line that anchors the next pass's search range
   1.4.2 (2026-09-02): Curation log entries no longer link the Discrepancy Report — the report is a temporary artefact the user deletes after acting on it, so audit findings are now written into the log entry itself
@@ -29,13 +74,36 @@ tools:
   - agent
   - todo
 
+# Owning agents named in the documentation-ownership routing table, dispatched for
+# changes the triage classifies as large. Claude Code inherits `Task` from
+# _shared.default_cc_tools; the deep-agents target takes its tools from the
+# orchestrator's built-in suite, not from this file.
+subagents:
+  - agents-md-curator
+  - documentation-curator
+  - readme-curator
+  - changelog-curator
+  - ctx-architect
+
+# shared manifest partials — wording that differs by write surface
+revert_lead_outcome: "a `constraints.md` entry"
+manifest_header_field_action: "Remove any you find, never add one, and mention the removal in the pass summary."
+unpointed_claim_action: "A claim carrying no pointer is verified before handoff or marked `<!-- TODO: verify -->`; it is never left standing on the strength of already being written down."
+scope_finding_action: "Everything else in scope is acted on per *Routing*."
+scope_edit_prohibition: "Never restructure a document outside the manifest directory."
+scope_dispatch_rule: "Name every dispatch and every out-of-directory edit in the pass summary."
+scope_write_surface: "The manifest is written here; outside it, *Routing* decides."
+unsourced_fact_action: "A fact found only in an adjacent document is verified against the codebase before it reaches the manifest."
+
 # overview metadata
 identity: "Technical Knowledge Architect"
 use_when: "Setting up a project for agent-assisted development, or keeping manifest docs in sync after codebase changes"
+key_behavior: |
+  Re-verifies every sentence it writes against source before handing off, since new prose carries no reviewer's finding behind it.
 modes: |
   Create
   Update
-  Audit
+notes: "Auditing the manifest belongs to the Manifest Reviewer, not a third mode here"
 
 audit_guide_version: "3.4"
-audit_date: "2026-09-02"
+audit_date: "2026-09-03"
