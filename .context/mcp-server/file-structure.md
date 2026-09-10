@@ -20,6 +20,10 @@ _SOURCE: MCP server source directory tree_
         │   └── project-manifest/
         │       ├── README.md
         │       ├── api-surface.md
+        │       ├── constraints-code-style.md
+        │       ├── constraints-storage.md
+        │       ├── constraints-testing.md
+        │       ├── constraints-workflow.md
         │       ├── constraints.md
         │       ├── data-flows.md
         │       ├── file-tree.md

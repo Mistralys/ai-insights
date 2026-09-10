@@ -20,15 +20,19 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── extract-changelog-entry.js
     └── extract-dialogue.js
     └── generate-agents-overview.js
+    └── generate-persona-audit.js
     └── import-standalone.js
     └── install-hooks.js
     └── install-mcp-global.js
     └── kill-orchestrator.js
     └── lib/
+        ├── cc-tools-validation.js
+        ├── changelog-size-check.js
         ├── health-checks.js
         ├── insight-validation.js
         ├── ledger-dirs.js
         ├── persona-model-resolution.js
+        ├── philosophy-tone.js
         ├── store-commands.js
         ├── yaml-utils.js
     └── migrate-knowledge-uuids.js
@@ -274,6 +278,9 @@ import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
+import { validateCcToolsInDirs } from './lib/cc-tools-validation.js';
+import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
+import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -730,6 +737,80 @@ if (!CHECK) {
       console.error('  ' + err);
     }
     process.exit(1);
+  }
+}
+
+// Always: validate cc_tools / subagents consistency.
+// A persona that lists subagents but lacks Task in its effective Claude Code
+// tool list cannot dispatch them — fail hard so it is caught before release.
+{
+  const suiteMetas = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
+  ];
+
+  const errors = validateCcToolsInDirs(suiteMetas);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] cc_tools / subagents validation failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+
+// Always: warn on imperative phrasing in Operating Philosophy sections.
+// Heuristic (guide v3.0 mood rule) — warns rather than fails, since a
+// legitimate declarative can open with a verb the detector does not know.
+{
+  // Shared partials are included: a philosophy section extracted into a partial
+  // must not fall out of tone coverage.
+  const suiteContents = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'content'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
+    path.join(ROOT, 'personas', 'shared', 'partials'),
+  ];
+
+  const warnings = checkPhilosophyToneInDirs(suiteContents);
+
+  if (warnings.length > 0) {
+    console.warn('\n[WARN] imperative phrasing in Operating Philosophy sections:\n');
+    for (const warning of warnings) {
+      console.warn('  ' + warning);
+    }
+    console.warn(
+      '\n  Philosophy principles are stated in the indicative mood (guide v3.0).\n' +
+      '  Apply the "You should" test: if prepending it reads naturally, rewrite\n' +
+      '  the principle as a claim about the domain.\n',
+    );
+  }
+}
+
+// Always: warn on an oversized newest personas/changelog.md entry.
+// Heuristic (line/bullet/sentence thresholds) — warns rather than fails, since
+// a legitimately large multi-persona release can still be well-summarized.
+{
+  const changelogPath = path.join(ROOT, 'personas', 'changelog.md');
+
+  if (fs.existsSync(changelogPath)) {
+    const text = fs.readFileSync(changelogPath, 'utf8');
+    const warnings = checkChangelogEntrySize(text, 'personas/changelog.md');
+
+    if (warnings.length > 0) {
+      console.warn('\n[WARN] oversized personas/changelog.md entry:\n');
+      for (const warning of warnings) {
+        console.warn('  ' + warning);
+      }
+      console.warn(
+        '\n  personas/changelog.md is summary-only (AGENTS.md Changelog Convention,\n' +
+        '  rule 8): one outcome-oriented line per affected persona/theme, no\n' +
+        '  rationale or mechanism detail. Full detail belongs in that persona\'s\n' +
+        '  own integrated changelog.\n',
+      );
+    }
   }
 }
 ```
@@ -1738,6 +1819,11 @@ function cmdGenerateOverview(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdGeneratePersonaAudit(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-persona-audit.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdCtxGenerate(args) {
   const ctxDir = path.join(WORKSPACE_ROOT, '.context');
   if (fs.existsSync(ctxDir)) {
@@ -2314,6 +2400,14 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Generate docs/references/agents-overview.md from persona YAML metadata',
     run:         cmdGenerateOverview,
+  },
+  {
+    id:          'generate-persona-audit',
+    key:         null,
+    label:       'Generate persona audit',
+    category:    'Validation & Utilities',
+    description: 'Regenerate personas/docs/audits/status.md from persona metadata and source composition',
+    run:         cmdGeneratePersonaAudit,
   },
   {
     id:          'check-versions',
@@ -3034,6 +3128,7 @@ import path from 'path';
 import {
   parseYamlScalars,
   extractYamlBlockScalar,
+  extractYamlText,
   extractYamlSequence,
 } from './lib/yaml-utils.js';
 
@@ -3080,9 +3175,9 @@ function loadPersona(filePath, suite) {
   const fields  = suite === 'ledger' ? LEDGER_SCALARS : STANDALONE_SCALARS;
   const scalars = parseYamlScalars(text, fields);
 
-  const version     = resolveVersionFromChangelog(text);
-  const key_behavior = extractYamlBlockScalar(text, 'key_behavior');
-  const modes        = extractYamlBlockScalar(text, 'modes');
+  const version      = resolveVersionFromChangelog(text);
+  const key_behavior = extractYamlText(text, 'key_behavior');
+  const modes        = extractYamlText(text, 'modes');
   const subagents    = extractYamlSequence(text, 'subagents');
 
   return { ...scalars, version, key_behavior, modes, subagents, suite };
@@ -3259,6 +3354,334 @@ if (isCheck) {
   fs.writeFileSync(OUTPUT_FILE, output, 'utf8');
   const total = ledger.length + standalone.length + support.length;
   console.log(`Generated docs/references/agents-overview.md (${total} personas).`);
+}
+
+```
+###  Path: `/scripts/generate-persona-audit.js`
+
+```js
+#!/usr/bin/env node
+/**
+ * scripts/generate-persona-audit.js
+ *
+ * Generates a persona audit tracking document from persona YAML metadata
+ * across all three suites (ledger, standalone, ledger-support).
+ * Personas are sorted oldest-first within each suite.
+ *
+ * Writes to personas/docs/audits/status.md by default. That file is fully
+ * generated — the hand-written audit narrative lives alongside it in notes.md,
+ * and editorial Notes-column text in annotations.json.
+ *
+ * Usage:
+ *   node scripts/generate-persona-audit.js                — write to the default path
+ *   node scripts/generate-persona-audit.js -o <file>      — write to a different file
+ *   node scripts/generate-persona-audit.js --stdout       — write to stdout
+ *   node scripts/generate-persona-audit.js --guide-version — override guide version label
+ */
+
+import fs   from 'fs';
+import path from 'path';
+import {
+  parseYamlScalars,
+  extractYamlBlockScalar,
+} from './lib/yaml-utils.js';
+
+const ROOT = path.resolve(import.meta.dirname, '..');
+
+const LEDGER_META   = path.join(ROOT, 'personas', 'ledger',         'src', 'meta');
+const STANDALONE_META = path.join(ROOT, 'personas', 'standalone',   'src', 'meta');
+const SUPPORT_META  = path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta');
+
+const GUIDE_FILE  = path.join(ROOT, 'personas', 'docs', 'persona-design-guide.md');
+const AUDITS_DIR  = path.join(ROOT, 'personas', 'docs', 'audits');
+const STATUS_FILE = path.join(AUDITS_DIR, 'status.md');
+const ANNOTATIONS_FILE = path.join(AUDITS_DIR, 'annotations.json');
+
+// ─── CLI args ─────────────────────────────────────────────────────────────────
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let outputFile = null;
+  let guideVersion = null;
+  let toStdout = false;
+
+  for (let i = 0; i < args.length; i++) {
+    if ((args[i] === '-o' || args[i] === '--output') && args[i + 1]) {
+      outputFile = args[++i];
+    } else if (args[i] === '--stdout') {
+      toStdout = true;
+    } else if (args[i] === '--guide-version' && args[i + 1]) {
+      guideVersion = args[++i];
+    }
+  }
+
+  return { outputFile, guideVersion, toStdout };
+}
+
+// ─── Guide version detection ─────────────────────────────────────────────────
+
+function detectGuideVersion() {
+  if (!fs.existsSync(GUIDE_FILE)) return 'unknown';
+  const text = fs.readFileSync(GUIDE_FILE, 'utf8');
+  const m = text.match(/\*\*Version:\*\*\s*(\S+)/);
+  return m ? m[1] : 'unknown';
+}
+
+function detectGuideChangelog() {
+  if (!fs.existsSync(GUIDE_FILE)) return [];
+  const text = fs.readFileSync(GUIDE_FILE, 'utf8');
+  const entries = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^- v([\d.]+)\s*-\s*(\d{4}-\d{2}-\d{2}):\s*(.+)$/);
+    if (m) entries.push({ version: m[1], date: m[2], summary: m[3] });
+  }
+  return entries;
+}
+
+// ─── Annotations sidecar ──────────────────────────────────────────────────────
+
+function loadAnnotations() {
+  if (!fs.existsSync(ANNOTATIONS_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(ANNOTATIONS_FILE, 'utf8'));
+  } catch (err) {
+    console.warn(`Warning: could not parse ${path.relative(ROOT, ANNOTATIONS_FILE)} — ${err.message}`);
+    return {};
+  }
+}
+
+// ─── Composition tier ─────────────────────────────────────────────────────────
+
+/**
+ * Classifies a persona by how much its build assembles.
+ *
+ * Tier A sources carry no partials and no target conditionals, so the rendered
+ * output is the source plus frontmatter — design guide v3.3's rendered-output
+ * requirement has nothing to bite on. Tier B sources compose, and their
+ * assembled document has to be read to be verified.
+ */
+function computeTier(contentFile) {
+  const abs = path.join(ROOT, contentFile);
+  if (!fs.existsSync(abs)) return { tier: '?', partials: 0, conditionals: 0 };
+
+  const text = fs.readFileSync(abs, 'utf8');
+  const partials     = (text.match(/\{\{>\s*[\w-]+\s*\}\}/g)     || []).length;
+  const conditionals = (text.match(/\{\{#(?:if|unless)\s/g)      || []).length;
+
+  return { tier: partials === 0 && conditionals === 0 ? 'A' : 'B', partials, conditionals };
+}
+
+// ─── Persona loading ──────────────────────────────────────────────────────────
+
+function resolveFromChangelog(text) {
+  const content = extractYamlBlockScalar(text, 'changelog');
+  if (!content) return { version: undefined, date: undefined };
+  for (const line of content.split(/\r?\n/)) {
+    const m = line.match(/^(\d+\.\d+\.\d+)\s*\((\d{4}-\d{2}-\d{2})\)\s*:/);
+    if (m) return { version: m[1], date: m[2] };
+  }
+  return { version: undefined, date: undefined };
+}
+
+function loadPersona(filePath, suite) {
+  const text = fs.readFileSync(filePath, 'utf8');
+  const fields = suite === 'ledger'
+    ? ['number', 'role', 'audit_guide_version', 'audit_date']
+    : ['slug', 'name', 'audit_guide_version', 'audit_date'];
+  const scalars = parseYamlScalars(text, fields);
+  const { version, date } = resolveFromChangelog(text);
+  const key = path.basename(filePath, '.yaml');
+  // Content files are named after the YAML stem, not the slug — the two diverge
+  // for personas whose slug is disambiguated across suites (e.g. developer-standalone).
+  const suiteDir = suite === 'support' ? 'ledger-support' : suite;
+  const contentFile = `personas/${suiteDir}/src/content/${key}.md`;
+  const name = scalars.role || scalars.name || key;
+
+  return {
+    name, version, date, contentFile, suite, key,
+    ...computeTier(contentFile),
+    auditGuideVersion: scalars.audit_guide_version || null,
+    auditDate: scalars.audit_date || null,
+  };
+}
+
+function loadSuite(dir, suite) {
+  return fs
+    .readdirSync(dir)
+    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
+    .sort()
+    .map(f => loadPersona(path.join(dir, f), suite));
+}
+
+// ─── Guide version at date ────────────────────────────────────────────────────
+
+/**
+ * Returns the guide version that was current on a given date by finding the
+ * latest changelog entry whose date is <= the persona's last-updated date.
+ */
+function guideVersionAtDate(personaDate, guideChangelog) {
+  if (!personaDate || guideChangelog.length === 0) return '?';
+  // Guide changelog is newest-first; find the first entry whose date <= personaDate
+  for (const entry of guideChangelog) {
+    if (entry.date <= personaDate) return entry.version;
+  }
+  // Persona predates all guide versions
+  return `<${guideChangelog[guideChangelog.length - 1].version}`;
+}
+
+// ─── Markdown rendering ──────────────────────────────────────────────────────
+
+/**
+ * Derives audit status from the persona's audit metadata vs current guide version.
+ */
+function deriveStatus(persona, currentGuideVersion) {
+  if (!persona.auditGuideVersion) return '—';
+  if (persona.auditGuideVersion === currentGuideVersion) return 'PASS';
+  return `PASS (v${persona.auditGuideVersion})`;
+}
+
+function renderTable(personas, guideChangelog, currentGuideVersion, annotations) {
+  const sorted = [...personas].sort((a, b) => {
+    if (!a.date) return -1;
+    if (!b.date) return 1;
+    return a.date.localeCompare(b.date);
+  });
+
+  const lines = [
+    '| # | Persona | Version | Last Updated | Guide | Audited | Tier | Status | Notes |',
+    '|---|---|---|---|---|---|---|---|---|',
+  ];
+  sorted.forEach((p, i) => {
+    const guide = guideVersionAtDate(p.date, guideChangelog);
+    const audited = p.auditGuideVersion ? `v${p.auditGuideVersion}` : '—';
+    const status = deriveStatus(p, currentGuideVersion);
+    const note = annotations[p.suite]?.[p.key] || '';
+    const tier = p.tier === 'B'
+      ? `B (${p.partials}p/${p.conditionals}c)`
+      : p.tier;
+    lines.push(`| ${i + 1} | ${p.name} | v${p.version || '?'} | ${p.date || '?'} | v${guide} | ${audited} | ${tier} | ${status} | ${note} |`);
+  });
+  return lines.join('\n');
+}
+
+function generate(ledger, standalone, support, guideVersion, guideChangelog, annotations) {
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = [];
+
+  lines.push(`# Persona Audit Status — Design Guide v${guideVersion}`);
+  lines.push('');
+  lines.push('<!-- GENERATED FILE — do not edit by hand.');
+  lines.push('     Regenerate: node scripts/cli.js generate-persona-audit');
+  lines.push('     Narrative: notes.md · Notes-column text: annotations.json -->');
+  lines.push('');
+  lines.push(`**Generated:** ${today}`);
+  lines.push(`**Guide Version:** ${guideVersion}`);
+  lines.push('');
+  lines.push('> **Companion:** [notes.md](notes.md) — audit methodology, generalising findings, and');
+  lines.push('> roll-forward reasoning. Editorial text in the Notes column below comes from');
+  lines.push('> [annotations.json](annotations.json); the Tier column is computed from persona source.');
+  lines.push('');
+  lines.push('## Audit Focus');
+  lines.push('');
+  lines.push('Recent guide updates that personas should be checked against:');
+  lines.push('');
+  lines.push('| Guide Version | Key Changes |');
+  lines.push('|---|---|');
+
+  for (const entry of guideChangelog) {
+    lines.push(`| v${entry.version} | ${entry.summary} |`);
+  }
+
+  lines.push('');
+  lines.push('## Tracking');
+  lines.push('');
+  lines.push('Status values: `—` not started · `PASS` (audited at the current guide version) ·');
+  lines.push('`PASS (vX.Y)` (audited at an older version — stale).');
+  lines.push('');
+  lines.push('**Tier** is computed from the persona\'s source composition, not recorded by hand:');
+  lines.push('**A** = no partials and no target conditionals, so the rendered output is the source');
+  lines.push('plus frontmatter and guide v3.3\'s rendered-output requirement does not apply.');
+  lines.push('**B (Np/Mc)** = N partial references and M conditionals, so the assembled document');
+  lines.push('must be read to be verified. A persona that gains its first partial flips A → B here');
+  lines.push('automatically, marking its existing audit stamp as no longer sufficient.');
+  lines.push('');
+  lines.push('Sorted oldest-first within each suite so the most outdated personas are at the top.');
+
+  lines.push('');
+  lines.push(`### Ledger Suite (${ledger.length} personas)`);
+  lines.push('');
+  lines.push(renderTable(ledger, guideChangelog, guideVersion, annotations));
+
+  lines.push('');
+  lines.push(`### Standalone Suite (${standalone.length} personas)`);
+  lines.push('');
+  lines.push(renderTable(standalone, guideChangelog, guideVersion, annotations));
+
+  lines.push('');
+  lines.push(`### Ledger Support Suite (${support.length} personas)`);
+  lines.push('');
+  lines.push(renderTable(support, guideChangelog, guideVersion, annotations));
+
+  lines.push('');
+  lines.push('## Summary');
+  lines.push('');
+  const all = [...ledger, ...standalone, ...support];
+  const total = all.length;
+  const currentCount = all.filter(p => p.auditGuideVersion === guideVersion).length;
+  const staleCount = all.filter(p => p.auditGuideVersion && p.auditGuideVersion !== guideVersion).length;
+  const remaining = total - currentCount;
+
+  const countCurrent = ps => ps.filter(p => p.auditGuideVersion === guideVersion).length;
+  const countStale = ps => ps.filter(p => p.auditGuideVersion && p.auditGuideVersion !== guideVersion).length;
+
+  lines.push('| Suite | Total | Current | Stale | Unaudited | Remaining |');
+  lines.push('|---|---|---|---|---|---|');
+  lines.push(`| Ledger | ${ledger.length} | ${countCurrent(ledger)} | ${countStale(ledger)} | ${ledger.length - countCurrent(ledger) - countStale(ledger)} | ${ledger.length - countCurrent(ledger)} |`);
+  lines.push(`| Standalone | ${standalone.length} | ${countCurrent(standalone)} | ${countStale(standalone)} | ${standalone.length - countCurrent(standalone) - countStale(standalone)} | ${standalone.length - countCurrent(standalone)} |`);
+  lines.push(`| Ledger Support | ${support.length} | ${countCurrent(support)} | ${countStale(support)} | ${support.length - countCurrent(support) - countStale(support)} | ${support.length - countCurrent(support)} |`);
+  lines.push(`| **Total** | **${total}** | **${currentCount}** | **${staleCount}** | **${total - currentCount - staleCount}** | **${remaining}** |`);
+  lines.push('');
+  lines.push('**Stale** personas hold a real PASS at an older guide version — their remaining work');
+  lines.push('depends on tier. **Unaudited** personas have never been through a Quality Checklist at');
+  lines.push('any version, and that is where the substantive backlog sits.');
+  lines.push('');
+
+  const staleB = all.filter(p => p.auditGuideVersion && p.auditGuideVersion !== guideVersion && p.tier === 'B').length;
+  const staleA = staleCount - staleB;
+  if (staleCount > 0) {
+    lines.push(`Of the ${staleCount} stale, ${staleB} are Tier B (composed — need a rendered read) and`);
+    lines.push(`${staleA} are Tier A (no composition — eligible for roll-forward on the guide's own terms).`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+const { outputFile, guideVersion: guideVersionOverride, toStdout } = parseArgs();
+
+const guideVersion   = guideVersionOverride || detectGuideVersion();
+const guideChangelog = detectGuideChangelog();
+const annotations    = loadAnnotations();
+const ledger         = loadSuite(LEDGER_META, 'ledger');
+const standalone     = loadSuite(STANDALONE_META, 'standalone');
+const support        = loadSuite(SUPPORT_META, 'support');
+
+const output = generate(ledger, standalone, support, guideVersion, guideChangelog, annotations);
+
+if (toStdout) {
+  process.stdout.write(output);
+} else {
+  const target = outputFile || STATUS_FILE;
+  const dir = path.dirname(target);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(target, output, 'utf8');
+
+  const all = [...ledger, ...standalone, ...support];
+  const tierB = all.filter(p => p.tier === 'B').length;
+  console.log(`Generated ${path.relative(ROOT, target)} (${all.length} personas, guide v${guideVersion}).`);
+  console.log(`  Tier A: ${all.length - tierB}  ·  Tier B: ${tierB}`);
 }
 
 ```
@@ -4502,6 +4925,302 @@ main().catch((err) => {
 });
 
 ```
+###  Path: `/scripts/lib/cc-tools-validation.js`
+
+```js
+/**
+ * scripts/lib/cc-tools-validation.js
+ *
+ * Validates that any persona declaring a `subagents` list also includes
+ * `Task` in its effective Claude Code tool list.
+ *
+ * Rationale: Claude Code dispatches sub-agents via the `Task` tool. A persona
+ * whose YAML lists subagents but lacks `Task` in `cc_tools` (or in `tools`
+ * when `cc_tools` is absent) will fail silently at runtime — the agent
+ * instructions tell it to spawn a sub-agent but the tool is not granted.
+ *
+ * Effective CC tool list resolution (mirrors the build system's own logic):
+ *   1. If `cc_tools` is present on the persona → use it.
+ *   2. Else if `tools` is present on the persona → fall back to `tools`.
+ *   3. Else → fall back to `_shared.yaml`'s `default_cc_tools`.
+ *
+ * The suite-level _shared.yaml fallback (case 3) is only flagged when the
+ * shared default itself lacks Task. In practice every suite's _shared.yaml
+ * already includes Task, so an error is only raised when a persona-level
+ * explicit list (cc_tools or tools) overrides that default and omits Task.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { extractYamlSequence } from './yaml-utils.js';
+
+/**
+ * Validate a single persona YAML for the cc_tools / subagents invariant.
+ *
+ * @param {string} yamlText        - raw YAML content of the persona
+ * @param {string} filename        - filename for error messages
+ * @param {string[]} sharedDefault - default_cc_tools from the suite's _shared.yaml
+ *                                   (pass [] when absent)
+ * @returns {string[]} array of error strings (empty = valid)
+ */
+export function validateCcTools(yamlText, filename, sharedDefault = []) {
+  const subagents = extractYamlSequence(yamlText, 'subagents');
+  if (!subagents || subagents.length === 0) return [];
+
+  // Determine the effective CC tool list.
+  const ccTools = extractYamlSequence(yamlText, 'cc_tools');
+  const vsTools = extractYamlSequence(yamlText, 'tools');
+
+  let effective;
+  let source;
+
+  if (ccTools) {
+    effective = ccTools;
+    source    = 'cc_tools';
+  } else if (vsTools) {
+    effective = vsTools;
+    source    = 'tools (used as cc_tools fallback)';
+  } else {
+    // No persona-level tool list — suite's default_cc_tools applies.
+    effective = sharedDefault;
+    source    = '_shared.yaml default_cc_tools';
+  }
+
+  const toolNames = effective.map(t => t.trim());
+  if (toolNames.includes('Task')) return [];
+
+  // Only flag the shared-default case when the default itself is missing Task,
+  // since that is a suite-level misconfiguration rather than a per-persona one.
+  if (!ccTools && !vsTools) {
+    return [
+      `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from the ` +
+      `suite's default_cc_tools in _shared.yaml. Add "Task" to default_cc_tools.`,
+    ];
+  }
+
+  return [
+    `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from ${source}. ` +
+    `Add "Task" to the cc_tools list (create cc_tools if absent) so Claude Code can dispatch sub-agents.`,
+  ];
+}
+
+/**
+ * Validate cc_tools / subagents consistency across all persona YAML files in
+ * the given meta directories. Reads each suite's _shared.yaml to determine the
+ * default_cc_tools fallback before evaluating individual personas.
+ *
+ * @param {string[]} metaDirs - absolute paths to suite meta directories
+ * @returns {string[]} array of error strings (empty = all valid)
+ */
+export function validateCcToolsInDirs(metaDirs) {
+  const errors = [];
+
+  for (const metaDir of metaDirs) {
+    if (!fs.existsSync(metaDir)) continue;
+
+    // Load the suite-level shared default_cc_tools (may be absent for some suites).
+    const sharedPath    = path.join(metaDir, '_shared.yaml');
+    const sharedDefault = fs.existsSync(sharedPath)
+      ? (extractYamlSequence(fs.readFileSync(sharedPath, 'utf8'), 'default_cc_tools') ?? [])
+      : [];
+
+    const yamlFiles = fs.readdirSync(metaDir).filter(
+      f => f.endsWith('.yaml') && !f.startsWith('_'),
+    );
+
+    for (const yamlFile of yamlFiles) {
+      const text = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
+      errors.push(...validateCcTools(text, yamlFile, sharedDefault));
+    }
+  }
+
+  return errors;
+}
+
+```
+###  Path: `/scripts/lib/changelog-size-check.js`
+
+```js
+/**
+ * scripts/lib/changelog-size-check.js
+ *
+ * Heuristic detector for an oversized `personas/changelog.md` entry. AGENTS.md's
+ * Changelog Convention (rule 8) requires personas/changelog.md to stay
+ * summary-only — one outcome-oriented bullet per affected persona/theme, with
+ * rationale and mechanism detail deferred to each persona's own integrated
+ * changelog. Nothing previously enforced that mechanically, which let one
+ * entry grow to 323 lines / ~60 bullets before a manual condense pass.
+ *
+ * This is a lint, not a proof: it flags the newest entry for human review
+ * against three mechanical thresholds (line count, bullet count, sentences
+ * per bullet). Historical entries are immutable and several already exceed
+ * an ideal size for their moment in time, so only the first `## v` heading
+ * in the file — the entry about to land — is ever inspected.
+ */
+
+/** Above this many lines, the newest entry is flagged for condensing. */
+export const MAX_ENTRY_LINES = 60;
+
+/** Above this many top-level bullets, the newest entry is flagged. */
+export const MAX_BULLETS = 25;
+
+/** Above this many sentences in one bullet, that bullet is flagged. */
+export const MAX_SENTENCES_PER_BULLET = 2;
+
+const HEADING_RE = /^##\s+v(\d+\.\d+\.\d+)/;
+
+/**
+ * Split a bullet's folded text into sentences, dropping quoted spans and
+ * inline code first. Self-contained copy of the approach in
+ * philosophy-tone.js's `sentences()` helper — not imported, so the two lint
+ * modules stay independent (Pattern Alignment). Inherits the same known
+ * heuristic limitation: abbreviations, decimals, and version numbers (e.g.
+ * "v3.2") can be miscounted as sentence boundaries.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function sentences(text) {
+  return text
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/["“][^"”]*["”]/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Locate the newest (first `## vX.Y.Z`) changelog entry in a markdown
+ * document. Returns its version, 1-based start/end line numbers, and the
+ * full entry text as lines (heading through last non-blank content line,
+ * trailing blank lines trimmed, stopping before the next version heading
+ * or at EOF).
+ * @param {string} markdown - full changelog.md text
+ * @returns {{ version: string, startLine: number, endLine: number, lines: string[] } | null}
+ */
+export function extractLatestChangelogEntry(markdown) {
+  const allLines = markdown.split(/\r?\n/);
+
+  let startIdx = -1;
+  let version = null;
+  for (let i = 0; i < allLines.length; i++) {
+    const heading = allLines[i].match(HEADING_RE);
+    if (heading) {
+      startIdx = i;
+      version = heading[1];
+      break;
+    }
+  }
+
+  if (startIdx === -1) return null;
+
+  let endIdx = allLines.length - 1;
+  for (let i = startIdx + 1; i < allLines.length; i++) {
+    if (HEADING_RE.test(allLines[i])) {
+      endIdx = i - 1;
+      break;
+    }
+  }
+
+  while (endIdx > startIdx && allLines[endIdx].trim() === '') {
+    endIdx--;
+  }
+
+  return {
+    version,
+    startLine: startIdx + 1,
+    endLine: endIdx + 1,
+    lines: allLines.slice(startIdx, endIdx + 1),
+  };
+}
+
+/**
+ * Walk an entry's body lines (skipping the heading itself) and collect its
+ * top-level bullets, folding wrapped continuation lines — non-bullet,
+ * non-blank lines that follow a bullet before the next bullet or a blank
+ * line — into the parent bullet's text instead of counting them separately.
+ * @param {string[]} lines - entry lines, lines[0] is the heading
+ * @param {number} startLine - 1-based line number of lines[0]
+ * @returns {Array<{ text: string, line: number }>}
+ */
+function collectBullets(lines, startLine) {
+  const bullets = [];
+  let current = null;
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const bulletMatch = line.match(/^-\s+(.*)$/);
+
+    if (bulletMatch) {
+      current = { text: bulletMatch[1], line: startLine + i };
+      bullets.push(current);
+      continue;
+    }
+
+    if (line.trim() === '') {
+      current = null; // blank line ends the current bullet's continuation
+      continue;
+    }
+
+    if (current) {
+      current.text += ' ' + line.trim();
+    }
+    // else: non-bullet, non-blank line outside any bullet (e.g. the summary
+    // paragraph above the bullet list) — not part of the bullet count.
+  }
+
+  return bullets;
+}
+
+/**
+ * Check the newest changelog entry against the size/verbosity thresholds.
+ * @param {string} markdown - full changelog.md text
+ * @param {string} filename - filename for message context
+ * @param {{ maxLines?: number, maxBullets?: number, maxSentencesPerBullet?: number }} [options]
+ * @returns {string[]} warning strings (empty = no violation detected)
+ */
+export function checkChangelogEntrySize(markdown, filename, options = {}) {
+  const maxLines = options.maxLines ?? MAX_ENTRY_LINES;
+  const maxBullets = options.maxBullets ?? MAX_BULLETS;
+  const maxSentencesPerBullet = options.maxSentencesPerBullet ?? MAX_SENTENCES_PER_BULLET;
+
+  const entry = extractLatestChangelogEntry(markdown);
+  if (!entry) return [];
+
+  const { startLine, lines } = entry;
+  const warnings = [];
+
+  if (lines.length > maxLines) {
+    warnings.push(
+      `${filename}:${startLine}: latest changelog entry is ${lines.length} lines, ` +
+      `exceeding the ${maxLines}-line guideline. Condense to an outcome-oriented summary.`,
+    );
+  }
+
+  const bullets = collectBullets(lines, startLine);
+
+  if (bullets.length > maxBullets) {
+    warnings.push(
+      `${filename}:${startLine}: latest changelog entry has ${bullets.length} bullets, ` +
+      `exceeding the ${maxBullets}-bullet guideline. Group related changes into fewer, ` +
+      `broader bullets.`,
+    );
+  }
+
+  for (const bullet of bullets) {
+    const bulletSentences = sentences(bullet.text);
+    if (bulletSentences.length > maxSentencesPerBullet) {
+      warnings.push(
+        `${filename}:${bullet.line}: changelog bullet has ${bulletSentences.length} sentences, ` +
+        `exceeding the ${maxSentencesPerBullet}-sentence guideline. Trim rationale/mechanism ` +
+        `detail — it belongs in the persona's own integrated changelog.`,
+      );
+    }
+  }
+
+  return warnings;
+}
+
+```
 ###  Path: `/scripts/lib/health-checks.js`
 
 ```js
@@ -5218,6 +5937,273 @@ export function resolveModel(
 }
 
 ```
+###  Path: `/scripts/lib/philosophy-tone.js`
+
+```js
+/**
+ * scripts/lib/philosophy-tone.js
+ *
+ * Heuristic detector for imperative phrasing in persona "Operating Philosophy"
+ * sections. The Persona Design Guide (v3.0+) requires philosophy principles to
+ * be stated in the indicative mood — claims about the domain, not instructions
+ * addressed to the agent. Positively framed commands ("Prefer X over Y") pass
+ * the older polarity rule while still violating the mood rule, which is the
+ * drift this check exists to surface.
+ *
+ * This is a lint, not a proof: it flags candidates for human review. The
+ * authoritative test remains the guide's "You should" test.
+ */
+
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * Verbs that read as commands when they open a philosophy title or body.
+ * Deliberately broad — a missed verb is a silent false negative, whereas a
+ * false positive costs one human glance at a warning.
+ */
+const IMPERATIVE_VERBS = new Set([
+  'accept', 'acknowledge', 'adopt', 'aim', 'allow', 'always', 'anchor',
+  'apply', 'ask', 'assess', 'assume', 'audit', 'avoid', 'balance', 'begin',
+  'break', 'build', 'capture', 'challenge', 'check', 'choose', 'cite',
+  'clarify', 'classify', 'collect', 'compare', 'complete', 'confirm',
+  'consider', 'consult', 'convert', 'cover', 'create', 'decide', 'declare',
+  'decompose', 'defer', 'define', 'delegate', 'deliver', 'describe', 'design',
+  'detect', 'determine', 'distinguish', 'document', 'draft', 'drop', 'edit',
+  'eliminate', 'embrace', 'enforce', 'ensure', 'escalate', 'establish',
+  'evaluate', 'examine', 'exclude', 'execute', 'exhaust', 'expand', 'explain',
+  'explore', 'express', 'extract', 'favor', 'favour', 'find', 'finish', 'fix',
+  'flag', 'focus', 'follow', 'frame', 'gather', 'generate', 'ground', 'group',
+  'guard', 'handle', 'hold', 'identify', 'ignore', 'implement', 'include',
+  'inspect', 'interpret', 'investigate', 'judge', 'justify', 'keep', 'label',
+  'lean', 'leave', 'limit', 'list', 'locate', 'log', 'maintain', 'make', 'map',
+  'mark', 'match', 'maximise', 'maximize', 'measure', 'merge', 'minimise',
+  'minimize', 'model', 'monitor', 'move', 'name', 'never', 'note', 'observe',
+  'omit', 'optimise', 'optimize', 'order', 'organise', 'organize', 'pause',
+  'perform', 'pick', 'place', 'plan', 'prefer', 'prepare', 'present',
+  'preserve', 'prevent', 'prioritise', 'prioritize', 'probe', 'proceed',
+  'produce', 'promote', 'propose', 'protect', 'prove', 'provide', 'quantify',
+  'query', 'question', 'quote', 'raise', 'rank', 'read', 'reason', 'recognise',
+  'recognize', 'recommend', 'reconcile', 'record', 'reduce', 'refine',
+  'reflect', 'register', 'reject', 'relocate', 'rely', 'remember', 'remove',
+  'rename', 'repair', 'repeat', 'replace', 'report', 'request', 'require',
+  'research', 'reserve', 'resist', 'resolve', 'respect', 'restate', 'restore',
+  'restrict', 'retain', 'reuse', 'reveal', 'review', 'revisit', 'rewrite',
+  'run', 'save', 'scan', 'score', 'search', 'seek', 'select', 'separate',
+  'set', 'settle', 'share', 'show', 'sift', 'simplify', 'sketch', 'solve',
+  'sort', 'source', 'specify', 'split', 'start', 'state', 'stay', 'stick',
+  'stop', 'store', 'structure', 'suggest', 'summarise', 'summarize', 'supply',
+  'support', 'surface', 'survey', 'tag', 'take', 'target', 'teach', 'tell',
+  'test', 'think', 'tighten', 'trace', 'track', 'transform', 'translate',
+  'treat', 'trim', 'trust', 'try', 'uncover', 'understand', 'unify', 'update',
+  'upgrade', 'use', 'validate', 'value', 'verify', 'view', 'weigh', 'widen',
+  'work', 'wrap', 'write',
+]);
+
+/**
+ * Verbs above that are at least as common as nouns at the head of a title.
+ * "Value Over Volume" is a noun phrase; "Value the Manifest" is a command.
+ * These count as imperative only when a determiner follows, which is what
+ * separates a verb+object from a bare noun phrase.
+ */
+const AMBIGUOUS_HEADS = new Set([
+  'design', 'focus', 'label', 'map', 'model', 'name', 'order', 'place', 'plan',
+  'question', 'reason', 'record', 'report', 'research', 'run', 'set', 'sketch',
+  'source', 'state', 'structure', 'support', 'surface', 'survey', 'target',
+  'test', 'trust', 'use', 'value', 'view', 'work',
+]);
+
+/**
+ * Separators forming a comparison idiom ("Show Over Describe", "Merge Before
+ * Multiply", "Verify, Not Trust"). The guide permits comparisons as titles, so
+ * a bare verb on each side is aphorism rather than instruction.
+ */
+const COMPARISON_SEPARATORS = new Set(['over', 'before', 'not', 'beats', 'than']);
+
+/** Determiners that mark the following token as the object of a verb. */
+const DETERMINERS = new Set([
+  'a', 'all', 'an', 'any', 'each', 'every', 'her', 'his', 'its', 'my', 'no',
+  'our', 'that', 'the', 'their', 'these', 'this', 'those', 'what', 'whatever',
+  'your',
+]);
+
+/** Copulas and third-person verbs that mark the preceding tokens as a subject. */
+const COPULAS = new Set([
+  'are', "aren't", 'beats', 'belongs', 'buys', 'carries', 'comes', 'costs',
+  'creates', 'decides', 'defines', 'delivers', 'depends', 'determines',
+  'drives', 'earns', 'exists', 'fails', 'follows', 'gives', 'goes', 'happens',
+  'has', 'have', 'holds', 'is', "isn't", 'leads', 'lies', 'makes', 'matters',
+  'means', 'needs', 'outperforms', 'outranks', 'outweighs', 'pays', 'points',
+  'precedes', 'produces', 'remains', 'requires', 'rests', 'says', 'serves',
+  'shapes', 'signals', 'stands', 'stays', 'takes', 'tells', 'was', 'were',
+  'wins', 'works', 'yields',
+]);
+
+/** Relative pronouns — a copula after one of these sits in a subordinate clause. */
+const RELATIVE_PRONOUNS = new Set([
+  'that', 'when', 'where', 'which', 'while', 'who', 'whom', 'whose',
+]);
+
+function tokens(text) {
+  return text
+    .replace(/[*_`]/g, '')
+    .trim()
+    .split(/\s+/)
+    .map(t => t.replace(/^[^\w']+|[^\w']+$/g, '').toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Split a principle body into sentences, dropping quoted spans and inline code
+ * first. A guide-style illustration ("Prefer X over Y" cited as an example of
+ * what to avoid) is discussing imperative phrasing, not using it.
+ */
+function sentences(body) {
+  return body
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/["“][^"”]*["”]/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * A verb-initial phrase is declarative when the leading words form the subject
+ * of a main-clause copula: "State Is Measured", "Design for Growth Is Cheap".
+ * A copula behind a relative pronoun belongs to a subordinate clause and says
+ * nothing about the phrase's own mood.
+ */
+function isDeclarative(words) {
+  const limit = Math.min(words.length, 5);
+
+  for (let i = 1; i < limit; i++) {
+    if (RELATIVE_PRONOUNS.has(words[i])) return false;
+    if (COPULAS.has(words[i])) return true;
+  }
+
+  return false;
+}
+
+/**
+ * "Show Over Describe" is an aphorism; "Show the Reader Everything" is a
+ * command. A comparison separator immediately after the head verb, with no
+ * intervening object, marks the former.
+ */
+function isComparisonIdiom(words) {
+  return words.length > 1 && COMPARISON_SEPARATORS.has(words[1]);
+}
+
+function isImperative(text) {
+  const words = tokens(text);
+  if (words.length === 0) return false;
+  if (!IMPERATIVE_VERBS.has(words[0])) return false;
+  if (isDeclarative(words)) return false;
+  if (isComparisonIdiom(words)) return false;
+
+  // A bare noun phrase ("Value Over Volume") needs a determiner to read as a
+  // command; an unambiguous verb ("Prefer X") does not.
+  if (AMBIGUOUS_HEADS.has(words[0])) {
+    return words.length > 1 && DETERMINERS.has(words[1]);
+  }
+
+  return true;
+}
+
+/**
+ * Extract the `- **Title:** body` bullets of a persona's Operating Philosophy
+ * section. Returns [] when the persona has no such section.
+ * @param {string} markdown - persona content file text
+ * @returns {Array<{title: string, body: string, line: number}>}
+ */
+export function extractPhilosophyPrinciples(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const principles = [];
+  let inSection = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const heading = line.match(/^(#{2,6})\s+(.*)$/);
+
+    if (heading) {
+      // Sub-headings inside the section (e.g. "### Protocol") do not end it;
+      // any heading at the section's own level or above does.
+      const isPhilosophy = /^Operating Philosophy\b/i.test(heading[2].trim());
+      if (isPhilosophy) {
+        inSection = true;
+      } else if (inSection && heading[1].length <= 2) {
+        inSection = false;
+      }
+      continue;
+    }
+
+    if (!inSection) continue;
+
+    const bullet = line.match(/^\s*[-*]\s+\*\*(.+?):?\*\*:?\s*(.*)$/);
+    if (bullet) {
+      principles.push({ title: bullet[1].trim(), body: bullet[2].trim(), line: i + 1 });
+    }
+  }
+
+  return principles;
+}
+
+/**
+ * Check one persona's philosophy section for imperative phrasing.
+ * @param {string} markdown - persona content file text
+ * @param {string} filename - filename for message context
+ * @returns {string[]} warning strings (empty = no drift detected)
+ */
+export function checkPhilosophyTone(markdown, filename) {
+  const warnings = [];
+
+  for (const { title, body, line } of extractPhilosophyPrinciples(markdown)) {
+    if (isImperative(title)) {
+      warnings.push(
+        `${filename}:${line}: philosophy title "${title}" is verb-initial. ` +
+        `Titles are noun phrases, comparisons, or statements — never commands.`,
+      );
+    }
+
+    // Every sentence, not just the opener — drift hides in trailing sentences
+    // where a principle slides from claim into instruction.
+    const bodySentences = sentences(body);
+    for (let i = 0; i < bodySentences.length; i++) {
+      if (!isImperative(bodySentences[i])) continue;
+
+      const position = i === 0 ? 'opens in the imperative' : `sentence ${i + 1} is imperative`;
+      warnings.push(
+        `${filename}:${line}: philosophy body under "${title}" ${position} ` +
+        `("${tokens(bodySentences[i])[0]}…"). State the principle as a claim ` +
+        `about the domain, not an instruction to the agent.`,
+      );
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Check every persona content file in the given suite content directories.
+ * @param {string[]} contentDirs - absolute paths to suite content directories
+ * @returns {string[]} warning strings (empty = no drift detected)
+ */
+export function checkPhilosophyToneInDirs(contentDirs) {
+  const warnings = [];
+
+  for (const contentDir of contentDirs) {
+    if (!fs.existsSync(contentDir)) continue;
+
+    const files = fs.readdirSync(contentDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      const text = fs.readFileSync(path.join(contentDir, file), 'utf8');
+      warnings.push(...checkPhilosophyTone(text, file));
+    }
+  }
+
+  return warnings;
+}
+
+```
 ###  Path: `/scripts/lib/store-commands.js`
 
 ```js
@@ -5889,6 +6875,21 @@ export function extractYamlBlockScalar(text, key) {
 
   const joined = content.join('\n').trimEnd();
   return joined || undefined;
+}
+
+/**
+ * Extracts a multi-line-or-single-line string field, accepting either a block
+ * scalar (`key: |`) or an inline scalar (`key: value`, quoted or bare).
+ * Returns undefined when the key is absent or its value is empty.
+ */
+export function extractYamlText(text, key) {
+  const block = extractYamlBlockScalar(text, key);
+  if (block !== undefined) return block;
+
+  const inline = parseYamlScalars(text, [key])[key];
+  // An empty block scalar (`key: |`) leaves the bare indicator as the value.
+  if (!inline || /^[|>][-+]?$/.test(inline)) return undefined;
+  return inline;
 }
 
 /**

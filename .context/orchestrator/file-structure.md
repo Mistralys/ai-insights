@@ -26,6 +26,7 @@ _SOURCE: Directory tree_
         │   │   └── api-surface.md
         │   │   └── constraints.md
         │   │   └── data-flows.md
+        │   │   └── decisions.md
         │   │   └── file-tree.md
         │   │   └── tech-stack.md
         ├── architecture.md

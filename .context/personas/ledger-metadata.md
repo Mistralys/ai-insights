@@ -37,6 +37,18 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.6.0 (2026-08-31): v3.3/v3.4 delta pass — prose density applied to the philosophy partial and two
+    workflow steps; Outputs now lists Knowledge Base Reconciliation, a gap the rendered read caught;
+    the reconciliation duty is stated once per anchor instead of four times
+  2.5.0 (2026-08-28): Gained a Knowledge Base Ownership section and a plan-level Knowledge Base
+    Reconciliation table naming the Knowledge Curator as executor for every stored insight the plan's own
+    changes would leave stating something untrue; new workflow step 11 reconciles cited insights. The
+    ownership partial answers who to ask rather than what not to do — a need-to-custodian routing table,
+    no MCP tool names the consuming persona cannot call, and one constraint instead of three. The duty
+    itself is stated where it fires: the plan template slot, workflow step 11, and the checklist
+  2.4.0 (2026-08-26): Philosophy gained Refactoring Is Always on the Table and Adjacent Improvement Is the Only Improvement; maintenance surface folded into Long-Term Stability Over Expediency; Proportionality replaced by Justified Structure (anticipated growth is now a valid justification) plus a Refactoring & Adjacent Improvement group; new ## Structural Improvements plan section with brief observations and a promote-or-reject workflow step
+  2.3.0 (2026-08-26): Shared content extracted into six planner-* partials with the standalone twin; gained Capabilities, Rework Handling and a self-validation Quality Checklist; Core Rules gained role-boundary and output-integrity groups; philosophy principles renamed to their canonical registry names; handoff now emits AGENT: Planner
+  2.2.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   2.2.0 (2026-07-17): Recommended Workflow section added to Plan Output Template; workflow assessment persisted in plan.md
   2.1.0 (2026-07-16): Added Operating Philosophy — design for growth, no deferred quality, right abstraction first time
   2.0.0 (2026-07-15): Three-phase workflow (Scope Sketch → Research Brief → Plan) replaces interleaved research-and-plan approach; adds research-brief.md output artifact
@@ -65,6 +77,13 @@ has_mcp: true
 has_detect_project: false
 self_documenting_note: false
 has_incident_logging: false
+
+# gates the ledger-only plan sections in planner-output-template.md
+has_ledger_workflow: true
+planner_implementer_ref: "TPM and Engineer"
+
+audit_guide_version: "3.4"
+audit_date: "2026-08-31"
 
 mcp_tools:
   - tool: ledger_get_repository_context
@@ -96,6 +115,10 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.9.1 (2026-09-10):
+    - Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
+    - Recalibrated the Missing Research Brief posture — the brief is committed alongside the plan, so absence is a gap to call out rather than a routine consequence of the gitignore; report block names the real causes and the Planner's fresh write as the remedy
+  3.9.0 (2026-08-28): New workflow step 2 verifies research-brief.md exists before dispatching any sub-agent, with a Missing Research Brief report block naming the gitignore as the usual cause and the Planner as the only remedy; research brief added to Inputs and the file layout; sub-agent context list corrected to the paths actually passed
   3.8.0 (2026-08-04): Removed Spec File Verification protocol and AC fidelity check; WP specs now live exclusively in the ledger, no work/ directory
   3.7.7 (2026-07-24): Replace ledger_help with ledger_ping in mcp_tools for MCP server reachability preflight
   3.7.6 (2026-07-06): Trimmed verbose plan-folder-date step to a concise one-liner
@@ -116,6 +139,20 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
 
 subagents:
   - ledger-wp-decomposer
@@ -161,6 +198,14 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.17.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; Pipeline Comments Template renders both subsections, omitting whichever is empty
+  3.16.0 (2026-08-27): Paired v3.3 audit with the standalone twin — verification split into Build & Regression, Write Acceptance Tests and Static Analysis & Style; Output Format replaced by a Pipeline Comments Template placed before Constraints, restating the no-counts rule where it fires; No Stale Counts moved to a shared partial; duplicated role-identifier line dropped from the Mission
+  3.15.0 (2026-08-27): Gained the guide-required Outputs section (code changes, ledger observations, declared artifacts) with an Output Location block; Identity line punctuation corrected and the MCP role identifier moved off it; Mission now opens with an outcome sentence; removed redundant --- separators
+  3.14.0 (2026-08-26): Dual-role mission block, observer intro and observation reporting rules extracted into three further shared partials with the standalone Developer; the Code Insight Observer section is now entirely partial-driven
+  3.13.0 (2026-08-26): Observer scope table, observation categories and priority guidelines extracted into the shared insight-scope-and-types partial with the standalone Developer
+  3.12.0 (2026-08-26): Scope & Boundaries now states where out-of-scope observations go — Synthesis mines them and the Planning agent turns them into a rework plan — and why refactor scope is decided before implementation rather than during it
+  3.11.0 (2026-08-26): Operating Philosophy moved to the shared developer-philosophy partial; gains "The Practitioner's Eye", which the mission's Code Insight Observer duty had always assumed but the philosophy never stated
+  3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; "Assume Growth" retitled "Growth Is the Default"
   3.10.1 (2026-08-25): Fixed stale outputs metadata still referencing insights.jsonl sidecar
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; observation reporting and rework handling retargeted to ledger calls
   3.9.2 (2026-08-24): Renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
@@ -194,6 +239,26 @@ has_mcp: true
 has_detect_project: true
 self_documenting_note: true
 has_incident_logging: true
+
+audit_guide_version: "3.3"
+audit_date: "2026-08-27"
+
+# developer-dual-role partial substitutions
+dev_work_unit: "a structured Work Package (generated by the Project Manager Agent)"
+dev_work_scope: "every work package"
+
+# no-stale-counts partial substitution
+stale_counts_targets: "documentation, summaries, or pipeline comments"
+
+# insight-reporting-rules partial substitutions
+insight_reporting_intro: "Observations are already in the ledger via `ledger_add_observation` calls made during implementation. When calling `ledger_complete_pipeline`, include a summary of them in the `comments` parameter. To add an observation after the pipeline is already completed, call `ledger_add_observation` again."
+insight_compile_source: "The `comments` summary reflects what was recorded via `ledger_add_observation` during implementation, not what can be remembered at the end."
+insight_nothing_found: "When nothing noteworthy was found, record a single observation with type `improvement` and the note `No observations — code in the touched files is clean and consistent.`"
+
+# insight-scope-and-types partial substitutions
+insight_reviewer_ref: "the Reviewer agent"
+insight_routing: "An observation you record is not a note that dies with the pipeline — the Synthesis agent mines refactoring, strategic, and architectural observations into its report, and the Planning agent turns that report into a rework plan."
+insight_type_context: "Use the following `type` values when recording observations as pipeline comments:"
 
 insight_pipeline_type: implementation
 
@@ -308,7 +373,10 @@ vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
+audit_guide_version: "3.4"
+audit_date: "2026-09-02"
 changelog: |
+  3.10.0 (2026-09-02): Guide v3.4 audit — Medium severity now blocks; gained Operating Philosophy, Outputs, Strict Constraints, Rework Handling, Scope Boundaries against the Reviewer, and an extracted audit-area reference; protocol restructured to an area-by-area audit-and-capture loop with a stated repeat; Capabilities now cover the reads, advisory lookups and audit tooling the protocol requires; `edit` tool dropped for a read-only audit
   3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Security Insight Observer
   3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; capture steps and verdict-affecting rule retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
@@ -324,7 +392,6 @@ tools:
   - vscode
   - execute
   - read
-  - edit
   - search
   - web
   - browser
@@ -349,13 +416,13 @@ mcp_tools:
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, security findings, and handoff notes for the next agent."
   - tool: ledger_add_observation
-    purpose: "Record a non-blocking security observation (hardening, defence-in-depth) with `loc` after each audit area."
+    purpose: "Record a non-blocking Low/Info observation (hardening, defence-in-depth) with `loc` after each audit area."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add project-level security observations or incident reports."
   - tool: ledger_search_insights
-    purpose: "Search knowledge for prior findings and recurring patterns before starting verification."
+    purpose: "Search knowledge for prior security findings and recurring weaknesses before auditing the first area."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
@@ -364,9 +431,9 @@ mcp_tools:
 identity: "Security Auditor"
 description: "Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure."
 inputs: "Code changes from the current Work Package"
-outputs: "Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded via ledger_add_observation"
+outputs: "Security verdict, verdict-affecting findings as pipeline comments, and non-blocking Low/Info observations recorded via ledger_add_observation"
 key_behavior: |
-  Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
+  Sweeps the OWASP Top 10 plus four project-level areas, capturing observations area by area. Bounces the WP back to the Developer on any Critical, High, or Medium finding. Never remediates what it finds.
 
 ```
 ###  Path: `/personas/ledger/src/meta/6-reviewer.yaml`
@@ -378,7 +445,11 @@ vs_file_name: 6-reviewer.agent.md
 id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
 da_file_name: 6-reviewer.md
+audit_guide_version: "3.5"
+audit_date: "2026-09-02"
 changelog: |
+  3.11.0 (2026-09-02): Guide v3.5 audit — added Strict Constraints, Outputs, and Capabilities sections; reunited Documentation-Forward tiering with Fix-Forward and extracted its convention into Reference Material; added Rework Handling for RUN_REVIEW re-engagement and self-rework; added a ledger_search_insights protocol step; merged the expediency principle into the canonical "Long-Term Stability Over Expediency"; folded "PASS with Fix-Forward" into PASS; fixed drifted overview fields; removed redundant "---" separators
+  3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; retitled "Challenge Expediency" and "Reward Durable Design"
   3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; Deep Dive and capture steps retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
@@ -437,10 +508,10 @@ mcp_tools:
 # overview metadata
 identity: "Principal Systems Architect"
 description: "Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices."
-inputs: "Implemented code + QA results + Security audit results"
-outputs: "Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded via ledger_add_observation"
+inputs: "Implemented code + QA results"
+outputs: "Review verdict (PASS/FAIL) with detailed findings and review insight observations recorded via ledger_add_observation"
 key_behavior: |
-  Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
+  Evaluates maintainability, best practices, performance, and long-term fit against the Review Dimensions. Applies trivial Fix-Forward edits directly and can bounce Blocking issues back to the Developer.
 
 ```
 ###  Path: `/personas/ledger/src/meta/7-release-engineer.yaml`
@@ -511,6 +582,7 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.2 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   3.10.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Documentation Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.9.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
@@ -535,6 +607,20 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
 
 subagents:
   - ctx-architect
@@ -589,6 +675,7 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.11.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   3.11.0 (2026-08-24): Output format references ledger_add_observation instead of insights.jsonl; sidecar compilation removed
   3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
   3.9.0 (2026-08-24): Excludes session-start markers from rendered insights and uses them to distinguish agents that captured nothing from agents that never captured
@@ -611,6 +698,20 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
 
 subagents:
   - ledger-knowledge-archiver

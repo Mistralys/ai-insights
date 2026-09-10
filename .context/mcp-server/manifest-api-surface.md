@@ -68,7 +68,8 @@ pipeline_health: {
 (args: { 
   project_path: string; 
   plan_file: string;           // must equal 'plan.md' — enforced by Zod .refine()
-  project_summary?: string;    // min(1) — human-readable description of the project intent
+  project_summary?: string;    // trim().min(1) — human-readable description of the project intent; whitespace-only input is rejected after trimming
+  title?: string;              // trim().min(1), max(200) — curated human-readable display title (e.g. "API: Split GetTenants"); stored in the root index and auto-synced to .meta.json by writeRootIndex(); takes precedence over slug-derived title-casing in the GUI
 }) => Promise<MCPResult>
 ```
 
@@ -76,7 +77,7 @@ Creates a new project ledger with root index and centralized storage directory. 
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
 
-**`project_summary` optional field:** When provided, the value is persisted to both `project-ledger.json` and `.meta.json` using key-presence semantics (the field is omitted entirely when not supplied — never written as `null`). The Zod `.min(1)` constraint rejects empty strings at parse time. In the GUI project detail page, `project_summary` is preferred over the auto-extracted synopsis (`extractSynopsis()` + `marked.parse()`): if set, the `.plan-synopsis` block renders it as XSS-safe plain text rather than Markdown. Bootstrapper agents should supply this field when creating a project, as it gives a curated, stable description that does not depend on plan file content.
+**`project_summary` optional field:** When provided, the value is persisted to both `project-ledger.json` and `.meta.json` using key-presence semantics (the field is omitted entirely when not supplied — never written as `null`). The Zod `.trim().min(1)` constraint trims whitespace before validating, so whitespace-only strings are rejected as empty at parse time. In the GUI project detail page, `project_summary` is preferred over the auto-extracted synopsis (`extractSynopsis()` + `marked.parse()`): if set, the `.plan-synopsis` block renders it as XSS-safe plain text rather than Markdown. Bootstrapper agents should supply this field when creating a project, as it gives a curated, stable description that does not depend on plan file content.
 
 **Multi-store write routing (WP-007):** In multi-store mode (a valid `stores.json` is present and `isStoreContextInitialized()` returns `true`), `initializeProject()` derives `repoName` via `deriveRepoName()` and calls `getStoreRouter().resolveStoreForWrite(repoName)` to determine the target store. The target store is the first store (in `stores.json` order) whose `.repositories.json` claims the repository. If no store has registered the repository, the tool returns an error containing `"not registered in any store"` and the `repoName`. In single-store / legacy mode this routing is bypassed and the behavior is unchanged.
 
@@ -147,7 +148,8 @@ All tools (except `ledger_initialize_project`) now accept `cwd_path` directly �
   project_path?: string;  // Absolute path to the standalone plan folder to import. Takes precedence over cwd_path.
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
-  project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. min(1). Whitespace-only strings pass validation but are not useful.
+  project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. trim().min(1) — whitespace-only strings are rejected after trimming.
+  title?: string;           // Optional. trim().min(1), max(200). Curated human-readable display title (e.g. "API: Split GetTenants"). Stored in the root index, auto-synced to .meta.json by writeRootIndex(). Takes precedence over slug-derived title-casing in the GUI.
 }) => Promise<MCPResult>
 ```
 
@@ -166,12 +168,12 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 **Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
 
-**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (Constraint 2c).
+**Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (see "`writeWorkPackage` and `writeRootIndex` Are Internal" in constraints.md).
 
 **Produced project record:**
-- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` included when provided (omitted when not supplied — key-presence semantics).
+- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` and `title` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
-- `.meta.json`: auto-synced by `writeRootIndex()` inside the lock.
+- `.meta.json`: auto-synced by `writeRootIndex()` inside the lock, including `title` when provided — the root index is the single write path for `title` in standalone import; there is no separate `updateTitle()` call.
 - `plan.md` and `synthesis.md`, plus optional `usage-scenarios.md`, archived to `{ledgerRoot}/{repoName}/{slug}/`. Derived `scenario-coverage.md` is excluded.
 
 **Response shape (on success):**
@@ -2923,6 +2925,7 @@ interface RootIndex {
   synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
   outcome_summary?: string | null;    // 2–3 sentence summary written by the Synthesis agent via ledger_complete_synthesis; null/absent on pre-WP-004 ledgers or before synthesis runs
   project_summary?: string | null;    // Human-readable description of the project intent; set at initialization time; null/absent on legacy ledgers
+  title?: string | null;              // Curated human-readable display title; set at initialization or import time; auto-synced to .meta.json by writeRootIndex(); null/absent on legacy ledgers
   ledger_version?: string;            // Workflow spec version (SPEC_VERSION from shared/workflow-manifest.json) at the time this ledger was written; used for forward-compat checks; absent on legacy ledgers
   server_version?: string;            // MCP server package version (SERVER_VERSION from package.json) at the time this ledger was written
   runner?: 'vscode' | 'claude-code' | 'orchestrator' | 'standalone' | 'unknown'; // IDE/runtime that invoked the MCP server
@@ -6762,7 +6765,7 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 //   5. IN_PROGRESS assigned to QA (from qaWps) → IN_PROGRESS.
 //   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'QA'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6783,7 +6786,7 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 //   5. IN_PROGRESS assigned to Reviewer (from reviewWps) → IN_PROGRESS.
 //   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Reviewer'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6797,7 +6800,7 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 //   4. IN_PROGRESS assigned to Security Auditor (from securityWps) → IN_PROGRESS.
 //   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Security Auditor'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6812,7 +6815,7 @@ export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], 
 //   3. FAIL self-rework — most recent release-engineering is FAIL → IN_PROGRESS (self-rework).
 //   4. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Release Engineer'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -6834,7 +6837,7 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
 //        not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS.
 //   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Documentation'): if a READY,
 //      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
-//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See "Non-PM Handoff Functions Must Dispatch..." in constraints-workflow.md.)
 //   → WAIT
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 

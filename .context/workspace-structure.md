@@ -24,6 +24,9 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   ├── project-manifest/
     │   │   ├── README.md
+    │   ├── projects/
+    │   │   ├── dependency-curator-audit-mode.md
+    │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
     │   │   ├── ctx-generator-guide.md
@@ -54,49 +57,28 @@ _SOURCE: Top-level directory tree_
     │   │   └── 2026-02-17-qa-ledger-handoff.png
     ├── index.md
     ├── presentation/
+    │   ├── README.md
     │   ├── build.cmd
     │   ├── build.sh
     │   ├── changelog.md
+    │   ├── docs/
+    │   │   ├── design-reference.md
     │   ├── img/
-    │   │   ├── ledger-gui.png
+    │   │   ├── full-vscode-workflow.png
+    │   │   ├── knowledge-repository.jpg
+    │   │   ├── knowledge-repository.png
+    │   │   ├── ledger-gui.jpg
+    │   │   ├── ledger-gui.psd
+    │   │   ├── project-detail.jpg
+    │   │   ├── project-detail.png
     │   │   ├── work-package-stages.png
+    │   │   ├── work-packages-progress.jpg
+    │   │   ├── work-packages-progress.png
+    │   ├── notes.md
     │   ├── partials/
     │   │   ├── recipe-results-persona.md
     │   │   ├── recipe-results-vanilla.md
     │   ├── slides.json
-    │   ├── slides/
-    │   │   ├── agenda.html
-    │   │   ├── agentic-workflow.html
-    │   │   ├── battle-tested.html
-    │   │   ├── build-pipeline.html
-    │   │   ├── build-your-personas.html
-    │   │   ├── coordination-problem.html
-    │   │   ├── demo-divider.html
-    │   │   ├── domain-knowledge.html
-    │   │   ├── dynamic-pipelines.html
-    │   │   ├── english-best.html
-    │   │   ├── identity-anchor.html
-    │   │   ├── intro.html
-    │   │   ├── key-takeaways.html
-    │   │   ├── knowledge-persists.html
-    │   │   ├── markdown-format.html
-    │   │   ├── meet-the-team.html
-    │   │   ├── nlp.html
-    │   │   ├── orchestrator.html
-    │   │   ├── part1-divider.html
-    │   │   ├── part2-divider.html
-    │   │   ├── part3-divider.html
-    │   │   ├── persona-difference.html
-    │   │   ├── persona-structure.html
-    │   │   ├── persona-what.html
-    │   │   ├── platforms.html
-    │   │   ├── project-ledger.html
-    │   │   ├── recipe-curator.html
-    │   │   ├── scaling-problem.html
-    │   │   ├── template-syntax.html
-    │   │   ├── thank-you.html
-    │   │   ├── title.html
-    │   │   ├── values-standards.html
     │   ├── template.html
     │   ├── tools/
     │   │   └── build.js
@@ -498,6 +480,11 @@ _SOURCE: Top-level directory tree_
     ├── README.md
     ├── changelog.md
     ├── docs/
+    │   ├── audits/
+    │   │   ├── README.md
+    │   │   ├── annotations.json
+    │   │   ├── notes.md
+    │   │   ├── status.md
     │   ├── persona-anchoring.md
     │   ├── persona-build-system.md
     │   ├── persona-design-guide.md
@@ -592,12 +579,29 @@ _SOURCE: Top-level directory tree_
     │   ├── partials/
     │   │   └── agent-roster.md
     │   │   └── ax-feedback.md
+    │   │   └── developer-dual-role.md
+    │   │   └── developer-philosophy.md
+    │   │   └── documentation-ownership.md
     │   │   └── incident-logging.md
     │   │   └── insight-capture.md
     │   │   └── insight-compilation.md
+    │   │   └── insight-observer-intro.md
+    │   │   └── insight-reporting-rules.md
+    │   │   └── insight-scope-and-types.md
+    │   │   └── knowledge-ownership.md
     │   │   └── mcp-insight-capture.md
+    │   │   └── no-stale-counts.md
+    │   │   └── planner-core-rules.md
+    │   │   └── planner-operating-modes.md
+    │   │   └── planner-output-template.md
+    │   │   └── planner-philosophy.md
+    │   │   └── planner-quality-checklist.md
+    │   │   └── planner-research-brief-template.md
     │   │   └── pm-subagent-roster.md
+    │   │   └── research-brief-protocol.md
+    │   │   └── research-brief-reference.md
     │   │   └── summary-crafting-guide.md
+    │   │   └── title-crafting-guide.md
     ├── standalone/
     │   └── README.md
     │   └── claude-code/
@@ -606,6 +610,7 @@ _SOURCE: Top-level directory tree_
     │       ├── comms-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
+    │       ├── dependency-curator.md
     │       ├── developer-standalone.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
@@ -630,6 +635,7 @@ _SOURCE: Top-level directory tree_
     │       ├── comms-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
+    │       ├── dependency-curator.md
     │       ├── developer.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
@@ -654,6 +660,7 @@ _SOURCE: Top-level directory tree_
     │       └── comms-curator.agent.md
     │       └── composer-curator.agent.md
     │       └── ctx-architect.agent.md
+    │       └── dependency-curator.agent.md
     │       └── developer-standalone.agent.md
     │       └── documentation-curator.agent.md
     │       └── git-committer.agent.md
@@ -683,15 +690,19 @@ _SOURCE: Top-level directory tree_
     ├── extract-changelog-entry.js
     ├── extract-dialogue.js
     ├── generate-agents-overview.js
+    ├── generate-persona-audit.js
     ├── import-standalone.js
     ├── install-hooks.js
     ├── install-mcp-global.js
     ├── kill-orchestrator.js
     ├── lib/
+    │   ├── cc-tools-validation.js
+    │   ├── changelog-size-check.js
     │   ├── health-checks.js
     │   ├── insight-validation.js
     │   ├── ledger-dirs.js
     │   ├── persona-model-resolution.js
+    │   ├── philosophy-tone.js
     │   ├── store-commands.js
     │   ├── yaml-utils.js
     ├── migrate-knowledge-uuids.js
@@ -712,13 +723,16 @@ _SOURCE: Top-level directory tree_
     ├── tests/
     │   ├── README.md
     │   ├── build-personas-model-resolution.test.js
+    │   ├── changelog-size-check.test.js
     │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
     │   ├── insight-validation.test.js
     │   ├── install-mcp.test.js
     │   ├── ledger-plugin.test.js
+    │   ├── philosophy-tone.test.js
     │   ├── publish-skills.test.js
     │   ├── store-commands.test.js
+    │   ├── yaml-utils.test.js
     ├── validate-workflow-manifest.js
 └── shared/
     ├── workflow-manifest.json

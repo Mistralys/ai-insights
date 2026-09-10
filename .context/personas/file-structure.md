@@ -20,6 +20,7 @@ _SOURCE: Directory tree_
         │   │   ├── constraints-build-system.md
         │   │   ├── constraints-cross-system.md
         │   │   ├── constraints.md
+        │   │   ├── curation-log.md
         │   │   ├── data-flows.md
         │   │   ├── file-tree.md
         │   │   ├── tech-stack.md
@@ -27,6 +28,11 @@ _SOURCE: Directory tree_
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
         │   │   └── 2026-06-29-separator-synthesis.md
+        ├── audits/
+        │   ├── README.md
+        │   ├── annotations.json
+        │   ├── notes.md
+        │   ├── status.md
         ├── persona-anchoring.md
         ├── persona-build-system.md
         ├── persona-design-guide.md
@@ -182,12 +188,29 @@ _SOURCE: Directory tree_
         ├── partials/
         │   └── agent-roster.md
         │   └── ax-feedback.md
+        │   └── developer-dual-role.md
+        │   └── developer-philosophy.md
+        │   └── documentation-ownership.md
         │   └── incident-logging.md
         │   └── insight-capture.md
         │   └── insight-compilation.md
+        │   └── insight-observer-intro.md
+        │   └── insight-reporting-rules.md
+        │   └── insight-scope-and-types.md
+        │   └── knowledge-ownership.md
         │   └── mcp-insight-capture.md
+        │   └── no-stale-counts.md
+        │   └── planner-core-rules.md
+        │   └── planner-operating-modes.md
+        │   └── planner-output-template.md
+        │   └── planner-philosophy.md
+        │   └── planner-quality-checklist.md
+        │   └── planner-research-brief-template.md
         │   └── pm-subagent-roster.md
+        │   └── research-brief-protocol.md
+        │   └── research-brief-reference.md
         │   └── summary-crafting-guide.md
+        │   └── title-crafting-guide.md
     └── standalone/
         └── README.md
         └── claude-code/
@@ -196,6 +219,7 @@ _SOURCE: Directory tree_
             ├── comms-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
+            ├── dependency-curator.md
             ├── developer-standalone.md
             ├── documentation-curator.md
             ├── git-committer.md
@@ -220,6 +244,7 @@ _SOURCE: Directory tree_
             ├── comms-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
+            ├── dependency-curator.md
             ├── developer.md
             ├── documentation-curator.md
             ├── git-committer.md
@@ -245,6 +270,7 @@ _SOURCE: Directory tree_
             │   ├── comms-curator.md
             │   ├── composer-curator.md
             │   ├── ctx-architect.md
+            │   ├── dependency-curator.md
             │   ├── developer.md
             │   ├── documentation-curator.md
             │   ├── git-committer.md
@@ -270,6 +296,7 @@ _SOURCE: Directory tree_
             │   └── comms-curator.yaml
             │   └── composer-curator.yaml
             │   └── ctx-architect.yaml
+            │   └── dependency-curator.yaml
             │   └── developer.yaml
             │   └── documentation-curator.yaml
             │   └── git-committer.yaml
@@ -294,6 +321,7 @@ _SOURCE: Directory tree_
             └── comms-curator.agent.md
             └── composer-curator.agent.md
             └── ctx-architect.agent.md
+            └── dependency-curator.agent.md
             └── developer-standalone.agent.md
             └── documentation-curator.agent.md
             └── git-committer.agent.md

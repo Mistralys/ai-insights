@@ -1,12 +1,13 @@
 # Orchestrator - Manifest
 <INSTRUCTION>
 # Orchestrator - Project Manifest
-Complete project manifest: tech stack, architectural constraints, API surface, data flows, and file tree for the orchestrator module.
+Complete project manifest: tech stack, architectural constraints, design decisions, API surface, data flows, and file tree for the orchestrator module.
+Rules to follow live in constraints.md; rejected alternatives and IDE/orchestrator divergences live in decisions.md.
 
 </INSTRUCTION>
 ------------------------------------------------------------
-_SOURCE: Project manifest (overview, tech stack, constraints, API surface, architecture)_
-# Project manifest (overview, tech stack, constraints, API surface, architecture)
+_SOURCE: Project manifest (overview, tech stack, constraints, decisions, API surface, architecture)_
+# Project manifest (overview, tech stack, constraints, decisions, API surface, architecture)
 ```
 // Structure of documents
 └── orchestrator/
@@ -17,6 +18,7 @@ _SOURCE: Project manifest (overview, tech stack, constraints, API surface, archi
                 └── api-surface.md
                 └── constraints.md
                 └── data-flows.md
+                └── decisions.md
                 └── file-tree.md
                 └── tech-stack.md
 
@@ -585,6 +587,23 @@ These `WorkflowState` fields support the new event types. See
 
 This document codifies established rules, conventions, and non-obvious gotchas for the **AI Insights Orchestrator**.
 
+> Design decisions and rejected alternatives are recorded in [decisions.md](decisions.md), not here.
+
+## Contents
+
+- [Prompt Architecture Constraints](#prompt-architecture-constraints)
+- [Supervisor & Routing Constraints](#supervisor--routing-constraints)
+- [Node Implementation Constraints](#node-implementation-constraints)
+- [LangGraph-Specific Constraints](#langgraph-specific-constraints)
+- [Review & Documentation Conventions](#review--documentation-conventions)
+- [MCP Server Dependency](#mcp-server-dependency)
+- [Cross-WP Escape Prevention](#cross-wp-escape-prevention)
+- [Code Quality](#code-quality)
+- [Model Configuration Constraints](#model-configuration-constraints)
+- [Sub-Agent Delegation Constraints](#sub-agent-delegation-constraints)
+- [Storage Layout](#storage-layout)
+- [Queue Entry Schema](#queue-entry-schema)
+
 ### Constraint Entry Format
 
 New constraint entries should follow this structure:
@@ -832,34 +851,11 @@ for tool in tools:
 
 ---
 
-### 16. Rejected Pattern: User-Turn Prompt WP-Scoping
+### 16. Do Not Add Prompt-Based WP Scoping
 
-**Rule:** Do not add `wp_id` template variables or explicit WP-scope instructions to stage prompts with the intent of preventing cross-WP escape. Do not emit "you are scoped to WP-XXX" strings in user-turn prompts or persona system prompts for this purpose.
+**Rule:** Do not add explicit WP-scope instructions to stage prompts with the intent of preventing cross-WP escape. Do not emit "you are scoped to WP-XXX" strings in user-turn prompts or persona system prompts for this purpose. The programmatic post-completion guard (constraint 15) is the sole authoritative mechanism.
 
-**Rationale:** Both the supervisor and the implementing agent use the ledger to determine the current work package — they are always in sync. Prior experience with WP-scoping in prompts created agent confusion without providing meaningful safety. The programmatic post-completion guard in `nodes/__init__.py` (constraint 15) is the sole authoritative mechanism for preventing cross-WP escape. Adding prompt-based scoping alongside it does not improve safety; it introduces redundant, fragile instructions that the LLM may misinterpret.
-
-**Anti-pattern:**
-```python
-# ❌ WRONG — prompt-based WP scoping to prevent cross-WP escape
-def _build_developer_prompt(state: WorkflowState) -> str:
-    wp_id = state.get("current_wp_id", "")
-    return render_prompt(_TEMPLATE, {
-        "project_path": state["project_path"],
-        "wp_id": wp_id,
-        "scope_warning": f"You are ONLY permitted to work on {wp_id}.",  # ← rejected
-    })
-```
-
-**Correct pattern:**
-```python
-# ✅ CORRECT — runtime context only; scope enforcement is programmatic
-def _build_developer_prompt(state: WorkflowState) -> str:
-    wp_id = state.get("current_wp_id", "")
-    return render_prompt(_TEMPLATE, {
-        "project_path": state["project_path"],
-        "wp_id": wp_id,
-    })
-```
+**Rationale and rejected approach:** see [decisions.md — Rejected: User-Turn Prompt WP-Scoping](decisions.md#rejected-user-turn-prompt-wp-scoping).
 
 ---
 
@@ -984,19 +980,11 @@ runSubagent:
 
 ---
 
-### 22. Cross-WP Dispatch (`findNextReadyDispatch`) Is an IDE-Only Optimization
+### 22. Treat `WAIT` From Any Handoff Function as a Normal Polling Signal
 
-**Rule:** The `findNextReadyDispatch()` mechanism in `mcp-server/src/tools/workflow-handoff.ts` is a best-effort, IDE-only optimization. It is called by the five non-PM handoff functions (QA, Security Auditor, Reviewer, Release Engineer, Documentation) immediately before their final `WAIT` return. When a READY, non-dependency-blocked WP exists whose first active pipeline stage maps to a deterministic agent, `findNextReadyDispatch` returns a routing signal (e.g., `READY_FOR_DEVELOPER`) instead of `WAIT`, preventing the IDE from stalling between handoffs.
+**Rule:** Do not add `findNextReadyDispatch`-equivalent cross-WP dispatch logic to the orchestrator, and do not assume the IDE's version fires from non-PM handoff functions. The supervisor's polling loop handles READY WP re-dispatch independently.
 
-**Invariant:** The orchestrator's supervisor polling loop handles READY WP re-dispatch independently and does **not** rely on `findNextReadyDispatch`. The supervisor queries `ledger_get_next_action` on every iteration and dispatches the next stage based on the PM's routing logic, which covers all READY WP scenarios by construction.
-
-**Consequence for orchestrator implementations:**
-
-- Do not assume that cross-WP dispatch fires from non-PM handoff functions. The orchestrator must treat `WAIT` from any handoff function as a normal polling signal.
-- Do not add `findNextReadyDispatch`-equivalent logic to the orchestrator. The supervisor's hub-and-spoke polling already covers the same ground deterministically.
-- If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
-
-**References:** [MCP server edge-cases.md §21.71](../../../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../../../mcp-server/docs/agents/project-manifest/constraints.md).
+**Rationale and full IDE/orchestrator divergence:** see [decisions.md — Not Adopted: Cross-WP Dispatch](decisions.md#not-adopted-cross-wp-dispatch-findnextreadydispatch).
 
 ---
 
@@ -1216,34 +1204,15 @@ cannot resolve virtual paths).
 
 **Correct pattern:**
 ```python
-# ✅ CORRECT — middleware always present with skip_tools derived from mcp_tools;
-# active on all platforms when target_path is a non-trivial absolute path
+# ✅ CORRECT — middleware always present with skip_tools derived from mcp_tools
 mcp_tool_names = frozenset(t.name for t in mcp_tools)
 path_middleware = PathNormalizationMiddleware(target_path, skip_tools=mcp_tool_names)
-agent = create_deep_agent(
-    model=resolved_model,
-    backend=backend,
-    system_prompt=persona_prompt,
-    tools=wrapped_tools,
-    subagents=stage_subagents or None,
-    middleware=[path_middleware],
-)
+agent = create_deep_agent(..., middleware=[path_middleware])
 ```
 
-**Anti-pattern:**
-```python
-# ❌ WRONG — no middleware; absolute-path file tool calls fail at validate_path()
-agent = create_deep_agent(
-    model=resolved_model,
-    backend=backend,
-    system_prompt=persona_prompt,
-    tools=wrapped_tools,
-)
-
-# ❌ WRONG — middleware present but skip_tools omitted; MCP tool calls receive
-# virtual paths and fail to resolve
-path_middleware = PathNormalizationMiddleware(target_path)
-```
+**Anti-patterns:** omitting `middleware=` entirely (absolute-path file tool calls fail at
+`validate_path()`); passing `PathNormalizationMiddleware(target_path)` without `skip_tools`
+(MCP tool calls receive virtual paths and fail to resolve).
 
 **Known limitation — `general_purpose` subagent:** The auto-created `general_purpose`
 subagent (injected by Deep Agents when no matching name exists in the spec list) does not
@@ -1283,28 +1252,20 @@ the GUI to hang indefinitely waiting for a status that will never appear.
 - Target folder (`{today}-{suffix}`) already exists — original path is returned.
 - `Path.rename()` raises `OSError` — a warning is logged and the original path is returned.
 
-**Anti-pattern:**
-```python
-# ❌ WRONG — recomputes _plan_hash after rename; GUI polls wrong filename
-plan_dir = _maybe_rename_plan_dir(plan_dir)
-plan_path = plan_dir / plan_file
-_plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
-```
-
 **Correct pattern:**
 ```python
-# ✅ CORRECT — _plan_hash and _run_status_path are computed BEFORE the rename
+# ✅ CORRECT — _plan_hash and _run_status_path are computed BEFORE the rename,
+# then never touched again
 _plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
 _run_status_path = _logs_dir / f"{_plan_hash}-run-status.json"
-# ... early-exit checks (plan_path.exists(), etc.) ...
-plan_dir = plan_path.parent if plan_path.is_file() else plan_path
-plan_file = plan_path.name if plan_path.is_file() else "plan.md"
+# ... early-exit checks ...
 if not args.resume:
     plan_dir = _maybe_rename_plan_dir(plan_dir)
     plan_path = plan_dir / plan_file
-# Lock acquisition and all subsequent state uses post-rename plan_dir/plan_path.
-# _plan_hash and _run_status_path are never touched again.
 ```
+
+**Anti-pattern:** recomputing `_plan_hash` from the post-rename `plan_path`. The tombstone
+file lands at a filename the GUI is not polling, and the GUI hangs indefinitely.
 
 **`--resume` exemption:** The rename is skipped when `--resume` is provided. On resume runs
 the folder already has a current date prefix (it was renamed on the first run), so renaming
@@ -1509,6 +1470,74 @@ an explicit error message before returning EXIT_ERROR.
 path, slug, timestamps, outcome). The file is overwritten on every new run of the same
 plan — it always reflects the most recent run. The GUI reads it via
 `GET /api/projects/:slug/run-metadata` to decide whether to show the Resume Run button.
+
+```
+###  Path: `/orchestrator/docs/agents/project-manifest/decisions.md`
+
+```md
+# Design Decisions & Rejected Alternatives
+
+> **Scope:** Architectural choices that were considered and rejected, and IDE/orchestrator
+> divergences that a reader might otherwise mistake for bugs. These are not conventions to
+> follow — they explain why the orchestrator does *not* do something.
+>
+> Rules to follow live in [constraints.md](constraints.md).
+
+## Contents
+
+- [Rejected: User-Turn Prompt WP-Scoping](#rejected-user-turn-prompt-wp-scoping)
+- [Not Adopted: Cross-WP Dispatch (`findNextReadyDispatch`)](#not-adopted-cross-wp-dispatch-findnextreadydispatch)
+
+---
+
+## Rejected: User-Turn Prompt WP-Scoping
+
+**Decision:** Do not add `wp_id` template variables or explicit WP-scope instructions to stage prompts with the intent of preventing cross-WP escape. Do not emit "you are scoped to WP-XXX" strings in user-turn prompts or persona system prompts for this purpose.
+
+**Why it was rejected:** Both the supervisor and the implementing agent use the ledger to determine the current work package — they are always in sync. Prior experience with WP-scoping in prompts created agent confusion without providing meaningful safety. The programmatic post-completion guard in `nodes/__init__.py` is the sole authoritative mechanism for preventing cross-WP escape (see the *Post-Completion Guard* constraint). Adding prompt-based scoping alongside it does not improve safety; it introduces redundant, fragile instructions that the LLM may misinterpret.
+
+**Rejected approach:**
+```python
+# ❌ REJECTED — prompt-based WP scoping to prevent cross-WP escape
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+        "scope_warning": f"You are ONLY permitted to work on {wp_id}.",  # ← rejected
+    })
+```
+
+**Adopted approach:**
+```python
+# ✅ ADOPTED — runtime context only; scope enforcement is programmatic
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
+```
+
+**Note:** `wp_id` itself remains in the template context as runtime information. What was rejected is the *scope-warning instruction*, not the variable.
+
+---
+
+## Not Adopted: Cross-WP Dispatch (`findNextReadyDispatch`)
+
+**Decision:** The `findNextReadyDispatch()` mechanism in `mcp-server/src/tools/workflow-handoff.ts` is a best-effort, IDE-only optimization. The orchestrator does not implement an equivalent.
+
+**How it works in the IDE:** It is called by the five non-PM handoff functions (QA, Security Auditor, Reviewer, Release Engineer, Documentation) immediately before their final `WAIT` return. When a READY, non-dependency-blocked WP exists whose first active pipeline stage maps to a deterministic agent, `findNextReadyDispatch` returns a routing signal (e.g., `READY_FOR_DEVELOPER`) instead of `WAIT`, preventing the IDE from stalling between handoffs.
+
+**Why the orchestrator does not need it:** The supervisor polling loop handles READY WP re-dispatch independently. It queries `ledger_get_next_action` on every iteration and dispatches the next stage based on the PM's routing logic, which covers all READY WP scenarios by construction.
+
+**Consequences for orchestrator implementations:**
+
+- Do not assume that cross-WP dispatch fires from non-PM handoff functions. Treat `WAIT` from any handoff function as a normal polling signal.
+- Do not add `findNextReadyDispatch`-equivalent logic to the orchestrator. The supervisor's hub-and-spoke polling already covers the same ground deterministically.
+- If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
+
+**References:** [MCP server edge-cases.md §21.71](../../../../mcp-server/docs/agents/workflow-specification/edge-cases.md); the MCP server's [Non-PM Handoff Functions Must Dispatch to the Next READY WP Before Returning WAIT](../../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md#non-pm-handoff-functions-must-dispatch-to-the-next-ready-wp-before-returning-wait) constraint.
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/file-tree.md`

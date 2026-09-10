@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-02
+> **Generated:** 2026-09-10
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.9.0)
+### Stage 2 — Project Manager (v3.9.1)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.16.0)
+### Stage 3 — Developer (v3.17.0)
 
 **Identity:** Staff Software Engineer
 
@@ -103,27 +103,27 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.9.1)
+### Stage 5 — Security Auditor (v3.10.0)
 
 **Identity:** Security Auditor
 
 Perform a focused security audit on the code produced by the implementation team. Identify OWASP Top 10 vulnerabilities, dependency risks, authentication/authorization gaps, and any secrets or sensitive data exposure.
 
 - **Inputs:** Code changes from the current Work Package
-- **Outputs:** Security audit report with findings categorized by severity (Critical/High/Medium/Low/Info) and non-blocking observations recorded via ledger_add_observation
-- **Key Behavior:** Reviews diffs, checks dependency vulnerabilities, scans for hardcoded secrets. Can block release if critical/high findings exist.
+- **Outputs:** Security verdict, verdict-affecting findings as pipeline comments, and non-blocking Low/Info observations recorded via ledger_add_observation
+- **Key Behavior:** Sweeps the OWASP Top 10 plus four project-level areas, capturing observations area by area. Bounces the WP back to the Developer on any Critical, High, or Medium finding. Never remediates what it finds.
 
 ---
 
-### Stage 6 — Reviewer (v3.10.2)
+### Stage 6 — Reviewer (v3.11.0)
 
 **Identity:** Principal Systems Architect
 
 Perform a rigorous Peer Review on the code produced by the Software Engineer. Look beyond just whether it works to ensure the code is maintainable, well-architected, and follows architectural best practices.
 
-- **Inputs:** Implemented code + QA results + Security audit results
-- **Outputs:** Review verdict (APPROVE/REQUEST CHANGES) with detailed findings and review insight observations recorded via ledger_add_observation
-- **Key Behavior:** Evaluates architectural fit, code maintainability, naming conventions, error handling, and test quality. Can request changes that bounce work back to the Developer.
+- **Inputs:** Implemented code + QA results
+- **Outputs:** Review verdict (PASS/FAIL) with detailed findings and review insight observations recorded via ledger_add_observation
+- **Key Behavior:** Evaluates maintainability, best practices, performance, and long-term fit against the Review Dimensions. Applies trivial Fix-Forward edits directly and can bounce Blocking issues back to the Developer.
 
 ---
 
@@ -139,7 +139,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.10.1)
+### Stage 8 — Documentation (v3.10.2)
 
 **Identity:** Technical Writing Manager
 
@@ -152,7 +152,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.11.0)
+### Stage 9 — Synthesis (v3.11.1)
 
 **Identity:** Head of Operations (OPS)
 
@@ -167,14 +167,15 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v1.6.1)
+### AGENTS.md Curator (v2.1.1)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
 Generate, update, and maintain AGENTS.md files — the operating manual for AI agents entering a codebase.
 
-- **Modes:** Create, Update, Audit
-- **Use When:** Setting up a new repository for agent workflows, or auditing an existing AGENTS.md for completeness
+- **Modes:** Create, Update
+- **Use When:** Setting up a new repository for agent workflows, or reconciling a stale AGENTS.md against the current codebase
+- **Sub-agents:** Manifest Curator, Documentation (Standalone), README Curator, Changelog Curator, CTX Architect
 
 ---
 
@@ -232,7 +233,7 @@ Audit third-party dependencies for security advisories, upstream abandonment and
 
 ---
 
-### Developer — Standalone (v1.13.0)
+### Developer — Standalone (v1.15.0)
 
 **Identity:** Staff Software Engineer
 
@@ -244,7 +245,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.1.1)
+### Documentation — Standalone (v1.3.1)
 
 **Identity:** Technical Writing Manager
 
@@ -252,10 +253,11 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 - **Modes:** Update, Audit, Create
 - **Use When:** Documentation is out of sync with code, or a new documentation artifact is needed
+- **Sub-agents:** AGENTS.md Curator, README Curator, Manifest Curator, Changelog Curator, CTX Architect
 
 ---
 
-### Git Committer (v1.8.0)
+### Git Committer (v1.9.0)
 
 **Identity:** Configuration Management Engineer
 
@@ -286,18 +288,18 @@ Infers and documents the purpose, role, and dependencies of specific code module
 
 ---
 
-### Persona Curator (v1.15.0)
+### Persona Curator (v1.16.0)
 
 **Identity:** Agent Design Architect
 
 Create, audit, and maintain AI agent personas according to the Persona Design Guide.
 
-- **Modes:** Create, Audit, Maintain
+- **Modes:** Create, Audit, Maintain, Reduce
 - **Use When:** Designing a new agent persona, auditing existing personas for compliance, or applying targeted fixes
 
 ---
 
-### Plan Architect Reviewer (v2.3.1)
+### Plan Architect Reviewer (v2.3.2)
 
 **Identity:** Principal Software Architect
 
@@ -308,7 +310,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.9.1)
+### Plan Auditor (v1.9.2)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -319,7 +321,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.6.1)
+### Plan Refiner (v1.6.2)
 
 **Identity:** Plan Quality Director
 
@@ -341,13 +343,14 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.5.1)
+### README Curator (v1.6.1)
 
 **Identity:** Developer Experience (DX) Storyteller
 
 Produces a human‑optimized README.md that follows a landing‑page funnel: Hook → Features → Requirements → Quick Start → Learn More.
 
 - **Use When:** A project needs a new or rewritten README
+- **Sub-agents:** AGENTS.md Curator, Documentation (Standalone), Manifest Curator, Changelog Curator, CTX Architect
 
 ---
 
@@ -393,7 +396,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.4.0)
+### Web GUI Specialist (v1.7.2)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -414,7 +417,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.2.0)
+### Workspace Architect (v1.2.1)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -524,7 +527,7 @@ Determine which pipeline stages should be active for each Work Package based on 
 
 ---
 
-### Ledger WP Decomposer (v1.5.1)
+### Ledger WP Decomposer (v1.5.2)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 
