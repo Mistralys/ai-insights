@@ -25,6 +25,8 @@ advances with a Concept Index and governance metadata for tracking accepted devi
   Persona Curator content as breaking-change anchors.
 - Build: Added automated checks that flag imperative-voice philosophy principles and an
   oversized newest changelog entry.
+- Build: Added Claude tools validation for agents that declare subagents.
+- Global: Added missing Claude subagent declarations for a selection of personas.
 
 ## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 
