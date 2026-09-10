@@ -5,6 +5,7 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.2 (2026-09-10): research-brief-protocol split into a nested reader half (research-brief-reference, shared with the implementer personas) and an author half carrying the size guard and append rules — brief_tag replaced by brief_orientation, contribute-back trigger-anchored via brief_contribution_point, status line derived from brief_report_file; rendered review behaviour unchanged
   2.3.1 (2026-08-26): Rewrote all five Operating Philosophy principles into indicative mood per design guide v3.0; retitled "Confirm What Works", "Stay Within the Scope Boundary" and "Favor Durable Structures"
   2.3.0 (2026-08-25): Guide v2.8 audit — split alternative gathering from verdict assignment into separate phases; consolidated three overlapping criteria lists into one canonical Evaluation Dimensions set; added Scope Boundaries table; structured the Researcher delegation as its own workflow step; added research brief and contribute-back workflow checkpoints; removed the unreachable Audit Cycle Tracking rule
   2.2.0 (2026-07-21): Added Research Brief Protocol — self-service research brief usage with orientation, contribute-back, and size guard rules
@@ -27,8 +28,9 @@ tools:
   - todo
 
 # research-brief-protocol partial
-brief_tag: "[arch]"
+brief_orientation: "Entries tagged `[arch]`, and untagged entries, are the ones this review draws on"
 brief_purpose: "orienting on the existing architecture"
+brief_contribution_point: "during the design review"
 brief_contributor: "Plan Architect Reviewer"
 brief_authority: "independent exploration"
 brief_report_file: "design-review.md"

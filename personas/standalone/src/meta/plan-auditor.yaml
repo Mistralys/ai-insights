@@ -5,6 +5,7 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.9.2 (2026-09-10): research-brief-protocol split into a nested reader half (research-brief-reference, shared with the implementer personas) and an author half carrying the size guard and append rules — brief_tag replaced by brief_orientation, contribute-back trigger-anchored via brief_contribution_point, status line derived from brief_report_file; rendered audit behaviour unchanged
   1.9.1 (2026-08-26): Retitled "Verify, Don't Trust" to "Claims Await Verification" per design guide v3.0 mood rule
   1.9.0 (2026-08-25): Design Guide v2.8 audit fixes — added Scope Boundaries table against the Plan
     Architect Reviewer, collapsed rules duplicated across Philosophy/Protocol/Checklist into single
@@ -35,8 +36,9 @@ tools:
   - todo
 
 # research-brief-protocol partial
-brief_tag: "[verify]"
+brief_orientation: "Entries tagged `[verify]`, and untagged entries, are the ones this audit draws on"
 brief_purpose: "grounding verification"
+brief_contribution_point: "during the audit phases"
 brief_contributor: "Plan Auditor"
 brief_authority: "independent verification"
 brief_report_file: "audit.md"

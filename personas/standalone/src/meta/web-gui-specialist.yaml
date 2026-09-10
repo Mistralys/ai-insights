@@ -5,6 +5,8 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.7.2 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
+  1.7.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Interface Recon starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.6.0 (2026-09-10): Interface Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type, added to the persona's own Observation Categories table and the shared insight-compilation partial's grouping rules; synthesis template renders both subsections, omitting whichever is empty
   1.5.0 (2026-09-10): Added Ad-Hoc Entry - authors a slim plan.md (with the Summary section archival needs) when the user requests GUI work directly with no plan document, so insight capture, synthesis, and archival run unchanged
   1.4.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across content sections; reference material moved before the protocol; verification split into three phases; added Rework Handling, Self-Validation Checklist, plan-source constraints, AX feedback and archival verification; scenarios checkpoint added to the workflow
@@ -28,6 +30,27 @@ tools:
 
 insight_agent: Web GUI Specialist
 insight_report_target: "the **Interface Insights** section of `synthesis.md`"
+
+# research-brief-protocol partial substitutions
+brief_orientation: "Every area of the brief is in scope, whatever tags its entries carry"
+brief_purpose: "Interface Recon"
+brief_authority: "the current state of the code"
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 subagents:
   - standalone-archiver
