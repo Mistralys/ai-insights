@@ -24,11 +24,12 @@ You will be provided with:
 
 ### Plan Folder File Classes
 
-A plan folder contains two classes of files. This classification is referenced throughout the protocol as the **plan file classes**.
+A plan folder contains three classes of files. This classification is referenced throughout the protocol as the **plan file classes**.
 
 | Class | Files | Role |
 |---|---|---|
 | **Source documents** | `plan.md`, `synthesis.md`, optional `request.md`, optional authored `usage-scenarios.md` | Version-controlled inputs. They carry requester intent, drive plan matching and thematic grouping, and are archived on completion. The authored `usage-scenarios.md` is reusable companion context when present; its absence is normal. |
+| **Research material** | `research-brief.md` | The verified codebase facts the plan was built from. Version-controlled *while the plan sits in `docs/agents/plans/`*: a plan is routinely committed before implementation starts, and the brief travels with it so the implementing session inherits the research rather than repeating it. It is **not** part of the archival set — `implementation-history/**/research-brief.md` is gitignored, and the brief has served its purpose once the work is done. |
 | **Generated evidence** | `insights.jsonl`, `scenario-coverage.md`, work-package state, pipeline records, blocker files | Machine-produced artefacts. `insights.jsonl` travels with the plan folder during archival; the rest stay behind. None of them reflect requester intent. |
 
 **Archival set:** `plan.md`, `synthesis.md`, `request.md` (if present), authored `usage-scenarios.md` (if present), and `insights.jsonl` (if present). This is the definitive inventory — later protocol steps refer to it as the **archival set** rather than restating it.
@@ -39,12 +40,14 @@ A plan folder contains two classes of files. This classification is referenced t
 - Never group generated evidence with source documents, and never archive it as source.
 - Never move `scenario-coverage.md`, work-package state, pipeline records, or blocker files. `insights.jsonl` is the sole generated file that relocates.
 - Ignore generated evidence entirely during discovery and staging.
+- Never treat `research-brief.md` as generated evidence. It is version-controlled working material: wherever `plan.md` is staged, the brief beside it is staged in the same commit, and the discovery/staging exclusion above does not reach it.
+- Never archive `research-brief.md`. On archival it is removed from the plan folder rather than moved. A `git mv` would not honour the gitignore rule at the destination — an already-tracked file stays tracked wherever it is moved — so the brief would land committed under `implementation-history/`, which is the outcome the ignore rule exists to prevent. Where Git tracks the brief, `git rm` removes it so the deletion is staged with the plan's commit; where it is untracked, a plain filesystem delete is correct.
 
 ### Capabilities
 
 - **Git Read Access:** Run `git status`, `git diff`, `git diff --stat`, `git log`, `git stash list`, and inspect the staging area. Read individual file diffs (`git diff -- {FILE}`) to understand change scope for thematic grouping.
-- **Git Write Access:** Stage files (`git add`), create commits (`git commit`), and move files (`git mv`).
-- **Filesystem Access:** Read plan documents, synthesis files, and project configuration. Move the archival set to implementation history.
+- **Git Write Access:** Stage files (`git add`), create commits (`git commit`), move files (`git mv`), and remove tracked files (`git rm`).
+- **Filesystem Access:** Read plan documents, synthesis files, and project configuration. Move the archival set to implementation history, and delete an archived plan's `research-brief.md`.
 
 ## Outputs
 
@@ -114,7 +117,8 @@ This is a fact-gathering phase — no grouping decisions are made here. Its prod
 1. **Scan for candidates.** Every plan folder under `docs/agents/plans/` is listed, along with which changed files fall within its scope.
 2. **Record the completeness signal.** Each candidate folder is checked for `synthesis.md`. Presence means complete; absence means incomplete.
 3. **Record the companion files.** Each candidate folder is checked for the optional members of the archival set — `request.md`, authored `usage-scenarios.md`, `insights.jsonl` — noting for each whether it is present or absent. This check runs on every candidate, so the optional-file rules are exercised even in sessions where none are present.
-4. **Record the history layout.** `docs/agents/implementation-history/` is inspected for two things: whether it is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), and whether it holds historical plans that supply useful background for commit messages.
+4. **Record the research brief.** Each candidate folder is checked for `research-brief.md`. Where one is present, `git ls-files --error-unmatch {FILE}` establishes whether Git tracks it, because tracked and untracked briefs are removed differently at archival.
+5. **Record the history layout.** `docs/agents/implementation-history/` is inspected for two things: whether it is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), and whether it holds historical plans that supply useful background for commit messages.
 
 The inventory records one row per candidate plan:
 
@@ -123,6 +127,7 @@ Plan: {PLAN_FOLDER}
 Scope: {MATCHED_FILES}
 Synthesis: present | absent
 Companions: {PRESENT_OPTIONAL_FILES_OR_NONE}
+Brief: tracked | untracked | absent
 ```
 
 ### 4. Thematic Grouping
@@ -137,8 +142,10 @@ With the inventory in hand, changed files are organized into topic groups based 
 
 Each group is then resolved against its inventory row:
 
-- **Synthesis present:** The plan is complete. Its archival set is queued for relocation to `docs/agents/implementation-history/`, and that move rides along in the group's commit. When the history directory uses `YYYY-MM` subfolders, the destination is the subfolder for the current month, created if absent.
+- **Synthesis present:** The plan is complete. Its archival set is queued for relocation to `docs/agents/implementation-history/`, and that move rides along in the group's commit. When the history directory uses `YYYY-MM` subfolders, the destination is the subfolder for the current month, created if absent. A `research-brief.md` in the folder is queued for removal in the same commit rather than relocation.
 - **Synthesis absent:** The plan is incomplete. The group is flagged to the user as a warning and excluded from the commit sequence.
+
+A plan folder being committed for the first time — a new plan awaiting implementation, with no synthesis and no implementation files of its own — is a different case from an incomplete plan whose implementation is half-finished. Where the user opts to include such a folder, `research-brief.md` is staged with `plan.md`.
 
 ### 5. Commit Message Composition
 
@@ -176,6 +183,7 @@ Topic: {TOPIC_LABEL}
 Files: {FILE_LIST}
 Plan:  {MATCHED_PLAN_OR_NONE}
 Archival: {ARCHIVAL_SET_FILES_OR_NONE}
+Brief: {staged with plan | removed on archival | none}
 Message: {LABEL}: {Imperative subject, ≤ 72 chars — no trailing period}
 ```
 
@@ -185,7 +193,7 @@ Incomplete plans and any excluded CTX group are called out explicitly in the sam
 
 Once approval is given, each topic group is processed in turn (in dependency order where one exists):
 
-1. **Archive.** The queued archival set moves to `docs/agents/implementation-history/`, into the current month's `YYYY-MM` subfolder where that layout is in use.
+1. **Archive.** The queued archival set moves to `docs/agents/implementation-history/`, into the current month's `YYYY-MM` subfolder where that layout is in use. A queued `research-brief.md` is removed at this point instead — `git rm` where the inventory recorded it as tracked, a filesystem delete where it recorded it as untracked.
 2. **Stage.** The group's files are staged with `git add`.
 3. **Commit.** `git commit` runs with the approved message.
 
@@ -202,7 +210,7 @@ After the last group, the final commit log (short hashes + messages) is reported
 - **One topic per commit.** Never mix unrelated changes in a single commit. If a file serves two topics, ask the user which group it belongs to.
 - **No confirmation for plan archival.** When a matched plan has a `synthesis.md`, move its archival set (as defined under Plan Folder File Classes) to `docs/agents/implementation-history/` as part of that commit without asking. This is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent). Never extend the move beyond the archival set — generated evidence other than `insights.jsonl` stays where it is.
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
-- **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) are permitted.
+- **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way. Filesystem moves (plan archival to `implementation-history/`) and the removal of an archived plan's `research-brief.md` are permitted.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.
 - **Verify before deleting after moves.** `git mv` fails silently when the source file is untracked — the file is not moved, but no error is raised. Never follow a batch of `git mv` operations with a forced directory removal. If `git mv` silently failed, the originals still reside in the source directory and a blind delete permanently destroys them with no Git history to recover from. Safe procedure: use plain filesystem moves for untracked files (or `git add` them first so `git mv` can track them), then verify with `git status` that the destination files exist and are staged before removing the source directory.
 - **No date-only commits for generated files.** When a dynamically generated file's diff consists solely of a changed generation date, timestamp, or `generated-at` value, exclude it from staging. This applies to `.context/` artefacts and any other generated files where the tooling updates a date on every run. A CTX commit requires at least one file with substantive content changes beyond timestamps.
@@ -221,6 +229,7 @@ Before executing the approved commit sequence, verify:
 - [ ] Plan documents are co-staged with their implementation files, not in standalone commits.
 - [ ] Completed plan folders are queued for archival to `implementation-history/`, limited to the archival set.
 - [ ] Each queued archival set records which optional companion files were present and which were absent.
+- [ ] Every `research-brief.md` is accounted for: staged with its plan, or queued for removal on archival — never relocated to `implementation-history/`.
 
 ## Workflow
 
