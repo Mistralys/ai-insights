@@ -5,9 +5,13 @@
  *
  * Generates two standalone Markdown bundles into the build/ directory:
  *
- *   1. notebooklm-bundle.md     — MCP Server + Ledger Personas READMEs and
- *                                  project manifests, suitable for Google
- *                                  NotebookLM import.
+ *   1. notebooklm-bundle.md     — Workspace README, MCP Server + Ledger
+ *                                  Personas READMEs, project manifests, and
+ *                                  the generated agent roster overview —
+ *                                  everything needed to introduce AI Insights
+ *                                  to an external AI/tool in one document
+ *                                  (Google NotebookLM import, or a project
+ *                                  brief for another assistant).
  *   2. workflow-specification.md — All files from the Workflow Specification
  *                                  compiled into a single document.
  *
@@ -26,6 +30,8 @@ const BUILD_DIR   = path.join(ROOT, 'build');
 const TEMPLATES   = path.join(ROOT, 'scripts', 'templates');
 
 // NotebookLM sources
+const ROOT_README           = path.join(ROOT, 'README.md');
+const AGENTS_OVERVIEW       = path.join(ROOT, 'docs', 'references', 'agents-overview.md');
 const MCP_README            = path.join(ROOT, 'mcp-server', 'README.md');
 const MCP_MANIFEST_DIR      = path.join(ROOT, 'mcp-server', 'docs', 'agents', 'project-manifest');
 const PERSONAS_README       = path.join(ROOT, 'personas', 'ledger', 'README.md');
@@ -119,7 +125,7 @@ function writeBundle(filePath, content, dryRun) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filePath, content, 'utf-8');
-  console.log(`  ${c.green}\u2714${c.reset} ${c.bright}${relPath}${c.reset} (${sizeKB(content)} KB)`);
+  console.log(`  ${c.green}✔${c.reset} ${c.bright}${relPath}${c.reset} (${sizeKB(content)} KB)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -143,21 +149,29 @@ function buildNotebookLM() {
       .trimEnd(),
   );
 
+  // Root README
+  console.log(`    ${c.cyan}+${c.reset} Workspace README`);
+  parts.push(section('PART 1 — WORKSPACE OVERVIEW', readRequired(ROOT_README)));
+
   // MCP Server README
   console.log(`    ${c.cyan}+${c.reset} MCP Server README`);
-  parts.push(section('PART 1A \u2014 MCP SERVER README', readRequired(MCP_README)));
+  parts.push(section('PART 2A — MCP SERVER README', readRequired(MCP_README)));
 
   // MCP Server Manifest
   console.log(`    ${c.cyan}+${c.reset} MCP Server Project Manifest (${MANIFEST_SECTIONS.length} files)`);
-  parts.push(section('PART 1B \u2014 MCP SERVER PROJECT MANIFEST', buildManifestBlock(MCP_MANIFEST_DIR)));
+  parts.push(section('PART 2B — MCP SERVER PROJECT MANIFEST', buildManifestBlock(MCP_MANIFEST_DIR)));
 
   // Personas README
   console.log(`    ${c.cyan}+${c.reset} Ledger Personas README`);
-  parts.push(section('PART 2A \u2014 LEDGER PERSONAS README', readRequired(PERSONAS_README)));
+  parts.push(section('PART 3A — LEDGER PERSONAS README', readRequired(PERSONAS_README)));
 
   // Personas Manifest
   console.log(`    ${c.cyan}+${c.reset} Ledger Personas Project Manifest (${MANIFEST_SECTIONS.length} files)`);
-  parts.push(section('PART 2B \u2014 LEDGER PERSONAS PROJECT MANIFEST', buildManifestBlock(PERSONAS_MANIFEST_DIR)));
+  parts.push(section('PART 3B — LEDGER PERSONAS PROJECT MANIFEST', buildManifestBlock(PERSONAS_MANIFEST_DIR)));
+
+  // Agents Overview (generated agent roster)
+  console.log(`    ${c.cyan}+${c.reset} Agents Overview`);
+  parts.push(section('PART 3C — AGENT ROSTER OVERVIEW', readRequired(AGENTS_OVERVIEW)));
 
   return parts.join('\n\n---\n\n') + '\n';
 }
