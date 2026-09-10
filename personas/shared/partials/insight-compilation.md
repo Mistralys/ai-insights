@@ -9,7 +9,8 @@ When writing the report, read every entry in `insights.jsonl` from the resolved 
 {{#if insight_consumer_only}}
 - Group entries by `agent` first, then by priority within each group.
 {{else}}
-- Surface high-priority findings first; within the same priority, group by type.
+- Split the curated entries into two groups by type: `decision` entries form **Implementation Decisions**; every other type forms **Follow-Up Items**. Within each group, surface high-priority entries first, then group by type.
+- Render each group under its own subsection heading, Implementation Decisions before Follow-Up Items, and omit a group's heading entirely when it has nothing to show — never print a heading over an empty group.
 {{/if}}
 - Attribute an entry to the agent that recorded it whenever the origin adds weight or context to the finding.
 
@@ -21,9 +22,9 @@ Use the `{{insight_agent}}` `session-start` marker to distinguish the sink state
 
 | What the sink contains | What it means | What to report |
 |---|---|---|
-| A `{{insight_agent}}` marker, plus entries from any agent | Capture ran and produced material | Every entry, curated per the rules above |
-| A `{{insight_agent}}` marker, and no observations from any agent | Capture was live and genuinely found nothing | A single `improvement` observation confirming the material covered was clean |
-| No `{{insight_agent}}` marker at all, or the file is missing | Capture never ran — the duty was skipped this session | Say so explicitly: record a single `improvement` observation stating that incremental capture did not run, so this report's insights are incomplete. Still compile whatever other agents contributed. |
+| A `{{insight_agent}}` marker, plus entries from any agent | Capture ran and produced material | Curate into **Implementation Decisions** and **Follow-Up Items** per the rules above, omitting whichever group is empty |
+| A `{{insight_agent}}` marker, and no observations from any agent | Capture was live and genuinely found nothing | A single confirming line stating the material covered was clean — no subsections, no fabricated entry |
+| No `{{insight_agent}}` marker at all, or the file is missing | Capture never ran — the duty was skipped this session | Say so explicitly in a single line: incremental capture did not run, so these insights are incomplete. Still curate into the two groups whatever other agents contributed. |
 {{/if}}
 
 #### Constraints
@@ -31,3 +32,4 @@ Use the `{{insight_agent}}` `session-start` marker to distinguish the sink state
 - **No silent data loss.** Never silently discard unparseable lines — treat them as free-text observations and salvage their content.
 - **No back-filling from memory.** When capture did not run (no `{{insight_agent}}` marker), report the gap honestly. Do not reconstruct observations from recall — back-filled insights omit everything that was only salient in the moment, which is precisely what the sink exists to preserve.
 - **No empty sections.** Every compilation produces at least one observation — either curated findings or an honest gap note per the forcing function table.
+- **No empty subsection headings.** Print **Implementation Decisions** or **Follow-Up Items** only when the group has at least one entry.

@@ -28,9 +28,12 @@ This is also why the boundary holds. Deciding *whether* a broad refactor happens
 | `improvement` | A small enhancement that would make the code better (e.g., add a guard clause, use a more idiomatic construct). |
 | `debt` | Existing technical debt you encountered — something that was already suboptimal before your changes. |
 | `convention` | Inconsistency with the project's style, naming conventions, or established patterns. |
+| `decision` | You made a deliberate implementation choice and want the rationale on record — no follow-up action is implied. |
 
 ### Priority Guidelines
 
 * **high** — The issue is likely to cause bugs, security problems, or significant maintenance burden if left unaddressed.
 * **medium** — The issue degrades code quality or developer experience noticeably; should be tackled soon.
 * **low** — A nice-to-have improvement; safe to defer.
+
+A `decision` entry's priority marks how much weight the rationale carries for a future reader, not urgency — a `high` decision reshaped the implementation, a `low` one is background context.

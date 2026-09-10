@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.17.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; Pipeline Comments Template renders both subsections, omitting whichever is empty
   3.16.0 (2026-08-27): Paired v3.3 audit with the standalone twin — verification split into Build & Regression, Write Acceptance Tests and Static Analysis & Style; Output Format replaced by a Pipeline Comments Template placed before Constraints, restating the no-counts rule where it fires; No Stale Counts moved to a shared partial; duplicated role-identifier line dropped from the Mission
   3.15.0 (2026-08-27): Gained the guide-required Outputs section (code changes, ledger observations, declared artifacts) with an Output Location block; Identity line punctuation corrected and the MCP role identifier moved off it; Mission now opens with an outcome sentence; removed redundant --- separators
   3.14.0 (2026-08-26): Dual-role mission block, observer intro and observation reporting rules extracted into three further shared partials with the standalone Developer; the Code Insight Observer section is now entirely partial-driven

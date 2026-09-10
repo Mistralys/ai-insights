@@ -109,7 +109,11 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 
 ### Code Insights
 {Compiled from insights.jsonl — not from recall. Consult the sink state table: if no Developer marker exists, report the gap instead of back-filling.}
-- [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
+
+#### Implementation Decisions
+- [{PRIORITY}] (decision) {FILE_OR_MODULE}: {What was chosen and why}
+
+#### Follow-Up Items
 - [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
 
 ### Additional Comments

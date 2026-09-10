@@ -108,10 +108,15 @@ The deliverables listed under **Outputs** reach the Project Ledger through the M
 
 ### Code Insights
 {Summarised from the ledger_add_observation calls made during implementation — not from recall. Where no observations were recorded, say so explicitly rather than back-filling.}
+
+#### Implementation Decisions
+- [{PRIORITY}] (decision) {FILE_OR_MODULE}: {What was chosen and why}
+
+#### Follow-Up Items
 - [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
 ```
 
-The **Code Insights** section is mandatory on every implementation pipeline; it is never omitted, even where it only confirms that nothing was found.
+The **Code Insights** section is mandatory on every implementation pipeline; it is never omitted, even where it only confirms that nothing was found. Omit either subsection when its group has nothing to show — a `decision` observation belongs under **Implementation Decisions**, every other type under **Follow-Up Items**.
 
 ## Strict Constraints
 

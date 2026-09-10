@@ -5,6 +5,8 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.6.0 (2026-09-10): Interface Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type, added to the persona's own Observation Categories table and the shared insight-compilation partial's grouping rules; synthesis template renders both subsections, omitting whichever is empty
+  1.5.0 (2026-09-10): Added Ad-Hoc Entry - authors a slim plan.md (with the Summary section archival needs) when the user requests GUI work directly with no plan document, so insight capture, synthesis, and archival run unchanged
   1.4.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across content sections; reference material moved before the protocol; verification split into three phases; added Rework Handling, Self-Validation Checklist, plan-source constraints, AX feedback and archival verification; scenarios checkpoint added to the workflow
   1.3.2 (2026-08-24): Added sink-compilation authoring instruction to Interface Insights template slot; renamed ambiguous 'How to Record Observations' heading to 'Observation Reporting Rules'
   1.3.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
