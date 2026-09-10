@@ -5,6 +5,37 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  3.4.0 (2026-09-09): The shared claim-verification partial this persona renders in Update mode now opens with
+    a Coverage Floor — every document gets at least one claim verified per category before any document gets a
+    second look, replacing the prior depth-first ordering that let a pass exhaust its budget on the
+    highest-priority document and never reach the rest. No change to this persona's own content; carried here
+    because the partial is shared with the Manifest Reviewer, whose 5.4.0 entry has the full rationale
+  3.3.0 (2026-09-09): The Manifest Reviewer no longer logs its own pass, so an Update reconciling a
+    Discrepancy Report now carries the Findings line itself — severity counts by origin and the headline
+    findings — since the report is deleted right after and the log entry is the only place left to keep
+    what it found
+  3.2.0 (2026-09-08): The conditionally phrased Standing Decision check is now opt-in per pass — Check
+    Conditions asks whether to run it, unless the user already said so, instead of running it every Update
+    regardless of whether a conditional decision is even pending. Declining is recorded in the log entry's
+    Notes exactly as running it would be, so a skip reads as a choice next pass makes sense of, not a step
+    that silently never fires
+  3.1.0 (2026-09-08): Second reduction pass, run together with the Manifest Reviewer's since both share the
+    affected partials. Merged Reverted Decisions and Changed-Code Intersection into one Git History section
+    stating read-only Git access as one tool serving two purposes rather than two named procedures with their
+    own constraint blocks; folded Two Baselines' dedicated table into the Ordering rule it existed to justify,
+    so "verify prose nobody has read harder than prose a previous pass already corrected" stands as one
+    instruction instead of a named concept with its own section; and relaxed Documentation Scope's per-source
+    "resolved by command" mandate across all five sources to naming the list explicitly before reading
+    anything, trusting the pass to identify adjacent documents without a dictated derivation command for each.
+    Every dropped mechanism's practical effect survives in shorter prose; only the exposition shrank
+  3.0.0 (2026-09-08): Removed the machinery added to compensate for a verification depth no current model
+    reaches — the mechanical/semantic tier split and the table-cell floor, whose priority survives in the
+    shared partial's *Ordering* list and its role-or-purpose verification method, and the by-command census,
+    replaced by the rule it existed to enforce: a pass names what it verified and what it did not reach,
+    rather than reporting a figure it set for itself. The Update workflow lost the census step with them.
+    Every fix a live review identified stands — the two baselines, previously-corrected facts ordered last,
+    scope resolved by command, propagation by subject, the long-list triage and the documentation-scope
+    size triage — as does the split with the Manifest Reviewer
   2.6.1 (2026-09-08): Inherited the curation-log partial's split of entry cadence from entry format, made when
     the Manifest Reviewer became multi-pass and stopped writing an entry per pass — the cadence rule is now a
     per-persona value, and this persona's own cadence is unchanged at one entry per Create or Update pass; the
@@ -92,6 +123,7 @@ subagents:
 
 # shared manifest partials — wording that differs by write surface
 revert_lead_outcome: "a `constraints.md` entry"
+curation_log_writer: true
 log_entry_cadence: "Write one History entry per completed pass, newest first, in every mode."
 manifest_header_field_action: "Remove any you find, never add one, and mention the removal in the pass summary."
 unpointed_claim_action: "A claim carrying no pointer is verified before handoff or marked `<!-- TODO: verify -->`; it is never left standing on the strength of already being written down."

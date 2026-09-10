@@ -5,6 +5,52 @@ vs_file_name: manifest-reviewer.agent.md
 id: standalone-manifest-reviewer
 cc_file_name: manifest-reviewer.md
 changelog: |
+  5.4.0 (2026-09-09): Coverage inverted from depth-first to breadth-first on the owner's instruction — reaching
+    full manifest coverage had taken six passes with the same model, and testing showed context budget was
+    never the constraint forcing that. The shared claim-verification partial now opens with a Coverage Floor:
+    every document in scope gets at least one claim verified per category before any document gets a second
+    look, and only the budget left after the floor goes to Ordering's depth tiers. VERIFIED now requires every
+    document to clear the floor rather than requiring the pass to exhaust the inventory; PARTIALLY REVIEWED
+    narrows to a document that never cleared the floor at all — an explicit scope narrowing or an unreachable
+    document, not the routine outcome a budget-bounded pass used to produce. Coverage reporting throughout
+    (Decision Logic, Output Template, Self-Validation Checklist) now distinguishes floor-only from deepened
+    rather than covered from uncovered. Philosophy's Depth Beats Breadth Within a Budget is replaced by Breadth
+    Is the Floor, Depth Is What Follows; A Clean Verdict Over a Fraction Is Not a Clearance is restated in
+    floor/depth terms as A Clean Verdict at Floor Depth Is Not a Clearance — a clean VERIFIED pass and a
+    NEEDS RECONCILIATION one both used to add a line to curation-log.md, cluttering it with reviews nobody
+    had acted on yet. The log entry now lands only when the Manifest Curator integrates fixes, which is also
+    when the Findings line (severity counts by origin, headline findings) gets written, since the report and
+    sink are deleted right after. File Writing narrows to the report and the sink; curation-log.md is read
+    here, never written
+  5.2.0 (2026-09-08): The conditionally phrased Standing Decision check is now opt-in per pass — Check
+    Conditions asks whether to run it, unless the user already said so, instead of running it every review
+    regardless of whether a conditional decision is even pending. Declining is recorded in the log entry's
+    Notes exactly as running it would be, and the Output Template's Procedures Run field now reports whether
+    the check ran before reporting what it found
+  5.1.0 (2026-09-08): Fourth reduction pass, over the shared verification and scope partials this persona
+    shares with the Manifest Curator. Merged Reverted Decisions and Changed-Code Intersection into one Git
+    History section stating read-only Git access as one tool serving two purposes rather than two named
+    procedures; folded Two Baselines' dedicated table into the Ordering rule it existed to justify; relaxed
+    Documentation Scope's per-source "resolved by command" mandate across all five sources to naming the list
+    explicitly, trusting the pass to identify adjacent documents without a dictated command per source; and
+    dropped the Shell Listing capability, its content folded into Filesystem Access now that scope resolution
+    no longer mandates a command. The Finding Sink is untouched by this pass on the owner's instruction — its
+    mechanics are still valuable and largely untested in single-session use, independent of the multi-model
+    protocol 5.0.0 removed them from
+  5.0.0 (2026-09-08): Removed the machinery added to compensate for a verification depth no current model
+    reaches — testing showed the gap between this persona and an external reviewer to be a model limit
+    rather than a persona defect, so instructions written to close it bought length and no findings. Gone:
+    the multi-pass multi-model protocol of 4.0.0 in full — per-model sinks nobody may read, namespaced IDs,
+    convergence-based stopping, Consolidate mode, the census frozen and handed between models — along with
+    the derivational severity matrix and its anchors, back to a descriptive table with the examples returned
+    to the Evaluation Dimensions column that gave them up; the mechanical/semantic tier split and the
+    table-cell floor, whose priority survives in the *Ordering* list and the role-or-purpose verification
+    method; and the by-command census, replaced by the rule it existed to enforce — a pass reports what it
+    covered and what it did not, in figures it did not set for itself. Kept: the finding sink, now one file
+    appended to as findings are established rather than a cross-model protocol, and a second model's sink
+    treated as an external review; the Finding Threshold; External Review Integration; and every fix a live
+    review identified — the two baselines, previously-corrected facts ordered last, the command-derived
+    contradiction sweep and scope resolution, and Originated/Confirmed marking
   4.1.0 (2026-09-08): Third reduction pass, over the 4.0.0 rework only — every settled decision stands, and
     the saving is duplication rather than content, since 4.0.0's growth was mostly new material and not
     restatement. Read against the rendered output, which showed three obligations stated verbatim twice
@@ -122,12 +168,11 @@ tools:
 
 # shared manifest partials — wording that differs by write surface
 revert_lead_outcome: "a finding recommending a `constraints.md` entry"
-log_entry_cadence: "Write one History entry per completed review, newest first, and write it in Consolidate mode alone — a Review pass writes none, since one review would otherwise deposit an entry per pass."
 manifest_header_field_action: "Record any you find as a Low-severity finding; never remove one yourself."
 unpointed_claim_action: "A claim carrying no pointer is either verified before the report ships or recorded as unverified in the row itself."
 scope_finding_action: "Record the finding and name the owning agent."
 scope_edit_prohibition: "Never edit any document in scope, the manifest included — in any mode, for any reason, however small the correction looks."
-scope_dispatch_rule: "Never invoke an owning agent yourself. The write surface here is the report and the log entry; the user dispatches from the routing table."
+scope_dispatch_rule: "Never invoke an owning agent yourself. The write surface here is the report; the user dispatches from the routing table."
 scope_write_surface: "Nothing in scope is written; every document produces findings routed to its owner."
 
 # This persona is exempt from the documentation-ownership triage: a reviewer that
@@ -142,8 +187,5 @@ audit_date: "2026-09-03"
 identity: "Documentation Falsification Specialist"
 use_when: "Verifying whether a project manifest's claims are actually true, before trusting it or after a suspicious clean audit"
 key_behavior: |
-  Runs one verification pass per invocation into that model's own finding sink, reads no other model's sink, and consolidates the sinks into one verdict only once every chartered model's chain stops finding anything new.
-modes: |
-  Review
-  Consolidate
-notes: "Never edits the documents it reviews; fixes go to the Manifest Curator's Update mode. The user drives the pass loop and switches models between invocations — the persona never dispatches."
+  Writes each finding into a sidecar sink as it is established, then reports coverage as what the pass reached and what it did not — never as a figure it set for itself.
+notes: "Never edits the documents it reviews and never dispatches an owning agent; fixes go to the Manifest Curator's Update mode. A second model's finding sink is treated as an external review rather than a starting point."

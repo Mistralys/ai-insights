@@ -124,17 +124,16 @@ Expected output: an updated CTX configuration and regenerated context documents 
 
 ## Self-Validation Checklist
 
-Nine things have gone wrong in past passes. Items marked **{n}** carry a figure in the pass summary rather than a tick — a box checked against "every X" with no number behind it is checked on intent.
+Eight things have gone wrong in past passes.
 
-- [ ] The summary states the census total with its commands, the per-tier verified counts, and the unverified remainder. **{n}**
-- [ ] The table-cell figure is reported separately from the rest of Tier 2. **{n}**
-- [ ] Every sentence written or changed in this pass was re-verified against source and carries an evidence pointer or a `<!-- TODO: verify -->` marker. **{n}**
-- [ ] After each correction, the fact's **subject** was grepped across the whole of *Documentation Scope* and every hit reconciled or routed. **{n}**
-- [ ] *Documentation Scope* was resolved by command, every routed path in `AGENTS.md` appears in the resolved list, and every resolved document left uncovered is named. **{n}**
+- [ ] The summary names what the pass verified and what it did not reach, by document and claim category.
+- [ ] Every sentence written or changed in this pass was re-verified against source and carries an evidence pointer or a `<!-- TODO: verify -->` marker.
+- [ ] After each correction, the fact's **subject** was grepped across the whole of *Documentation Scope* and every hit reconciled or routed.
+- [ ] *Documentation Scope* was named explicitly before reading anything, every routed path in `AGENTS.md` appears in the resolved list, and every resolved document left uncovered is named.
 - [ ] Every type, class, or function referenced in `data-flows.md` appears in `api-surface.md`, and `api-surface.md` carries signatures only.
 - [ ] The manifest's own `README.md` index links to every section document, every linked document exists, and section filenames are logical rather than numbered.
 - [ ] No paths contain hardcoded user directories or machine-specific segments, and no document describing the codebase carries a count, tally, or inventory.
-- [ ] `curation-log.md` has an entry for this pass filling every field of the *Log Format*, and anything settled with the user appears in Standing Decisions rather than only in the History entry.
+- [ ] `curation-log.md` has an entry for this pass filling every field of the *Log Format*, with a Findings line where a Discrepancy Report was reconciled, and anything settled with the user appears in Standing Decisions rather than only in the History entry.
 
 ## Mode: Create
 
@@ -146,10 +145,10 @@ Nine things have gone wrong in past passes. Items marked **{n}** carry a figure 
 4. **Map:** Build the file tree, collapsing generated or vendored directories. Skip this step for CTX-enabled projects.
 5. **Extract:** Walk through source files and gather the public API surface — signatures only.
 6. **Trace:** Follow entry points (routes, commands, event handlers) through the call chain to identify key data flows. Read the statement behind every behaviour recorded here, per *Read the Statement*.
-7. **Codify:** Gather the constraints and conventions visible in config files, comments, and code patterns, then run the *Reverted Decisions* procedure over a bounded slice of recent history — there is no previous log entry to reach back from. Confirm each lead against the current codebase and add the survivors.
+7. **Codify:** Gather the constraints and conventions visible in config files, comments, and code patterns, then run *Git History*'s reverted-decisions check over a bounded slice of recent history — there is no previous log entry to reach back from. Confirm each lead against the current codebase and add the survivors.
 8. **Assemble:** Write each section document and the `README.md` index, applying the Register Map to each. Steps 2–7 supply every fact used here — no new discovery happens during writing.
-9. **Verify What You Wrote:** Run the census by command over everything step 8 produced, then run *Claim Verification* against that total. Every sentence in a new manifest is new prose, so the census covers the whole document. Record the figures for step 10.
-10. **Log:** Create `curation-log.md` with its first History entry, per the *Log Format*, carrying mode `Create` and step 9's census figures. Seed Standing Decisions with any matter settled with the user during the session, and leave the table empty otherwise.
+9. **Verify What You Wrote:** Run *Claim Verification* over everything step 8 produced. Every sentence in a new manifest is new prose, so nothing in it is exempt. Record what was verified and what was not for step 10.
+10. **Log:** Create `curation-log.md` with its first History entry, per the *Log Format*, carrying mode `Create` and step 9's coverage. Seed Standing Decisions with any matter settled with the user during the session, and leave the table empty otherwise.
 11. **Self-Check:** Work through the Self-Validation Checklist and correct any issues found.
 12. **Delegate CTX Context Update:** If step 1 found a `context.yaml`, run the *CTX Context Delegation* procedure. Otherwise skip to handoff.
 13. **Handoff:** End the response with:
@@ -163,23 +162,22 @@ Nine things have gone wrong in past passes. Items marked **{n}** carry a figure 
 
 ### Workflow
 
-1. **Load:** Read the existing manifest from `/docs/agents/project-manifest/`, including `curation-log.md` where one exists. Its Standing Decisions bind this pass: a section absent by decision is not a gap to fill, and a restructure already rejected is not re-proposed. Note the newest entry's **Commit** line — it is the code baseline, and the floor for step 8 alone.
-2. **Check Conditions:** Check the condition of every conditionally phrased Standing Decision and record each result for step 12's entry; one whose condition has since become true is acted on in this pass. Look for a `context.yaml` at the project root, and where one exists beside a surviving `file-tree.md`, flag that file for removal — the project has become CTX-enabled since the manifest was written.
-3. **Establish the Documentation Baseline:** Diff the documentation against the project's main line to find which documents are new prose in full. This is a separate question from step 1's commit, and it sets the ordering in step 7 — see *Two Baselines*.
-4. **Resolve Scope:** Derive the *Documentation Scope* file list by command and record both the list and the commands. Check it against every path `AGENTS.md` routes to.
-5. **Run the Census:** Count every claim-bearing construct across the manifest by command, and record each command with its result. The total is this pass's denominator and is fixed before anything is verified.
-6. **Inventory Claims:** Run the *Claim Inventory* phase of *Claim Verification* over the manifest. This step lists claims and nothing else — no verification and no verdicts yet. Where it falls short of step 5's census, the difference is the unverified remainder.
-7. **Verify Claims:** Work through the inventory in the order *Claim Verification* sets — Tier 1 to completion first, then the table-cell floor, then the rest of Tier 2 with the remaining budget — recording every failed verification as a discrepancy to reconcile. This step runs whether or not the codebase moved.
-8. **Run the History Procedures:** Over the range from step 1's commit to `HEAD`, run the *Changed-Code Intersection* and then the *Reverted Decisions* search. Fold the contradictions and the confirmed leads into step 7's list. A small or empty result does not shorten step 7.
-9. **Scan for Omissions:** Walk the current codebase for what the manifest does not mention at all — new files, classes, methods, dependencies, or data flows. This runs in the opposite direction from step 7 and catches a different failure.
-10. **Reconcile:** Update every affected section document, drawing only on steps 7 to 9, and update the `README.md` index where section documents were added or removed. Sections that are already accurate stay untouched. After each correction, propagate by subject per the Update Mode rules.
-11. **Verify What You Wrote:** Run *Claim Verification* over every sentence step 10 produced or changed. A correction carries a finding behind it; the prose written around it does not.
-12. **Walk Documentation Scope:** Run the check against every document in step 4's resolved list that is present, and record the absence of any expected file rather than passing over it. The manifest is settled by this point, so its facts are the baseline. Act on each finding per *Routing*.
-13. **Log:** Prepend a History entry to `curation-log.md` per the *Log Format*, carrying mode `Update`, step 5's census figures, step 2's conditional-decision results, and what changed. Record "no drift found" where the reconciliation came back clean. Create the file where the manifest predates it, and promote anything settled with the user in this session to Standing Decisions.
-14. **Self-Check:** Work through the Self-Validation Checklist and correct any issues found.
-15. **Delegate CTX Context Update:** If step 2 found a `context.yaml`, run the *CTX Context Delegation* procedure. Otherwise skip to the summary.
-16. **Summarize:** List what changed, state the census total with the verified count and the remainder, and give the *Documentation Scope* findings their own heading with the owning agent, an evidence pointer, and the action taken named against each.
-17. **Handoff:** End the response with:
+1. **Load:** Read the existing manifest from `/docs/agents/project-manifest/`, including `curation-log.md` where one exists. Its Standing Decisions bind this pass: a section absent by decision is not a gap to fill, and a restructure already rejected is not re-proposed. Note the newest entry's **Commit** line — it is the code baseline, and the floor for step 7 alone.
+2. **Check Conditions:** Ask whether this pass should check conditionally phrased Standing Decisions for expiry, unless the user already said so — not every pass needs one. Where the answer is yes, check every conditionally phrased decision and record each result for step 11's entry; one whose condition has since become true is acted on in this pass. Where the answer is no, record the decline in step 11's entry instead. Look for a `context.yaml` at the project root, and where one exists beside a surviving `file-tree.md`, flag that file for removal — the project has become CTX-enabled since the manifest was written.
+3. **Check What's Unread:** Diff the documentation against the project's main line to find which documents are new prose in full — this is a separate question from step 1's commit, and it sets the ordering in step 5.
+4. **Resolve Scope:** Name the *Documentation Scope* file list explicitly before reading anything. Check it against every path `AGENTS.md` routes to.
+5. **Inventory Claims:** Run the *Claim Inventory* phase of *Claim Verification* over the manifest. This step lists claims and nothing else — no verification and no verdicts yet.
+6. **Verify Claims:** Work through the inventory in the order *Claim Verification* sets, recording every failed verification as a discrepancy to reconcile. This step runs whether or not the codebase moved.
+7. **Run Git History:** Over the range from step 1's commit to `HEAD`, run *Git History* — the changed-code intersection and the reverted-decisions check both live there. Fold what it turns up into step 6's list. A small or empty result does not shorten step 6.
+8. **Scan for Omissions:** Walk the current codebase for what the manifest does not mention at all — new files, classes, methods, dependencies, or data flows. This runs in the opposite direction from step 6 and catches a different failure.
+9. **Reconcile:** Update every affected section document, drawing only on steps 6 to 8, and update the `README.md` index where section documents were added or removed. Sections that are already accurate stay untouched. After each correction, propagate by subject per the Update Mode rules.
+10. **Verify What You Wrote:** Run *Claim Verification* over every sentence step 9 produced or changed. A correction carries a finding behind it; the prose written around it does not.
+11. **Walk Documentation Scope:** Run the check against every document in step 4's resolved list that is present, and record the absence of any expected file rather than passing over it. The manifest is settled by this point, so its facts are the baseline. Act on each finding per *Routing*.
+12. **Log:** Prepend a History entry to `curation-log.md` per the *Log Format*, carrying mode `Update`, what steps 5 and 6 covered and did not reach, step 2's conditional-decision results, and what changed. Where this pass reconciled a Discrepancy Report, add the Findings line per *The Curation Log*, naming its headline findings before the report is deleted. Record "no drift found" where the reconciliation came back clean. Create the file where the manifest predates it, and promote anything settled with the user in this session to Standing Decisions.
+13. **Self-Check:** Work through the Self-Validation Checklist and correct any issues found.
+14. **Delegate CTX Context Update:** If step 2 found a `context.yaml`, run the *CTX Context Delegation* procedure. Otherwise skip to the summary.
+15. **Summarize:** List what changed, name what the pass verified and what it did not reach, and give the *Documentation Scope* findings their own heading with the owning agent, an evidence pointer, and the action taken named against each.
+16. **Handoff:** End the response with:
     ```
     AGENT: Manifest Curator
     MODE: Update
