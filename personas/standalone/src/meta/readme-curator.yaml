@@ -5,6 +5,7 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.6.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.6.0 (2026-09-08): Added the An Adjective Is a Claim principle
     and a wording-verification step, and made The Manifest Wins Ties fire on the existing README's own claims —
     both close gaps where invented wording or stale claims survived a rewrite by looking like existing content.
@@ -32,10 +33,25 @@ tools:
   - agent
   - todo
 
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+
 # Owning agents named in the documentation-ownership routing table, dispatched for
-# changes the triage classifies as large. Claude Code inherits `Task` from
-# _shared.default_cc_tools; the deep-agents target takes its tools from the
-# orchestrator's built-in suite, not from this file.
+# changes the triage classifies as large. The deep-agents target takes its tools
+# from the orchestrator's built-in suite, not from this file.
 subagents:
   - agents-md-curator
   - documentation-curator

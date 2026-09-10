@@ -5,6 +5,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.1.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   2.1.0 (2026-09-08): Findings outside `AGENTS.md` are now acted on rather than only reported — the shared
     ownership table carries a size triage that corrects small errors in place and dispatches the owning agent
     for anything larger, without asking the user first. The previous "never edit, never dispatch" pair read as
@@ -44,10 +45,25 @@ tools:
   - agent
   - todo
 
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which lacks Task.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+
 # Owning agents named in the documentation-ownership routing table, dispatched for
-# changes the triage classifies as large. Claude Code inherits `Task` from
-# _shared.default_cc_tools; the deep-agents target takes its tools from the
-# orchestrator's built-in suite, not from this file.
+# changes the triage classifies as large. The deep-agents target takes its tools
+# from the orchestrator's built-in suite, not from this file.
 subagents:
   - manifest-curator
   - documentation-curator
