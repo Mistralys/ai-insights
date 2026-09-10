@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
+import { validateCcToolsInDirs } from './lib/cc-tools-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
 import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
 
@@ -467,6 +468,27 @@ if (!CHECK) {
 
   if (errors.length > 0) {
     console.error('\n[ERROR] insight_agent validation failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+
+// Always: validate cc_tools / subagents consistency.
+// A persona that lists subagents but lacks Task in its effective Claude Code
+// tool list cannot dispatch them — fail hard so it is caught before release.
+{
+  const suiteMetas = [
+    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
+    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
+  ];
+
+  const errors = validateCcToolsInDirs(suiteMetas);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] cc_tools / subagents validation failed:\n');
     for (const err of errors) {
       console.error('  ' + err);
     }
