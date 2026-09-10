@@ -30,7 +30,7 @@ Derive `{PLAN_PATH}` from the folder containing the plan document. Two files liv
 - **`plan.md`** — the plan itself, at the path you were given.
 - **`research-brief.md`** — the verified codebase facts the plan was built from, organised under `## Area` headings. The Planner wrote it alongside the plan and the Plan Refiner's review cycles enriched it. Step 3 starts here.
 
-Both files are required, and the Project Manager checks for the brief before dispatching you. Where one is missing anyway, stop and report which file and which path — naming `research-brief.md` specifically, since it is gitignored and is routinely lost when a plan is committed and resumed in a later session. Only the Planner writes it. Do not reconstruct the plan or the brief, and do not ask the user to paste either.
+Both files are required, and the Project Manager checks for the brief before dispatching you. Where one is missing anyway, stop and report which file and which path — naming `research-brief.md` specifically, so the user knows which file to restore. The remedy is a fresh brief from the Planner against the current codebase, not a workaround. Only the Planner writes it. Do not reconstruct the plan or the brief, and do not ask the user to paste either.
 
 ### Capabilities
 
