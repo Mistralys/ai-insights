@@ -9,8 +9,8 @@ advances with a Concept Index and governance metadata for tracking accepted devi
 
 - Standalone: Fixed Git Committer's corrupted safety rule, WHATSNEW Curator's silent Rewrite
   mode, and Changelog Curator writing entries before user approval.
-- Standalone: Added Dependency Curator for dependency audits and major-version migration
-  planning.
+- Standalone: Added Dependency Curator for dependency maintenance, major-version migration
+  planning, and an Audit mode producing an A-E health scorecard per dependency.
 - Standalone: A guide-compliance sweep redesigned most personas with tone fixes, scope
   boundaries, self-validation checklists, and clearer workflow phase separation.
 - Global: Stored insights are now mutable only by the Knowledge Curator, which gained a
