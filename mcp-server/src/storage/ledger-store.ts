@@ -30,6 +30,18 @@ export interface MetaCacheUpdates {
   repository_name?: string | null;
   outcome_summary?: string | null;
   project_summary?: string | null;
+  /**
+   * Optional human-readable display title. Passed in via `initializeProject()` as a
+   * cacheUpdates field, and auto-synced from `RootIndex.title` by `writeRootIndex()`
+   * for every write path (including `importStandaloneProject()`).
+   *
+   * **Semantics:** `title` is a non-nullable string — use `!== undefined` to test for
+   * presence. Contrast with nullable fields (`project_name`, `outcome_summary`, etc.)
+   * which use `'key' in cacheUpdates` semantics so that an explicit `null` can clear
+   * the stored value. `title` has no "clear" use case, so the simpler `!== undefined`
+   * check is sufficient and consistent with other non-nullable fields like `runner`.
+   */
+  title?: string;
   runner?: string;
   runner_client?: string;
   runner_version?: string;
@@ -60,6 +72,8 @@ export interface ImportStandaloneDetail {
   pipelineSummary: string[];
   /** Optional curated project summary to store in root index and .meta.json. */
   projectSummary?: string;
+  /** Optional human-readable display title. Stored in the root index and auto-synced to .meta.json. */
+  title?: string;
 }
 
 /**
@@ -287,6 +301,10 @@ export class LedgerStore {
       ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
       ...('outcome_summary' in validated ? { outcome_summary: validated.outcome_summary } : {}),
       ...('project_summary' in validated ? { project_summary: validated.project_summary } : {}),
+      // MetaCacheUpdates.title is non-nullable (no "clear" use case) even though
+      // RootIndexSchema.title is nullable for shape parity with project_summary —
+      // coalesce a theoretical `null` to `undefined` (a no-op skip) rather than write it.
+      ...(validated.title !== undefined ? { title: validated.title ?? undefined } : {}),
     }, options);
   }
 
@@ -522,6 +540,9 @@ export class LedgerStore {
    *                       (nullable strings — use key-presence semantics: `'key' in cacheUpdates`
    *                       distinguishes an explicit `null` clear from an absent field that should be
    *                       left unchanged);
+   *                       `title` (non-nullable string, `!== undefined` semantics — only used by
+   *                       `initializeProject`; `importStandaloneProject` threads `title` through
+   *                       the root index instead, auto-synced here by `writeRootIndex()`);
    *                       `runner`, `runner_client`, `runner_version` (runner metadata).
    * @param options      - Set `preserveLastUpdated: true` to retain the existing timestamp
    *                       (use for admin operations: archive, unarchive, cache refresh).
@@ -556,6 +577,9 @@ export class LedgerStore {
       date_created: existing.date_created ?? timestamp,
       last_updated: lastUpdated,
       ...(existing.title !== undefined ? { title: existing.title } : {}),
+      // Allow cacheUpdates to set or override the display title (used by initializeProject;
+      // importStandaloneProject now threads title through the root index, auto-synced above).
+      ...(cacheUpdates !== undefined && cacheUpdates.title !== undefined ? { title: cacheUpdates.title } : {}),
       // Preserve existing cache fields unless overridden by cacheUpdates
       ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),
       ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
@@ -800,6 +824,7 @@ export class LedgerStore {
         outcome_summary: detail.outcomeSummary,
         runner: 'standalone',
         ...(detail.projectSummary !== undefined ? { project_summary: detail.projectSummary } : {}),
+        ...(detail.title !== undefined ? { title: detail.title } : {}),
       };
 
       const wpDetail: WorkPackageDetail = {
@@ -824,7 +849,8 @@ export class LedgerStore {
         last_updated: timestamp,
       };
 
-      // Write WP detail first (no meta sync), then root index (auto-syncs .meta.json).
+      // Write WP detail first (no meta sync), then root index (auto-syncs .meta.json,
+      // including title).
       await this.writeWorkPackage('WP-001', wpDetail);
       await this.writeRootIndex(rootIndex);
 

@@ -615,6 +615,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
 | `summary-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
 | `research-brief-protocol.md` | Plan Auditor, Plan Architect Reviewer | `{{brief_tag}}`, `{{brief_purpose}}`, `{{brief_contributor}}`, `{{brief_authority}}`, `{{brief_report_file}}`; placement: after Outputs, before the Operational Protocol. Contains the orient / size-estimate / contribute-back steps and a consolidated Constraints block. Consumers must supply all five variables, provide a **Research brief** line in their output template, and carry both a brief-existence workflow checkpoint and a contribute-back step. |
+| `title-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 

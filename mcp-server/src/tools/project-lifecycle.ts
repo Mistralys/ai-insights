@@ -542,9 +542,20 @@ export const InitializeProjectSchema = z.object({
     ),
   project_summary: z
     .string()
+    .trim()
     .min(1)
     .optional()
     .describe('Optional curated summary of the project plan. Displayed on the GUI project detail page instead of the auto-extracted plan synopsis when provided.'),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      'Optional human-readable display title for the project (e.g. "API: Split GetTenants" or "Cross-Platform Agent Plugin - Phase 3B"). ' +
+      'Shown in the GUI project list and detail pages. When omitted, the GUI falls back to a title-cased version of the slug.'
+    ),
 });
 
 async function initializeProject(
@@ -662,6 +673,7 @@ async function initializeProject(
     server_version: SERVER_VERSION,
     ...runnerInfo,
     ...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {}),
+    ...(args.title !== undefined ? { title: args.title } : {}),
   };
 
   try {
@@ -681,6 +693,7 @@ async function initializeProject(
         repository_name: repositoryName,
         ...runnerInfo,
         ...(args.project_summary !== undefined ? { project_summary: args.project_summary } : {}),
+        ...(args.title !== undefined ? { title: args.title } : {}),
       });
       enrichmentCached = true;
     } catch (enrichErr) {
