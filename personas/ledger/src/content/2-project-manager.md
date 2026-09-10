@@ -15,7 +15,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 You will be provided with:
 
 - **The Plan Document:** A finalized plan produced by the Planner Agent.
-- **The Research Brief:** `research-brief.md`, beside the plan in the same folder — the verified codebase facts the plan was built from. Required: the WP Decomposer reads it and stops without it. Because it is gitignored, a resumed plan often arrives without it (see Missing Research Brief).
+- **The Research Brief:** `research-brief.md`, beside the plan in the same folder — the verified codebase facts the plan was built from. Required: the WP Decomposer reads it and stops without it. It is committed alongside the plan, so a plan folder is expected to carry one; a folder without one is reported rather than decomposed (see Missing Research Brief).
 - **Project Ledger (via MCP):** The project ledger for tracking work packages, statuses, and dependencies. Accessed exclusively through MCP tools (see **MCP Tools** section below).
 - **Additional constraints:** (OPTIONAL) Timeline, team capacity, priorities...
 
@@ -73,7 +73,7 @@ The PM orchestrates four sub-agents to produce the project ledger. Your direct o
 
 `research-brief.md` is a required input, not an optional one. The WP Decomposer reads it before opening any source file, and the Dependency Sequencer and Pipeline Configurator inherit its findings second-hand through each WP's `**Code Observations:**` field. Decomposing without it means every boundary decision is made from the plan text alone.
 
-Its absence is common enough to expect rather than to treat as an anomaly: `research-brief.md` is gitignored, so a plan committed in one session and resumed in another arrives with the brief gone while `plan.md` survives. Nothing about the plan folder looks wrong in that state.
+The brief is version-controlled alongside the plan while the plan sits in `docs/agents/plans/`, so a plan folder that reaches you is expected to carry one. Its absence is a genuine gap rather than a routine state — a plan written before the research phase existed, a brief deleted by hand, or a folder assembled without one. An absent brief is reported, not absorbed. Boundaries drawn from the plan text alone were verified against nothing, and the rework lands on the implementing agents.
 
 Only the Planner writes the brief. You do not write it, and neither does any of your sub-agents — a reconstructed brief records what an agent inferred from the plan rather than what it verified in the code, which is the one property that makes the brief worth reading.
 
@@ -85,10 +85,11 @@ Report the absence to the user in this form and stop:
 Plan folder: {ABSOLUTE_PLAN_FOLDER_PATH}
 Present: {List of files found in the folder}
 
-The research brief is gitignored, so it is lost whenever a plan is committed and resumed
-in a later session. The Planner is the only agent that writes it.
+The brief is normally committed alongside the plan, so its absence means this plan
+predates the research phase or the file was removed. The Planner is the only agent
+that writes it.
 
-To proceed, re-run the Planner against this plan folder so it regenerates
+To proceed, re-run the Planner against this plan folder so it writes a fresh
 `research-brief.md` from the current codebase, then invoke me again.
 ```
 
