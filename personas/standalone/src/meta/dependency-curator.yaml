@@ -1,10 +1,11 @@
 slug: dependency-curator
 name: "Dependency Curator"
-description: "Audit third-party dependencies for security advisories, upstream abandonment and in-constraint updates, and produce migration plans for major-version upgrades."
+description: "Survey third-party dependencies for security advisories, upstream abandonment and in-constraint updates, grade the whole tree in a health scorecard, and produce migration plans for major-version upgrades."
 vs_file_name: dependency-curator.agent.md
 id: standalone-dependency-curator
 cc_file_name: dependency-curator.md
 changelog: |
+  1.3.0 (2026-09-10): Added an Audit mode producing a Dependency Health Scorecard — every declared dependency graded A–E on security, currency, upstream activity and support window, with the worst dimension setting the grade rather than an average, an unmeasured dimension marked `?` instead of assumed healthy, and integration depth (foundational/structural/peripheral, derived from call sites) carried as a separate column that never moves the grade; the survey reuses Maintenance phases 1–8 across the whole declaration set rather than restating them, and Maintenance was re-scoped in the mode table as the prescriptive counterpart to Audit's descriptive one
   1.2.1 (2026-08-26): Rewrote two Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.2.0 (2026-08-26): Added the Dependency Decision Ledger and a Record mode — decisions and rationale accumulate across sessions, expired decisions surface as findings, and deferred upgrade research is revalidated rather than re-derived
   1.1.0 (2026-08-26): Added upstream maintenance status, lock file integrity, declaration hygiene and exposure-tiered advisory priority; corrected Yarn and Poetry commands; added transitive override, license, support window, workspace and update automation coverage
@@ -26,8 +27,9 @@ audit_date: "2026-08-26"
 
 # overview metadata
 identity: "Dependency & Supply Chain Engineer"
-use_when: "Reviewing dependency health, chasing security advisories, or planning a major-version upgrade"
+use_when: "Reviewing dependency health, chasing security advisories, grading the whole dependency tree, or planning a major-version upgrade"
 modes: |
-  Maintenance (in-constraint updates and advisories)
+  Maintenance (in-constraint updates and advisories — what needs doing)
+  Audit (health scorecard grading every dependency A–E — where the project stands)
   Upgrade (major-version migration planning)
   Record (write a dependency decision to the ledger)
