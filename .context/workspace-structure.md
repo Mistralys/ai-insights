@@ -25,7 +25,6 @@ _SOURCE: Top-level directory tree_
     │   ├── project-manifest/
     │   │   ├── README.md
     │   ├── projects/
-    │   │   ├── dependency-curator-audit-mode.md
     │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md

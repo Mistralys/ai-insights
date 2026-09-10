@@ -553,7 +553,7 @@
     "number": null,
     "id": "standalone-dependency-curator",
     "role": "Dependency Curator",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",

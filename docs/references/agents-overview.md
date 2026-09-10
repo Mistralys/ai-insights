@@ -222,14 +222,14 @@ Design, generate, and maintain CTX Generator context documentation configuration
 
 ---
 
-### Dependency Curator (v1.2.1)
+### Dependency Curator (v1.3.0)
 
 **Identity:** Dependency & Supply Chain Engineer
 
-Audit third-party dependencies for security advisories, upstream abandonment and in-constraint updates, and produce migration plans for major-version upgrades.
+Survey third-party dependencies for security advisories, upstream abandonment and in-constraint updates, grade the whole tree in a health scorecard, and produce migration plans for major-version upgrades.
 
-- **Modes:** Maintenance (in-constraint updates and advisories), Upgrade (major-version migration planning), Record (write a dependency decision to the ledger)
-- **Use When:** Reviewing dependency health, chasing security advisories, or planning a major-version upgrade
+- **Modes:** Maintenance (in-constraint updates and advisories — what needs doing), Audit (health scorecard grading every dependency A–E — where the project stands), Upgrade (major-version migration planning), Record (write a dependency decision to the ledger)
+- **Use When:** Reviewing dependency health, chasing security advisories, grading the whole dependency tree, or planning a major-version upgrade
 
 ---
 
