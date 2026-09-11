@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-10
+> **Generated:** 2026-09-11
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.6.0)
+### Stage 1 — Planner (v2.8.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -332,13 +332,13 @@ Orchestrate iterative plan refinement: architectural review, finding integration
 
 ---
 
-### Planner — Standalone (v2.3.0)
+### Planner — Standalone (v2.4.0)
 
 **Identity:** Chief Product Officer (CPO)
 
 Produce clear, actionable, technically sound plans from feature requests or task descriptions.
 
-- **Modes:** Normal Planning, Synthesis Rework
+- **Modes:** Normal Planning, Synthesis Rework, Findings Integration
 - **Use When:** Creating a plan outside the ledger workflow, or reworking a plan based on synthesis feedback
 
 ---
