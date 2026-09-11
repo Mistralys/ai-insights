@@ -7,6 +7,9 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.8.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
+    `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
+    detection rule rather than only a Rework Handling section
   2.7.0 (2026-09-11): The ledger MCP server is now a hard prerequisite — a new workflow step 1 runs the
     `ledger_ping` pre-flight before any research, and an unreachable server stops the session instead of
     surfacing at archival time; standalone Planner named as the ledger-free alternative
@@ -76,3 +79,4 @@ key_behavior: |
 modes: |
   Normal Planning
   Synthesis Rework
+  Findings Integration

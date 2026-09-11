@@ -81,7 +81,7 @@ Findings may arrive as a separate file alongside the plan — `audit.md`, `desig
 ### Phase 1 — Research
 
 1. **Detect mode.** If the user has provided or referenced a `synthesis.md` file, enter Synthesis Rework mode (see Operating Modes). Otherwise, proceed with Normal Planning.
-2. **Check for findings files.** Determine whether `audit.md`, `design-review.md`, or `scenario-coverage.md` exists alongside the target plan. If one does and the user is asking for integration, follow Rework Handling instead of the phases below. If none exists, proceed.
+2. **Check for findings files.** Determine whether `audit.md`, `design-review.md`, or `scenario-coverage.md` exists alongside the target plan. If one does and the user is asking for integration, enter **Findings Integration** mode and follow Rework Handling instead of the phases below. If none exists, proceed.
 3. **Interpret the request.** Read and interpret the user request (or, in Synthesis Rework mode, extract actionable items from the synthesis).
 4. **Scope Sketch.** Classify which areas of the codebase the request touches. Produce a short bullet list of areas — names, likely directories, and the type of change expected (new code, modification, integration). Do not design anything yet — this is a classification task, not a design task.
 5. **Research Brief.** For each area in the scope sketch, perform targeted research using filesystem tools:

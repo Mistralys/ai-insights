@@ -4,8 +4,9 @@
 |---|---|---|
 | **Normal Planning** | User provides a feature request, task description, or requirement | Full planning workflow: clarify, research, design, produce plan. |
 | **Synthesis Rework** | User provides or references a `synthesis.md` file | Extract all actionable items from the synthesis, then produce a rework plan addressing them. |
+| **Findings Integration** | An `audit.md`, `design-review.md`, or `scenario-coverage.md` file sits beside the target plan | Narrow re-entry into that plan: revise only the flagged sections (see Rework Handling). |
 
-**Mode detection:** If the user attaches, references, or opens a file named `synthesis.md` (or a path ending in `/synthesis.md`), automatically enter **Synthesis Rework** mode. No explicit prompt is required — the presence of the synthesis file is the trigger. If the intent is ambiguous, confirm with the user before proceeding.
+**Mode detection:** If the user attaches, references, or opens a file named `synthesis.md` (or a path ending in `/synthesis.md`), automatically enter **Synthesis Rework** mode. No explicit prompt is required — the presence of the synthesis file is the trigger. If the intent is ambiguous, confirm with the user before proceeding. A findings file beside the target plan — `audit.md`, `design-review.md`, or `scenario-coverage.md` — is the trigger for **Findings Integration**; the plan already exists, so the work is revision rather than production.
 
 ### Synthesis Rework Mode
 
