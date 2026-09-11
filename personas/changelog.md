@@ -1,32 +1,48 @@
 # Personas Changelog
 
-## v3.32.0 - **WIP UNRELEASED**
+## v3.32.0 - Design Guide v3.5 & Research Briefs
 
-**This release completes a design-guide compliance sweep across the persona roster and fixes
-three long-standing agent bugs.** Every ledger-support persona passed its first design-guide
-audit, and a new Dependency Curator joins the standalone roster. The Persona Design Guide itself
-advances with a Concept Index and governance metadata for tracking accepted deviations.
+**The Persona Design Guide reaches v3.5 after a compliance sweep that touched nearly every 
+persona in the roster.** Research briefs are now a first-class workflow artifact — the 
+Project Manager verifies one exists before dispatching sub-agents, and the Git Committer 
+manages its lifecycle alongside the plan. The Security Auditor now blocks releases on 
+medium-severity findings, and a new Dependency Curator joins the standalone roster for 
+dependency health audits. 
 
-- Standalone: Fixed Git Committer's corrupted safety rule, WHATSNEW Curator's silent Rewrite
-  mode, and Changelog Curator writing entries before user approval.
+- Ledger: PM verifies research-brief.md exists before dispatching sub-agents, with a dedicated
+  missing-brief report; gained the Task tool for Claude Code sub-agent dispatch.
+- Ledger: Security Auditor now blocks on medium-severity findings (previously high only).
+- LedgerSupport: WP Decomposer consumes the research brief's structural findings as verified
+  input.
+- LedgerSupport: Bootstrapper and Standalone Archiver gained a title-crafting guide for
+  curated project display titles.
+- Standalone: Git Committer now stages research-brief.md with the plan and removes it (rather
+  than archiving it) on completion; fixed a corrupted safety rule.
+- Standalone: Fixed WHATSNEW Curator's silent Rewrite mode and Changelog Curator writing
+  entries before user approval.
 - Standalone: Added Dependency Curator for dependency maintenance, major-version migration
   planning, and an Audit mode producing an A-E health scorecard per dependency.
+- Standalone: Persona Curator gained a Reduce mode that trims bloat accumulated across
+  repeated audits.
+- Standalone: Documentation, README, AGENTS.md, and Manifest curators now correct small
+  out-of-scope issues directly and dispatch the owning agent only for larger ones; Manifest
+  Curator also gained a curation log and Git-history verification.
 - Standalone: A guide-compliance sweep redesigned most personas with tone fixes, scope
   boundaries, self-validation checklists, and clearer workflow phase separation.
-- Global: Stored insights are now mutable only by the Knowledge Curator, which gained a
-  Targeted Reconciliation mode for entries a completed plan overtook.
-- Global: Shared partials now cover the Planner and Developer personas across the ledger
-  and standalone suites, reducing duplicated maintenance.
-- Support: Every ledger-support persona (Dependency Sequencer, WP Decomposer, Pipeline
+- LedgerSupport: Every ledger-support persona (Dependency Sequencer, WP Decomposer, Pipeline
   Configurator, Bootstrapper, Knowledge Curator, Knowledge Archiver, Standalone Archiver)
   passed its first design-guide audit.
-- Docs: Persona Design Guide advanced with a Concept Index and governance metadata for
-  tracking accepted deviations, and documented that downstream projects fetch it and the
-  Persona Curator content as breaking-change anchors.
-- Build: Added automated checks that flag imperative-voice philosophy principles and an
-  oversized newest changelog entry.
-- Build: Added Claude tools validation for agents that declare subagents.
-- Global: Added missing Claude subagent declarations for a selection of personas.
+- Global: Code insights now split into implementation decisions and follow-up items for
+  clearer reporting.
+- Global: Stored insights are mutable only by the Knowledge Curator, which gained a Targeted
+  Reconciliation mode for entries a completed plan overtook; the Knowledge Archiver now reads
+  live pipeline comments instead of the retired insight sidecar file.
+- Global: Shared partials now cover the Planner and Developer personas across the ledger
+  and standalone suites, reducing duplicated maintenance.
+- Docs: Persona Design Guide reached v3.5 — added a Concept Index, a canonical principle
+  registry, a bloat-trimming Reduction Pass, and a Prose Density pass.
+- Build: Added automated checks for imperative-voice philosophy principles, oversized
+  changelog entries, and missing Claude subagent tool declarations.
 
 ## v3.31.0 - Insight Channel Consolidation and Usage Scenarios Curator
 

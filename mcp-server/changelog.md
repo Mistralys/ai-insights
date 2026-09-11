@@ -1,5 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.9.0 - Curated Project Titles
+
+**Projects can now carry an agent-curated display title, replacing slug-derived title-casing
+with a human-readable name curated by the agent that creates or imports the project.**
+
+- Tools: Added a `title` parameter to project init and import tools for curated display names.
+- Schema: Title and summary fields now trim surrounding whitespace before validation.
+- GUI: Fixed the Model Registry save button becoming unresponsive.
+- Tests: Expanded lifecycle and standalone-import coverage for the new title field.
+
 ## v2.8.0 - Multi-Store Ledger and Observation Routing
 
 **This release introduces the multi-store storage layer, allowing users to register multiple

@@ -1,5 +1,23 @@
 # AI Insights Changelog
 
+## v2.10.0 - Research Briefs and Curated Project Titles
+> mcp v2.9.0 · personas v3.32.0
+
+**Projects can now carry an agent-curated display title instead of a slug-derived name, and
+research briefs are now enforced as a first-class workflow artifact.** The Project Manager
+verifies a research brief exists before dispatching work, and the Persona Design Guide reaches
+v3.5 after a compliance sweep that touched nearly every persona in the roster.
+
+- MCP: Added a `title` field so projects can carry an agent-curated display name.
+- MCP: Fixed the Model Registry save button becoming unresponsive.
+- Personas: Research briefs are now enforced — the PM verifies one exists before dispatching
+  sub-agents, and the Git Committer manages its lifecycle alongside the plan.
+- CLI: Global Claude ledger MCP config fix & config refresh when stale.
+- Personas: Added the Dependency Curator for dependency health audits and migration planning.
+- Personas: Security Auditor now blocks releases on medium-severity findings.
+- Personas: Persona Design Guide reached v3.5 after a compliance sweep across nearly the
+  entire roster, gaining a bloat-trimming Reduction Pass and a Prose Density pass.
+
 ## v2.9.0 - Multi-Store Ledger and Insight Channel Consolidation
 > mcp v2.8.0 · orchestrator v1.4.0 · personas v3.31.0
 
