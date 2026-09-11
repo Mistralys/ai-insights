@@ -37,6 +37,12 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.8.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
+    `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
+    detection rule rather than only a Rework Handling section
+  2.7.0 (2026-09-11): The ledger MCP server is now a hard prerequisite — a new workflow step 1 runs the
+    `ledger_ping` pre-flight before any research, and an unreachable server stops the session instead of
+    surfacing at archival time; standalone Planner named as the ledger-free alternative
   2.6.0 (2026-08-31): v3.3/v3.4 delta pass — prose density applied to the philosophy partial and two
     workflow steps; Outputs now lists Knowledge Base Reconciliation, a gap the rendered read caught;
     the reconciliation duty is stated once per anchor instead of four times
@@ -86,6 +92,8 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-31"
 
 mcp_tools:
+  - tool: ledger_ping
+    purpose: Verify MCP server reachability and detect stale instances (preflight check). 
   - tool: ledger_get_repository_context
     purpose: "Retrieve the repository's strategic vision (short/mid/long-term goals) and prior project history (timeline, outcome summaries) to align planning with declared strategy."
   - tool: ledger_search_insights
@@ -101,6 +109,7 @@ key_behavior: |
 modes: |
   Normal Planning
   Synthesis Rework
+  Findings Integration
 
 ```
 ###  Path: `/personas/ledger/src/meta/2-project-manager.yaml`

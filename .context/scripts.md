@@ -935,9 +935,13 @@ try {
  *
  * Generates two standalone Markdown bundles into the build/ directory:
  *
- *   1. notebooklm-bundle.md     — MCP Server + Ledger Personas READMEs and
- *                                  project manifests, suitable for Google
- *                                  NotebookLM import.
+ *   1. notebooklm-bundle.md     — Workspace README, MCP Server + Ledger
+ *                                  Personas READMEs, project manifests, and
+ *                                  the generated agent roster overview —
+ *                                  everything needed to introduce AI Insights
+ *                                  to an external AI/tool in one document
+ *                                  (Google NotebookLM import, or a project
+ *                                  brief for another assistant).
  *   2. workflow-specification.md — All files from the Workflow Specification
  *                                  compiled into a single document.
  *
@@ -956,6 +960,8 @@ const BUILD_DIR   = path.join(ROOT, 'build');
 const TEMPLATES   = path.join(ROOT, 'scripts', 'templates');
 
 // NotebookLM sources
+const ROOT_README           = path.join(ROOT, 'README.md');
+const AGENTS_OVERVIEW       = path.join(ROOT, 'docs', 'references', 'agents-overview.md');
 const MCP_README            = path.join(ROOT, 'mcp-server', 'README.md');
 const MCP_MANIFEST_DIR      = path.join(ROOT, 'mcp-server', 'docs', 'agents', 'project-manifest');
 const PERSONAS_README       = path.join(ROOT, 'personas', 'ledger', 'README.md');
@@ -1049,7 +1055,7 @@ function writeBundle(filePath, content, dryRun) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filePath, content, 'utf-8');
-  console.log(`  ${c.green}\u2714${c.reset} ${c.bright}${relPath}${c.reset} (${sizeKB(content)} KB)`);
+  console.log(`  ${c.green}✔${c.reset} ${c.bright}${relPath}${c.reset} (${sizeKB(content)} KB)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,21 +1079,29 @@ function buildNotebookLM() {
       .trimEnd(),
   );
 
+  // Root README
+  console.log(`    ${c.cyan}+${c.reset} Workspace README`);
+  parts.push(section('PART 1 — WORKSPACE OVERVIEW', readRequired(ROOT_README)));
+
   // MCP Server README
   console.log(`    ${c.cyan}+${c.reset} MCP Server README`);
-  parts.push(section('PART 1A \u2014 MCP SERVER README', readRequired(MCP_README)));
+  parts.push(section('PART 2A — MCP SERVER README', readRequired(MCP_README)));
 
   // MCP Server Manifest
   console.log(`    ${c.cyan}+${c.reset} MCP Server Project Manifest (${MANIFEST_SECTIONS.length} files)`);
-  parts.push(section('PART 1B \u2014 MCP SERVER PROJECT MANIFEST', buildManifestBlock(MCP_MANIFEST_DIR)));
+  parts.push(section('PART 2B — MCP SERVER PROJECT MANIFEST', buildManifestBlock(MCP_MANIFEST_DIR)));
 
   // Personas README
   console.log(`    ${c.cyan}+${c.reset} Ledger Personas README`);
-  parts.push(section('PART 2A \u2014 LEDGER PERSONAS README', readRequired(PERSONAS_README)));
+  parts.push(section('PART 3A — LEDGER PERSONAS README', readRequired(PERSONAS_README)));
 
   // Personas Manifest
   console.log(`    ${c.cyan}+${c.reset} Ledger Personas Project Manifest (${MANIFEST_SECTIONS.length} files)`);
-  parts.push(section('PART 2B \u2014 LEDGER PERSONAS PROJECT MANIFEST', buildManifestBlock(PERSONAS_MANIFEST_DIR)));
+  parts.push(section('PART 3B — LEDGER PERSONAS PROJECT MANIFEST', buildManifestBlock(PERSONAS_MANIFEST_DIR)));
+
+  // Agents Overview (generated agent roster)
+  console.log(`    ${c.cyan}+${c.reset} Agents Overview`);
+  parts.push(section('PART 3C — AGENT ROSTER OVERVIEW', readRequired(AGENTS_OVERVIEW)));
 
   return parts.join('\n\n---\n\n') + '\n';
 }
@@ -4220,20 +4234,28 @@ function _buildShimContent() {
 
 /**
  * Check Claude Code CLI availability and central_pm registration status.
- * Runs `claude mcp list` and looks for `central_pm` in the output.
- * @returns {{ available: boolean, registered: boolean }}
+ * Runs `claude mcp list` and looks for `central_pm` in the output. When registered,
+ * also checks whether the registered command line still references the current
+ * shim path — a mismatch (e.g. a leftover `tsx`-based entry) is reported as `stale`.
+ * @param {{ shimBaseDir?: string }} [opts]
+ * @returns {{ available: boolean, registered: boolean, stale: boolean }}
  */
-function _checkClaudeCodeStatus() {
+function _checkClaudeCodeStatus(opts = {}) {
   const whichCmd = IS_WIN ? 'where' : 'which';
   const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
   if (check.status !== 0) {
-    return { available: false, registered: false };
+    return { available: false, registered: false, stale: false };
   }
   const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
-  return {
-    available:  true,
-    registered: result.status === 0 && (result.stdout ?? '').includes('central_pm'),
-  };
+  const stdout = result.stdout ?? '';
+  const registered = result.status === 0 && stdout.includes('central_pm');
+  if (!registered) {
+    return { available: true, registered: false, stale: false };
+  }
+  const { shimPath } = _resolvePaths(opts);
+  const line  = stdout.split('\n').find((l) => l.trim().startsWith('central_pm:')) ?? '';
+  const stale = !line.includes(shimPath);
+  return { available: true, registered: true, stale };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -4348,8 +4370,11 @@ export function installVSCode(opts = {}) {
 
 /**
  * Register central_pm via the claude CLI (optional — skipped if claude not found).
+ * A registration whose command line no longer matches the current shim path
+ * (e.g. a leftover `tsx`-based entry from before a workspace move) is treated as
+ * stale: it is removed and re-added rather than left in place.
  * @param {{ dryRun?: boolean, shimBaseDir?: string }} [opts]
- * @returns {{ skipped?: boolean, alreadyRegistered?: boolean, reason?: string, command?: string, status?: number }}
+ * @returns {{ skipped?: boolean, alreadyRegistered?: boolean, repaired?: boolean, reason?: string, command?: string, status?: number }}
  */
 export function installClaudeCode(opts = {}) {
   const { shimPath } = _resolvePaths(opts);
@@ -4361,12 +4386,17 @@ export function installClaudeCode(opts = {}) {
     };
   }
 
-  const ccStatus = _checkClaudeCodeStatus();
+  const ccStatus = _checkClaudeCodeStatus(opts);
   if (!ccStatus.available) {
     return { skipped: true, reason: 'claude CLI not found' };
   }
-  if (ccStatus.registered) {
+  if (ccStatus.registered && !ccStatus.stale) {
     return { alreadyRegistered: true };
+  }
+  if (ccStatus.registered && ccStatus.stale) {
+    spawnSync('claude', ['mcp', 'remove', 'central_pm', '--scope', 'user'], {
+      encoding: 'utf8', shell: false,
+    });
   }
 
   const result = spawnSync(
@@ -4374,7 +4404,12 @@ export function installClaudeCode(opts = {}) {
     ['mcp', 'add', '--scope', 'user', '--transport', 'stdio', 'central_pm', '--', 'node', shimPath],
     { encoding: 'utf8', shell: false }
   );
-  return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    ...(ccStatus.stale ? { repaired: true } : {}),
+  };
 }
 
 /**
@@ -4475,8 +4510,8 @@ export function install(opts = {}) {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       if (existing.repoPath === WORKSPACE_ROOT) {
         const vsResult  = installVSCode({ ...opts, dryRun: true });
-        const ccStatus  = _checkClaudeCodeStatus();
-        const ccSettled = !ccStatus.available || ccStatus.registered;
+        const ccStatus  = _checkClaudeCodeStatus(opts);
+        const ccSettled = !ccStatus.available || (ccStatus.registered && !ccStatus.stale);
         if (!vsResult.changed && ccSettled) {
           logFn('  \u2713 Global MCP already registered (no change)');
           return;
@@ -4507,6 +4542,8 @@ export function install(opts = {}) {
     logFn(`  \u26a0 Claude Code registration skipped: ${ccResult.reason}`);
   } else if (ccResult.alreadyRegistered) {
     logFn(`  \u2713 Claude Code already registered`);
+  } else if (ccResult.status === 0 && ccResult.repaired) {
+    logFn(`  \u2713 Claude Code registration repaired (was pointing at a stale command)`);
   } else if (ccResult.status === 0) {
     logFn(`  \u2713 Claude Code registered`);
   } else if (ccResult.command) {

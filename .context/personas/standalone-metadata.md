@@ -885,6 +885,9 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.4.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
+    `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
+    detection rule rather than only a Rework Handling section
   2.3.0 (2026-08-31): v3.3/v3.4 delta pass — prose density applied to the shared philosophy partial
     and two workflow steps; rendered output read end to end for the first time
   2.2.0 (2026-08-26): Philosophy gained Refactoring Is Always on the Table and Adjacent Improvement Is the Only Improvement; maintenance surface folded into Long-Term Stability Over Expediency; Proportionality replaced by Justified Structure (anticipated growth is now a valid justification) plus a Refactoring & Adjacent Improvement group; new ## Structural Improvements plan section with brief observations and a promote-or-reject workflow step
@@ -916,6 +919,7 @@ use_when: "Creating a plan outside the ledger workflow, or reworking a plan base
 modes: |
   Normal Planning
   Synthesis Rework
+  Findings Integration
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`

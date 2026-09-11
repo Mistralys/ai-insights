@@ -409,7 +409,7 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/check-version-sync.js` | Compares each module's changelog version against its package manifest version. Exits 1 on mismatch. Called by the pre-commit hook (blocking) and available via `node scripts/cli.js check-versions`. |
 | `scripts/extract-changelog-entry.js` | Parses the topmost root changelog entry for CI/GitHub Actions release automation |
-| `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
+| `scripts/bundle-docs.js` | Bundle workspace docs into `build/`: `notebooklm-bundle.md` (root README, MCP server + personas READMEs/manifests, agent roster overview — a full project brief for NotebookLM or another AI assistant) and `workflow-specification.md` |
 | `scripts/normalize-ctx-paths.js` | Normalises absolute paths in `.context/` output to workspace-relative paths after CTX generation |
 | `scripts/preflight-orchestrator.js` | Pre-flight readiness checks for the orchestrator: validates venv, `.env` config, MCP server dist freshness, and absence of conflicting processes. Supports `--plan <path>`, `--json`, and `--check-api-key` (live-validates API key(s) against provider endpoints, no tokens consumed). Invokable via `node scripts/cli.js preflight`. |
 | `scripts/run-orchestrator.js` | Pre-flight dist freshness guard + orchestrate launcher. Rebuilds `mcp-server/dist/` when stale then delegates to the `orchestrate` CLI with all supplied arguments. |
