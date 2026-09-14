@@ -7,6 +7,10 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.8.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   2.8.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
     `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
     detection rule rather than only a Rework Handling section
@@ -48,6 +52,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: false

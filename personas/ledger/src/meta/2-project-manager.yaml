@@ -7,6 +7,10 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.9.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
+    `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
+    `central_pm/*` wildcard from `tools:`
   3.9.1 (2026-09-10):
     - Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
     - Recalibrated the Missing Research Brief posture — the brief is committed alongside the plan, so absence is a gap to call out rather than a routine consequence of the gitignore; report block names the real causes and the Planner's fresh write as the remedy
@@ -45,6 +49,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - mcp__central_pm
 
 subagents:
   - ledger-wp-decomposer

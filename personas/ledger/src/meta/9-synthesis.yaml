@@ -6,6 +6,10 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.11.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
+    `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
+    `central_pm/*` wildcard from `tools:`
   3.11.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   3.11.0 (2026-08-24): Output format references ledger_add_observation instead of insights.jsonl; sidecar compilation removed
   3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
@@ -43,6 +47,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - mcp__central_pm
 
 subagents:
   - ledger-knowledge-archiver

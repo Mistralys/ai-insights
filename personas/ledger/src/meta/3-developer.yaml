@@ -5,6 +5,10 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.17.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.17.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; Pipeline Comments Template renders both subsections, omitting whichever is empty
   3.16.0 (2026-08-27): Paired v3.3 audit with the standalone twin — verification split into Build & Regression, Write Acceptance Tests and Static Analysis & Style; Output Format replaced by a Pipeline Comments Template placed before Constraints, restating the no-counts rule where it fires; No Stale Counts moved to a shared partial; duplicated role-identifier line dropped from the Mission
   3.15.0 (2026-08-27): Gained the guide-required Outputs section (code changes, ledger observations, declared artifacts) with an Output Location block; Identity line punctuation corrected and the MCP role identifier moved off it; Mission now opens with an outcome sentence; removed redundant --- separators
@@ -41,6 +45,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true

@@ -5,6 +5,10 @@ vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
 changelog: |
+  1.3.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Bash/Read/Edit/
+    etc but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite the
+    full read/write ledger access this persona's Diagnostic Toolkit requires; Claude Code requires the
+    double-underscore `mcp__<server>` form, not the `central_pm/*` wildcard from `tools:`
   1.3.1 (2026-08-26): Rewrote all six Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.3.0 (2026-06-04): Holistic repair philosophy; project recovery tool; routing verification
   1.2.0 (2026-06-03): Refreshed workflow knowledge
@@ -32,6 +36,7 @@ cc_tools:
   - WebFetch
   - TodoRead
   - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Senior Workflow Reliability Engineer"

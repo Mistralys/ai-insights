@@ -5,6 +5,11 @@ vs_file_name: standalone-archiver.agent.md
 id: ledger-support-standalone-archiver
 cc_file_name: standalone-archiver.md
 changelog: |
+  1.7.1 (2026-09-14): Added `cc_tools` override with explicit `mcp__central_pm__ledger_import_standalone`
+    and `mcp__central_pm__ledger_update_synthesis` grants — the raw `central_pm/ledger_*` entries in
+    `tools:` are VS Code-only syntax and never resolve under Claude Code `--agent` invocation, which
+    requires the double-underscore `mcp__<server>__<tool>` form; kept narrow (no server-level wildcard)
+    to mirror the persona's existing two-tool allowlist
   1.7.0 (2026-08-21): Exclude insights.jsonl from import sources and archived-file reporting alongside scenario-coverage.md
   1.6.0 (2026-08-18): Preserve optional usage-scenarios.md source companions while excluding generated scenario-coverage.md from standalone archival
   1.5.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
@@ -21,6 +26,18 @@ tools:
   - edit
   - central_pm/ledger_import_standalone
   - central_pm/ledger_update_synthesis
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/ledger_*` (VS
+# Code-only syntax that Claude Code's `--agent` tool matcher never
+# resolves). Explicit per-tool `mcp__<server>__<tool>` grants mirror
+# the narrow two-tool VS Code allowlist rather than a server wildcard.
+cc_tools:
+  - Read
+  - Edit
+  - mcp__central_pm__ledger_import_standalone
+  - mcp__central_pm__ledger_update_synthesis
 
 # overview metadata
 identity: "Ledger Archivist"

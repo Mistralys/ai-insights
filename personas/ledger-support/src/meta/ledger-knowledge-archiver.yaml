@@ -5,6 +5,10 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.9.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   1.9.0 (2026-08-28): First full audit at guide v3.4 — 14 findings, all resolved. Mode A no longer reads
     the insights.jsonl sidecar, which ledger agents stopped writing on 2026-08-24; pipeline comments read
     via ledger_get_work_package are named as its live replacement. Added a Resolve Provenance workflow step
@@ -35,6 +39,23 @@ tools:
   - edit
   - search
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Head of Operations — Retrospective Knowledge Analyst"

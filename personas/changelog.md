@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.33.0 - **WIP UNRELEASED**
+- Outputs: Fixed the ledger MCP tool access for Claude (wrong naming).
+
 ## v3.32.0 - Design Guide v3.5 & Research Briefs
 
 **The Persona Design Guide reaches v3.5 after a compliance sweep that touched nearly every 

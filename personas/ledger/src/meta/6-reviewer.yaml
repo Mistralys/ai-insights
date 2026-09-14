@@ -7,6 +7,10 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.11.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.11.0 (2026-09-02): Guide v3.5 audit — added Strict Constraints, Outputs, and Capabilities sections; reunited Documentation-Forward tiering with Fix-Forward and extracted its convention into Reference Material; added Rework Handling for RUN_REVIEW re-engagement and self-rework; added a ledger_search_insights protocol step; merged the expediency principle into the canonical "Long-Term Stability Over Expediency"; folded "PASS with Fix-Forward" into PASS; fixed drifted overview fields; removed redundant "---" separators
   3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; retitled "Challenge Expediency" and "Reward Durable Design"
   3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
@@ -35,6 +39,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true

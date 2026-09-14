@@ -5,6 +5,10 @@ vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 changelog: |
+  1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   1.4.0 (2026-08-28): Added a third mode, Targeted Reconciliation — a bounded pass over entries a caller
     names after a completed change overtook what they claim, with its own Reconciliation Protocol, report
     template and workflow. Its constraints forbid widening into an audit, rewriting on a caller's
@@ -33,6 +37,23 @@ tools:
   - read
   - search
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Knowledge Base Librarian"

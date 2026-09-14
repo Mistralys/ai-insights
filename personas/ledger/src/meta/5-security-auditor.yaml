@@ -7,6 +7,11 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents; Edit/Write also omitted to mirror the read-only audit intent
+    the VS Code `tools:` list already states (`edit` dropped there in 3.10.0)
   3.10.0 (2026-09-02): Guide v3.4 audit — Medium severity now blocks; gained Operating Philosophy, Outputs, Strict Constraints, Rework Handling, Scope Boundaries against the Reviewer, and an extracted audit-area reference; protocol restructured to an area-by-area audit-and-capture loop with a stated repeat; Capabilities now cover the reads, advisory lookups and audit tooling the protocol requires; `edit` tool dropped for a read-only audit
   3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Security Insight Observer
   3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; capture steps and verdict-affecting rule retargeted to ledger calls
@@ -29,6 +34,19 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
