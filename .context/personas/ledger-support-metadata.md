@@ -62,6 +62,10 @@ cc_file_name: ledger-bootstrapper.md
 audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 changelog: |
+  1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   1.4.0 (2026-08-28): First audit (guide v3.4) — Inputs restructured around the PM's two-argument dispatch; every ledger_create_work_package parameter now names its source document; added Stage Ownership table so assigned_to is derived rather than guessed; added a protocol Constraints block; report gained Failures and Flagged slots with explicit none-forms; dropped the unused edit tool grant
   1.3.0 (2026-08-04): Removed spec file creation and verification steps; protocol reduced from 7 to 5 steps; description promoted to required field in ledger_create_work_package
   1.2.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
@@ -74,6 +78,23 @@ tools:
   - read
   - search
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Technical Program Manager — Ledger Initialization Operator"
@@ -92,6 +113,10 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  1.0.1 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Read/Grep
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite this
+    persona's entire role being to consult the ledger and route on it; Claude Code requires the
+    double-underscore `mcp__<server>` form, not the generic `mcp` flag from `tools:`
   1.0.0 (2026-03-19): Initial release — coordinate multi-stage pipeline via central_pm ledger
 
 tools:
@@ -107,6 +132,7 @@ cc_tools:
   - Task
   - Read
   - Grep
+  - mcp__central_pm
 
 # overview metadata
 identity: "Technical Workflow Director"
@@ -161,6 +187,10 @@ vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
 changelog: |
+  1.3.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Bash/Read/Edit/
+    etc but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite the
+    full read/write ledger access this persona's Diagnostic Toolkit requires; Claude Code requires the
+    double-underscore `mcp__<server>` form, not the `central_pm/*` wildcard from `tools:`
   1.3.1 (2026-08-26): Rewrote all six Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.3.0 (2026-06-04): Holistic repair philosophy; project recovery tool; routing verification
   1.2.0 (2026-06-03): Refreshed workflow knowledge
@@ -188,6 +218,7 @@ cc_tools:
   - WebFetch
   - TodoRead
   - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Senior Workflow Reliability Engineer"
@@ -208,6 +239,10 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.9.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   1.9.0 (2026-08-28): First full audit at guide v3.4 — 14 findings, all resolved. Mode A no longer reads
     the insights.jsonl sidecar, which ledger agents stopped writing on 2026-08-24; pipeline comments read
     via ledger_get_work_package are named as its live replacement. Added a Resolve Provenance workflow step
@@ -239,6 +274,23 @@ tools:
   - search
   - central_pm/*
 
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+  - mcp__central_pm
+
 # overview metadata
 identity: "Head of Operations — Retrospective Knowledge Analyst"
 use_when: "After a project completes, to capture lessons learned into the knowledge base"
@@ -257,6 +309,10 @@ vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 changelog: |
+  1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   1.4.0 (2026-08-28): Added a third mode, Targeted Reconciliation — a bounded pass over entries a caller
     names after a completed change overtook what they claim, with its own Reconciliation Protocol, report
     template and workflow. Its constraints forbid widening into an audit, rewriting on a caller's
@@ -285,6 +341,23 @@ tools:
   - read
   - search
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+  - mcp__central_pm
 
 # overview metadata
 identity: "Knowledge Base Librarian"
@@ -441,6 +514,11 @@ vs_file_name: standalone-archiver.agent.md
 id: ledger-support-standalone-archiver
 cc_file_name: standalone-archiver.md
 changelog: |
+  1.7.1 (2026-09-14): Added `cc_tools` override with explicit `mcp__central_pm__ledger_import_standalone`
+    and `mcp__central_pm__ledger_update_synthesis` grants — the raw `central_pm/ledger_*` entries in
+    `tools:` are VS Code-only syntax and never resolve under Claude Code `--agent` invocation, which
+    requires the double-underscore `mcp__<server>__<tool>` form; kept narrow (no server-level wildcard)
+    to mirror the persona's existing two-tool allowlist
   1.7.0 (2026-08-21): Exclude insights.jsonl from import sources and archived-file reporting alongside scenario-coverage.md
   1.6.0 (2026-08-18): Preserve optional usage-scenarios.md source companions while excluding generated scenario-coverage.md from standalone archival
   1.5.0 (2026-07-16): Extracted summary-crafting guidelines to shared partial
@@ -457,6 +535,18 @@ tools:
   - edit
   - central_pm/ledger_import_standalone
   - central_pm/ledger_update_synthesis
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/ledger_*` (VS
+# Code-only syntax that Claude Code's `--agent` tool matcher never
+# resolves). Explicit per-tool `mcp__<server>__<tool>` grants mirror
+# the narrow two-tool VS Code allowlist rather than a server wildcard.
+cc_tools:
+  - Read
+  - Edit
+  - mcp__central_pm__ledger_import_standalone
+  - mcp__central_pm__ledger_update_synthesis
 
 # overview metadata
 identity: "Ledger Archivist"

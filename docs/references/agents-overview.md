@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-11
+> **Generated:** 2026-09-14
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.8.0)
+### Stage 1 — Planner (v2.8.1)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.9.1)
+### Stage 2 — Project Manager (v3.9.2)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.17.0)
+### Stage 3 — Developer (v3.17.1)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.9.1)
+### Stage 4 — QA (v3.9.2)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.10.0)
+### Stage 5 — Security Auditor (v3.10.1)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.11.0)
+### Stage 6 — Reviewer (v3.11.1)
 
 **Identity:** Principal Systems Architect
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.7.4)
+### Stage 7 — Release Engineer (v3.7.5)
 
 **Identity:** Release Engineer
 
@@ -139,7 +139,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.10.2)
+### Stage 8 — Documentation (v3.10.3)
 
 **Identity:** Technical Writing Manager
 
@@ -152,7 +152,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.11.1)
+### Stage 9 — Synthesis (v3.11.2)
 
 **Identity:** Head of Operations (OPS)
 
@@ -431,7 +431,7 @@ Onboard and maintain development repositories for the AI Insights persona ecosys
 
 ## Ledger-Support Personas
 
-### Ledger Bootstrapper (v1.4.0)
+### Ledger Bootstrapper (v1.4.1)
 
 **Identity:** Technical Program Manager — Ledger Initialization Operator
 
@@ -442,7 +442,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v1.0.0)
+### Ledger Claude Coordinator (v1.0.1)
 
 **Identity:** Technical Workflow Director
 
@@ -463,7 +463,7 @@ Map dependencies between Work Packages, identify parallelization opportunities, 
 
 ---
 
-### Ledger Doctor (v1.3.1)
+### Ledger Doctor (v1.3.2)
 
 **Identity:** Senior Workflow Reliability Engineer
 
@@ -474,7 +474,7 @@ Audit and repair ledger workflow projects: diagnose deadlocks, fix state corrupt
 
 ---
 
-### Ledger Knowledge Archiver (v1.9.0)
+### Ledger Knowledge Archiver (v1.9.1)
 
 **Identity:** Head of Operations — Retrospective Knowledge Analyst
 
@@ -485,7 +485,7 @@ Extract and commit reusable knowledge from completed ledger project folders into
 
 ---
 
-### Ledger Knowledge Curator (v1.4.0)
+### Ledger Knowledge Curator (v1.4.1)
 
 **Identity:** Knowledge Base Librarian
 
@@ -538,7 +538,7 @@ Analyze a plan document and decompose it into atomic, actionable Work Package de
 
 ---
 
-### Ledger Standalone Archiver (v1.7.0)
+### Ledger Standalone Archiver (v1.7.1)
 
 **Identity:** Ledger Archivist
 

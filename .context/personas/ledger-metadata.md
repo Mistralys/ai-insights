@@ -37,6 +37,10 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.8.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   2.8.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
     `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
     detection rule rather than only a Rework Handling section
@@ -78,6 +82,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: false
@@ -124,6 +143,10 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.9.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
+    `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
+    `central_pm/*` wildcard from `tools:`
   3.9.1 (2026-09-10):
     - Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
     - Recalibrated the Missing Research Brief posture — the brief is committed alongside the plan, so absence is a gap to call out rather than a routine consequence of the gitignore; report block names the real causes and the Planner's fresh write as the remedy
@@ -162,6 +185,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - mcp__central_pm
 
 subagents:
   - ledger-wp-decomposer
@@ -207,6 +231,10 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.17.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.17.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; Pipeline Comments Template renders both subsections, omitting whichever is empty
   3.16.0 (2026-08-27): Paired v3.3 audit with the standalone twin — verification split into Build & Regression, Write Acceptance Tests and Static Analysis & Style; Output Format replaced by a Pipeline Comments Template placed before Constraints, restating the no-counts rule where it fires; No Stale Counts moved to a shared partial; duplicated role-identifier line dropped from the Mission
   3.15.0 (2026-08-27): Gained the guide-required Outputs section (code changes, ledger observations, declared artifacts) with an Output Location block; Identity line punctuation corrected and the MCP role identifier moved off it; Mission now opens with an outcome sentence; removed redundant --- separators
@@ -243,6 +271,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
@@ -311,6 +354,10 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.9.2 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Test Insight Observer
   3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
   3.8.1 (2026-08-24): Insight compilation reads all sink entries regardless of agent instead of filtering to own entries
@@ -335,6 +382,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
@@ -385,6 +447,11 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents; Edit/Write also omitted to mirror the read-only audit intent
+    the VS Code `tools:` list already states (`edit` dropped there in 3.10.0)
   3.10.0 (2026-09-02): Guide v3.4 audit — Medium severity now blocks; gained Operating Philosophy, Outputs, Strict Constraints, Rework Handling, Scope Boundaries against the Reviewer, and an extracted audit-area reference; protocol restructured to an area-by-area audit-and-capture loop with a stated repeat; Capabilities now cover the reads, advisory lookups and audit tooling the protocol requires; `edit` tool dropped for a read-only audit
   3.9.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Security Insight Observer
   3.9.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open step; capture steps and verdict-affecting rule retargeted to ledger calls
@@ -407,6 +474,19 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
@@ -457,6 +537,10 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.11.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.11.0 (2026-09-02): Guide v3.5 audit — added Strict Constraints, Outputs, and Capabilities sections; reunited Documentation-Forward tiering with Fix-Forward and extracted its convention into Reference Material; added Rework Handling for RUN_REVIEW re-engagement and self-rework; added a ledger_search_insights protocol step; merged the expediency principle into the canonical "Long-Term Stability Over Expediency"; folded "PASS with Fix-Forward" into PASS; fixed drifted overview fields; removed redundant "---" separators
   3.10.2 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0; retitled "Challenge Expediency" and "Reward Durable Design"
   3.10.1 (2026-08-25): Fixed stale outputs metadata; split Deep Dive into review + capture loop (Pattern 15); added nothing-found forcing function to Review Insight Observer
@@ -485,6 +569,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
@@ -533,6 +632,10 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.7.5 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
+    wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
+    invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
+    persona dispatches no sub-agents
   3.7.4 (2026-08-04): WP input source changed from spec file to ledger_get_work_package; removed work/WP-###.md references
   3.7.3 (2026-07-06): Verbatim AC Text guidance added to operational protocol
   3.7.2 (2026-04-08): Updated release protocol and output format documentation
@@ -549,6 +652,21 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+  - mcp__central_pm
 
 has_mcp: true
 has_detect_project: true
@@ -591,6 +709,10 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.3 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
+    `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
+    `central_pm/*` wildcard from `tools:`
   3.10.2 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   3.10.1 (2026-08-25): Fixed stale outputs metadata; added nothing-found forcing function to Documentation Insight Observer
   3.10.0 (2026-08-24): Replaced insights.jsonl sidecar with MCP-based ledger_add_observation; removed sink open/compile steps; capture and rework handling retargeted to ledger calls
@@ -630,6 +752,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - mcp__central_pm
 
 subagents:
   - ctx-architect
@@ -684,6 +807,10 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.11.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
+    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
+    `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
+    `central_pm/*` wildcard from `tools:`
   3.11.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   3.11.0 (2026-08-24): Output format references ledger_add_observation instead of insights.jsonl; sidecar compilation removed
   3.10.0 (2026-08-24): Delegates insight curation to the shared insight-compilation partial — adds deduplication, priority elevation, no-backfill, and no-empty-sections constraints; consumer-only mode handled natively via insight_consumer_only flag
@@ -721,6 +848,7 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - mcp__central_pm
 
 subagents:
   - ledger-knowledge-archiver
