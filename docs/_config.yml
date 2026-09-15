@@ -14,6 +14,8 @@ defaults:
 
 # Exclude non-page assets from processing
 exclude:
+  - agents/plans/
+  - agents/implementation-history/
   - presentation/tools/
   - presentation/build.sh
   - presentation/build.cmd
