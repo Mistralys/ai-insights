@@ -10,6 +10,7 @@
  *   node scripts/check-version-sync.js          # from workspace root
  *
  * Modules checked:
+ *   - root:          changelog.md  vs  package.json
  *   - mcp-server:   changelog.md  vs  package.json
  *   - orchestrator:  changelog.md  vs  pyproject.toml
  *   - personas:      changelog.md  vs  package.json
@@ -23,6 +24,16 @@ const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 // ─── Module definitions ──────────────────────────────────────────────────────
 
 const MODULES = [
+  {
+    name:        'root',
+    changelog:   path.join(WORKSPACE_ROOT, 'changelog.md'),
+    manifest:    path.join(WORKSPACE_ROOT, 'package.json'),
+    manifestFmt: 'package.json',
+    readManifestVersion(filePath) {
+      const pkg = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return pkg.version || null;
+    },
+  },
   {
     name:        'mcp-server',
     changelog:   path.join(WORKSPACE_ROOT, 'mcp-server', 'changelog.md'),

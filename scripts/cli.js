@@ -87,6 +87,43 @@ function findPython() {
   return null;
 }
 
+function syncRootVersion() {
+  if (!fs.existsSync(CHANGELOG_FILE)) {
+    log('  ✗ changelog.md not found');
+    return;
+  }
+  const packagePath = path.join(WORKSPACE_ROOT, 'package.json');
+  if (!fs.existsSync(packagePath)) {
+    log('  ✗ package.json not found');
+    return;
+  }
+
+  try {
+    const changelog = fs.readFileSync(CHANGELOG_FILE, 'utf8');
+    const versionMatch = changelog.match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
+
+    if (!versionMatch) {
+      log('  ⚠ Could not find version in changelog.md');
+      return;
+    }
+
+    const newVersion = versionMatch[1];
+    const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    const oldVersion = packageJson.version;
+
+    if (oldVersion === newVersion) {
+      log(`  ✓ package.json already at v${newVersion}`, 'green');
+      return;
+    }
+
+    packageJson.version = newVersion;
+    fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
+    log(`  ✓ Updated package.json: v${oldVersion} → v${newVersion}`, 'green');
+  } catch (e) {
+    log(`  ✗ Failed to sync root version: ${e.message}`, 'red');
+  }
+}
+
 function syncOrchestratorVersion() {
   const changelogPath = path.join(ORCHESTRATOR_DIR, 'changelog.md');
   const pyprojectPath = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
@@ -440,6 +477,7 @@ async function cmdGui(args) {
 function cmdBuildMaintain(args) {
   const syncCode = runScript('node', [path.join(MCP_SERVER_DIR, 'scripts', 'sync-version.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (syncCode !== 0) process.exit(syncCode);
+  syncRootVersion();
   syncOrchestratorVersion();
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
