@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.33.0 - Agent Picker Role Labels
+
+- Outputs: Standalone Claude Code personas now emit a `role` field for picker-friendly labels.
+
 ## v3.32.1 - Claude Code tool Access Fix
 
 **Fixed MCP server and tools naming scheme when running Claude Code in agent

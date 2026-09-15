@@ -1,5 +1,16 @@
 # AI Insights Changelog
 
+## v2.11.0 - Global Agent Launcher
+> personas v3.33.0
+
+**Added `ai-insights agent`, a command that launches any deployed persona from any terminal
+directory via a type-to-filter picker.** The CLI can now be linked globally with `ai-insights
+link-cli`, and Claude Code agents show friendlier role names when picking one to launch.
+
+- Scripts: Added `ai-insights agent`, a picker to launch any persona via `claude --agent`.
+- Scripts: Added `ai-insights link-cli` to register the CLI globally, with a health check.
+- Personas: Claude Code agents now show friendly role names in the launcher picker.
+
 ## v2.10.1 - Claude Code tool Access Fix
 > personas v3.32.1
 
