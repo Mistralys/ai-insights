@@ -477,12 +477,13 @@ tools: [{{tools_list}}]
 
 ### Standalone — Claude Code (`FRONTMATTER_STANDALONE_CC`)
 
-Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix).
+Written to `personas/standalone/claude-code/`. Carries `role: {{name}}` — the persona YAML's pretty display `name` field (e.g. `"Developer (Standalone)"`, `"Persona Curator"`), reused as the frontmatter `role:` line so global-agent-launcher-style consumers (`scripts/lib/launch-agent-core.js` → `discoverAgents()`) can show a human-readable label for standalone/ledger-support personas exactly as they already do for the 9 ledger personas' `role:` field. Also carries optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix) and remains the frontmatter `name:` value, since Claude Code routes agents by that field.
 
 ```yaml
 ---
 name: {{cc_name}}
 description: '{{description}}'
+role: {{name}}
 author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}

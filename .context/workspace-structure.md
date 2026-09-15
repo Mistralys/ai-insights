@@ -694,12 +694,18 @@ _SOURCE: Top-level directory tree_
     ├── install-hooks.js
     ├── install-mcp-global.js
     ├── kill-orchestrator.js
+    ├── launch-agent.js
     ├── lib/
     │   ├── cc-tools-validation.js
     │   ├── changelog-size-check.js
+    │   ├── claude-cli.js
+    │   ├── frontmatter.js
     │   ├── health-checks.js
     │   ├── insight-validation.js
+    │   ├── launch-agent-core.js
     │   ├── ledger-dirs.js
+    │   ├── npm-link.js
+    │   ├── original-cwd.js
     │   ├── persona-model-resolution.js
     │   ├── philosophy-tone.js
     │   ├── store-commands.js
@@ -723,11 +729,17 @@ _SOURCE: Top-level directory tree_
     │   ├── README.md
     │   ├── build-personas-model-resolution.test.js
     │   ├── changelog-size-check.test.js
+    │   ├── claude-cli.test.js
+    │   ├── cli-cmd-agent.test.js
+    │   ├── frontmatter.test.js
     │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
     │   ├── insight-validation.test.js
     │   ├── install-mcp.test.js
+    │   ├── launch-agent.test.js
     │   ├── ledger-plugin.test.js
+    │   ├── npm-link.test.js
+    │   ├── original-cwd.test.js
     │   ├── philosophy-tone.test.js
     │   ├── publish-skills.test.js
     │   ├── store-commands.test.js
