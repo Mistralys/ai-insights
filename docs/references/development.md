@@ -36,10 +36,14 @@ ai-insights       # opens the interactive menu
 ai-insights sync-personas
 ai-insights doctor
 ai-insights install-mcp --dry-run
+ai-insights agent
+ai-insights link-cli
 ```
 
 This is equivalent to `node scripts/cli.js <command>` in every respect.
 To remove the global symlink, run `npm unlink` from the `ai-insights/` root.
+
+Since the menu itself only becomes reachable as the global `ai-insights` command *after* `npm link` has run, this first invocation is necessarily a manual, outside-the-menu step — see the note under [Setup & Configuration](menu-guide.md#setup--configuration) in the Menu Guide. Once linked, the menu's `setup` wizard and `link-cli` command (`node scripts/cli.js link-cli`) detect and re-run `npm link` if the registration is ever lost (e.g. after clearing `node_modules` globally), so you rarely need to type the raw `npm link` command more than once.
 
 ## CI — Automated Quality Gate
 

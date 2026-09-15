@@ -47,6 +47,7 @@ tools: [{{tools_list}}]
 const FRONTMATTER_STANDALONE_CC = `---
 name: {{cc_name}}
 description: '{{description}}'
+role: {{name}}
 author: {{author}}
 version: {{version}}
 {{#if last_updated}}

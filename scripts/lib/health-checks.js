@@ -22,6 +22,7 @@ import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
+import { isCliLinked } from './npm-link.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -266,6 +267,18 @@ export const HEALTH_CHECKS = [
   },
 
   // ── slow tier (100 ms – 2 s — subprocess spawns) ─────────────────────────
+
+  /** @type {SlowCheck} */
+  {
+    id: 'global-cli-linked',
+    label: 'Global CLI linked (npm link)',
+    cost: 'slow',
+    /** @returns {boolean} */
+    detect() {
+      return isCliLinked({ cwd: WORKSPACE_ROOT });
+    },
+    fix: 'node scripts/cli.js link-cli',
+  },
 
   /** @type {SlowCheck} */
   {
