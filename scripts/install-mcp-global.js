@@ -22,12 +22,12 @@ import fs   from 'fs';
 import os   from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
+import { isClaudeCliAvailable } from './lib/claude-cli.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '..');
 const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
-const IS_WIN            = process.platform === 'win32';
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -130,9 +130,7 @@ function _buildShimContent() {
  * @returns {{ available: boolean, registered: boolean, stale: boolean }}
  */
 function _checkClaudeCodeStatus(opts = {}) {
-  const whichCmd = IS_WIN ? 'where' : 'which';
-  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
-  if (check.status !== 0) {
+  if (!isClaudeCliAvailable()) {
     return { available: false, registered: false, stale: false };
   }
   const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
@@ -324,9 +322,7 @@ export function uninstall(opts = {}) {
   }
 
   // Remove from Claude Code (if CLI available)
-  const whichCmd = IS_WIN ? 'where' : 'which';
-  const check    = spawnSync(whichCmd, ['claude'], { encoding: 'utf8', shell: false });
-  if (check.status === 0) {
+  if (isClaudeCliAvailable()) {
     spawnSync('claude', ['mcp', 'remove', 'central_pm', '--scope', 'user'], {
       encoding: 'utf8', shell: false,
     });

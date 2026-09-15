@@ -41,7 +41,9 @@ import readline from 'readline';
 import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
+import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import { getOriginalCwd } from './lib/original-cwd.js';
 import {
   storeInit,
   storeAdd,
@@ -317,6 +319,20 @@ const SETUP_COMPONENTS = [
     validate: () => shimConfigExists(),
   },
   {
+    id:    'global-cli',
+    label: 'Global CLI',
+    desc:  'npm link — makes `ai-insights` available from any directory (recommended)',
+    detect: () => isCliLinked({ cwd: WORKSPACE_ROOT }),
+    run() {
+      const { success } = linkCli({ cwd: WORKSPACE_ROOT, log: (msg) => log(msg, 'dim') });
+      if (!success) {
+        log('  ✗ npm link failed', 'red');
+      }
+      return success;
+    },
+    validate: () => isCliLinked({ cwd: WORKSPACE_ROOT }),
+  },
+  {
     id:    'git-hooks',
     label: 'Git hooks',
     desc:  'Pre-commit persona guard',
@@ -336,6 +352,11 @@ const SETUP_COMPONENTS = [
 
 function cmdSyncPersonas(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'sync-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdAgent(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'launch-agent.js'), ...args], { cwd: getOriginalCwd() });
   if (code !== 0) process.exit(code);
 }
 
@@ -591,6 +612,22 @@ async function cmdInstallMcp(args) {
       mcpGlobalInstall({ log: (msg) => log(msg) });
     } catch (err) {
       log(`  \u2717 ${err.message}`, 'red');
+      process.exit(1);
+    }
+  }
+  await waitForKey();
+}
+
+async function cmdLinkCli() {
+  if (isCliLinked({ cwd: WORKSPACE_ROOT })) {
+    log('  \u2713 Already linked \u2014 the `ai-insights` command is available globally.', 'green');
+  } else {
+    const { success, output } = linkCli({ cwd: WORKSPACE_ROOT, log: (msg) => log(msg, 'dim') });
+    if (success) {
+      log('  \u2713 Linked \u2014 the `ai-insights` command is now available globally.', 'green');
+    } else {
+      log('  \u2717 npm link failed', 'red');
+      if (output) log(`       ${output}`, 'dim');
       process.exit(1);
     }
   }
@@ -918,6 +955,14 @@ const COMMANDS = [
     run:          cmdInstallMcp,
   },
   {
+    id:          'link-cli',
+    key:         'l',
+    label:       'Link global CLI',
+    category:    'Setup & Configuration',
+    description: 'npm link — make `ai-insights` available from any directory',
+    run:         cmdLinkCli,
+  },
+  {
     id:          'git-hooks',
     key:         'o',
     label:       'Install git hooks',
@@ -932,6 +977,17 @@ const COMMANDS = [
     category:    'Personas',
     description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
+  },
+  {
+    id:           'agent',
+    key:          'a',
+    label:        'Launch an agent',
+    category:     'Personas',
+    description:  'Pick a persona and launch it with Claude Code',
+    helpVariants: [
+      ['agent --filter <term>', 'Pre-fill the filter query'],
+    ],
+    run:          cmdAgent,
   },
   {
     id:          'build-skills',

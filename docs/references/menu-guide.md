@@ -11,6 +11,8 @@ menu.cmd           # Windows
 
 On first launch, the menu detects an unconfigured environment and redirects to the setup wizard automatically. Subsequent launches go straight to the menu.
 
+> **Prerequisite for the global `ai-insights` command:** `./menu.sh` works with no setup, but the global `ai-insights` command (used throughout this guide's examples) requires a one-time `npm link` from the repository root first — this can't be done through the menu itself, since the menu isn't reachable as a global command until after that step runs. See [Global CLI](development.md#global-cli-optional) in the Developer Guide. Once linked, the **Setup & Configuration** → **Link global CLI** item (or `setup`) keeps the registration current.
+
 ## Health Dashboard
 
 Every time the menu opens, it runs a set of instant health checks and displays the results in the status line. A green `✓` means the check passed; a red `✗` includes a hint for how to fix it.
@@ -30,8 +32,9 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 
 | Item | Command | Description |
 |------|---------|-------------|
-| **First-time setup** | `setup` | Full workspace setup wizard — installs MCP server, personas, orchestrator venv, global MCP registration, and git hooks |
+| **First-time setup** | `setup` | Full workspace setup wizard — installs MCP server, personas, orchestrator venv, global MCP registration, global CLI link, and git hooks |
 | **Install MCP (Global)** | `install-mcp` | Register the MCP server in VS Code / Claude Code user config via a stable shim |
+| **Link global CLI** | `link-cli` | `npm link` — make the `ai-insights` command available from any directory |
 | **Install git hooks** | `git-hooks` | Activate the pre-commit guards (persona freshness, version sync, ruff lint) |
 
 ### Personas
@@ -39,6 +42,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | Item | Command | Description |
 |------|---------|-------------|
 | **Sync personas** | `sync-personas` | Build persona files and deploy to VS Code and Claude Code |
+| **Launch an agent** | `agent` | Pick a deployed persona from a type-to-filter list and launch it with `claude --agent`, from your current directory. The picker clears the screen on open and reopens automatically once the `claude` session exits, so switching agents is a continuous loop — press Escape/Ctrl+C (or submit empty input) at the picker to return to this menu |
 | **Package personas** | `package-personas` | Build and ZIP standalone personas for distribution |
 | **Clean agent folder** | `clean-agents` | Remove persona files from all publish locations |
 
@@ -90,12 +94,15 @@ Every menu item can be invoked directly without entering the interactive menu:
 ./menu.sh setup --all                     # non-interactive full setup
 ./menu.sh setup --components mcp-server   # run a specific setup component
 ./menu.sh sync-personas                   # build + deploy personas
+./menu.sh agent                           # pick a persona and launch it with claude --agent
+./menu.sh agent --filter <term>           # pre-fill the filter query
 ./menu.sh build-skills                    # compile skill source files
 ./menu.sh build-skills --dry-run          # validate skill outputs without writing to dist/
 ./menu.sh publish-skills                  # build + deploy skills to IDE directories
 ./menu.sh publish-skills -- --dry-run     # build + preview deployment without writing to IDE directories
 ./menu.sh install-mcp                     # register MCP server globally
 ./menu.sh install-mcp --dry-run           # preview changes without writing
+./menu.sh link-cli                        # npm link — make `ai-insights` available globally
 ./menu.sh gui                             # launch GUI dashboard
 ./menu.sh preflight                       # check orchestrator readiness
 ./menu.sh preflight --plan plan.md        # also verify the plan file exists

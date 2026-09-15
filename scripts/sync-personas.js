@@ -19,6 +19,7 @@ import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
+import { parseFrontmatter } from './lib/frontmatter.js';
 
 // Role names are loaded from the shared workflow manifest — the single source
 // of truth for all agent roles across the workspace.
@@ -56,31 +57,6 @@ function extractVSFileName(filePath) {
 function extractCCFileName(filePath) {
   const fields = parseFrontmatter(filePath);
   return fields?.name ? fields.name.trim() + '.md' : null;
-}
-
-/**
- * Parse YAML frontmatter fields from a persona file into a plain object.
- * Returns null if the file has no valid YAML frontmatter block.
- * @param {string} filePath
- * @returns {Object|null}
- */
-function parseFrontmatter(filePath) {
-  try {
-    const rawContent = fs.readFileSync(filePath, 'utf8');
-    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
-    if (!content.startsWith('---')) return null;
-    const afterFirst = content.slice(3);
-    const closingIdx = afterFirst.indexOf('\n---');
-    if (closingIdx === -1) return null;
-    const fields = {};
-    for (const line of afterFirst.slice(0, closingIdx).split('\n')) {
-      const m = line.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
-      if (m) fields[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '');
-    }
-    return fields;
-  } catch {
-    return null;
-  }
 }
 
 /**
