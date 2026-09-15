@@ -1,5 +1,13 @@
 # AI Insights Changelog
 
+## v2.10.1 - Claude Code tool Access Fix
+> personas v3.32.1
+
+**Fixed MCP server and tools naming scheme when running Claude Code in agent
+mode from the command line.**
+
+- Personas: Added & renamed the Claude Code specific MCP ledger tool names.
+
 ## v2.10.0 - Research Briefs and Curated Project Titles
 > mcp v2.9.0 · personas v3.32.0
 

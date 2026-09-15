@@ -1,7 +1,12 @@
 # Personas Changelog
 
-## v3.33.0 - **WIP UNRELEASED**
-- Outputs: Fixed the ledger MCP tool access for Claude (wrong naming).
+## v3.32.1 - Claude Code tool Access Fix
+
+**Fixed MCP server and tools naming scheme when running Claude Code in agent
+mode from the command line.**
+
+- Outputs: Added & renamed the Claude Code specific MCP ledger tool names.
+- Outputs: Better support for Claude Code when running `--agent agentname`.
 
 ## v3.32.0 - Design Guide v3.5 & Research Briefs
 
