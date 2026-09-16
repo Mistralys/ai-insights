@@ -442,7 +442,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v2.0.1)
+### Ledger Claude Coordinator (v2.1.0)
 
 **Identity:** Technical Workflow Director
 
