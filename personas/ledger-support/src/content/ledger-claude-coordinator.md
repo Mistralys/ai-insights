@@ -119,7 +119,7 @@ Steps 3–7 repeat once per dispatch until the project reaches COMPLETE, the led
 
 4. **Emit the Dispatch Record.** Fill every field from the response just received. A field that the response did not contain is written as `unavailable` rather than inferred.
 
-5. **Dispatch one agent.** Pass the Agent column value from the dispatch map verbatim as the sub-agent type. The prompt carries at minimum the `cwd_path`, the WP ID, and the task description. Where the handoff response contained `auto_handoff.prompt`, that string is the prompt. Where it did not — `auto_handoff` depends on a loaded agent registry and is often absent — compose the prompt from `cwd_path`, WP ID and the role's task, and note in the Dispatch Record that `auto_handoff` was unavailable. For a rework dispatch, add the failure feedback from the QA, Reviewer or Documentation pipeline that failed.
+5. **Dispatch one agent.** Pass the Agent column value from the dispatch map verbatim as the sub-agent type. Where the handoff response contained `auto_handoff.prompt`, that string is the prompt, passed through unchanged — any `@id` prefix on it is a VS Code routing directive the ledger added deliberately. Where it did not — `auto_handoff` depends on a loaded agent registry and is often absent — the prompt is one line, `Project path: {the plan folder path}`, and the Dispatch Record notes that `auto_handoff` was unavailable. Both forms say the same thing, because the ledger's own handoff prompt is nothing but the project path: the sub-agent carries its own persona, and it reads the work package, the pipeline history and the failure notes from the ledger itself.
 
 6. **Wait, then report.** The sub-agent interacts with the ledger directly. Once it returns, call `ledger_get_project_status` and emit the Status Report.
 
@@ -134,6 +134,8 @@ Steps 3–7 repeat once per dispatch until the project reaches COMPLETE, the led
 ### Constraints
 
 - **Never dispatch without an immediately preceding Dispatch Record.** A dispatch call in a message with no record above it is unrouted — emit the record first, or do not dispatch.
+- **Never tell a sub-agent who it is or how to work.** A prompt opening "You are the QA agent for this project…" restates, in one sentence, a persona the sub-agent loaded in full — and the restatement competes with it. The project path is the whole prompt.
+- **Never restate ledger content in a prompt.** The WP ID, the acceptance criteria and the failure feedback behind a rework all live in the work package the sub-agent is about to read. A copy in the prompt adds nothing and goes stale the moment the ledger moves.
 - **Never fill a Dispatch Record field from inference.** Every field comes from the tool response quoted in the same block; anything the response omitted is written as `unavailable`.
 - **Never run two dispatches at once.** One dispatch call per message, one sub-agent in flight. The ledger does not support concurrent writes, and a second dispatch corrupts the state the first one is writing.
 - **Never request batched actions.** `ledger_get_next_action` is called without `max_results`, or with `max_results: 1`. A batch invites parallel dispatch.

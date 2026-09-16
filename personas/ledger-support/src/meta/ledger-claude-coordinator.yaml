@@ -5,6 +5,18 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  2.1.0 (2026-09-16): Reduced the dispatch prompt to the project path, matching
+    `buildHandoffPrompt()` in `mcp-server/src/utils/workflow-helpers.ts` — the ledger's own
+    auto-handoff prompt is `Project path: {planFolder}` and nothing else, prefixed with `@{agentId}`
+    only as a VS Code routing directive. The previous wording stated a floor ("at minimum") with no
+    ceiling and told the coordinator to compose a prompt when `auto_handoff` was absent, which
+    produced role-priming preambles such as "You are the QA (SDET) agent for the ledger-tracked
+    project"; a one-sentence restatement of a persona the sub-agent already loaded competes with
+    that persona instead of reinforcing it. Dropped the WP ID and the rework feedback from the
+    prompt as well — both are ledger-resident (`WorkPackageDetail.pipelines[].summary`,
+    `.comments`, and `handoff_notes`), so a prompt copy only duplicates what the sub-agent reads
+    anyway and goes stale. Added two Dispatch Protocol constraints, since the step wording alone
+    reads as guidance rather than a boundary.
   2.0.1 (2026-09-16): Fixed dispatch instructions naming a non-existent "Agent tool" on
     deep-agents targets — the correct call there is `task` with `subagent_type`. Removed
     hardcoded "Task" references that no longer matched all three targets.
