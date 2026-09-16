@@ -223,7 +223,7 @@
     "number": null,
     "id": "standalone-ledger-claude-coordinator",
     "role": "Ledger Claude Coordinator",
-    "version": "1.0.1",
+    "version": "2.0.1",
     "suite": "ledger-support",
     "model": "Inherit / Auto",
     "model_slug": "inherit",

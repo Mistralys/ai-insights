@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-14
+> **Generated:** 2026-09-16
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -442,14 +442,15 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v1.0.1)
+### Ledger Claude Coordinator (v2.0.1)
 
 **Identity:** Technical Workflow Director
 
 Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent.
 
 - **Modes:** Interactive (default), Autonomous
-- **Use When:** Experimental — originally designed to coordinate the ledger pipeline in Claude Code, but currently unused because Claude Code does not reliably follow ledger routing. Retained for future evaluation
+- **Use When:** Experimental — drives the ledger pipeline as the session-owning main agent under `claude --agent`, dispatching each stage the ledger names. Earlier failures came from the default Claude Code agent doing the routing; under test as of v2.0.0
+- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis
 
 ---
 
