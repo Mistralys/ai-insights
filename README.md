@@ -45,6 +45,20 @@ The ledger supports **multi-store mode**: point the server at multiple independe
 → [mcp-server/README.md](mcp-server/README.md)  
 → [docs/references/multi-store-guide.md](docs/references/multi-store-guide.md) — multi-store setup, CLI reference, and migration walkthrough
 
+A repository's per-repository strategic vision (the ledger's `ledger_get_repository_context` MCP tool output) is normally only readable by MCP-connected agents. `ai-insights ledger` gives any developer or non-ledger agent standing in a consumer project a read-only, opt-in mirror of it:
+
+```bash
+ai-insights ledger              # infers init or edit for the current directory, interactively
+ai-insights ledger init --repository-id <id> --enable strategic-vision
+ai-insights ledger edit --enable strategic-vision
+ai-insights ledger sync         # regenerate declared outputs
+ai-insights ledger sync --check # exit 1 if outputs are stale, without writing
+```
+
+The interactive wizard (bare `ledger`, or `ledger init`/`ledger edit` with no flags, on a TTY) is the default path; every flag shown above works unattended for scripts or CI. `ledger` is also reachable from the main menu's **Declare project ledger** entry. An output's `path` can be overridden in `.ledger/settings.json`, but never point it at a security-sensitive destination (e.g. under `.git/`, a CI configuration file, or an executable script path) — every `ledger sync` run silently overwrites it.
+
+→ [docs/references/menu-guide.md § Declaring a project ledger](docs/references/menu-guide.md#declaring-a-project-ledger) — full verb reference, wizard vs. flag-driven paths, and verbless-invocation inference
+
 ### The Orchestrator
 
 Run the entire 9-stage pipeline from the command line — no IDE required. Built on **LangGraph** + **Deep Agents**, the orchestrator executes the same MCP-backed workflow headlessly. Useful for automation, CI integration, or when you want to kick off a pipeline and walk away.

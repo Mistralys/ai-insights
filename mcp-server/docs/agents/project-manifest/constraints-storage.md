@@ -15,6 +15,7 @@
 - [Knowledge Store Constraints](#knowledge-store-constraints)
 - [Schema Strictness Patterns](#schema-strictness-patterns)
 - [Multi-Store Architecture Constraints](#multi-store-architecture-constraints)
+- [Project Declaration Constraints](#project-declaration-constraints)
 - [Known Limitations](#known-limitations)
 
 ---
@@ -374,6 +375,51 @@ const store = new LedgerStore(ledgerRoot ?? projectPath);
 **Migration scope:** All affected handler functions in `work-package.ts`, `pipeline.ts`, `begin-work.ts`, `observations.ts`, `workflow-handoff.ts`, `workflow-next-action.ts`, and `project-lifecycle.ts` have been migrated. Any new handler added to these files — or any handler that previously called `extractLedgerRoot(_ledgerRoot)` directly — must apply the same 3-line pattern: import `resolveMultiStoreLedgerRoot`, await it with `(projectPath, _ledgerRoot)`, and pass the result as the first `LedgerStore` constructor argument.
 
 **Write-routing exception:** Handlers that create new ledger state — currently `initializeProject()` (`project-lifecycle.ts`), `importStandalone()` (`standalone-import.ts`), and `createWorkPackage()` (`work-package.ts`) — must use the `resolveStoreForWrite()` pattern instead. This enforces that the target repository is registered in a store, preventing silent phantom directory creation in the default store. See `initializeProject()` for the reference pattern.
+
+---
+
+## Project Declaration Constraints
+
+### The Sync Choke-Point Is the Sole Write Site for a Project's `.ledger/` Outputs
+
+**Rule:** Every write the ledger makes *into* a consumer project (as opposed to into the central store) — for any output id, in either `write` or `check` mode, including disabled-output cleanup — routes through `syncProjectOutputs()` in `src/outputs/sync.ts` (the "sync choke-point"). No other function is permitted to write a file into a declared project outside this path.
+
+**Enforcement (D1 consent invariant — "the ledger writes into a project only inside `.ledger/` or a declared output path"):** `syncProjectOutputs()` resolves every candidate path through `resolveOutputPath()` (`src/storage/project-declaration.ts`), which rejects an absolute or traversal-escaping override and refuses the three reserved `.ledger/` filenames (`settings.json`, `settings.local.json`, `README.md`) as output targets. `assertAllowlisted()` then re-derives the expected path from `settings`/`DEFAULT_OUTPUT_PATHS` and throws if the resolved path ever diverges — a defense-in-depth check against a future refactor computing a path some other way. `assertRealPathWithinRoot()` closes the remaining gap: both `resolveOutputPath()` and `assertAllowlisted()` validate *lexically* (string-level `path.resolve()`/`path.relative()`), so a symlink planted at any intermediate path segment under an allowlisted path (e.g. `.ledger/escape -> /somewhere/outside`) would otherwise resolve, lexically, to a path that still reads as inside `projectRoot` while the actual filesystem write lands outside it — `assertRealPathWithinRoot()` walks up to the deepest existing ancestor of the target path, resolving every symlink via `fs.realpath()`, and confirms the real path stays within the real (symlink-resolved) path of `projectRoot`.
+
+**Why one function:** Centralizing every output id, mode, and cleanup decision in one function makes the write set a testable property of that function rather than a convention each new output must independently remember to honor.
+
+### `outputs.*.path` Overrides and Sensitive Destinations
+
+**Rule:** A declaration's `outputs.*.path` override retargets a *generated, periodically overwritten*
+file — never declare it at a security-sensitive destination, for example anything under `.git/`, a CI
+configuration file, or an executable script path. Every `ledger sync` run silently replaces that
+file's content, so pointing it at such a location is unsupported.
+
+**Enforcement:** There is no schema-level denylist for this — `constraints-code-style.md` forbids
+`.refine()`, `.transform()`, and `.superRefine()` on outer tool schemas, and a runtime denylist of
+"sensitive" paths would be unbounded guesswork (every repository's sensitive set differs). Containment
+instead relies entirely on the existing runtime guards: `resolveOutputPath()`'s traversal and
+reserved-filename checks, and `assertRealPathWithinRoot()`'s symlink-aware containment check, both
+described above. This is documentation only, warning against a destination that is *technically
+permitted* by those guards but inadvisable.
+
+---
+
+### `loadProjectDeclaration()` Deliberately Departs From `loadRegistry()`'s Lossy-Fallback Contract
+
+**Rule:** `loadProjectDeclaration()` (`src/storage/project-declaration.ts`) returns a three-state discriminated union — `{ kind: 'not_declared' }`, `{ kind: 'declared', settings, sourcePaths }`, or `{ kind: 'invalid', errors }` — and a malformed hand-authored `.ledger/settings.json` or `.ledger/settings.local.json` **always** surfaces as `{ kind: 'invalid' }` rather than being silently discarded.
+
+**Contrast with `loadRegistry()`:** The central repository registry's `loadRegistry()` (`src/storage/repository-registry.ts`) tolerates a malformed or missing registry file by falling back to an empty registry — appropriate there because an absent central registry is a normal first-run state for the whole ledger. A hand-authored per-project declaration is different: an absent `.ledger/settings.json` is a normal first-run state too (`not_declared`), but a *present-and-malformed* file is always a mistake (bad JSON, a schema failure, an unrecognized `schema_version`, or a `settings.local.json` carrying `repository_id` — which is rejected explicitly, since a local override may not redirect a project's declared identity) that must surface to the caller rather than being swallowed into a default.
+
+**Where this matters:** `findProjectRoot()` (the single root-detection contract shared by the identity resolver and every `ai-insights ledger` CLI verb) has no plan-path fallback branch — `inferProjectRootFromPlanPath()` (`src/utils/ledger-root.ts`) remains a separate, filesystem-free helper used only for the *derived*-naming tier, never for locating a declared root.
+
+---
+
+### `findEntryInStores()` Lives in `src/storage/repository-lookup.ts`
+
+**Rule:** Cross-store repository lookup (`findEntryInStores()`, plus its sibling `listEntriesInStores()` for the `ledger init` wizard's repository picker) lives in `src/storage/repository-lookup.ts`, not in `mcp-server/gui/api-repos.ts` where it originated as a module-private helper.
+
+**Rationale:** The GUI layer, the project-declaration identity resolver, and the `ai-insights ledger` CLI all need the same first-match, store-order-priority lookup semantic. Relocating it to `src/storage/` lets all three consumers share one implementation with one documented contract, rather than each re-deriving store iteration order — closing part of KL-3's duplication story below (one fewer near-duplicate implementation of store-order iteration).
 
 ---
 

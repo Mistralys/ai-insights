@@ -344,3 +344,18 @@
 
 <a name="c60"></a>
 38. **A capture partial must always be accompanied by an action gate.** Placing `{{> insight-capture}}` or `{{> mcp-insight-capture}}` in the observation section alone makes the capture described but never triggered. Each consuming persona must also bind an explicit capture instruction to a concrete step of its Operational Protocol — without this, the partial delivers end-of-session reconstruction, not incremental capture.
+
+---
+
+## Project Declaration Boundary
+
+<a name="c61"></a>
+39. **`.ledger/**` is read-only for every persona — generated, never hand-authored or corrected.** A working tree's `.ledger/` directory (`.ledger/settings.json`, `.ledger/settings.local.json`, `.ledger/README.md`, and any enabled generated output such as `.ledger/strategic-vision.md`) is owned exclusively by the `ai-insights ledger` CLI (`init`/`edit`/`sync`) and its sync choke-point. No persona — Planner, Manifest Curator, AGENTS.md Curator, or any other — writes into `.ledger/**` in any mode, including its own Update/Audit/repair modes.
+
+   **Consuming personas today:**
+   - The **Planner** (`personas/ledger/src/content/1-planner.md`, `personas/standalone/src/content/planner.md`) reads `.ledger/strategic-vision.md` as a *second* source for Strategic Context, alongside `ledger_get_repository_context`'s `mirror` field — see the personas manifest `data-flows.md` for the precedence between the two. It never edits the mirror.
+   - The **Manifest Curator** (`personas/standalone/src/content/manifest-curator.md`) and the **AGENTS.md Curator** (`personas/standalone/src/content/agents-md-curator.md`) each carry a routing-line responsibility: when a declared project's `strategic-vision` output is enabled, the relevant document (`README.md`'s index or `AGENTS.md`) gets a routing line pointing at the mirror's *actual configured path* (default `.ledger/strategic-vision.md`, overridable per the declaration). Adding or correcting that routing line is an ordinary manifest edit; regenerating or correcting the mirror's *content* is not — that content is exclusively `ai-insights ledger sync`'s responsibility. In Audit mode, a missing or wrong-path routing line is a finding (Medium severity — the mirror stays reachable by direct navigation even when the routing line is stale or absent).
+
+   **Why this needs stating:** `.ledger/strategic-vision.md` looks like ordinary hand-editable Markdown from inside a curator persona's working context — same directory tree, same file extension. Its generated-header contract (a byte-exact marker line) is the only in-file signal that it is machine-owned; a persona that "helpfully" corrects a stale-looking mirror by hand would silently desync it from the registry and defeat `ai-insights ledger sync --check`'s staleness detection.
+
+   **C5c registry note:** this boundary is stated once here rather than registered as a shared C5c principle, since as of this writing only the routing-line responsibility (not the boundary rule itself) is duplicated across the two curator personas, and that duplication is already the ordinary "every manifest-adjacent document gets a routing line" pattern each curator already follows for its own document type — not a second instance of a shared *principle* in C5c's sense. Register it in C5c if a third persona independently gains a `.ledger/**` boundary responsibility that is not itself a routing-line duty.

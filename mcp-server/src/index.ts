@@ -22,10 +22,8 @@ import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
 import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
-import { loadStoresConfig, resolveGuiConfigPath } from './storage/store-registry.js';
-import { StoreRouter } from './storage/store-router.js';
-import { MultiStoreManager } from './storage/multi-store-manager.js';
-import { setStoreContext } from './storage/store-context.js';
+import { resolveGuiConfigPath } from './storage/store-registry.js';
+import { initStoreContext } from './storage/store-context.js';
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -109,17 +107,17 @@ async function main(): Promise<void> {
   mkdirSync(ledgerRoot, { recursive: true });
   process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
 
-  // Attempt to load multi-store configuration from ~/.ai-insights/stores.json.
-  // loadStoresConfig() returns null on absence, malformed JSON, or schema
+  // Attempt to load multi-store configuration from ~/.ai-insights/stores.json
+  // and build the singleton context objects (StoreRouter + MultiStoreManager).
+  // initStoreContext() returns null on absence, malformed JSON, or schema
   // failure (it logs a warning to stderr in the latter two cases) — no
-  // try-catch needed here for config errors.
-  const storeConfig = await loadStoresConfig();
+  // try-catch needed here for config errors. StoreRouter's constructor
+  // handles directory auto-creation for multi-store.
+  const storeConfig = await initStoreContext();
 
   let storePaths: string[];
 
   if (storeConfig !== null) {
-    // Multi-store mode: StoreRouter auto-creates each store directory on
-    // construction (mkdirSync with recursive:true).
     process.stderr.write(
       `[mcp-server] Multi-store mode: ${storeConfig.stores.length} store(s) configured.\n`
     );
@@ -129,12 +127,6 @@ async function main(): Promise<void> {
     process.stderr.write('[mcp-server] Single-store mode (no stores.json found).\n');
     storePaths = [ledgerRoot];
   }
-
-  // Build the singleton context objects (StoreRouter + MultiStoreManager).
-  // StoreRouter constructor handles directory auto-creation for multi-store.
-  const storeRouter = new StoreRouter(storeConfig);
-  const multiStoreManager = new MultiStoreManager(storeRouter);
-  setStoreContext(storeRouter, multiStoreManager);
 
   // Run one-time startup migration from flat layout to repo-namespaced layout
   // on every configured store path.

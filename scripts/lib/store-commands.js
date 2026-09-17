@@ -3,7 +3,7 @@
  *
  * Pure-JavaScript implementation of the `store` command group.
  *
- * All exported functions accept an optional `_configPath` parameter for test
+ * All exported functions accept an optional `configPath` parameter for test
  * isolation — when provided, it overrides the default `~/.ai-insights/stores.json`
  * location so tests can work with temporary directories without touching real
  * user-level config.
@@ -11,6 +11,21 @@
  * File formats are compatible with the TypeScript storage modules:
  *   - stores.json      → StoresConfigSchema
  *   - .repositories.json → RepositoryRegistrySchema
+ *
+ * Registry I/O (`.repositories.json`) and store-path resolution delegate to the
+ * compiled, lock-protected, schema-validated TypeScript implementations in
+ * `mcp-server/src/storage/repository-registry.ts` and `store-registry.ts` via
+ * `scripts/lib/ledger-bridge.js` — this file no longer re-implements that I/O.
+ * `stores.json` I/O (`loadConfig`/`saveConfig`) remains a local, unlocked
+ * read/write: `stores.json` is written only from this single-process CLI (never
+ * concurrently, unlike `.repositories.json`, which two ledger-writing processes
+ * can touch), and `storeRemove()` needs to persist a `default_store: null` /
+ * empty-`stores` transitional state that `StoresConfigSchema` — which requires
+ * at least one store and a string `default_store` — cannot represent.
+ *
+ * Because the compiled registry loaders are reached through a dynamic
+ * `import()` (see `loadDistModule()`), every function that (transitively) calls
+ * `loadRegistry`/`saveRegistry`/`expandPath`/`resolveConfigPath` is `async`.
  *
  * ## Public command API (consumed by scripts/cli.js → cmdStore())
  *
@@ -28,10 +43,11 @@
  */
 
 import { homedir } from 'os';
-import { join, resolve } from 'path';
+import { join } from 'path';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import { listAllProjectDirs } from './ledger-dirs.js';
+import { loadDistModule } from './ledger-bridge.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -42,24 +58,26 @@ const REGISTRY_FILENAME = '.repositories.json';
 // ─── Path Utilities ───────────────────────────────────────────────────────────
 
 /**
- * Returns the default path to `~/.ai-insights/stores.json`.
+ * Returns the default path to `~/.ai-insights/stores.json`, delegating to the
+ * compiled `resolveStoresConfigPath()` via the bridge.
+ *
+ * @returns {Promise<string>}
  */
-export function resolveConfigPath() {
-  return join(homedir(), AI_INSIGHTS_DIR, STORES_FILENAME);
+export async function resolveConfigPath() {
+  const { resolveStoresConfigPath } = await loadDistModule('storage/store-registry.js');
+  return resolveStoresConfigPath();
 }
 
 /**
  * Expands a `~`-prefixed path to an absolute path, then normalizes with
- * `path.resolve()`. Mirrors the TypeScript `expandStorePath()` in store-registry.ts.
+ * `path.resolve()`, delegating to the compiled `expandStorePath()` via the bridge.
  *
  * @param {string} p
- * @returns {string}
+ * @returns {Promise<string>}
  */
-export function expandPath(p) {
-  if (p.startsWith('~/') || p === '~') {
-    return resolve(join(homedir(), p.slice(2)));
-  }
-  return resolve(p);
+export async function expandPath(p) {
+  const { expandStorePath } = await loadDistModule('storage/store-registry.js');
+  return expandStorePath(p);
 }
 
 /**
@@ -108,10 +126,10 @@ function writeJsonSync(filePath, data) {
  * Returns `null` if the file doesn't exist or cannot be parsed.
  *
  * @param {string | undefined} configPath
- * @returns {{ stores: Array, default_store: string } | null}
+ * @returns {Promise<{ stores: Array, default_store: string } | null>}
  */
-export function loadConfig(configPath) {
-  const data = readJsonSync(configPath ?? resolveConfigPath());
+export async function loadConfig(configPath) {
+  const data = readJsonSync(configPath ?? await resolveConfigPath());
   if (!data || !Array.isArray(data.stores)) return null;
   return data;
 }
@@ -124,9 +142,10 @@ export function loadConfig(configPath) {
  * @param {string | undefined} _storesDirOverride - When provided, used instead of
  *   `~/.ai-insights/` for the parent-directory mkdirSync call. Intended for test
  *   isolation so tests never touch the real user-level config directory.
+ * @returns {Promise<void>}
  */
-export function saveConfig(config, configPath, _storesDirOverride) {
-  const p = configPath ?? resolveConfigPath();
+export async function saveConfig(config, configPath, _storesDirOverride) {
+  const p = configPath ?? await resolveConfigPath();
   const storesDir = _storesDirOverride ?? join(homedir(), AI_INSIGHTS_DIR);
   fs.mkdirSync(storesDir, { recursive: true });
   writeJsonSync(p, config);
@@ -135,30 +154,30 @@ export function saveConfig(config, configPath, _storesDirOverride) {
 // ─── Registry I/O ────────────────────────────────────────────────────────────
 
 /**
- * Loads the `.repositories.json` for a store. Returns `{ repositories: [] }`
- * if the file doesn't exist or is invalid — same behaviour as the TypeScript
- * `loadRegistry()` in repository-registry.ts.
+ * Loads the `.repositories.json` for a store, delegating to the compiled,
+ * schema-validated `loadRegistry()` in `repository-registry.ts` via the bridge.
+ * Returns `{ repositories: [] }` if the file doesn't exist or is invalid.
  *
  * @param {string} storePath - Absolute path to the store root directory
- * @returns {{ repositories: Array }}
+ * @returns {Promise<{ repositories: Array }>}
  */
-export function loadRegistry(storePath) {
-  const data = readJsonSync(registryPath(storePath));
-  if (!data || !Array.isArray(data.repositories)) {
-    return { repositories: [] };
-  }
-  return data;
+export async function loadRegistry(storePath) {
+  const mod = await loadDistModule('storage/repository-registry.js');
+  return mod.loadRegistry(storePath);
 }
 
 /**
- * Writes the repository registry for a store.
+ * Writes the repository registry for a store, delegating to the compiled,
+ * lock-protected, schema-validated `saveRegistry()` in `repository-registry.ts`
+ * via the bridge.
  *
  * @param {string} storePath - Absolute path to the store root directory
  * @param {{ repositories: Array }} registry
+ * @returns {Promise<void>}
  */
-export function saveRegistry(storePath, registry) {
-  const sorted = { ...registry, repositories: [...registry.repositories].sort((a, b) => a.id.localeCompare(b.id)) };
-  writeJsonSync(registryPath(storePath), sorted);
+export async function saveRegistry(storePath, registry) {
+  const mod = await loadDistModule('storage/repository-registry.js');
+  return mod.saveRegistry(storePath, registry);
 }
 
 // ─── store init ───────────────────────────────────────────────────────────────
@@ -170,10 +189,10 @@ export function saveRegistry(storePath, registry) {
  * Also creates `~/.ai-insights/stores/` as the recommended stores directory.
  *
  * @param {{ configPath?: string, ledgerRoot?: string, _storesDirOverride?: string }} [opts]
- * @returns {{ ok: boolean, config?: object, configPath?: string, reason?: string }}
+ * @returns {Promise<{ ok: boolean, config?: object, configPath?: string, reason?: string }>}
  */
-export function storeInit({ configPath, ledgerRoot, _storesDirOverride } = {}) {
-  const cp = configPath ?? resolveConfigPath();
+export async function storeInit({ configPath, ledgerRoot, _storesDirOverride } = {}) {
+  const cp = configPath ?? await resolveConfigPath();
 
   if (fs.existsSync(cp)) {
     return { ok: false, reason: `stores.json already exists at ${cp}` };
@@ -185,14 +204,14 @@ export function storeInit({ configPath, ledgerRoot, _storesDirOverride } = {}) {
   fs.mkdirSync(storesDir, { recursive: true });
 
   const root = ledgerRoot ?? join(process.cwd(), 'mcp-server', 'storage', 'ledger');
-  const absRoot = expandPath(root);
+  const absRoot = await expandPath(root);
 
   const config = {
     stores: [{ id: 'default', label: 'Default', path: absRoot }],
     default_store: 'default',
   };
 
-  saveConfig(config, cp, _storesDirOverride);
+  await saveConfig(config, cp, _storesDirOverride);
   return { ok: true, config, configPath: cp };
 }
 
@@ -203,15 +222,15 @@ export function storeInit({ configPath, ledgerRoot, _storesDirOverride } = {}) {
  * initializes an empty `.repositories.json` if one doesn't exist.
  *
  * @param {{ id: string, storePath: string, label?: string, configPath?: string }} opts
- * @returns {{ ok: boolean, id?: string, path?: string, reason?: string }}
+ * @returns {Promise<{ ok: boolean, id?: string, path?: string, reason?: string }>}
  */
-export function storeAdd({ id, storePath, label, configPath } = {}) {
+export async function storeAdd({ id, storePath, label, configPath } = {}) {
   if (!id)        return { ok: false, reason: 'Store ID is required.' };
   if (!storePath) return { ok: false, reason: 'Store path is required.' };
 
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp) ?? { stores: [], default_store: id };
-  const absPath = expandPath(storePath);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = (await loadConfig(cp)) ?? { stores: [], default_store: id };
+  const absPath = await expandPath(storePath);
 
   if (config.stores.some(s => s.id === id)) {
     return { ok: false, reason: `Store '${id}' already exists in stores.json.` };
@@ -226,11 +245,11 @@ export function storeAdd({ id, storePath, label, configPath } = {}) {
   // Initialize an empty registry if the store doesn't have one.
   const regPath = registryPath(absPath);
   if (!fs.existsSync(regPath)) {
-    saveRegistry(absPath, { repositories: [] });
+    await saveRegistry(absPath, { repositories: [] });
   }
 
   config.stores.push({ id, label: label ?? id, path: absPath });
-  saveConfig(config, cp);
+  await saveConfig(config, cp);
 
   return { ok: true, id, path: absPath };
 }
@@ -243,21 +262,21 @@ export function storeAdd({ id, storePath, label, configPath } = {}) {
  * the caller should display a warning.
  *
  * @param {{ id: string, configPath?: string }} opts
- * @returns {{ ok: boolean, id?: string, hasRepos?: boolean, warned?: boolean, reason?: string }}
+ * @returns {Promise<{ ok: boolean, id?: string, hasRepos?: boolean, warned?: boolean, reason?: string }>}
  */
-export function storeRemove({ id, configPath } = {}) {
+export async function storeRemove({ id, configPath } = {}) {
   if (!id) return { ok: false, reason: 'Store ID is required.' };
 
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: false, reason: 'No stores.json found.' };
 
   const idx = config.stores.findIndex(s => s.id === id);
   if (idx === -1) return { ok: false, reason: `Store '${id}' not found in stores.json.` };
 
   const store   = config.stores[idx];
-  const absPath = expandPath(store.path);
-  const registry = loadRegistry(absPath);
+  const absPath = await expandPath(store.path);
+  const registry = await loadRegistry(absPath);
   const hasRepos = registry.repositories.length > 0;
 
   config.stores.splice(idx, 1);
@@ -269,7 +288,7 @@ export function storeRemove({ id, configPath } = {}) {
     config.default_store = config.stores[0].id;
   }
 
-  saveConfig(config, cp);
+  await saveConfig(config, cp);
   return { ok: true, id, hasRepos, warned: hasRepos };
 }
 
@@ -286,13 +305,13 @@ export function storeRemove({ id, configPath } = {}) {
  * @returns {Promise<{ ok: boolean, stores: Array, default_store?: string }>}
  */
 export async function storeList({ configPath } = {}) {
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: true, stores: [] };
 
   const stores = await Promise.all(config.stores.map(async (s) => {
-    const absPath  = expandPath(s.path);
-    const registry = loadRegistry(absPath);
+    const absPath  = await expandPath(s.path);
+    const registry = await loadRegistry(absPath);
     const repoCount = registry.repositories.length;
 
     let projectCount = 0;
@@ -319,13 +338,13 @@ export async function storeList({ configPath } = {}) {
  * Sets the `default_store` field in `stores.json`.
  *
  * @param {{ id: string, configPath?: string }} opts
- * @returns {{ ok: boolean, default_store?: string, reason?: string }}
+ * @returns {Promise<{ ok: boolean, default_store?: string, reason?: string }>}
  */
-export function storeSetDefault({ id, configPath } = {}) {
+export async function storeSetDefault({ id, configPath } = {}) {
   if (!id) return { ok: false, reason: 'Store ID is required.' };
 
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: false, reason: 'No stores.json found.' };
 
   if (!config.stores.some(s => s.id === id)) {
@@ -333,7 +352,7 @@ export function storeSetDefault({ id, configPath } = {}) {
   }
 
   config.default_store = id;
-  saveConfig(config, cp);
+  await saveConfig(config, cp);
   return { ok: true, default_store: id };
 }
 
@@ -345,11 +364,11 @@ export function storeSetDefault({ id, configPath } = {}) {
  * order) determines the winner — consistent with `MultiStoreManager.getRegistryConflicts()`.
  *
  * @param {{ configPath?: string }} [opts]
- * @returns {{ ok: boolean, conflicts: Array }}
+ * @returns {Promise<{ ok: boolean, conflicts: Array }>}
  */
-export function storeConflicts({ configPath } = {}) {
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+export async function storeConflicts({ configPath } = {}) {
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: true, conflicts: [] };
 
   /** @type {Map<string, { store_id: string, entry: object }>} */
@@ -357,8 +376,8 @@ export function storeConflicts({ configPath } = {}) {
   const conflicts = []; // Array<{ repo_name, entries[], winner_store_id }>
 
   for (const s of config.stores) {
-    const absPath  = expandPath(s.path);
-    const registry = loadRegistry(absPath);
+    const absPath  = await expandPath(s.path);
+    const registry = await loadRegistry(absPath);
 
     for (const entry of registry.repositories) {
       for (const folderName of (Array.isArray(entry.folder_names) ? entry.folder_names : [])) {
@@ -393,15 +412,15 @@ export function storeConflicts({ configPath } = {}) {
  * are shown with status "not a git repo".
  *
  * @param {{ configPath?: string }} [opts]
- * @returns {{ ok: boolean, statuses: Array }}
+ * @returns {Promise<{ ok: boolean, statuses: Array }>}
  */
-export function storeStatus({ configPath } = {}) {
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+export async function storeStatus({ configPath } = {}) {
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: true, statuses: [] };
 
-  const statuses = config.stores.map(s => {
-    const absPath = expandPath(s.path);
+  const statuses = await Promise.all(config.stores.map(async s => {
+    const absPath = await expandPath(s.path);
 
     // Check if the path is a Git repo.
     const revParse = spawnSync('git', ['-C', absPath, 'rev-parse', '--git-dir'], {
@@ -431,7 +450,7 @@ export function storeStatus({ configPath } = {}) {
       ahead:  parseInt(ahead, 10),
       behind: parseInt(behind, 10),
     };
-  });
+  }));
 
   return { ok: true, statuses };
 }
@@ -443,21 +462,21 @@ export function storeStatus({ configPath } = {}) {
  * Creates a minimal entry compatible with `RepositoryEntrySchema`.
  *
  * @param {{ repoName: string, storeId: string, label?: string, configPath?: string }} opts
- * @returns {{ ok: boolean, repoName?: string, storeId?: string, reason?: string }}
+ * @returns {Promise<{ ok: boolean, repoName?: string, storeId?: string, reason?: string }>}
  */
-export function storeRepoAdd({ repoName, storeId, label, configPath } = {}) {
+export async function storeRepoAdd({ repoName, storeId, label, configPath } = {}) {
   if (!repoName) return { ok: false, reason: 'Repository name is required.' };
   if (!storeId)  return { ok: false, reason: 'Store ID is required.' };
 
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: false, reason: 'No stores.json found. Run `store init` first.' };
 
   const storeEntry = config.stores.find(s => s.id === storeId);
   if (!storeEntry) return { ok: false, reason: `Store '${storeId}' not found in stores.json.` };
 
-  const absPath  = expandPath(storeEntry.path);
-  const registry = loadRegistry(absPath);
+  const absPath  = await expandPath(storeEntry.path);
+  const registry = await loadRegistry(absPath);
 
   // Check for duplicate folder_name.
   const duplicate = registry.repositories.find(r =>
@@ -478,7 +497,7 @@ export function storeRepoAdd({ repoName, storeId, label, configPath } = {}) {
   };
 
   registry.repositories.push(entry);
-  saveRegistry(absPath, registry);
+  await saveRegistry(absPath, registry);
 
   return { ok: true, repoName, storeId, entry };
 }
@@ -490,14 +509,14 @@ export function storeRepoAdd({ repoName, storeId, label, configPath } = {}) {
  * the target store's registry. Uses `folder_names` to locate the source entry.
  *
  * @param {{ repoName: string, targetStoreId: string, configPath?: string }} opts
- * @returns {{ ok: boolean, repoName?: string, fromStoreId?: string, toStoreId?: string, reason?: string }}
+ * @returns {Promise<{ ok: boolean, repoName?: string, fromStoreId?: string, toStoreId?: string, reason?: string }>}
  */
-export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
+export async function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
   if (!repoName)      return { ok: false, reason: 'Repository name is required.' };
   if (!targetStoreId) return { ok: false, reason: 'Target store ID is required.' };
 
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: false, reason: 'No stores.json found.' };
 
   if (!config.stores.some(s => s.id === targetStoreId)) {
@@ -508,8 +527,8 @@ export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
   // the source. This prevents a partial-mutation failure where the repo is
   // removed from source but we return ok:false because the target has a copy.
   const targetEntry = config.stores.find(s => s.id === targetStoreId);
-  const targetPath  = expandPath(targetEntry.path);
-  const targetReg   = loadRegistry(targetPath);
+  const targetPath  = await expandPath(targetEntry.path);
+  const targetReg   = await loadRegistry(targetPath);
 
   if (targetReg.repositories.some(r =>
     Array.isArray(r.folder_names) && r.folder_names.includes(repoName)
@@ -524,8 +543,8 @@ export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
 
   for (const s of config.stores) {
     if (s.id === targetStoreId) continue;
-    const absPath  = expandPath(s.path);
-    const registry = loadRegistry(absPath);
+    const absPath  = await expandPath(s.path);
+    const registry = await loadRegistry(absPath);
     const idx = registry.repositories.findIndex(r =>
       Array.isArray(r.folder_names) && r.folder_names.includes(repoName)
     );
@@ -534,7 +553,7 @@ export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
       entryToMove = registry.repositories[idx];
       // Remove from source only now that we know the target is clear.
       registry.repositories.splice(idx, 1);
-      saveRegistry(absPath, registry);
+      await saveRegistry(absPath, registry);
       break;
     }
   }
@@ -547,7 +566,7 @@ export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
   const now = new Date().toISOString();
   entryToMove.last_modified = now;
   targetReg.repositories.push(entryToMove);
-  saveRegistry(targetPath, targetReg);
+  await saveRegistry(targetPath, targetReg);
 
   return { ok: true, repoName, fromStoreId, toStoreId: targetStoreId };
 }
@@ -559,19 +578,19 @@ export function storeRepoMove({ repoName, targetStoreId, configPath } = {}) {
  * priority (first store that claims a folder_name wins).
  *
  * @param {{ configPath?: string }} [opts]
- * @returns {{ ok: boolean, repos: Array }}
+ * @returns {Promise<{ ok: boolean, repos: Array }>}
  */
-export function storeRepoList({ configPath } = {}) {
-  const cp = configPath ?? resolveConfigPath();
-  const config = loadConfig(cp);
+export async function storeRepoList({ configPath } = {}) {
+  const cp = configPath ?? await resolveConfigPath();
+  const config = await loadConfig(cp);
   if (!config) return { ok: true, repos: [] };
 
   const seen = new Set(); // folder_names already claimed
   const repos = [];
 
   for (const s of config.stores) {
-    const absPath  = expandPath(s.path);
-    const registry = loadRegistry(absPath);
+    const absPath  = await expandPath(s.path);
+    const registry = await loadRegistry(absPath);
 
     for (const entry of registry.repositories) {
       const folderNames = Array.isArray(entry.folder_names) ? entry.folder_names : [];

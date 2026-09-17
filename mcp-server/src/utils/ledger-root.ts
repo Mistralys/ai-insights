@@ -126,6 +126,35 @@ export function deriveRepoName(projectPath: string, resolvedRoot?: string | null
   return name;
 }
 
+/**
+ * Derives a repository name from a bare workspace root path (as opposed to
+ * `deriveRepoName()`, which expects a plan folder path).
+ *
+ * Formalises the synthetic-plan-path construction that `ledger_get_repository_context`
+ * (`src/tools/repository-context.ts`) previously built inline: it appends the
+ * conventional `docs/agents/plans/synthetic-slug` anchor onto `cwdPath` and
+ * delegates to `deriveRepoName()`, which walks that anchor back off via
+ * `inferProjectRootFromPlanPath()` to recover the workspace root.
+ *
+ * This indirection exists because `inferProjectRootFromPlanPath()` expects a
+ * path that already contains the `docs/agents` anchor — passing a bare
+ * workspace root to it directly returns `null` (no anchor found), which would
+ * silently narrow the derived-name tier's supported input shape. The
+ * synthetic suffix reconstructs the anchor so a bare workspace root resolves
+ * exactly as it does today.
+ *
+ * Behaviour-identical, for every input shape, to the literal expression this
+ * helper replaces (see `deriveRepoName(\`${cwd}/docs/agents/plans/synthetic-slug\`)`).
+ *
+ * This function is pure — it performs no filesystem access.
+ *
+ * @param cwdPath - Absolute path to a workspace root directory.
+ * @returns Lowercase repository name (e.g. `'ai-insights'`), or `'unknown'`.
+ */
+export function deriveRepoNameFromCwd(cwdPath: string): string {
+  return deriveRepoName(`${cwdPath}/docs/agents/plans/synthetic-slug`);
+}
+
 // ---------------------------------------------------------------------------
 // Slug resolution helper
 // ---------------------------------------------------------------------------

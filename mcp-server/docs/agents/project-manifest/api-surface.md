@@ -708,7 +708,11 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 Returns a compact project timeline for a repository. Designed to give the Planner agent access to prior project history, curated outcome summaries, relevant knowledge-base insights, and strategic vision before producing a new plan.
 
-**Parameter precedence:** `repository_name` takes precedence over `cwd_path`. When `repository_name` is supplied, `cwd_path` is not used. At least one of the two must be provided — omitting both returns `isError: true`.
+**Identity resolution (WP-010):** Repository identity is resolved via `resolveRepositoryIdentity()` (`src/utils/repository-identity.ts`) in `explicit` → `declared` → `derived` precedence order:
+- **explicit** — `repository_name` supplied directly; used as-is, `cwd_path` is not consulted. Net effect unchanged from the pre-WP-010 "repository_name takes precedence over cwd_path" contract.
+- **declared** — `cwd_path` resolves (via `findProjectRoot()`) to a project carrying a `.ledger/settings.json` declaration; its `repository_id` is looked up by id across every configured store. Resolves the entry even when the directory basename matches no `folder_names` entry. A declared `repository_id` matching no entry in any store, or a malformed declaration, returns `isError: true` naming the id (or the parse errors) and every store searched — **never** falls back to the derived tier (a silent fallback could bind a project to a different repository's strategic vision).
+- **derived** — neither of the above applied; the repository name is derived from `cwd_path` via `deriveRepoNameFromCwd()` (`src/utils/ledger-root.ts`), byte-for-byte unchanged from the tool's pre-WP-010 behavior.
+- Neither `repository_name` nor `cwd_path` provided → `isError: true` (unchanged).
 
 **Response shape:**
 
@@ -721,6 +725,7 @@ Returns a compact project timeline for a repository. Designed to give the Planne
   strategic_vision: StrategicVision | null; // null when no registry entry matches
   projects: ProjectEntry[];              // capped at max_projects, sorted by date_created descending
   relevant_insights: Insight[];          // empty array when include_insights: false
+  mirror?: MirrorStatus;                 // WP-010 — see below; absent for an undeclared project or a disabled output
 }
 
 interface ProjectEntry {
@@ -733,7 +738,17 @@ interface ProjectEntry {
   outcome_summary: string | null;
   progress_pct?: number;
 }
+
+interface MirrorStatus {
+  path: string;                // absolute filesystem path the mirror is (or would be) written to
+  generated_at: string | null; // parsed from the mirror file's header; null when not yet generated
+  vision_hash: string;         // current SHA-256 (hex, no prefix) of the registry entry's vision
+  stale: boolean;               // true when the mirror is missing, unmarked (hand-authored), or its
+                                 // vision-hash header disagrees with vision_hash — i.e. sync is due
+}
 ```
+
+**`mirror` field (WP-010):** Populated only when identity resolves through the `declared` tier *and* that project's `strategic-vision` output is enabled (`settings.outputs['strategic-vision'].enabled`); omitted for an undeclared project, a disabled output, or a declared output whose configured path was rejected by `resolveOutputPath()`. Computed by `buildMirrorField()` (`src/tools/repository-context.ts`), which is strictly read-only — it never writes, removes, or otherwise touches the filesystem; only `ai-insights ledger sync` (`syncProjectOutputs()`, `src/outputs/sync.ts`) does that. Reuses `resolveOutputPath()`, `parseGeneratedHeader()`, and `visionHash()` from the storage/outputs layers rather than duplicating hash or staleness logic.
 
 **Cross-folder aggregation:** When a registry entry declares multiple `folder_names`, projects from ALL matching namespace directories are aggregated, then sorted by `date_created` descending before the `max_projects` cap is applied.
 
@@ -748,7 +763,7 @@ In single-store / legacy mode (no `stores.json`), `isMultiStore` is `false` and 
 
 **Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Two helper functions handle repository-scoped lookup with the same error-handling contract: `safeListRepositoryInsights()` (single-store, legacy mode) and `safeListAllStoreRepositoryInsights()` (multi-store mode, WP-008). Both helpers suppress slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) and return `[]` for those cases; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result. Any future helper of this type must preserve both invariants.
 
-**Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`.
+**Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`; identity resolution delegated to `src/utils/repository-identity.ts` (`resolveRepositoryIdentity()`, WP-010).
 
 ---
 
@@ -1222,9 +1237,16 @@ export const RepoUpdateBodySchema: z.ZodObject<{
 }>;
 ```
 
-### `findEntryInStores()` (internal helper)
+### `findEntryInStores()` / `listEntriesInStores()` — `src/storage/repository-lookup.ts`
 
 ```typescript
+// Relocated from gui/api-repos.ts (previously module-private) into
+// src/storage/repository-lookup.ts (ledger-declared-project plan, WP-002) — moved
+// verbatim, including this documentation block. api-repos.ts now imports it rather
+// than defining it. The relocation exists so the future `ai-insights ledger` CLI
+// command group (layers 3–4 of the same plan) can share the exact by-id lookup
+// semantics the GUI already relies on, instead of re-implementing store iteration.
+//
 // Searches all configured stores in config order for a repository entry matching repoId.
 // Returns the owning store path and the matched RepositoryEntry, or null if not found.
 // In single-store / legacy mode, searches only ledgerRoot.
@@ -1242,11 +1264,120 @@ export const RepoUpdateBodySchema: z.ZodObject<{
 //
 // @param ledgerRoot - Absolute path to the centralized ledger root directory.
 // @param repoId     - The `id` field to search for.
-async function findEntryInStores(
+export async function findEntryInStores(
   ledgerRoot: string,
   repoId: string
 ): Promise<{ storePath: string; entry: RepositoryEntry } | null>
+
+// Sibling of findEntryInStores(), added in the same WP for the future `init` wizard's
+// repository picker (WP-007/WP-008 of the same plan). Reproduces findEntryInStores()'s
+// exact two-branch single/multi-store structure by construction, so the two functions
+// cannot drift on store semantics.
+//
+// Returns every registry entry across all configured stores, each tagged with its
+// owning storePath, deduped first-match in store order (an id present in more than
+// one store is returned once, from the first store that declares it — matching
+// findEntryInStores()'s first-match semantics).
+//
+// @param ledgerRoot - Absolute path to the centralized ledger root directory.
+export async function listEntriesInStores(
+  ledgerRoot: string
+): Promise<Array<{ storePath: string; entry: RepositoryEntry }>>
 ```
+
+### `src/outputs/strategic-vision.ts` — strategic-vision mirror renderer (ledger-declared-project plan, WP-009)
+
+```typescript
+// Pure renderer — no filesystem I/O. Turns a RepositoryEntry's `vision` field into the
+// deterministic Markdown file mirrored into a consumer project by syncProjectOutputs()
+// (src/outputs/sync.ts). Owns the generated-header contract shared by the sync
+// choke-point's removal/overwrite logic and by ledger_get_repository_context's `mirror`
+// staleness field (WP-006/AC-20) — any change to the marker string or header line order
+// must update both.
+
+// The exact first line of every generated file — the removal marker. syncProjectOutputs()
+// only deletes or overwrites a file whose first line matches this string byte-for-byte;
+// a file without it is treated as hand-authored and never touched.
+export const MARKER = '<!-- generated-by: ai-insights ledger sync -->';
+
+// SHA-256 over vision.short_term/mid_term/long_term ONLY — never label, folder_names, or
+// last_modified (which changes on any registry edit and would otherwise churn a committed
+// file on an unrelated change). A null horizon is folded in via a NUL-byte sentinel, so
+// "empty string" and "not yet authored" hash differently. Returns a bare lowercase hex
+// digest (no `sha256:` prefix).
+export function visionHash(vision: StrategicVision): string;
+
+// Deterministic Markdown body only (no header) — LF endings, no trailing whitespace, a
+// null horizon rendered as `_Not yet authored._`. Exported separately from
+// renderStrategicVision() because syncProjectOutputs()'s idempotence check compares this
+// body text independently of the header's generated-at timestamp.
+export function renderStrategicVisionBody(entry: RepositoryEntry): string;
+
+// Full file: 5-line generated header (MARKER, repository-id, vision-hash, generated-at,
+// a DO-NOT-EDIT line naming `ai-insights ledger sync` and the dashboard Strategy page) +
+// blank line + renderStrategicVisionBody() + trailing newline. `source-last-modified` is
+// deliberately excluded from the header.
+export function renderStrategicVision(entry: RepositoryEntry, generatedAt: string): string;
+
+export interface GeneratedHeader {
+  repositoryId: string;
+  visionHash: string;     // bare hex digest, matching visionHash()'s return shape
+  generatedAt: string;
+  body: string;            // header, its blank separator, and the file's trailing newline stripped
+}
+
+// Parses an existing file against the header contract. Returns null when line 1 is not
+// the exact MARKER, or when any subsequent header line fails to parse — both cases are
+// treated identically as "not a file this tool can trust", so syncProjectOutputs() leaves
+// it untouched rather than guessing.
+export function parseGeneratedHeader(text: string): GeneratedHeader | null;
+```
+
+### `src/outputs/sync.ts` — `syncProjectOutputs()` sync choke-point (ledger-declared-project plan, WP-009)
+
+```typescript
+// The single function that owns every write into a consumer project's declared
+// `.ledger/` outputs — the plan's designated D1-consent security enforcement point
+// (AC-13). For each of OUTPUT_IDS: resolves the output's path via
+// storage/project-declaration.ts's resolveOutputPath(), re-asserts it against the
+// allowlist, real-path-validates it against symlink escape, rejects a directory-shaped
+// resolved path, then compares against any existing file's parsed header before
+// deciding written / unchanged / removed / skipped / blocked. Every write goes through
+// atomicWriteText() — no other write path exists in this module.
+
+export type SyncMode = 'write' | 'check'; // 'check' performs the identical
+  // classification with zero I/O; see SyncOutputRecord.stale for the reconciliation signal.
+
+export type SyncOutcomeKind = 'written' | 'unchanged' | 'removed' | 'skipped' | 'blocked';
+
+export interface SyncOutputRecord {
+  outputId: OutputId;
+  path: string | null;   // null only when resolveOutputPath() itself rejected the path
+  kind: SyncOutcomeKind;
+  stale: boolean;         // true when on-disk state does not match what `write` mode would produce
+  reason?: string;        // present on `blocked` records
+}
+
+export interface SyncProjectOutputsParams {
+  projectRoot: string;                         // absolute path to the `.ledger/`-owning project root
+  settings: ProjectSettings | undefined;        // undefined ⇒ every output resolves disabled/default
+  entry: RepositoryEntry;                       // the registry entry outputs are rendered from
+  mode: SyncMode;
+}
+
+export async function syncProjectOutputs(
+  params: SyncProjectOutputsParams
+): Promise<SyncOutputRecord[]>;
+```
+
+**Guard ordering inside `syncOneOutput()` (per output id, before any read/write/unlink):**
+
+1. `resolveOutputPath()` (storage/project-declaration.ts) — lexical rejection: absolute paths, traversal-escape, reserved `.ledger/` filenames.
+2. `assertAllowlisted()` — defense-in-depth re-derivation of the expected path from `settings`/`DEFAULT_OUTPUT_PATHS`; throws (does not return `blocked`) on divergence — should never trigger given the current implementation.
+3. `assertRealPathWithinRoot()` — walks up to the deepest *existing* ancestor of the resolved path via `fs.realpath()`, following any symlink encountered, and blocks if the real path escapes the real (symlink-resolved) `projectRoot`. Added in a QA-driven rework cycle after a `.ledger/escape -> /outside` symlink was found to let a write land outside `projectRoot` despite passing the lexical-only checks above.
+4. `directoryBlockReason()` — an up-front `fs.stat()` check that blocks a directory-shaped resolved path (e.g. a declared output path of `'.'`) before it can crash `readFileIfExists()`/`atomicWriteText()`/`unlink()` with an unhandled `EISDIR`. Added in the same rework cycle.
+
+**Idempotence comparison:** an existing marked file is `unchanged` only when both its parsed `vision-hash` *and* its parsed `body` match a fresh render — `generated-at` is deliberately excluded from both sides, so a re-sync with no vision change reports `unchanged` and leaves the file byte-identical, timestamp included.
 
 ### `handleListRepos()`
 
@@ -2789,7 +2920,10 @@ function getStoreRouter(): StoreRouter;
 function getMultiStoreManager(): MultiStoreManager;
 function isStoreContextInitialized(): boolean;
 async function reloadStoreContext(configPath?: string): Promise<StoresConfig | null>;
+async function initStoreContext(configPath?: string): Promise<StoresConfig | null>;
 ```
+
+**`initStoreContext(configPath?)`** — The single definition of the process-startup bootstrap sequence, extracted from duplicated inline code in `src/index.ts` and `gui/server.ts` by the ledger-declared-project plan (WP-003). Loads `stores.json` via `loadStoresConfig()`, constructs `new StoreRouter(config)` (auto-creates missing store directories on construction) and `new MultiStoreManager(router)`, then calls `setStoreContext()`. Returns the parsed `StoresConfig | null` (null in legacy single-store mode). Idempotent — calling it more than once simply re-runs the sequence and overwrites the previously stored context. Unlike `reloadStoreContext()`, it does **not** pass `skipDirCreate: true` — auto-creating missing directories is the desired behavior for a first-time process startup, whereas a runtime hot-reload should not throw on a temporarily unavailable store path. Both `src/index.ts` and `gui/server.ts` call this function rather than inlining the sequence; any future process (e.g. the `ledger` CLI command group) reaching multi-store-aware lookups must call it too — skipping it causes `findEntryInStores()` to silently fall back to searching only the default `ledgerRoot`, misreporting a repository registered in a non-default store as unregistered.
 
 **`reloadStoreContext(configPath?)`** — Re-reads `stores.json` via `loadStoresConfig()`, constructs fresh `StoreRouter(config, { skipDirCreate: true })` and `MultiStoreManager(router)` instances, and calls `setStoreContext()` to overwrite the module-level singletons. Returns the newly loaded `StoresConfig | null` (null when `stores.json` is absent, malformed, or schema-invalid — the server falls back to legacy single-store mode). Called by every write handler in `api-stores.ts` after a successful `saveStoresConfig()`. The `skipDirCreate: true` flag prevents `mkdirSync` from throwing when a store path is temporarily unavailable during a hot-reload (e.g. an unmounted drive) — directory creation is the responsibility of `handleAddStore`, not of reload. The optional `configPath` parameter is an **internal test hook** — it must not be forwarded from HTTP handlers or public API surfaces; GUI callers must invoke `reloadStoreContext()` with no arguments.
 
@@ -2801,11 +2935,11 @@ async function reloadStoreContext(configPath?: string): Promise<StoresConfig | n
 
 **`getMultiStoreManager()`** — Returns the initialized `MultiStoreManager` for the current process. Provides collated read operations (`listAllProjects`, `detectProjectByCwd`, `getMergedRegistry`, `searchKnowledge`, etc.) across all configured stores. Throws with a `[store-context]`-prefixed error if called before `setStoreContext()`.
 
-**Two-process architecture rationale:** `src/index.ts` (MCP STDIO server) and `gui/server.ts` (HTTP GUI server) are separate OS processes. Module-level state exported from `index.ts` is inaccessible to `gui/server.ts`, and tool files importing from `index.ts` would create circular imports. The standalone `store-context.ts` module eliminates both problems: each process calls `setStoreContext()` independently during its own startup sequence, and tool files import from `store-context.ts` rather than `index.ts`.
+**Two-process architecture rationale:** `src/index.ts` (MCP STDIO server) and `gui/server.ts` (HTTP GUI server) are separate OS processes. Module-level state exported from `index.ts` is inaccessible to `gui/server.ts`, and tool files importing from `index.ts` would create circular imports. The standalone `store-context.ts` module eliminates both problems: each process calls `initStoreContext()` independently during its own startup sequence, and tool files import from `store-context.ts` rather than `index.ts`.
 
-**Startup wiring in `src/index.ts`:** After `resolveLedgerRoot()` and `loadStoresConfig()`, the startup sequence constructs `new StoreRouter(storeConfig)` (auto-creates store directories) and `new MultiStoreManager(storeRouter)`, then calls `setStoreContext()`. Migration (`migrateToNamespacedLayout()`) and GUI config path resolution (`resolveGuiConfigPath()`) run after `setStoreContext()`. When `storeConfig` is `null` (no `stores.json`), single-store / legacy mode is used transparently — no behavior change for existing setups.
+**Startup wiring in `src/index.ts` and `gui/server.ts`:** After `resolveLedgerRoot()`, both processes call `await initStoreContext()`, which performs the full `loadStoresConfig()` → `new StoreRouter(storeConfig)` (auto-creates store directories) → `new MultiStoreManager(storeRouter)` → `setStoreContext()` sequence internally. Migration (`migrateToNamespacedLayout()`) and GUI config path resolution (`resolveGuiConfigPath()`) run after `initStoreContext()` in `src/index.ts`. When `storeConfig` is `null` (no `stores.json`), single-store / legacy mode is used transparently — no behavior change for existing setups. Prior to WP-003 (ledger-declared-project plan) this four-line sequence was duplicated verbatim at each call site; it is now defined exactly once.
 
-**Consumers:** Tool files that need multi-store routing import `getStoreRouter()` or `getMultiStoreManager()` from this module. The GUI server (`gui/server.ts`) calls `setStoreContext()` with its own instances during its startup sequence.
+**Consumers:** Tool files that need multi-store routing import `getStoreRouter()` or `getMultiStoreManager()` from this module. Both `src/index.ts` and `gui/server.ts` call `initStoreContext()` during their respective startup sequences.
 
 ---
 
@@ -5588,9 +5722,9 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 - `--port <n>` — listen port (default: `3420`)
 - `--ledger-dir <path>` — ledger root path; delegates to `resolveLedgerRoot()` which reads from `process.argv`
 
-**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `loadStoresConfig()` → `new StoreRouter(storeConfig)` → `new MultiStoreManager(router)` → `setStoreContext(router, manager)` → `resolveGuiConfigPath(storeConfig, ledgerRoot)` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `startAutoArchiveTimer(ledgerRoot)` → `createServer()` → `listen(port)`
+**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `initStoreContext()` (internally: `loadStoresConfig()` → `new StoreRouter(storeConfig)` → `new MultiStoreManager(router)` → `setStoreContext(router, manager)`) → `resolveGuiConfigPath(storeConfig, ledgerRoot)` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `startAutoArchiveTimer(ledgerRoot)` → `createServer()` → `listen(port)`
 
-> **Multi-store startup (WP-011):** The GUI server initializes `StoreRouter` and `MultiStoreManager` and calls `setStoreContext()` before any route handling begins — mirroring the MCP server (`src/index.ts`) startup pattern. After `setStoreContext()`, `isStoreContextInitialized()` always returns `true` for GUI-originated requests. The GUI config path is resolved via `resolveGuiConfigPath()`: `~/.ai-insights/gui-config.json` in multi-store mode, `{ledgerRoot}/gui-config.json` in single-store / legacy mode.
+> **Multi-store startup (WP-011):** The GUI server calls `initStoreContext()` (`src/storage/store-context.ts`) before any route handling begins — mirroring the MCP server (`src/index.ts`) startup pattern; both call the same shared function rather than duplicating the bootstrap sequence (ledger-declared-project plan, WP-003). After `initStoreContext()` resolves, `isStoreContextInitialized()` always returns `true` for GUI-originated requests. The GUI config path is resolved via `resolveGuiConfigPath()`: `~/.ai-insights/gui-config.json` in multi-store mode, `{ledgerRoot}/gui-config.json` in single-store / legacy mode.
 
 **API route table:**
 

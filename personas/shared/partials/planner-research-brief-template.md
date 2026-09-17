@@ -27,9 +27,9 @@ The Research Brief is an intermediate artifact that separates fact-gathering fro
 - {Constraint discovered during research}
 
 {Repeat "## Area:" for each area in the Scope Sketch}
-{{#if has_mcp}}
 
 ## Strategic Context
-{Optional — omit if no MCP results. Findings from ledger_get_repository_context and ledger_search_insights: strategic alignment, prior outcomes, relevant insights.}
-{{/if}}
+{Optional — omit if no findings. {{#if has_mcp}}Findings from ledger_get_repository_context and ledger_search_insights: strategic alignment, prior outcomes, relevant insights.{{else}}Findings from the project's strategic-vision mirror, when present: strategic alignment and prior outcomes, cited with the mirror's generated-at.{{/if}}}
 ```
+
+{{> strategic-vision-mirror}}

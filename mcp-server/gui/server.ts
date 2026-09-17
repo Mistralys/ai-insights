@@ -17,10 +17,8 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
-import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
-import { StoreRouter } from '../src/storage/store-router.js';
-import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
-import { setStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
+import { resolveGuiConfigPath } from '../src/storage/store-registry.js';
+import { initStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
 import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
@@ -1453,12 +1451,10 @@ async function main(): Promise<void> {
   const port = getPort();
   const ledgerRoot = resolveLedgerRoot();
 
-  // Load multi-store configuration (returns null in single-store / legacy mode).
-  // Mirror the same initialization sequence as index.ts.
-  const storeConfig = await loadStoresConfig();
-  const storeRouter = new StoreRouter(storeConfig);
-  const multiStoreManager = new MultiStoreManager(storeRouter);
-  setStoreContext(storeRouter, multiStoreManager);
+  // Load multi-store configuration and build the singleton context objects
+  // (returns null in single-store / legacy mode). Shares the same bootstrap
+  // sequence as index.ts (the MCP STDIO server) via initStoreContext().
+  const storeConfig = await initStoreContext();
 
   if (storeConfig !== null) {
     process.stdout.write(

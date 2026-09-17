@@ -1,5 +1,40 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.10.1 - Sensitive-Path Warning and Leaf-Symlink Coverage
+
+- Schema: Documented that an `outputs.*.path` override must never target a security-sensitive
+  destination (e.g. under `.git/`, a CI config, an executable script) — documentation only, no
+  schema refinement or runtime denylist.
+- Storage: Added the same sensitive-destination warning to `constraints-storage.md`.
+- Tests: Added a leaf-symlink regression case to the sync write guard, pinning the case where the
+  declared output path itself is a symlink to a file outside `projectRoot`.
+
+## v2.10.0 - Project Ledger Declaration
+
+**Projects can now opt in to a `.ledger/` declaration folder that mirrors their repository's
+strategic vision onto disk, readable by non-ledger agents that have no MCP access.** A new
+declaration schema and storage layer resolve the project root, load and deep-merge a local
+override, and compute output paths under a traversal guard so writes stay confined to `.ledger/`
+or a path the project itself declared. A single sync choke-point (`syncProjectOutputs()`) owns
+the write allowlist, idempotence comparison, and marker-guarded removal for every generated
+output. `ledger_get_repository_context` gains an additive `mirror` field reporting the mirror's
+path, generation timestamp, and staleness for a declared project — omitted entirely for an
+undeclared one, so existing callers are unaffected. The duplicated `.repositories.json` I/O
+between the GUI and the CLI is consolidated onto one locked, schema-validated implementation via
+a relocated `findEntryInStores()`.
+
+- Schema: Added `ProjectSettingsSchema` (strict) for the `.ledger/settings.json` declaration.
+- Storage: Added declaration loading, local-override merging, and output-path resolution with a
+  traversal guard confining writes to `.ledger/` or a declared path.
+- Storage: Relocated `findEntryInStores()` out of the GUI layer into a shared repository-lookup
+  module.
+- Outputs: Added `src/outputs/` — a pure `strategic-vision` renderer and the `syncProjectOutputs()`
+  choke-point (write allowlist, idempotence check, marker-guarded removal, `--check` support).
+- Tools: `ledger_get_repository_context` now reports mirror status (path, generated-at,
+  vision-hash, staleness) for declared projects with the output enabled.
+- Identity: Added `resolveRepositoryIdentity()` — explicit argument, then declared
+  `repository_id`, then folder-name derivation, failing hard on an unmatched declared id.
+
 ## v2.9.0 - Curated Project Titles
 
 **Projects can now carry an agent-curated display title, replacing slug-derived title-casing

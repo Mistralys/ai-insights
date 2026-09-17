@@ -262,7 +262,9 @@ content/1-planner.md                      content/planner.md  (standalone)
 ├── {{> planner-philosophy}} ───────────── ┤   identical
 ├── {{> planner-operating-modes}} ──────── ┤   identical
 ├── … MCP tools table + pre-flight …      │   (ledger only — has_mcp: true)
-├── {{> planner-research-brief-template}}─ ┤   {{#if has_mcp}} gates ## Strategic Context
+├── {{> planner-research-brief-template}}─ ┤   ## Strategic Context is unconditional (WP-008);
+│                                         │     {{#if has_mcp}} gates only its source sentence
+│                                         │     (MCP tool vs. {{> strategic-vision-mirror}})
 ├── {{> planner-output-template}} ──────── ┤   {{#if has_ledger_workflow}} gates
 │                                         │     ## Plan Audit Cycles, ## Recommended Workflow
 │                                         │   {{#if has_mcp}} gates ## Prior Project Context

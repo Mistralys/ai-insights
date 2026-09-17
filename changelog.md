@@ -1,5 +1,46 @@
 # AI Insights Changelog
 
+## v2.13.0 - Tool-Agnostic Policy and CLAUDE.md Import
+> mcp v2.10.1
+
+**Removed the workspace's one Claude-Code-specific advisory and replaced the generated `CLAUDE.md`
+content copy with a committed one-line `@AGENTS.md` import, codifying a new Tool-Agnostic Policy so
+the coupling class doesn't reappear.** `ai-insights ledger init`/`edit` no longer suggest a
+`PreToolUse` hook — the protection they described was already stated tool-neutrally in
+`.ledger/README.md` and the generated mirror's own header. `CLAUDE.md` and the new
+`mcp-server/CLAUDE.md` companion now hold only the import line; `AGENTS.md` is the sole authority,
+guarded by a new health check that fails if either companion drifts. Two deferred items from the
+prior ledger-declaration project were pulled forward: a sensitive-output-path warning and a
+leaf-symlink regression test on the sync write guard.
+
+- Scripts: Removed the `pretooluse-hook` advisory from `ai-insights ledger init`/`edit`.
+- Docs: Added a Tool-Agnostic Policy section to `AGENTS.md`, modeled on the existing
+  Cross-Platform Policy.
+- Scripts: `ctx-generate` no longer copies `AGENTS.md` into `CLAUDE.md`; `CLAUDE.md` and the new
+  `mcp-server/CLAUDE.md` are committed one-line `@AGENTS.md` imports instead.
+- Scripts: Added an instant-tier health check guarding both `CLAUDE.md` companions against drift.
+
+## v2.12.0 - Ledger Project Declaration
+> mcp v2.10.0 · personas v3.34.0
+
+**Added `ai-insights ledger`, a command group that lets a project opt in to a `.ledger/`
+declaration folder mirroring its repository's strategic vision to disk — giving non-ledger
+agents and developers access to context previously reachable only via an MCP tool call.**
+`ledger init` proposes the repository from the registry through a guided wizard, `ledger edit`
+reopens it with current values, and `ledger sync` regenerates outputs (or checks for drift) for
+use in the pre-commit hook or CI. Writes stay confined to `.ledger/` or a path the project itself
+declared. Standalone and ledger Planners now read the mirror for strategic context when it's
+present.
+
+- Scripts: Added `ai-insights ledger init|edit|sync`, with an interactive wizard and a
+  flag-driven non-interactive path, reachable from the main menu and inferring `init`/`edit`
+  verblessly from the declaration's presence.
+- MCP: `ledger_get_repository_context` reports the declared mirror's path, generation time, and
+  staleness; consolidated duplicate `.repositories.json` I/O onto one shared lookup.
+- Personas: Planners read a declared project's strategic-vision mirror for context; manifest
+  personas route to it and treat `.ledger/**` as read-only.
+- Dogfooding: This workspace now declares itself via `.ledger/settings.json`.
+
 ## v2.11.0 - Global Agent Launcher
 > personas v3.33.0
 

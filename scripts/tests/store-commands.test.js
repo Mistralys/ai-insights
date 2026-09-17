@@ -62,31 +62,31 @@ describe('store-commands', () => {
   // ─── storeInit ─────────────────────────────────────────────────────────────
 
   describe('storeInit', () => {
-    it('AC-1: creates stores.json with the provided ledger root as the default store', () => {
+    it('AC-1: creates stores.json with the provided ledger root as the default store', async () => {
       const ledgerRoot = path.join(tempDir, 'ledger');
-      const result = storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
+      const result = await storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
 
       expect(result.ok).toBe(true);
       expect(fs.existsSync(configPath)).toBe(true);
 
-      const config = loadConfig(configPath);
+      const config = await loadConfig(configPath);
       expect(config.stores).toHaveLength(1);
       expect(config.stores[0].id).toBe('default');
       expect(config.default_store).toBe('default');
     });
 
-    it('returns ok: false when stores.json already exists', () => {
+    it('returns ok: false when stores.json already exists', async () => {
       const ledgerRoot = path.join(tempDir, 'ledger');
-      storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
-      const result = storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
+      await storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
+      const result = await storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
 
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('already exists');
     });
 
-    it('creates the stores/ sub-directory under _storesDirOverride', () => {
+    it('creates the stores/ sub-directory under _storesDirOverride', async () => {
       const ledgerRoot = path.join(tempDir, 'ledger');
-      const result = storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
+      const result = await storeInit({ configPath, ledgerRoot, _storesDirOverride: tempDir });
       expect(result.ok).toBe(true);
       expect(result.configPath).toBe(configPath);
       expect(fs.existsSync(path.join(tempDir, 'stores'))).toBe(true);
@@ -96,54 +96,54 @@ describe('store-commands', () => {
   // ─── storeAdd ──────────────────────────────────────────────────────────────
 
   describe('storeAdd', () => {
-    it('AC-2: registers the store in stores.json', () => {
+    it('AC-2: registers the store in stores.json', async () => {
       const storePath = path.join(tempDir, 'my-store');
-      const result = storeAdd({ id: 'my-store', storePath, configPath });
+      const result = await storeAdd({ id: 'my-store', storePath, configPath });
 
       expect(result.ok).toBe(true);
       expect(result.id).toBe('my-store');
 
-      const config = loadConfig(configPath);
+      const config = await loadConfig(configPath);
       expect(config.stores).toHaveLength(1);
       expect(config.stores[0].id).toBe('my-store');
     });
 
-    it('AC-2: creates the store directory when it does not exist', () => {
+    it('AC-2: creates the store directory when it does not exist', async () => {
       const storePath = path.join(tempDir, 'new-dir');
       expect(fs.existsSync(storePath)).toBe(false);
 
-      const result = storeAdd({ id: 'new', storePath, configPath });
+      const result = await storeAdd({ id: 'new', storePath, configPath });
 
       expect(result.ok).toBe(true);
       expect(fs.existsSync(storePath)).toBe(true);
     });
 
-    it('AC-2: creates an empty .repositories.json in the new store directory', () => {
+    it('AC-2: creates an empty .repositories.json in the new store directory', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
 
-      const registry = loadRegistry(storePath);
+      const registry = await loadRegistry(storePath);
       expect(registry.repositories).toEqual([]);
       expect(fs.existsSync(registryPath(storePath))).toBe(true);
     });
 
-    it('returns ok: false when store ID already exists', () => {
+    it('returns ok: false when store ID already exists', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
-      const result = storeAdd({ id: 'store-a', storePath, configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
+      const result = await storeAdd({ id: 'store-a', storePath, configPath });
 
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('already exists');
     });
 
-    it('returns ok: false when id is missing', () => {
-      const result = storeAdd({ storePath: '/tmp/x', configPath });
+    it('returns ok: false when id is missing', async () => {
+      const result = await storeAdd({ storePath: '/tmp/x', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('required');
     });
 
-    it('returns ok: false when path is missing', () => {
-      const result = storeAdd({ id: 'x', configPath });
+    it('returns ok: false when path is missing', async () => {
+      const result = await storeAdd({ id: 'x', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('required');
     });
@@ -155,8 +155,8 @@ describe('store-commands', () => {
     it('AC-4: returns all stores with repo and project counts', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
 
       const result = await storeList({ configPath });
       expect(result.ok).toBe(true);
@@ -175,8 +175,8 @@ describe('store-commands', () => {
 
     it('marks the default store correctly', async () => {
       const storePath = path.join(tempDir, 'store-x');
-      storeAdd({ id: 'store-x', storePath, configPath });
-      storeSetDefault({ id: 'store-x', configPath });
+      await storeAdd({ id: 'store-x', storePath, configPath });
+      await storeSetDefault({ id: 'store-x', configPath });
 
       const result = await storeList({ configPath });
       expect(result.stores[0].is_default).toBe(true);
@@ -184,8 +184,8 @@ describe('store-commands', () => {
 
     it('reflects repo_count from .repositories.json', async () => {
       const storePath = path.join(tempDir, 'store-r');
-      storeAdd({ id: 'store-r', storePath, configPath });
-      storeRepoAdd({ repoName: 'my-repo', storeId: 'store-r', configPath });
+      await storeAdd({ id: 'store-r', storePath, configPath });
+      await storeRepoAdd({ repoName: 'my-repo', storeId: 'store-r', configPath });
 
       const result = await storeList({ configPath });
       const row = result.stores.find(s => s.id === 'store-r');
@@ -196,31 +196,31 @@ describe('store-commands', () => {
   // ─── storeSetDefault ───────────────────────────────────────────────────────
 
   describe('storeSetDefault', () => {
-    it('AC-6: updates the default_store field in stores.json', () => {
+    it('AC-6: updates the default_store field in stores.json', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
 
-      const result = storeSetDefault({ id: 'store-b', configPath });
+      const result = await storeSetDefault({ id: 'store-b', configPath });
       expect(result.ok).toBe(true);
       expect(result.default_store).toBe('store-b');
 
-      const config = loadConfig(configPath);
+      const config = await loadConfig(configPath);
       expect(config.default_store).toBe('store-b');
     });
 
-    it('returns ok: false when store ID does not exist', () => {
+    it('returns ok: false when store ID does not exist', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
 
-      const result = storeSetDefault({ id: 'nonexistent', configPath });
+      const result = await storeSetDefault({ id: 'nonexistent', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('not found');
     });
 
-    it('returns ok: false when no stores.json exists', () => {
-      const result = storeSetDefault({ id: 'x', configPath });
+    it('returns ok: false when no stores.json exists', async () => {
+      const result = await storeSetDefault({ id: 'x', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('No stores.json');
     });
@@ -229,44 +229,44 @@ describe('store-commands', () => {
   // ─── storeRepoAdd ──────────────────────────────────────────────────────────
 
   describe('storeRepoAdd', () => {
-    it('AC-3: writes a repository entry to the correct store .repositories.json', () => {
+    it('AC-3: writes a repository entry to the correct store .repositories.json', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
 
-      const result = storeRepoAdd({ repoName: 'my-project', storeId: 'store-a', configPath });
+      const result = await storeRepoAdd({ repoName: 'my-project', storeId: 'store-a', configPath });
       expect(result.ok).toBe(true);
       expect(result.repoName).toBe('my-project');
       expect(result.storeId).toBe('store-a');
 
-      const registry = loadRegistry(storePath);
+      const registry = await loadRegistry(storePath);
       expect(registry.repositories).toHaveLength(1);
       expect(registry.repositories[0].folder_names).toContain('my-project');
     });
 
-    it('sets the entry label to repoName when no label is provided', () => {
+    it('sets the entry label to repoName when no label is provided', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
-      storeRepoAdd({ repoName: 'my-repo', storeId: 'store-a', configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
+      await storeRepoAdd({ repoName: 'my-repo', storeId: 'store-a', configPath });
 
-      const registry = loadRegistry(storePath);
+      const registry = await loadRegistry(storePath);
       expect(registry.repositories[0].label).toBe('my-repo');
     });
 
-    it('sets the entry label when provided', () => {
+    it('sets the entry label when provided', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
-      storeRepoAdd({ repoName: 'my-repo', storeId: 'store-a', label: 'My Project', configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
+      await storeRepoAdd({ repoName: 'my-repo', storeId: 'store-a', label: 'My Project', configPath });
 
-      const registry = loadRegistry(storePath);
+      const registry = await loadRegistry(storePath);
       expect(registry.repositories[0].label).toBe('My Project');
     });
 
-    it('creates a valid entry structure compatible with RepositoryEntrySchema', () => {
+    it('creates a valid entry structure compatible with RepositoryEntrySchema', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
-      storeRepoAdd({ repoName: 'repo', storeId: 'store-a', configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
+      await storeRepoAdd({ repoName: 'repo', storeId: 'store-a', configPath });
 
-      const registry = loadRegistry(storePath);
+      const registry = await loadRegistry(storePath);
       const entry = registry.repositories[0];
       expect(typeof entry.id).toBe('string');
       expect(Array.isArray(entry.folder_names)).toBe(true);
@@ -275,25 +275,25 @@ describe('store-commands', () => {
       expect(typeof entry.last_modified).toBe('string');
     });
 
-    it('returns ok: false when repo is already registered in the store', () => {
+    it('returns ok: false when repo is already registered in the store', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
-      storeRepoAdd({ repoName: 'dup-repo', storeId: 'store-a', configPath });
-      const result = storeRepoAdd({ repoName: 'dup-repo', storeId: 'store-a', configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
+      await storeRepoAdd({ repoName: 'dup-repo', storeId: 'store-a', configPath });
+      const result = await storeRepoAdd({ repoName: 'dup-repo', storeId: 'store-a', configPath });
 
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('already registered');
     });
 
-    it('returns ok: false when store ID is not found', () => {
-      storeAdd({ id: 'store-a', storePath: path.join(tempDir, 'store-a'), configPath });
-      const result = storeRepoAdd({ repoName: 'repo', storeId: 'nonexistent', configPath });
+    it('returns ok: false when store ID is not found', async () => {
+      await storeAdd({ id: 'store-a', storePath: path.join(tempDir, 'store-a'), configPath });
+      const result = await storeRepoAdd({ repoName: 'repo', storeId: 'nonexistent', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('not found');
     });
 
-    it('returns ok: false when no stores.json exists', () => {
-      const result = storeRepoAdd({ repoName: 'repo', storeId: 'store-a', configPath });
+    it('returns ok: false when no stores.json exists', async () => {
+      const result = await storeRepoAdd({ repoName: 'repo', storeId: 'store-a', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('store init');
     });
@@ -302,24 +302,24 @@ describe('store-commands', () => {
   // ─── storeConflicts ────────────────────────────────────────────────────────
 
   describe('storeConflicts', () => {
-    it('AC-5: returns an empty conflicts array when no repos are shared', () => {
+    it('AC-5: returns an empty conflicts array when no repos are shared', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
-      storeRepoAdd({ repoName: 'repo-a', storeId: 'store-a', configPath });
-      storeRepoAdd({ repoName: 'repo-b', storeId: 'store-b', configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeRepoAdd({ repoName: 'repo-a', storeId: 'store-a', configPath });
+      await storeRepoAdd({ repoName: 'repo-b', storeId: 'store-b', configPath });
 
-      const result = storeConflicts({ configPath });
+      const result = await storeConflicts({ configPath });
       expect(result.ok).toBe(true);
       expect(result.conflicts).toEqual([]);
     });
 
-    it('AC-5: detects a repo registered in two stores with the correct winner', () => {
+    it('AC-5: detects a repo registered in two stores with the correct winner', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
       // Register 'shared-repo' in both stores directly via registry I/O.
       const now = new Date().toISOString();
       const sharedEntry = {
@@ -327,14 +327,14 @@ describe('store-commands', () => {
         vision: { short_term: null, mid_term: null, long_term: null },
         created_at: now, last_modified: now,
       };
-      const regA = loadRegistry(storeA);
+      const regA = await loadRegistry(storeA);
       regA.repositories.push(sharedEntry);
       fs.writeFileSync(registryPath(storeA), JSON.stringify(regA, null, 2));
-      const regB = loadRegistry(storeB);
+      const regB = await loadRegistry(storeB);
       regB.repositories.push({ ...sharedEntry, id: 'uuid-2' });
       fs.writeFileSync(registryPath(storeB), JSON.stringify(regB, null, 2));
 
-      const result = storeConflicts({ configPath });
+      const result = await storeConflicts({ configPath });
       expect(result.ok).toBe(true);
       expect(result.conflicts).toHaveLength(1);
       expect(result.conflicts[0].repo_name).toBe('shared-repo');
@@ -342,8 +342,8 @@ describe('store-commands', () => {
       expect(result.conflicts[0].entries).toHaveLength(2);
     });
 
-    it('returns ok: true with empty conflicts when no stores.json exists', () => {
-      const result = storeConflicts({ configPath });
+    it('returns ok: true with empty conflicts when no stores.json exists', async () => {
+      const result = await storeConflicts({ configPath });
       expect(result.ok).toBe(true);
       expect(result.conflicts).toEqual([]);
     });
@@ -352,48 +352,48 @@ describe('store-commands', () => {
   // ─── storeRemove ───────────────────────────────────────────────────────────
 
   describe('storeRemove', () => {
-    it('removes the store from stores.json without deleting the directory', () => {
+    it('removes the store from stores.json without deleting the directory', async () => {
       const storePath = path.join(tempDir, 'store-del');
-      storeAdd({ id: 'store-del', storePath, configPath });
+      await storeAdd({ id: 'store-del', storePath, configPath });
 
-      const result = storeRemove({ id: 'store-del', configPath });
+      const result = await storeRemove({ id: 'store-del', configPath });
       expect(result.ok).toBe(true);
 
-      const config = loadConfig(configPath);
+      const config = await loadConfig(configPath);
       expect(config.stores.find(s => s.id === 'store-del')).toBeUndefined();
       expect(fs.existsSync(storePath)).toBe(true); // directory NOT deleted
     });
 
-    it('AC-8: warns when the store has registered repositories', () => {
+    it('AC-8: warns when the store has registered repositories', async () => {
       const storePath = path.join(tempDir, 'store-with-repos');
-      storeAdd({ id: 'store-with-repos', storePath, configPath });
-      storeRepoAdd({ repoName: 'some-repo', storeId: 'store-with-repos', configPath });
+      await storeAdd({ id: 'store-with-repos', storePath, configPath });
+      await storeRepoAdd({ repoName: 'some-repo', storeId: 'store-with-repos', configPath });
 
-      const result = storeRemove({ id: 'store-with-repos', configPath });
+      const result = await storeRemove({ id: 'store-with-repos', configPath });
       expect(result.ok).toBe(true);
       expect(result.warned).toBe(true);
       expect(result.hasRepos).toBe(true);
     });
 
-    it('returns ok: false when store ID does not exist', () => {
+    it('returns ok: false when store ID does not exist', async () => {
       // Create a stores.json with a different store so the lookup can run.
       const storePath = path.join(tempDir, 'other-store');
-      storeAdd({ id: 'other-store', storePath, configPath });
+      await storeAdd({ id: 'other-store', storePath, configPath });
 
-      const result = storeRemove({ id: 'nonexistent', configPath });
+      const result = await storeRemove({ id: 'nonexistent', configPath });
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('not found');
     });
 
-    it('clears default_store to null when the last store is removed', () => {
+    it('clears default_store to null when the last store is removed', async () => {
       const storePath = path.join(tempDir, 'only-store');
-      storeAdd({ id: 'only-store', storePath, configPath });
-      storeSetDefault({ id: 'only-store', configPath });
+      await storeAdd({ id: 'only-store', storePath, configPath });
+      await storeSetDefault({ id: 'only-store', configPath });
 
-      const result = storeRemove({ id: 'only-store', configPath });
+      const result = await storeRemove({ id: 'only-store', configPath });
       expect(result.ok).toBe(true);
 
-      const config = loadConfig(configPath);
+      const config = await loadConfig(configPath);
       expect(config.stores).toHaveLength(0);
       expect(config.default_store).toBeNull();
     });
@@ -402,40 +402,40 @@ describe('store-commands', () => {
   // ─── storeRepoMove ─────────────────────────────────────────────────────────
 
   describe('storeRepoMove', () => {
-    it('moves a repository entry from one store to another', () => {
+    it('moves a repository entry from one store to another', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
-      storeRepoAdd({ repoName: 'migrated-repo', storeId: 'store-a', configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeRepoAdd({ repoName: 'migrated-repo', storeId: 'store-a', configPath });
 
-      const result = storeRepoMove({ repoName: 'migrated-repo', targetStoreId: 'store-b', configPath });
+      const result = await storeRepoMove({ repoName: 'migrated-repo', targetStoreId: 'store-b', configPath });
       expect(result.ok).toBe(true);
       expect(result.fromStoreId).toBe('store-a');
       expect(result.toStoreId).toBe('store-b');
 
       // Verify removal from source and addition to target.
-      const regA = loadRegistry(storeA);
+      const regA = await loadRegistry(storeA);
       expect(regA.repositories.some(r => r.folder_names?.includes('migrated-repo'))).toBe(false);
 
-      const regB = loadRegistry(storeB);
+      const regB = await loadRegistry(storeB);
       expect(regB.repositories.some(r => r.folder_names?.includes('migrated-repo'))).toBe(true);
     });
 
-    it('returns ok: false when the repo is not found in any store', () => {
+    it('returns ok: false when the repo is not found in any store', async () => {
       const storePath = path.join(tempDir, 'store-a');
-      storeAdd({ id: 'store-a', storePath, configPath });
+      await storeAdd({ id: 'store-a', storePath, configPath });
 
-      const result = storeRepoMove({ repoName: 'ghost-repo', targetStoreId: 'store-a', configPath });
+      const result = await storeRepoMove({ repoName: 'ghost-repo', targetStoreId: 'store-a', configPath });
       expect(result.ok).toBe(false);
     });
 
-    it('does NOT remove from source when repo already exists in target (blocking fix)', () => {
+    it('does NOT remove from source when repo already exists in target (blocking fix)', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
-      storeRepoAdd({ repoName: 'conflict-repo', storeId: 'store-a', configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeRepoAdd({ repoName: 'conflict-repo', storeId: 'store-a', configPath });
 
       // Manually place the same repo in store-b to simulate a conflict state.
       const now = new Date().toISOString();
@@ -444,18 +444,18 @@ describe('store-commands', () => {
         vision: { short_term: null, mid_term: null, long_term: null },
         created_at: now, last_modified: now,
       };
-      const regB = loadRegistry(storeB);
+      const regB = await loadRegistry(storeB);
       regB.repositories.push(dupEntry);
       fs.writeFileSync(registryPath(storeB), JSON.stringify(regB, null, 2));
 
       // Attempt to move from store-a to store-b — should fail because store-b already has it.
-      const result = storeRepoMove({ repoName: 'conflict-repo', targetStoreId: 'store-b', configPath });
+      const result = await storeRepoMove({ repoName: 'conflict-repo', targetStoreId: 'store-b', configPath });
 
       expect(result.ok).toBe(false);
       expect(result.reason).toContain('already registered');
 
       // Critically: the source (store-a) must NOT have been mutated.
-      const regA = loadRegistry(storeA);
+      const regA = await loadRegistry(storeA);
       expect(regA.repositories.some(r => r.folder_names?.includes('conflict-repo'))).toBe(true);
     });
   });
@@ -463,15 +463,15 @@ describe('store-commands', () => {
   // ─── storeRepoList ─────────────────────────────────────────────────────────
 
   describe('storeRepoList', () => {
-    it('returns all repos from all stores with store_id tags', () => {
+    it('returns all repos from all stores with store_id tags', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
-      storeRepoAdd({ repoName: 'repo-a', storeId: 'store-a', configPath });
-      storeRepoAdd({ repoName: 'repo-b', storeId: 'store-b', configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeRepoAdd({ repoName: 'repo-a', storeId: 'store-a', configPath });
+      await storeRepoAdd({ repoName: 'repo-b', storeId: 'store-b', configPath });
 
-      const result = storeRepoList({ configPath });
+      const result = await storeRepoList({ configPath });
       expect(result.ok).toBe(true);
       expect(result.repos).toHaveLength(2);
 
@@ -480,11 +480,11 @@ describe('store-commands', () => {
       expect(aRow.is_shadowed).toBe(false);
     });
 
-    it('marks repos as shadowed when the same folder_name appears in multiple stores', () => {
+    it('marks repos as shadowed when the same folder_name appears in multiple stores', async () => {
       const storeA = path.join(tempDir, 'store-a');
       const storeB = path.join(tempDir, 'store-b');
-      storeAdd({ id: 'store-a', storePath: storeA, configPath });
-      storeAdd({ id: 'store-b', storePath: storeB, configPath });
+      await storeAdd({ id: 'store-a', storePath: storeA, configPath });
+      await storeAdd({ id: 'store-b', storePath: storeB, configPath });
 
       // Manually create the same repo in both stores.
       const now = new Date().toISOString();
@@ -496,7 +496,7 @@ describe('store-commands', () => {
       fs.writeFileSync(registryPath(storeA), JSON.stringify({ repositories: [entry] }, null, 2));
       fs.writeFileSync(registryPath(storeB), JSON.stringify({ repositories: [{ ...entry, id: 'uuid-y' }] }, null, 2));
 
-      const result = storeRepoList({ configPath });
+      const result = await storeRepoList({ configPath });
       expect(result.repos).toHaveLength(2);
 
       const winner  = result.repos.find(r => r.store_id === 'store-a');

@@ -5,6 +5,10 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.5.0 (2026-09-17): Added a Research Brief step that reads a declared project's generated
+    strategic-vision mirror (`.ledger/settings.json` + `.ledger/strategic-vision.md`) into a new
+    `## Strategic Context` section, citing its `generated-at` timestamp; the mirror is read-only,
+    so suspected staleness is noted in the plan rather than corrected
   2.4.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
     `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
     detection rule rather than only a Rework Handling section

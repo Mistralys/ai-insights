@@ -7,6 +7,9 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.9.0 (2026-09-17): `ledger_get_repository_context`'s new `mirror` field is now checked —
+    a `mirror.stale` response is reported in the plan as a `ledger sync` due for the project
+    rather than corrected directly, since this role has no write access to `.ledger/`
   2.8.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this

@@ -58,6 +58,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | Item | Command | Description |
 |------|---------|-------------|
 | **Launch GUI dashboard** | `gui` | Start the MCP GUI server and open the dashboard in your browser |
+| **Declare project ledger** | `ledger` | Declare, edit, or sync the current directory's `.ledger/` strategic-vision mirror — see [Declaring a project ledger](#declaring-a-project-ledger) below |
 
 ### Orchestrator
 
@@ -78,6 +79,27 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | **Bundle docs** | `bundle-docs` | Compile NotebookLM and workflow specification doc bundles |
 | **CTX generate** | `ctx-generate` | Regenerate `.context/` snapshots via the CTX Generator |
 | **Check version sync** | `check-versions` | Verify that changelog versions match `package.json` / `pyproject.toml` |
+
+## Declaring a project ledger
+
+`ledger` declares a consumer project against a registered repository so its per-repository strategic vision (otherwise only readable via the `ledger_get_repository_context` MCP tool) is mirrored into a read-only `.ledger/` folder inside that project. Unlike `store` (a workspace-maintainer command, reachable only via direct invocation), `ledger` is menu-visible because its intended audience — a developer standing in a consumer project with the `ai-insights` binary linked — is expected to reach it from the menu rather than recall a sub-verb.
+
+| Verb | Command | Description |
+|------|---------|-------------|
+| **Declare** | `ledger init` | Declare the current directory against a registered repository, writing `.ledger/settings.json` and `.ledger/README.md` |
+| **Edit** | `ledger edit` | Change which outputs are enabled on an existing declaration |
+| **Sync** | `ledger sync` | Regenerate declared outputs, or check for drift with `--check` |
+
+Running `ledger` with no sub-verb — from the menu, or as a bare `ai-insights ledger` on a TTY — infers the verb from the current directory: `init` if undeclared, `edit` if already declared here or in an ancestor directory (with a confirmation prompt offering to declare here instead), or an error if the existing declaration is invalid. With stdin not a TTY, a verbless invocation exits non-zero and names all three verbs instead of guessing.
+
+```bash
+./menu.sh ledger                                          # infers init or edit, interactively
+./menu.sh ledger init --repository-id <id> --enable <output-id>
+./menu.sh ledger init --dry-run                           # preview writes without touching disk
+./menu.sh ledger edit --enable <output-id> --disable <output-id>
+./menu.sh ledger sync                                     # regenerate declared outputs
+./menu.sh ledger sync --check                              # exit 1 if outputs are stale, without writing
+```
 
 ## Direct Commands
 

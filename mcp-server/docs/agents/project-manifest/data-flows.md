@@ -2115,3 +2115,277 @@ For detectProjectByCwd(cwdPath):
 - Store-order priority applies to both `getMergedRegistry()` and conflict detection: the first store in `stores.json` order is always `winner_store_id`.
 - All collation is read-only — no write occurs during a read collation pass.
 - `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).
+
+---
+
+## Flow R: Project Declaration → Identity Resolution (`ledger_get_repository_context`, `mirror` field)
+
+**Entry Point:** `resolveRepositoryIdentity(cwdPath, explicitName)` in `src/utils/repository-identity.ts`, called from `ledger_get_repository_context` (`src/tools/repository-context.ts`) and the `ai-insights ledger` CLI (via the compiled bridge).
+
+**Purpose:** Turns caller-supplied `cwd_path` / `repository_name` into a concrete repository identity through a three-tier precedence contract, then — only for the `declared` tier — computes the optional `mirror` field describing the on-disk strategic-vision file's freshness.
+
+```
+resolveRepositoryIdentity(cwdPath, explicitName)
+  ↓
+Tier 1 — explicit:
+  explicitName set?
+    → { source: 'explicit', repositoryName: explicitName, declaration: null }   DONE (no filesystem access)
+  ↓
+Neither explicitName nor cwdPath set?
+  → { kind: 'error' }   DONE
+
+Tier 2 — declared:
+  findProjectRoot(cwdPath)                          ← ancestor walk, bounded by MAX_ANCESTOR_DEPTH,
+    ↓                                                   stops at the nearest .ledger/settings.json
+  projectRoot found?
+    loadProjectDeclaration(projectRoot)
+      kind: 'invalid'   → { kind: 'error', message }        DONE — NO fallback to derived tier
+      kind: 'declared'  →
+        repoId = settings.repository_id
+        findEntryInStores(resolveLedgerRoot(), repoId)      ← every configured store, store-order first-match
+          not found → { kind: 'error', message naming every store searched }   DONE — NO fallback to derived tier
+          found     → { source: 'declared', repositoryName: entry.id,
+                         declaration: { projectRoot, settings, entry, storePath } }   DONE
+      kind: 'not_declared' → fall through to Tier 3
+  projectRoot === null → fall through to Tier 3
+  ↓
+Tier 3 — derived:
+  deriveRepoNameFromCwd(cwdPath)                    ← behavior-identical to the pre-declaration inline expression
+    → { source: 'derived', repositoryName, declaration: null }   DONE
+
+--- mirror field (ledger_get_repository_context only, source === 'declared', strategic-vision output enabled) ---
+
+buildMirrorField(declaration: DeclaredIdentity)
+  ↓
+  currentHash = visionHash(declaration.entry.vision)          ← src/outputs/strategic-vision.ts
+  outputPath  = resolveOutputPath(declaration.projectRoot, 'strategic-vision', declaration.settings)
+  fileContent = readFileIfExists(outputPath)
+  header      = fileContent ? parseGeneratedHeader(fileContent) : null
+  ↓
+  mirror = {
+    path: outputPath,
+    generatedAt: header?.generatedAt ?? null,
+    stale: header === null || header.visionHash !== currentHash,   ← missing/unmarked/hash-mismatched file all read as stale
+  }
+  ↓
+  response.mirror = mirror   ← additive field; entirely absent when source !== 'declared' or the output is disabled/never synced
+```
+
+**Key invariants:**
+- The declared tier never falls back to the derived tier on a lookup failure — an unresolvable `repository_id` or a malformed declaration always surfaces as `{ kind: 'error' }`, since silently falling back risks binding a project to a *different* repository's strategic vision.
+- `mirror` is computed only as a side observation of an already-resolved `declared` identity — it never triggers a write; that is `syncProjectOutputs()`'s job alone (Flow S below).
+- `mirror` is additive: its absence is never itself an error signal, only a "not applicable" one (explicit/derived identity, no declaration, or the output disabled).
+
+---
+
+## Flow S: Declaration → Generated Output Sync (`ai-insights ledger sync`, the choke-point)
+
+**Entry Point:** `syncProjectOutputs({ projectRoot, settings, entry, mode })` in `src/outputs/sync.ts` — the sole write site for every file the ledger generates *inside* a consumer project. Called by the `ledger sync` / `ledger sync --check` CLI verbs (always non-interactive), the `ledger init`/`edit` wizard's run-sync-now offer, and `edit`'s disabled-output cleanup path.
+
+```
+syncProjectOutputs({ projectRoot, settings, entry, mode })
+  ↓
+For each outputId in OUTPUT_IDS (v1: only 'strategic-vision'):
+  ↓
+  enabled = settings?.outputs?.[outputId]?.enabled ?? false
+  ↓
+  resolveOutputPath(projectRoot, outputId, settings)     ← rejects absolute/traversal-escaping overrides
+    │                                                        and the 3 reserved .ledger/ filenames
+    ├─ rejected → record { outputId, path: null, kind: 'blocked', stale: true, reason }
+    └─ ok → resolvedPath
+         ↓
+         assertAllowlisted(projectRoot, outputId, settings, resolvedPath)   ← re-derives expected path,
+           throws on divergence (defense-in-depth; should never trigger)      from settings/DEFAULT_OUTPUT_PATHS
+         ↓
+         assertRealPathWithinRoot(projectRoot, resolvedPath)                ← fs.realpath() walk up to the
+           not ok → record { kind: 'blocked', reason }   ← D1 symlink-escape guard   deepest existing ancestor;
+           ok → continue                                                       closes the lexical-only gap
+         ↓
+         enabled?
+           NO:
+             existing file marked with MARKER (generated)?
+               YES → mode 'write': unlink(resolvedPath) → { kind: 'removed' }
+                     mode 'check':  → { kind: 'removed', stale: false }   ← disabled output's removal is never "stale"
+               NO (missing, or hand-authored) → { kind: 'skipped', stale: false }
+           YES:
+             renderOutput(outputId, entry, generatedAt)   ← switch over OUTPUT_IDS; 'strategic-vision' case
+               → { hash: visionHash(entry.vision), body: renderStrategicVisionBody(entry), full: renderStrategicVision(entry, generatedAt) }
+             existingContent = readFileIfExists(resolvedPath)
+             existingHeader  = existingContent ? parseGeneratedHeader(existingContent) : null
+             ↓
+             existingHeader === null && existingContent !== null?
+               → { kind: 'blocked', stale: true, reason: 'hand-authored file present' }   ← MARKER-based removal guard
+                    applies to writes too: a file without the marker is never overwritten
+             existingHeader?.visionHash === hash (body-only comparison, generated-at excluded)?
+               → { kind: 'unchanged', stale: false }
+             otherwise:
+               mode 'write': atomicWriteText(resolvedPath, full) → { kind: 'written', stale: false }
+               mode 'check':                                     → { kind: 'written', stale: true }   ← would-write is stale
+  ↓
+Return SyncOutputRecord[] (one per output id)
+  ↓
+CLI: `ledger sync`        exits non-zero if any record.kind === 'blocked'
+     `ledger sync --check` exits 1 if any record.stale === true, 0 if all current — used by .githooks/pre-commit (WP-015)
+```
+
+**Key invariants:**
+- `mode: 'check'` performs **zero** I/O — every classification is computed identically to `write` mode, but callers read `stale` (not `kind`) for a simple "does anything need to change" signal.
+- The MARKER-based removal/overwrite guard (`parseGeneratedHeader()` returning `null` for a file lacking the byte-exact first line) is the *only* thing that lets `syncProjectOutputs()` distinguish a generated file it owns from a hand-authored file it must never touch.
+- `visionHash()` depends only on `vision.short_term`/`mid_term`/`long_term` — never on `entry.label`, `folder_names`, or `last_modified` — so an unrelated registry edit never marks the mirror stale (see `src/outputs/strategic-vision.ts`'s doc comment for the full rationale).
+
+---
+
+## Flow R: Declaration → Identity Resolution (ledger-declared-project plan, WP-010)
+
+**Entry Point:** `ledger_get_repository_context` (`src/tools/repository-context.ts`) via `resolveRepositoryIdentity(cwdPath, explicitName)` (`src/utils/repository-identity.ts`); any future consumer that needs a repository identity for a workspace path.
+
+**Precondition:** None — the function degrades through three tiers rather than requiring any particular state. `findEntryInStores()` (Flow used at the declared tier) still benefits from `initStoreContext()` having already run at process startup (Flow's multi-store precondition), same as every other store-routed lookup.
+
+```
+resolveRepositoryIdentity(cwdPath, explicitName)
+  ↓
+explicitName provided?
+  YES → { kind: 'ok', identity: { repositoryName: explicitName, source: 'explicit', declaration: null } }
+        (no filesystem access at all)
+  ↓ NO
+cwdPath provided?
+  NO  → { kind: 'error', message: 'Either cwd_path or repository_name must be provided.' }
+  ↓ YES
+findProjectRoot(cwdPath)                         ← storage/project-declaration.ts
+  walks ancestors (bounded MAX_ANCESTOR_DEPTH=64) looking for '.ledger/settings.json'
+  ↓
+projectRoot === null?
+  YES → fall through to derived tier (below)
+  ↓ NO
+loadProjectDeclaration(projectRoot)              ← storage/project-declaration.ts
+  ↓
+  kind === 'invalid' (malformed JSON, schema failure, or settings.local.json
+                       carrying repository_id)?
+    YES → { kind: 'error', message: "...is invalid: <errors>" }   ← NO fallback to derived
+  ↓
+  kind === 'declared'?
+    YES → repoId = settings.repository_id
+          ledgerRoot = resolveLedgerRoot()
+          findEntryInStores(ledgerRoot, repoId)  ← storage/repository-lookup.ts
+            (searches all configured stores in stores.json order, or the single
+             legacy root — same lookup Flow P/Q's write/read routing relies on)
+            ↓
+            found === null?
+              YES → { kind: 'error',
+                       message: "Declared repository_id '<id>' ... was not found
+                                 in any configured store. Searched: <stores>." }
+                    ← NO fallback to derived
+              ↓ NO
+            { kind: 'ok', identity: {
+                repositoryName: found.entry.id,   ← matched RepositoryEntry.id, not folder_names
+                source: 'declared',
+                declaration: { projectRoot, settings, entry: found.entry, storePath: found.storePath }
+            } }
+  ↓
+  kind === 'not_declared'?
+    YES → fall through to derived tier (below)
+
+Derived tier (no explicit name, no declaration found):
+  { kind: 'ok', identity: {
+      repositoryName: deriveRepoNameFromCwd(cwdPath),  ← utils/ledger-root.ts, byte-for-byte
+      source: 'derived',                                  unchanged from pre-WP-010 behaviour
+      declaration: null
+  } }
+```
+
+**Key invariant — no silent fallback from `declared`:** Once `loadProjectDeclaration()` returns `'declared'` or `'invalid'`, the function commits to reporting success or error at that tier. It never falls through to `derived` after a declaration is found but fails to resolve — a silent fallback could bind a project to a *different* repository's strategic vision, which is the exact failure this design rejects (see the plan's Rejected Approaches and Risks & Mitigations tables).
+
+**Consumer of `declaration`:** `ledger_get_repository_context`'s `buildMirrorField()` (`src/tools/repository-context.ts`) uses the `declaration` payload from a `'declared'`-tier `ResolvedIdentity` directly — `projectRoot`, `settings`, and `entry` — to compute the response's optional `mirror` field via `resolveOutputPath()` / `parseGeneratedHeader()` / `visionHash()`, without re-deriving any of them. See Flow S for how those same three fields drive a write, in contrast to this read-only reuse.
+
+---
+
+## Flow S: `ai-insights ledger sync` — Output Generation (ledger-declared-project plan, WP-009)
+
+**Entry Point:** `syncProjectOutputs(params)` (`src/outputs/sync.ts`) — the plan's single security-relevant enforcement point for the D1 consent invariant ("the ledger writes into a project only inside `.ledger/` or a declared output path"). Called by `scripts/ledger-project.js`'s `performSync()` (`mode: 'write'`, from `ledger init`'s "run sync now?" offer and every `ledger edit` write) and `performSyncCheck()` (`mode: 'check'`, from `ledger sync --check`), and reused read-only by `ledger_get_repository_context`'s `buildMirrorField()` (Flow R) for staleness classification only — never for writing.
+
+**Precondition:** `projectRoot` resolved via `findProjectRoot()`; `settings` from `loadProjectDeclaration()` (`undefined` is valid — every output then resolves to its default, disabled state); `entry` is the matched `RepositoryEntry` whose data outputs are rendered.
+
+```
+syncProjectOutputs({ projectRoot, settings, entry, mode })
+  ↓
+For each outputId in OUTPUT_IDS (single member today: 'strategic-vision'):
+  ↓
+  resolveOutputPath(projectRoot, outputId, settings)      ← storage/project-declaration.ts
+    rejects: absolute paths, traversal-escape, the three reserved '.ledger/' filenames
+    (lexical-only: path.resolve/relative, no fs.realpath())
+    ↓
+    kind === 'rejected'?
+      YES → record: { outputId, path: null, kind: 'blocked', stale: false, reason }
+            → next outputId
+    ↓ NO
+  assertAllowlisted(projectRoot, outputId, settings, path)   ← defense-in-depth re-derivation;
+                                                                 throws (never expected to trigger)
+                                                                 if the resolved path diverges from
+                                                                 the declared/default allowlist entry
+    ↓
+  assertRealPathWithinRoot(projectRoot, path)               ← symlink-escape guard added in rework;
+                                                                 walks up to the deepest existing
+                                                                 ancestor via fs.realpath(), rejects
+                                                                 if the real path escapes the real root
+    ↓
+    ok === false?
+      YES → record: { outputId, path, kind: 'blocked', stale: false, reason }
+            → next outputId
+    ↓ NO
+  directoryBlockReason(path)                                ← up-front fs.stat(); rejects a
+                                                                 directory-shaped resolved path
+                                                                 (e.g. a declared path of '.')
+    ↓
+    reason !== null?
+      YES → record: { outputId, path, kind: 'blocked', stale: false, reason }
+            → next outputId
+    ↓ NO
+  enabled = settings?.outputs?.[outputId]?.enabled ?? false
+  existingText = readFileIfExists(path)                     ← null on ENOENT; other errors propagate
+  existingHeader = existingText !== null ? parseGeneratedHeader(existingText) : null
+  isUnmarkedExisting = existingText !== null && existingHeader === null
+    ↓
+  enabled === false?
+    YES →
+      existingText === null?
+        YES → record: { kind: 'skipped', stale: false }              → next outputId
+      isUnmarkedExisting?
+        YES → record: { kind: 'blocked', stale: false,
+                         reason: 'no ai-insights ledger sync marker...left untouched' }
+                                                                        → next outputId
+      (marked file, output disabled)
+        mode === 'write'? → unlink(path)
+        record: { kind: 'removed', stale: false }                     → next outputId
+    ↓ NO (enabled)
+  generatedAt = new Date().toISOString()
+  rendered = renderOutput(outputId, entry, generatedAt)      ← switch over OUTPUT_IDS; for
+                                                                 'strategic-vision': visionHash(entry.vision),
+                                                                 renderStrategicVisionBody(entry),
+                                                                 renderStrategicVision(entry, generatedAt)
+                                                                 (outputs/strategic-vision.ts)
+    ↓
+  existingText === null?
+    YES → mode === 'write'? → atomicWriteText(path, rendered.full)
+          record: { kind: 'written', stale: true }                    → next outputId
+  isUnmarkedExisting?
+    YES → record: { kind: 'blocked', stale: true,
+                     reason: 'no ai-insights ledger sync marker...left untouched' }
+                                                                        → next outputId
+  (marked file, output enabled)
+    upToDate = existingHeader.visionHash === rendered.hash
+               && existingHeader.body === rendered.body       ← generated-at deliberately excluded
+                                                                  from both sides (re-sync with no
+                                                                  vision change stays byte-identical)
+    upToDate === true?
+      YES → record: { kind: 'unchanged', stale: false }              → next outputId
+      NO  → mode === 'write'? → atomicWriteText(path, rendered.full)
+            record: { kind: 'written', stale: true }                 → next outputId
+  ↓
+Return SyncOutputRecord[] — one record per output id, in OUTPUT_IDS order
+```
+
+**Key invariants:**
+- Every write and every removal goes through this one function — `atomicWriteText()` is the only write path in the module, and `unlink()` the only removal path.
+- `mode: 'check'` performs the identical classification as `mode: 'write'` with zero filesystem mutation; callers read `SyncOutputRecord.stale` for a simple "does anything need to change" signal rather than branching on `kind`.
+- A file lacking the exact generated-header marker is never written, overwritten, or removed by this function regardless of mode or enabled state — it is always reported as `blocked`, protecting a hand-authored file at the same path.
+- `assertAllowlisted()` and `assertRealPathWithinRoot()` both run before any I/O for every output id, in every mode — the D1 consent boundary is enforced identically whether the call originates from the CLI (`ledger init`/`edit`/`sync`) or from the MCP tool's read-only staleness check (Flow R).

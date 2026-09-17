@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveRepoName } from '../../src/utils/ledger-root.js';
+import { deriveRepoName, deriveRepoNameFromCwd } from '../../src/utils/ledger-root.js';
 
 describe('deriveRepoName', () => {
   it('returns the repo name from a standard 4-level-deep plan path', () => {
@@ -60,5 +60,40 @@ describe('deriveRepoName', () => {
   it('derives repo name from a title-case Docs/Agents path (Windows)', () => {
     const winPath = 'C:\\Users\\dev\\starfield-load-order-manager\\Docs\\Agents\\plans\\2026-07-21-lcs-diff-pipeline';
     expect(deriveRepoName(winPath)).toBe('starfield-load-order-manager');
+  });
+});
+
+describe('deriveRepoNameFromCwd', () => {
+  // Each case asserts deriveRepoNameFromCwd(cwd) matches the literal
+  // synthetic-plan-path expression it replaces — AC-18b.
+  function expected(cwd: string): string {
+    return deriveRepoName(`${cwd}/docs/agents/plans/synthetic-slug`);
+  }
+
+  it('matches the synthetic-plan-path expression for a bare workspace root', () => {
+    const cwd = '/repos/ai-insights';
+    expect(deriveRepoNameFromCwd(cwd)).toBe(expected(cwd));
+    expect(deriveRepoNameFromCwd(cwd)).toBe('ai-insights');
+  });
+
+  it('matches the synthetic-plan-path expression for a workspace root whose own path contains docs/agents', () => {
+    // A pathological but real-world-possible shape: the workspace itself
+    // lives under a directory literally named docs/agents.
+    const cwd = '/home/user/docs/agents/nested-repo';
+    expect(deriveRepoNameFromCwd(cwd)).toBe(expected(cwd));
+  });
+
+  it('matches the synthetic-plan-path expression for a plan-folder path passed as cwd', () => {
+    const cwd = '/repos/ai-insights/docs/agents/plans/2026-05-01-my-plan';
+    expect(deriveRepoNameFromCwd(cwd)).toBe(expected(cwd));
+  });
+
+  it('returns "unknown" for an empty cwd, matching deriveRepoName on an empty synthetic path', () => {
+    expect(deriveRepoNameFromCwd('')).toBe('unknown');
+  });
+
+  it('lowercases and matches for a mixed-case Windows-style cwd', () => {
+    const cwd = 'C:\\Users\\dev\\Starfield-Manager';
+    expect(deriveRepoNameFromCwd(cwd)).toBe(expected(cwd));
   });
 });

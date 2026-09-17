@@ -17,6 +17,7 @@
 - [Test Timeout Is 10 Seconds](#test-timeout-is-10-seconds)
 - [Prefer Real Implementations Over `vi.mock`](#prefer-real-implementations-over-vimock)
 - [Always Supply an Isolated Ledger Root](#always-supply-an-isolated-ledger-root)
+- [Output-Generation Tests Need a Separate Temp Project Root, Not the Ledger Root](#output-generation-tests-need-a-separate-temp-project-root-not-the-ledger-root)
 - [`afterEach` Teardown Variables Must Be Declared in the Same `describe` Scope](#aftereach-teardown-variables-must-be-declared-in-the-same-describe-scope)
 - [Test Helper Infrastructure Mandate](#test-helper-infrastructure-mandate)
 - [Mock `McpServer` Intercept Pattern](#mock-mcpserver-intercept-pattern-for-tool-metadata-tests)
@@ -88,6 +89,31 @@ afterEach(async () => {
 // ❌ WRONG — writes to production storage/ledger/
 const store = new LedgerStore('/absolute/path/to/my-plan');
 ```
+
+---
+
+### Output-Generation Tests Need a Separate Temp Project Root, Not the Ledger Root
+
+**Rule:** Tests exercising `syncProjectOutputs()`, `loadProjectDeclaration()`, `findProjectRoot()`, or `resolveOutputPath()` (`src/outputs/sync.ts`, `src/storage/project-declaration.ts`) must construct their own `mkdtemp`-based **project root** directory, distinct from the isolated ledger root a `LedgerStore` test requires. The two directories model different things — a project's own working tree (where `.ledger/settings.json` and generated outputs live) versus the central ledger's storage root — and must not be conflated or shared between test cases.
+
+**Pattern:**
+```typescript
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+let projectRoot: string;
+
+beforeEach(async () => {
+  projectRoot = await mkdtemp(join(tmpdir(), 'sync-'));
+});
+
+afterEach(async () => {
+  await rm(projectRoot, { recursive: true, force: true });
+});
+```
+
+**Why a separate convention from "Always Supply an Isolated Ledger Root":** That rule governs `LedgerStore`'s `ledgerRoot` constructor argument — the central store. This convention governs a project's *own* root directory, the one `findProjectRoot()` walks ancestors from and `syncProjectOutputs()` writes into. Reusing a `createTempStore()` ledger-root fixture as a stand-in project root would conflate the two concerns and make a symlink-escape or path-traversal test (see the Project Declaration Constraints § "sole write site" above) give a false pass, since the ledger-root fixture is not the allowlist boundary these functions actually enforce.
 
 ---
 

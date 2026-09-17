@@ -119,3 +119,34 @@ export function reloadStoreContext(
   })();
   return _pendingReload;
 }
+
+/**
+ * Loads `stores.json`, builds a fresh StoreRouter + MultiStoreManager pair,
+ * and installs them via setStoreContext() — the single definition of the
+ * process-startup bootstrap sequence shared by src/index.ts (MCP STDIO
+ * server), gui/server.ts (HTTP GUI server), and any future process (e.g. the
+ * `ledger` CLI command group) that needs multi-store-aware lookups.
+ *
+ * Unlike reloadStoreContext(), this does not pass `skipDirCreate: true` —
+ * StoreRouter auto-creates missing store directories on construction, which
+ * is the desired behavior for a first-time process startup (as opposed to a
+ * runtime hot-reload, where a temporarily unavailable store path should not
+ * throw).
+ *
+ * Idempotent: calling this more than once simply re-runs the sequence and
+ * overwrites the previously stored context via setStoreContext().
+ *
+ * @param configPath - Optional override for the `stores.json` path (used in
+ *   tests to inject a temporary config file instead of the default location).
+ * @returns The parsed StoresConfig on success, or null in legacy single-store
+ *   mode (no `stores.json` found, or it is malformed/schema-invalid).
+ */
+export async function initStoreContext(
+  configPath?: string
+): Promise<StoresConfig | null> {
+  const config = await loadStoresConfig(configPath);
+  const router = new StoreRouter(config);
+  const manager = new MultiStoreManager(router);
+  setStoreContext(router, manager);
+  return config;
+}

@@ -77,3 +77,14 @@ if [ "$SUB_CHANGED" -eq 1 ] && [ "$ROOT_CHANGED" -eq 0 ]; then
   echo "  Consider summarizing the changes in changelog.md before committing."
   echo ""
 fi
+
+# Warn if this workspace's .ledger/ declaration is stale — advisory only.
+# Only runs when the workspace is declared (.ledger/settings.json exists).
+if [ -f ".ledger/settings.json" ]; then
+  if ! node scripts/ledger-project.js sync --check > /dev/null 2>&1; then
+    echo ""
+    echo "WARNING: .ledger/ generated outputs are stale."
+    echo "  Regenerate with: ai-insights ledger sync"
+    echo ""
+  fi
+fi

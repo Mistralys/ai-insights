@@ -5,6 +5,10 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.2.0 (2026-09-17): A declared project's `.ledger/settings.json` with the strategic-vision
+    output enabled now gets a routing line in `AGENTS.md` pointing at the generated mirror's
+    configured path; the ownership table and Failure Protocol both gained a rule marking
+    everything under `.ledger/**` as generated and read-only, never authored or corrected here
   2.1.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   2.1.0 (2026-09-08): Findings outside `AGENTS.md` are now acted on rather than only reported — the shared
     ownership table carries a size triage that corrects small errors in place and dispatches the owning agent

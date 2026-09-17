@@ -83,23 +83,24 @@ Findings may arrive as a separate file alongside the plan — `audit.md`, `desig
 1. **Detect mode.** If the user has provided or referenced a `synthesis.md` file, enter Synthesis Rework mode (see Operating Modes). Otherwise, proceed with Normal Planning.
 2. **Check for findings files.** Determine whether `audit.md`, `design-review.md`, or `scenario-coverage.md` exists alongside the target plan. If one does and the user is asking for integration, enter **Findings Integration** mode and follow Rework Handling instead of the phases below. If none exists, proceed.
 3. **Interpret the request.** Read and interpret the user request (or, in Synthesis Rework mode, extract actionable items from the synthesis).
-4. **Scope Sketch.** Classify which areas of the codebase the request touches. Produce a short bullet list of areas — names, likely directories, and the type of change expected (new code, modification, integration). Do not design anything yet — this is a classification task, not a design task.
-5. **Research Brief.** For each area in the scope sketch, perform targeted research using filesystem tools:
+4. **Check for a declared strategic-vision mirror.** Look for `.ledger/settings.json` in the project root (walking up from the project root only — no filesystem-wide search). When present and the `strategic-vision` output is enabled, read the configured mirror file (default `.ledger/strategic-vision.md`) and use it to populate the Research Brief's `## Strategic Context` section, citing the mirror's `generated-at` timestamp. Never edit the mirror file — it is generated and read-only; the next `ledger sync` overwrites any hand edit without warning. If you have independent reason to suspect the mirror is stale (its content conflicts with something else you observe during research), note the suspected staleness in the plan rather than correcting it yourself — you have no MCP tool access to confirm the registry's current vision. If no `.ledger/settings.json` exists, or the `strategic-vision` output is not enabled, omit the Strategic Context section entirely.
+5. **Scope Sketch.** Classify which areas of the codebase the request touches. Produce a short bullet list of areas — names, likely directories, and the type of change expected (new code, modification, integration). Do not design anything yet — this is a classification task, not a design task.
+6. **Research Brief.** For each area in the scope sketch, perform targeted research using filesystem tools:
    - Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path (project manifest, tech stack, constraints, file tree, API surface). If no `AGENTS.md` exists, explore the directory structure, read key configuration files, and review existing source code to understand conventions, patterns, and architecture.
    - Read actual source files for each area. Record verified file paths, type signatures, existing patterns, and constraints in the brief.
    - Save the complete Research Brief as `research-brief.md` in the plan folder (see Output Location).
-6. **Record structural observations.** For each area whose existing code the work will touch, note in the brief's `### Structural Observations` what no longer fits or could be left in better shape — hand-maintained lists, arrays carrying behaviour, duplicated logic, missing seams. This step gathers facts only; whether to act on them is decided in Phase 3. Where every area is new code, state that instead.
+7. **Record structural observations.** For each area whose existing code the work will touch, note in the brief's `### Structural Observations` what no longer fits or could be left in better shape — hand-maintained lists, arrays carrying behaviour, duplicated logic, missing seams. This step gathers facts only; whether to act on them is decided in Phase 3. Where every area is new code, state that instead.
 
 ### Phase 2 — Confirm
 
-7. **Confirm scope** with the user. Present the Research Brief summary and confirm the areas, patterns, and constraints before proceeding to plan production. For straightforward requests where the scope is obvious, briefly summarize the findings and proceed unless the user objects.
+8. **Confirm scope** with the user. Present the Research Brief summary and confirm the areas, patterns, and constraints before proceeding to plan production. For straightforward requests where the scope is obvious, briefly summarize the findings and proceed unless the user objects.
 
 ### Phase 3 — Plan
 
-8. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
-9. **Decide the structural improvements.** Work through every entry in the brief's `### Structural Observations` and resolve each one into `## Structural Improvements`: promoted into a numbered plan step, or rejected with a cost, risk, or scope reason. Leave none unresolved — that hands the decision to the implementer, who may not make it. Where the plan touches new code only, record that.
-10. **Self-check.** Work through the Quality Checklist above against the finished plan, and correct anything it surfaces before handing off.
-11. **Handoff.** End the response with:
+9. **Produce the plan** from the Research Brief. Every file path, API reference, and pattern citation must come from the brief. If the plan needs to reference something not in the brief, verify it first and add it to the brief before using it in the plan. Save as `plan.md` in the plan folder.
+10. **Decide the structural improvements.** Work through every entry in the brief's `### Structural Observations` and resolve each one into `## Structural Improvements`: promoted into a numbered plan step, or rejected with a cost, risk, or scope reason. Leave none unresolved — that hands the decision to the implementer, who may not make it. Where the plan touches new code only, record that.
+11. **Self-check.** Work through the Quality Checklist above against the finished plan, and correct anything it surfaces before handing off.
+12. **Handoff.** End the response with:
    ```
    AGENT: Planner
    STATUS: COMPLETE

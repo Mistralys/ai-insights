@@ -1,5 +1,19 @@
 # Personas Changelog
 
+## v3.34.0 - Strategic Vision Mirror
+
+**A new `strategic-vision-mirror` partial teaches Planners to read a project's declared,
+generated `.ledger/` mirror when MCP access isn't available, and manifest-facing personas gained
+a `.ledger/**` read-only boundary.**
+
+- Standalone: Planner reads a declared project's strategic-vision mirror into the Research
+  Brief's Strategic Context section when present, and reports suspected staleness instead of
+  editing it.
+- Ledger: Planner reports `mirror.stale` from `ledger_get_repository_context` as a `ledger sync`
+  finding rather than correcting the mirror itself.
+- Standalone: AGENTS.md Curator and Manifest Curator route to a declared project's mirror and
+  treat everything under `.ledger/**` as generated and read-only.
+
 ## v3.33.0 - Agent Picker Role Labels
 
 - Outputs: Standalone Claude Code personas now emit a `role` field for picker-friendly labels.

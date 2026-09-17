@@ -57,6 +57,7 @@ import {
   getStoreRouter,
   getMultiStoreManager,
 } from '../src/storage/store-context.js';
+import { findEntryInStores } from '../src/storage/repository-lookup.js';
 
 // Re-export ApiError so consumers can catch typed errors without importing
 // from a separate path.
@@ -105,41 +106,11 @@ function assertNoFolderNameConflicts(
   }
 }
 
-/**
- * Searches all configured stores for a repository entry with the given ID.
- *
- * - Multi-store mode: iterates stores in **config order** and returns the path of
- *   the **first** store whose registry contains the repo, along with the entry.
- * - Single-store / legacy mode: loads the single registry at `ledgerRoot`.
- *
- * Returns `null` when no matching entry is found in any store.
- *
- * **First-match semantics:** Iteration stops at the first store that contains the
- * given `repoId`. If the same ID is present in multiple stores (cross-store
- * uniqueness is not enforced on creation — see `handleCreateRepo`), all read,
- * update, and delete operations will silently target only the first-matched store
- * in config order. The second occurrence remains unaffected and unreachable via
- * these routes. Use `GET /api/stores/conflicts` to detect and resolve duplicate
- * IDs across stores.
- */
-async function findEntryInStores(
-  ledgerRoot: string,
-  repoId: string
-): Promise<{ storePath: string; entry: RepositoryEntry } | null> {
-  if (isStoreContextInitialized() && getStoreRouter().isMultiStoreMode()) {
-    const stores = getStoreRouter().getAllStores();
-    for (const store of stores) {
-      const registry = await loadRegistry(store.path);
-      const entry = registry.repositories.find((e) => e.id === repoId);
-      if (entry) return { storePath: store.path, entry };
-    }
-    return null;
-  }
-
-  const registry = await loadRegistry(ledgerRoot);
-  const entry = registry.repositories.find((e) => e.id === repoId);
-  return entry ? { storePath: ledgerRoot, entry } : null;
-}
+// `findEntryInStores()` now lives in `src/storage/repository-lookup.ts` —
+// relocated so the GUI layer, the identity resolver, and the CLI share one
+// implementation with one documented first-match semantic. Its
+// documentation (including the first-match caveat referenced by
+// `handleCreateRepo` below) lives there now.
 
 // ---------------------------------------------------------------------------
 // Zod schemas for request bodies

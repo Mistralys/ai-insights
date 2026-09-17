@@ -17,14 +17,19 @@
  * irrelevant once published.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { HEALTH_CHECKS, runChecks } from '../lib/health-checks.js';
+
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '../..');
+const MCP_CLAUDE_MD = path.join(WORKSPACE_ROOT, 'mcp-server', 'CLAUDE.md');
 
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
 describe('HEALTH_CHECKS registry', () => {
-  it('contains exactly 12 entries', () => {
-    expect(HEALTH_CHECKS).toHaveLength(12);
+  it('contains exactly 13 entries', () => {
+    expect(HEALTH_CHECKS).toHaveLength(13);
   });
 
   it('every entry has id, label, cost, and detect fields', () => {
@@ -49,6 +54,7 @@ describe('HEALTH_CHECKS registry', () => {
       'orchestrator-venv',
       'hooks-installed',
       'node-version',
+      'claude-md-companion',
       'global-mcp-registered',
       'mcp-dist-fresh',
       'overview-fresh',
@@ -180,6 +186,36 @@ describe("runChecks('slow')", () => {
 describe('runChecks error handling', () => {
   it('throws on an unknown costFilter', async () => {
     await expect(runChecks('unknown')).rejects.toThrow(/unknown costFilter/i);
+  });
+});
+
+// ─── claude-md-companion check ───────────────────────────────────────────────
+
+describe('claude-md-companion check', () => {
+  const check = HEALTH_CHECKS.find((c) => c.id === 'claude-md-companion');
+  const originalContent = fs.readFileSync(MCP_CLAUDE_MD, 'utf8');
+
+  afterEach(() => {
+    fs.writeFileSync(MCP_CLAUDE_MD, originalContent, 'utf8');
+  });
+
+  it('passes when both companions contain exactly "@AGENTS.md\\n" (current repository state)', () => {
+    expect(check.detect()).toBe(true);
+  });
+
+  it('fails when a companion file is missing', () => {
+    fs.rmSync(MCP_CLAUDE_MD, { force: true });
+    expect(check.detect()).toBe(false);
+  });
+
+  it('fails when a companion file is empty', () => {
+    fs.writeFileSync(MCP_CLAUDE_MD, '', 'utf8');
+    expect(check.detect()).toBe(false);
+  });
+
+  it('fails when a companion file holds content beyond the import line', () => {
+    fs.writeFileSync(MCP_CLAUDE_MD, '@AGENTS.md\n\nSome extra content.\n', 'utf8');
+    expect(check.detect()).toBe(false);
   });
 });
 

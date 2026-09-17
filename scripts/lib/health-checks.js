@@ -35,6 +35,21 @@ const VENV_DIR          = path.join(ORCHESTRATOR_DIR, '.venv');
 const PERSONAS_DIR      = path.join(WORKSPACE_ROOT, 'personas');
 const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
 const OVERVIEW_FILE     = path.join(WORKSPACE_ROOT, 'docs', 'references', 'agents-overview.md');
+
+/**
+ * The two known `AGENTS.md` files, each of which must carry a sibling
+ * `CLAUDE.md` companion containing exactly `@AGENTS.md`. Hardcoded rather
+ * than discovered via a directory scan, per the Tool-Agnostic Policy /
+ * Cross-System Dependencies contract in the workspace `AGENTS.md` — a new
+ * `AGENTS.md` requires this list to be updated by hand.
+ */
+const AGENTS_MD_COMPANION_PAIRS = [
+  { agentsMd: path.join(WORKSPACE_ROOT, 'AGENTS.md'), claudeMd: path.join(WORKSPACE_ROOT, 'CLAUDE.md') },
+  {
+    agentsMd: path.join(WORKSPACE_ROOT, 'mcp-server', 'AGENTS.md'),
+    claudeMd: path.join(WORKSPACE_ROOT, 'mcp-server', 'CLAUDE.md'),
+  },
+];
 const PERSONA_META_DIRS = [
   path.join(PERSONAS_DIR, 'ledger',        'src', 'meta'),
   path.join(PERSONAS_DIR, 'standalone',    'src', 'meta'),
@@ -177,6 +192,26 @@ export const HEALTH_CHECKS = [
       return major >= 18;
     },
     fix: 'Install Node.js 18 or later from https://nodejs.org',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'claude-md-companion',
+    label: 'CLAUDE.md companions match AGENTS.md',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return AGENTS_MD_COMPANION_PAIRS.every(({ agentsMd, claudeMd }) => {
+        if (!fs.existsSync(agentsMd)) return true; // no AGENTS.md, nothing to guard
+        if (!fs.existsSync(claudeMd)) return false;
+        try {
+          return fs.readFileSync(claudeMd, 'utf8') === '@AGENTS.md\n';
+        } catch {
+          return false;
+        }
+      });
+    },
+    fix: 'Replace each CLAUDE.md with a single line: @AGENTS.md',
   },
 
   // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────

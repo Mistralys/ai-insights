@@ -5,6 +5,10 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.7.0 (2026-09-17): A declared project's `.ledger/settings.json` with the strategic-vision
+    output enabled now gets a routing line in `README.md`'s index pointing at the generated
+    mirror's configured path; the ownership table gained a row marking everything under
+    `.ledger/**` as generated and read-only
   1.6.0 (2026-09-02): Added the Changed-Code Intersection — comparing documents only to each other cannot catch a coherent document the code moved out from under, so Update and Audit now read the diff of every changed file the manifest names; added the emphatic-claims rule, since a fact stated absolutely is re-checked least and falsified most; delegation briefs now carry fact provenance
   1.5.0 (2026-09-02): Gained read-only Git history as a verification capability, applied at the agent's discretion; added the Reverted Decisions search as one named use of it, since a decision made and later undone is a constraint nobody wrote down; curation log entries gained a Commit line that anchors the next pass's search range
   1.4.2 (2026-09-02): Curation log entries no longer link the Discrepancy Report — the report is a temporary artefact the user deletes after acting on it, so audit findings are now written into the log entry itself

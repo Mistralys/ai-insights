@@ -1,9 +1,13 @@
 import { z } from 'zod';
+import { readFile } from 'fs/promises';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { loadRegistry, findByFolderName } from '../storage/repository-registry.js';
 import { KnowledgeStoreManager, SlugValidationError } from '../storage/knowledge-store.js';
-import { resolveLedgerRoot, deriveRepoName } from '../utils/ledger-root.js';
+import { resolveLedgerRoot } from '../utils/ledger-root.js';
+import { resolveRepositoryIdentity, type DeclaredIdentity } from '../utils/repository-identity.js';
+import { resolveOutputPath } from '../storage/project-declaration.js';
+import { parseGeneratedHeader, visionHash } from '../outputs/strategic-vision.js';
 import { getMultiStoreManager, getStoreRouter, isStoreContextInitialized } from '../storage/store-context.js';
 import type { ProjectMeta } from '../schema/project-meta.js';
 import type { RepositoryEntry } from '../schema/repository-registry.js';
@@ -65,6 +69,31 @@ interface ProjectEntry {
 }
 
 /**
+ * Mirror status for a declared project's `strategic-vision` output — present
+ * only when `cwd_path` resolves to a declared project with that output
+ * enabled (see {@link buildMirrorField}). Omitted from the response
+ * otherwise, so existing consumers and response tests are unaffected.
+ */
+interface MirrorStatus {
+  /** Absolute filesystem path the mirror is (or would be) written to. */
+  path: string;
+  /**
+   * The `generated-at` timestamp parsed from the mirror file's header, or
+   * `null` when the file has not been generated yet (declared + enabled,
+   * but `ai-insights ledger sync` has not run).
+   */
+  generated_at: string | null;
+  /** Current SHA-256 hash (hex, no prefix) of the registry entry's vision. */
+  vision_hash: string;
+  /**
+   * `true` when the on-disk mirror is missing, unmarked (hand-authored, so
+   * this tool cannot trust it), or its `vision-hash` header disagrees with
+   * `vision_hash` — i.e. `ai-insights ledger sync` is due.
+   */
+  stale: boolean;
+}
+
+/**
  * The full structured response from ledger_get_repository_context.
  */
 interface RepositoryContextResponse {
@@ -75,6 +104,50 @@ interface RepositoryContextResponse {
   strategic_vision: RepositoryEntry['vision'] | null;
   projects: ProjectEntry[];
   relevant_insights: Insight[];
+  /** See {@link MirrorStatus}. Absent for an undeclared project or a disabled output. */
+  mirror?: MirrorStatus;
+}
+
+/**
+ * Computes the `mirror` field for a declared project whose `strategic-vision`
+ * output is enabled. Read-only — never writes, removes, or otherwise touches
+ * the filesystem; that is `ai-insights ledger sync`'s (and
+ * `syncProjectOutputs()`'s) job alone.
+ *
+ * Returns `undefined` when the output is disabled, or when its resolved path
+ * was rejected by `resolveOutputPath()` (an invalid override) — in both
+ * cases there is nothing meaningful to report and the field stays omitted,
+ * per this WP's contract that `mirror` is additive and never a source of
+ * response-shape churn for a caller that only cares whether a mirror is
+ * live.
+ */
+async function buildMirrorField(declaration: DeclaredIdentity): Promise<MirrorStatus | undefined> {
+  const outputConfig = declaration.settings.outputs?.['strategic-vision'];
+  if (!outputConfig?.enabled) {
+    return undefined;
+  }
+
+  const resolved = resolveOutputPath(declaration.projectRoot, 'strategic-vision', declaration.settings);
+  if (resolved.kind === 'rejected') {
+    return undefined;
+  }
+
+  const currentHash = visionHash(declaration.entry.vision);
+
+  let existingText: string | null;
+  try {
+    existingText = await readFile(resolved.path, 'utf-8');
+  } catch {
+    existingText = null;
+  }
+  const header = existingText !== null ? parseGeneratedHeader(existingText) : null;
+
+  return {
+    path: resolved.path,
+    generated_at: header?.generatedAt ?? null,
+    vision_hash: currentHash,
+    stale: header === null || header.visionHash !== currentHash,
+  };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────
@@ -83,37 +156,37 @@ async function getRepositoryContext(
   args: z.infer<typeof GetRepositoryContextSchema>
 ): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
-    // 1. Resolve repository name
-    let repositoryName: string;
-    if (args.repository_name) {
-      repositoryName = args.repository_name;
-    } else if (args.cwd_path) {
-      // Derive from the workspace path (same logic as LedgerStore constructor)
-      repositoryName = deriveRepoName(
-        // deriveRepoName expects a plan folder path — construct a synthetic one
-        // that places the repo root 4 levels above cwd_path (the conventional layout)
-        `${args.cwd_path}/docs/agents/plans/synthetic-slug`
-      );
-    } else {
+    // 1. Resolve repository identity: explicit → declared → derived.
+    const identityResult = await resolveRepositoryIdentity(args.cwd_path, args.repository_name);
+    if (identityResult.kind === 'error') {
       return {
         content: [
           {
             type: 'text' as const,
-            text: 'Error: Either cwd_path or repository_name must be provided.',
+            text: `Error: ${identityResult.message}`,
           },
         ],
         isError: true,
       };
     }
+    const { repositoryName, declaration } = identityResult.identity;
 
     // Evaluate the store context once for the lifetime of this call.
     const isMultiStore = isStoreContextInitialized();
 
     // 2. Consult the registry for this repository.
-    //    In multi-store mode: use the merged registry (store-order priority).
-    //    In single-store/legacy mode: load the single default store's registry.
+    //    - Declared tier: the identity resolver already looked the entry up
+    //      by id — reuse it directly rather than re-deriving it by folder
+    //      name (a declared repository_id resolves even when the directory
+    //      basename matches no folder_names entry — AC-14).
+    //    - Explicit/derived tiers: fall back to the pre-existing folder-name
+    //      lookup.
+    //      In multi-store mode: use the merged registry (store-order priority).
+    //      In single-store/legacy mode: load the single default store's registry.
     let registryEntry: RepositoryEntry | null;
-    if (isMultiStore) {
+    if (declaration) {
+      registryEntry = declaration.entry;
+    } else if (isMultiStore) {
       const mergedRegistry = await getMultiStoreManager().getMergedRegistry();
       registryEntry = mergedRegistry.find((e) => e.folder_names.includes(repositoryName)) ?? null;
     } else {
@@ -215,7 +288,10 @@ async function getRepositoryContext(
       relevantInsights = deduped;
     }
 
-    // 9. Build the response
+    // 9. Build the response.
+    //    `mirror` is additive: only computed (and only present) for a
+    //    declared project — omitted for the explicit and derived tiers, and
+    //    omitted by buildMirrorField() itself when the output is disabled.
     const response: RepositoryContextResponse = {
       repository_name: repositoryName,
       repository_id: registryEntry ? registryEntry.id : null,
@@ -225,6 +301,12 @@ async function getRepositoryContext(
       projects,
       relevant_insights: relevantInsights,
     };
+    if (declaration) {
+      const mirror = await buildMirrorField(declaration);
+      if (mirror) {
+        response.mirror = mirror;
+      }
+    }
 
     return {
       content: [

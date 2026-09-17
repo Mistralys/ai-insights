@@ -56,6 +56,9 @@ import {
   storeRepoMove,
   storeRepoList,
 } from './lib/store-commands.js';
+import { runInit as runLedgerInit, runEdit as runLedgerEdit, runSync as runLedgerSync } from './ledger-project.js';
+import { chooseDefaultVerb } from './lib/ledger-project-core.js';
+import { loadDistModule } from './lib/ledger-bridge.js';
 
 // --- Constants ---
 
@@ -569,16 +572,6 @@ function cmdCtxGenerate(args) {
   }
   sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
   fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
-  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
-  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
-  if (fs.existsSync(agentsMd)) {
-    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
-    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
-    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
-    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
-  } else {
-    log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
-  }
 }
 
 function cmdGitHooks() {
@@ -687,7 +680,7 @@ async function cmdStore(args) {
 
     case 'init': {
       const ledgerRoot = rest[0] ?? undefined;
-      const result = storeInit({ ledgerRoot });
+      const result = await storeInit({ ledgerRoot });
       if (!result.ok) {
         log(`  ${C.red('✗')} ${result.reason}`, 'red');
         process.exit(1);
@@ -703,7 +696,7 @@ async function cmdStore(args) {
         log('  Usage: store add <id> <path>', 'red');
         process.exit(1);
       }
-      const result = storeAdd({ id, storePath });
+      const result = await storeAdd({ id, storePath });
       if (!result.ok) {
         log(`  ${C.red('✗')} ${result.reason}`, 'red');
         process.exit(1);
@@ -715,7 +708,7 @@ async function cmdStore(args) {
     case 'remove': {
       const [id] = rest;
       if (!id) { log('  Usage: store remove <id>', 'red'); process.exit(1); }
-      const result = storeRemove({ id });
+      const result = await storeRemove({ id });
       if (!result.ok) {
         log(`  ${C.red('✗')} ${result.reason}`, 'red');
         process.exit(1);
@@ -742,7 +735,7 @@ async function cmdStore(args) {
     case 'default': {
       const [id] = rest;
       if (!id) { log('  Usage: store default <id>', 'red'); process.exit(1); }
-      const result = storeSetDefault({ id });
+      const result = await storeSetDefault({ id });
       if (!result.ok) {
         log(`  ${C.red('✗')} ${result.reason}`, 'red');
         process.exit(1);
@@ -752,7 +745,7 @@ async function cmdStore(args) {
     }
 
     case 'conflicts': {
-      const result = storeConflicts();
+      const result = await storeConflicts();
       if (!result.ok) {
         log(`  ${C.red('✗')} Failed to detect conflicts.`, 'red');
         process.exit(1);
@@ -775,7 +768,7 @@ async function cmdStore(args) {
     }
 
     case 'status': {
-      const result = storeStatus();
+      const result = await storeStatus();
       if (!result.ok) {
         log(`  ${C.red('✗')} Failed to retrieve store status.`, 'red');
         process.exit(1);
@@ -813,7 +806,7 @@ async function cmdStore(args) {
             log('  Usage: store repo add <repo-name> <store-id>', 'red');
             process.exit(1);
           }
-          const result = storeRepoAdd({ repoName, storeId });
+          const result = await storeRepoAdd({ repoName, storeId });
           if (!result.ok) {
             log(`  ${C.red('✗')} ${result.reason}`, 'red');
             process.exit(1);
@@ -828,7 +821,7 @@ async function cmdStore(args) {
             log('  Usage: store repo move <repo-name> <target-store-id>', 'red');
             process.exit(1);
           }
-          const result = storeRepoMove({ repoName, targetStoreId });
+          const result = await storeRepoMove({ repoName, targetStoreId });
           if (!result.ok) {
             log(`  ${C.red('✗')} ${result.reason}`, 'red');
             process.exit(1);
@@ -838,7 +831,7 @@ async function cmdStore(args) {
         }
 
         case 'list': {
-          const result = storeRepoList();
+          const result = await storeRepoList();
           if (!result.ok) {
             log(`  ${C.red('✗')} Failed to load repo list.`, 'red');
             process.exit(1);
@@ -865,6 +858,116 @@ async function cmdStore(args) {
       log(`  Unknown store subcommand '${sub ?? ''}'. Use: store init|add|remove|list|default|conflicts|status|repo`, 'red');
       process.exit(1);
   }
+}
+
+// ─── Ledger command group ─────────────────────────────────────────────────────
+
+/**
+ * Resolves the project root and declaration state for `cwd`, mirroring the
+ * resolution `runEdit()`/`runSync()` (in `scripts/ledger-project.js`)
+ * perform internally, so the verbless entry point can feed
+ * `chooseDefaultVerb()` before delegating to those shells.
+ * @param {string} cwd
+ */
+async function resolveLedgerDeclaration(cwd) {
+  const { findProjectRoot, loadProjectDeclaration } = await loadDistModule('storage/project-declaration.js');
+  const projectRoot = await findProjectRoot(cwd);
+  const declarationState = projectRoot ? await loadProjectDeclaration(projectRoot) : undefined;
+  return { projectRoot, declarationState };
+}
+
+/** Y/N prompt, defaulting to `defaultValue` on an empty answer. */
+async function confirmYesNo(question, defaultValue) {
+  const raw = (await askCleanInput(question)).trim().toLowerCase();
+  if (raw === '') return defaultValue;
+  return raw === 'y' || raw === 'yes';
+}
+
+/**
+ * Runs the verbless `ledger` inference path (menu selection, or a bare
+ * `ai-insights ledger` on a TTY): resolves the current declaration state,
+ * infers `init` or `edit` via `chooseDefaultVerb()`, prints the inferred
+ * verb and resolved root before the first prompt, and delegates to the
+ * matching wizard. Only called once the caller has confirmed stdin is a
+ * TTY — a non-TTY verbless invocation is refused before reaching here.
+ * @param {string} cwd
+ * @returns {Promise<number>} Process exit code.
+ */
+async function runLedgerInference(cwd) {
+  const { projectRoot, declarationState } = await resolveLedgerDeclaration(cwd);
+  const result = chooseDefaultVerb({ cwd, projectRoot, declarationState });
+
+  if (result.error === 'invalid_declaration') {
+    log(
+      `  ✗ ${path.join(result.projectRoot, '.ledger', 'settings.json')} is invalid — run \`ledger init --force\` to re-create it.`,
+      'red'
+    );
+    return 1;
+  }
+
+  if (result.verb === 'edit' && result.confirmRoot) {
+    log(`  Inferred verb: edit (root: ${result.projectRoot})`);
+    log(`  ${result.projectRoot} is an ancestor of ${cwd} — not the directory you're standing in.`);
+    const editAncestor = await confirmYesNo('  Edit that declaration? (Y/n) ', true);
+    if (editAncestor) {
+      return runLedgerEdit({ cwd, isTTY: true });
+    }
+    log(`  Declaring ${cwd} instead.`);
+    return runLedgerInit({ cwd, isTTY: true });
+  }
+
+  log(`  Inferred verb: ${result.verb} (root: ${result.projectRoot})`);
+  if (result.verb === 'init') {
+    return runLedgerInit({ cwd, isTTY: true });
+  }
+  return runLedgerEdit({ cwd, isTTY: true });
+}
+
+/**
+ * Dispatches the `ledger` command group: `init` / `edit` / `sync`, plus the
+ * verbless inference path used by both the interactive menu (which invokes
+ * `run([])` with no arguments) and a bare `ai-insights ledger` on a TTY.
+ *
+ * `waitForKey()` is only awaited on the interactive path — TTY, no
+ * flags after the (explicit or inferred) verb — matching `cmdInstallMcp`/
+ * `cmdLinkCli`. `sync`, `--check`, and every flag-driven invocation return
+ * immediately so a pre-commit hook or CI invocation is never left waiting
+ * on a keypress.
+ * @param {string[]} args
+ */
+async function cmdLedger(args) {
+  const cwd = getOriginalCwd();
+  const [verb, ...rest] = args;
+  const isTTY = process.stdin.isTTY === true;
+
+  if (verb === 'sync') {
+    const code = await runLedgerSync({ cwd, args: rest });
+    if (code !== 0) process.exit(code);
+    return;
+  }
+
+  if (verb === 'init' || verb === 'edit') {
+    const runner = verb === 'init' ? runLedgerInit : runLedgerEdit;
+    const interactive = rest.length === 0 && isTTY;
+    const code = await runner({ cwd, args: rest, isTTY });
+    if (interactive) await waitForKey();
+    if (code !== 0) process.exit(code);
+    return;
+  }
+
+  if (verb) {
+    log(`  Unknown ledger subcommand '${verb}'. Use: ledger init|edit|sync`, 'red');
+    process.exit(1);
+  }
+
+  if (!isTTY) {
+    log('  ledger requires a sub-verb when stdin is not a TTY. Use: ledger init|edit|sync', 'red');
+    process.exit(1);
+  }
+
+  const code = await runLedgerInference(cwd);
+  await waitForKey();
+  if (code !== 0) process.exit(code);
 }
 
 async function cmdOrchestratorTests(args) {
@@ -1212,6 +1315,19 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdStore,
+  },
+  {
+    id:           'ledger',
+    key:          'n',
+    label:        'Declare project ledger',
+    category:     'MCP Server',
+    description:  'Declare, edit, or sync this project\'s .ledger/ strategic-vision mirror',
+    helpVariants: [
+      ['ledger init [--repository-id <id>] [--enable <output-id>]... [--force] [--dry-run]', 'Declare this directory against a registered repository'],
+      ['ledger edit [--enable <output-id>]... [--disable <output-id>]...',                    'Change the enabled outputs of an existing declaration'],
+      ['ledger sync [--check]',                                                               'Regenerate declared outputs (or check for drift)'],
+    ],
+    run:          cmdLedger,
   },
 ];
 
