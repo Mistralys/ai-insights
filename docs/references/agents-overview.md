@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-17
+> **Generated:** 2026-09-16
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.9.0)
+### Stage 1 — Planner (v2.8.1)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -167,7 +167,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.2.0)
+### AGENTS.md Curator (v2.1.1)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -267,7 +267,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.7.0)
+### Manifest Curator (v1.6.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -332,7 +332,7 @@ Orchestrate iterative plan refinement: architectural review, finding integration
 
 ---
 
-### Planner — Standalone (v2.5.0)
+### Planner — Standalone (v2.4.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -442,14 +442,15 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v1.0.1)
+### Ledger Claude Coordinator (v2.1.0)
 
 **Identity:** Technical Workflow Director
 
 Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent.
 
 - **Modes:** Interactive (default), Autonomous
-- **Use When:** Experimental — originally designed to coordinate the ledger pipeline in Claude Code, but currently unused because Claude Code does not reliably follow ledger routing. Retained for future evaluation
+- **Use When:** Experimental — drives the ledger pipeline as the session-owning main agent under `claude --agent`, dispatching each stage the ledger names. Earlier failures came from the default Claude Code agent doing the routing; under test as of v2.0.0
+- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis
 
 ---
 

@@ -5,17 +5,38 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
-  1.0.1 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Read/Grep
-    but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite this
-    persona's entire role being to consult the ledger and route on it; Claude Code requires the
-    double-underscore `mcp__<server>` form, not the generic `mcp` flag from `tools:`
+  2.1.0 (2026-09-16): Reduced the dispatch prompt to the project path, matching
+    `buildHandoffPrompt()` in `mcp-server/src/utils/workflow-helpers.ts` — the ledger's own
+    auto-handoff prompt is `Project path: {planFolder}` and nothing else, prefixed with `@{agentId}`
+    only as a VS Code routing directive. The previous wording stated a floor ("at minimum") with no
+    ceiling and told the coordinator to compose a prompt when `auto_handoff` was absent, which
+    produced role-priming preambles such as "You are the QA (SDET) agent for the ledger-tracked
+    project"; a one-sentence restatement of a persona the sub-agent already loaded competes with
+    that persona instead of reinforcing it. Dropped the WP ID and the rework feedback from the
+    prompt as well — both are ledger-resident (`WorkPackageDetail.pipelines[].summary`,
+    `.comments`, and `handoff_notes`), so a prompt copy only duplicates what the sub-agent reads
+    anyway and goes stale. Added two Dispatch Protocol constraints, since the step wording alone
+    reads as guidance rather than a boundary.
+  2.0.1 (2026-09-16): Fixed dispatch instructions naming a non-existent "Agent tool" on
+    deep-agents targets — the correct call there is `task` with `subagent_type`. Removed
+    hardcoded "Task" references that no longer matched all three targets.
+  2.0.0 (2026-09-16): Audit remediation for a `claude --agent` trial as session-owning main
+    agent. Fixed the dispatch map resolving to a display name instead of a dispatchable
+    identifier, which broke every dispatch call; added a `subagents` list so dispatches are
+    now validated at build time. Added a "Determining the Next Agent" table, since no existing
+    tool reported "who runs next" cold. Added a Dispatch Record so stagnation detection reads
+    back ledger responses instead of relying on recall. Added a bootstrap artifact check to
+    catch inline decomposition by sub-agents. Added concurrency constraints (one dispatch per
+    message, no batching) and a ledger reachability pre-flight check. Collapsed the workflow to
+    five steps. Narrowed capabilities — removed direct edit/execute access and tightened the
+    permission mode — to match the no-direct-work constraint.
+  1.0.1 (2026-09-14): Fixed a missing MCP tool grant that left the ledger server unavailable
+    under `--agent` invocation — Claude Code requires the double-underscore tool-name form.
   1.0.0 (2026-03-19): Initial release — coordinate multi-stage pipeline via central_pm ledger
 
 tools:
   - vscode
-  - execute
   - read
-  - edit
   - search
   - agent
   - mcp
@@ -26,9 +47,25 @@ cc_tools:
   - Grep
   - mcp__central_pm
 
+# Read-only router: it dispatches and verifies artifacts, never edits.
+cc_permission_mode: "default"
+
+subagents:
+  - 2-project-manager
+  - 3-developer
+  - 4-qa
+  - 5-security-auditor
+  - 6-reviewer
+  - 7-release-engineer
+  - 8-documentation
+  - 9-synthesis
+
+audit_guide_version: "3.5"
+audit_date: "2026-09-16"
+
 # overview metadata
 identity: "Technical Workflow Director"
-use_when: "Experimental — originally designed to coordinate the ledger pipeline in Claude Code, but currently unused because Claude Code does not reliably follow ledger routing. Retained for future evaluation"
+use_when: "Experimental — drives the ledger pipeline as the session-owning main agent under `claude --agent`, dispatching each stage the ledger names. Earlier failures came from the default Claude Code agent doing the routing; under test as of v2.0.0"
 modes: |
   Interactive (default)
   Autonomous

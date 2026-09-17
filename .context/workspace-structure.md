@@ -731,6 +731,7 @@ _SOURCE: Top-level directory tree_
     │   ├── changelog-size-check.test.js
     │   ├── claude-cli.test.js
     │   ├── cli-cmd-agent.test.js
+    │   ├── docs-pages-config.test.js
     │   ├── frontmatter.test.js
     │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
