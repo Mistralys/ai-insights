@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
   1.5.2 (2026-09-10): Missing-brief report drops the stale gitignore rationale — the remedy is a fresh Planner write against the current codebase, not a workaround
   1.5.1 (2026-08-28): A missing research brief is now reported as a gitignored file only the Planner can regenerate, instead of as a failed upstream stage; the PM gates the check before dispatch
   1.5.0 (2026-08-28): Consumes the Planner's research-brief.md as a required input — Step 3 now checks Verified References and the Scope Sketch before opening any source file, Code Observations mark each finding [brief] or [verified], and the brief's Structural Observations are barred as a WP source since the Planner already resolved them
@@ -26,6 +30,17 @@ tools:
   - read
   - edit
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Technical Program Manager — Work Package Analyst"

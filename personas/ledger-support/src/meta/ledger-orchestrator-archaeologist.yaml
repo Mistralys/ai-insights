@@ -5,6 +5,10 @@ vs_file_name: ledger-orchestrator-archaeologist.agent.md
 id: standalone-ledger-orchestrator-archaeologist
 cc_file_name: ledger-orchestrator-archaeologist.md
 changelog: |
+  1.0.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all, which is every tool this
+    read-only forensic analysis depends on
   1.0.2 (2026-08-26): Rewrote trailing imperative sentences in two philosophy principles into indicative mood
   1.0.1 (2026-07-23): Domain knowledge audit fixes — remove non-existent `halt` action, add `halted_wp_cancelled`; fix `route` field description to distinguish WP-routing vs early-routing fields; fix `metadata.checkpoint_ns` → `metadata.langgraph_checkpoint_ns`; fix `lc_versions` key casing (`langchain-core` → `langchain_core`)
   1.0.0 (2026-07-23): Initial release — forensic analysis of orchestrator logs and dialogue chunks
@@ -13,6 +17,15 @@ tools:
   - vscode
   - read
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# Read-only, matching the vs-code grant (no `execute`, no `edit`).
+cc_tools:
+  - Read
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Forensic Operations Analyst"
