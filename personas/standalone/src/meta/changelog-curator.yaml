@@ -5,6 +5,9 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.5.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.5.0 (2026-08-25): Design Guide v2.8 audit fixes — added Inputs with Capabilities, Operating Philosophy, Quality Checklist, Outputs with a location, and a WHATSNEW Curator scope boundary; fixed both modes writing before user approval; added a change inventory between history gathering and drafting; added conditional checkpoints for breaking/deprecation subsections and the file heading; restated style rules inside the Entry Format template; reordered sections and de-imperativised reference prose
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.0 (2026-07-15): Added importance weighting and promoted-change bold sentence to summary rules
@@ -21,6 +24,21 @@ tools:
   - search
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"

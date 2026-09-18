@@ -5,6 +5,10 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.11.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim;
+    the grant stays read-only with web access, mirroring the vs-code list, since this persona curates
+    rather than edits
   1.11.1 (2026-08-26): Documented the inline-reference-material deviation in design_notes - web-LLM deployment cannot access external documents, so the 60-Second Rule and reference extraction do not apply
   1.11.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across Philosophy, Protocol and both workflows; Recipe Ledger added as a durable counter sink with liveness marker; metric, language and template-fidelity rules restated inside the output templates; Survey Options split into Gather Candidates and Select; Session Opener, Bread Plan Check and Quality Checklist added; constraints regrouped as Core Rules with Household Boundaries, Process Discipline and Output Fidelity
   1.10.0 (2026-06-29): Recipe identifiers — every recipe gets a short ID (R1, R2, …) that persists across the conversation; IDs appear in previews, weekly plan tables, and full recipe headings for easy back-reference
@@ -35,6 +39,17 @@ tools:
   - search
   - web
   - browser
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# Read-only, matching the vs-code grant (no `execute`, no `edit`, no `agent`).
+cc_tools:
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
