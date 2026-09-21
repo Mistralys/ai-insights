@@ -294,6 +294,44 @@ describe('ledger_get_repository_context — max_projects', () => {
     const data = parseResult(result as any);
     expect(data.projects).toHaveLength(1);
   });
+
+  it('max_projects: "3" (string-encoded) caps the projects[] array at 3, matching the numeric form (AC-08)', async () => {
+    for (let i = 1; i <= 7; i++) {
+      await seedProject('my-repo', `2026-01-${String(i).padStart(2, '0')}-project-${i}`, {
+        date_created: `2026-01-${String(i).padStart(2, '0')}T00:00:00Z`,
+      });
+    }
+
+    // Argument validation happens at the MCP SDK boundary, before the handler
+    // runs — parse via the exported schema first (as the SDK would) so the
+    // string→number preprocess is actually exercised.
+    const args = _internal.GetRepositoryContextSchema.parse({
+      repository_name: 'my-repo',
+      max_projects: '3',
+      include_insights: false,
+    });
+
+    const result = await getRepositoryContext(args);
+    const data = parseResult(result as any);
+    expect(data.projects).toHaveLength(3);
+  });
+
+  it('omitting max_projects still defaults to 5 when parsed via the schema (AC-08)', async () => {
+    for (let i = 1; i <= 8; i++) {
+      await seedProject('my-repo', `2026-01-${String(i).padStart(2, '0')}-project-${i}`, {
+        date_created: `2026-01-${String(i).padStart(2, '0')}T00:00:00Z`,
+      });
+    }
+
+    const args = _internal.GetRepositoryContextSchema.parse({
+      repository_name: 'my-repo',
+      include_insights: false,
+    });
+
+    const result = await getRepositoryContext(args);
+    const data = parseResult(result as any);
+    expect(data.projects).toHaveLength(5);
+  });
 });
 
 // ─── include_insights ─────────────────────────────────────────────────────

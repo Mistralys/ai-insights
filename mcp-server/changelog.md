@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.10.0 - Active Duration Tracking & Numeric Input Tolerance
+
+Project duration now reflects actual active work instead of wall-clock time, and several
+tool and GUI inputs are more forgiving of string-encoded numbers, fixing failures some
+clients hit when passing numeric values as strings.
+
+- Tools: Numeric parameters like confidence, limit, and offset now accept string-encoded values.
+- Tools: Confidence values are now validated to stay within the 0–1 range.
+- GUI: Duration displays now show active work time instead of wall-clock, moved to a tooltip.
+- GUI: Editing a knowledge entry now accepts a string-encoded confidence value.
+- Scripts: `backfill-duration` now also backfills active time and pipeline run counts.
+- Docs: Updated tool help and the manifest with the newly accepted input formats.
+
 ## v2.9.0 - Curated Project Titles
 
 **Projects can now carry an agent-curated display title, replacing slug-derived title-casing

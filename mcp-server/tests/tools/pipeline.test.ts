@@ -1273,6 +1273,39 @@ describe('completePipeline handler normalizes lenient inputs', () => {
     expect(wp.handoff_notes![0].notes).toEqual(['check auth', 'verify edge case']);
   });
 
+  it('accepts string-encoded metrics.tests_passed / tests_failed / security_issues and stores the numeric values (AC-10)', async () => {
+    // Reset pipeline to IN_PROGRESS
+    await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());
+
+    // Argument validation happens at the MCP SDK boundary, before the handler
+    // runs — parse via the exported schema first (as the SDK would) so the
+    // string→number preprocess on the metrics counters is actually exercised.
+    const { CompletePipelineSchema } = _internal;
+    const args = CompletePipelineSchema.parse({
+      project_path: LENIENT_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      metrics: {
+        tests_passed: '12',
+        tests_failed: '0',
+        security_issues: '1',
+      },
+    });
+
+    const result = await completePipeline(args);
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.at(-1)!;
+    expect(pipeline.metrics).toMatchObject({
+      tests_passed: 12,
+      tests_failed: 0,
+      security_issues: 1,
+    });
+  });
+
   it('omitting handoff_notes does not create a HandoffNote entry', async () => {
     // Reset pipeline to IN_PROGRESS
     await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());

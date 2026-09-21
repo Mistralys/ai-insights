@@ -42,6 +42,7 @@ import { z } from 'zod';
 import { ApiError } from '../src/gui/errors.js';
 import { KnowledgeStoreManager } from '../src/storage/knowledge-store.js';
 import { InsightScope, SLUG_REGEX } from '../src/schema/knowledge.js';
+import { confidenceInput } from '../src/schema/common.js';
 import { isStoreContextInitialized, getStoreRouter, getMultiStoreManager } from '../src/storage/store-context.js';
 import type { Insight } from '../src/schema/knowledge.js';
 
@@ -121,7 +122,7 @@ export const KnowledgeUpdateBodySchema = z
     category: z.string().optional(),
     tags: z.array(z.string()).optional(),
     source: z.string().optional(),
-    confidence: z.number().min(0).max(1).optional(),
+    confidence: confidenceInput().optional(),
     superseded_by: z.string().uuid().nullable().optional(),
   })
   .strict();

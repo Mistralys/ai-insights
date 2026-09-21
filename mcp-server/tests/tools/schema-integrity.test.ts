@@ -1,7 +1,7 @@
 /**
  * Schema Integrity Regression Test
  *
- * Verifies that all 26 tool schemas registered with the MCP server produce
+ * Verifies that all 29 tool schemas registered with the MCP server produce
  * non-empty JSON Schema `properties`. This test fails if anyone re-adds
  * `.refine()`, `.transform()`, or `.superRefine()` to an outer `z.object()`
  * schema — those methods convert `ZodObject` to `ZodEffects`, causing the
@@ -25,6 +25,7 @@ import { register as registerWorkflowHandoff } from '../../src/tools/workflow-ha
 import { register as registerWorkflowNextAction } from '../../src/tools/workflow-next-action.js';
 import { register as registerWorkPackage } from '../../src/tools/work-package.js';
 import { register as registerKnowledge } from '../../src/tools/knowledge.js';
+import { register as registerRepositoryContext } from '../../src/tools/repository-context.js';
 
 // ── Capture schemas from registerTool() ───────────────────────────────────
 const capturedSchemas = new Map<string, z.ZodTypeAny>();
@@ -49,9 +50,10 @@ beforeAll(() => {
   registerWorkflowNextAction(mockServer);
   registerWorkPackage(mockServer);
   registerKnowledge(mockServer);
+  registerRepositoryContext(mockServer);
 });
 
-// ── Expected tool names (all 22) ──────────────────────────────────────────
+// ── Expected tool names (all 29) ──────────────────────────────────────────
 const EXPECTED_TOOL_NAMES = [
   // begin-work
   'ledger_begin_work',
@@ -75,6 +77,8 @@ const EXPECTED_TOOL_NAMES = [
   'ledger_get_handoff_status',
   // workflow-next-action
   'ledger_get_next_action',
+  // repository-context
+  'ledger_get_repository_context',
   // work-package
   'ledger_get_work_package',
   'ledger_list_work_packages',
@@ -124,4 +128,63 @@ describe('Schema Integrity — all tool schemas produce non-empty JSON Schema', 
       ).toBeGreaterThan(0);
     });
   }
+});
+
+// ── Numeric-input helper field-type assertions ─────────────────────────────
+//
+// The helpers in schema/common.ts (confidenceInput, positiveIntInput,
+// nonNegativeIntInput, numberInput) wrap their inner z.number() schema in a
+// field-level z.preprocess() so string-encoded numeric arguments are
+// tolerated. These assertions pin the emitted JSON Schema for every
+// helper-wrapped field so a future switch to z.coerce or z.union — either of
+// which would degrade or change the advertised signature — fails the build.
+
+type JsonSchemaObject = { properties?: Record<string, any> };
+
+function propertiesOf(toolName: string): Record<string, any> {
+  const schema = capturedSchemas.get(toolName);
+  expect(schema, `No schema captured for ${toolName}`).toBeDefined();
+  const jsonSchema = zodToJsonSchema(schema!) as JsonSchemaObject;
+  expect(jsonSchema.properties, `${toolName}: missing properties`).toBeDefined();
+  return jsonSchema.properties!;
+}
+
+describe('Schema Integrity — numeric-input helper field types are unchanged', () => {
+  it('ledger_add_insight.confidence emits {"type":"number","minimum":0,"maximum":1}', () => {
+    const props = propertiesOf('ledger_add_insight');
+    expect(props.confidence).toMatchObject({ type: 'number', minimum: 0, maximum: 1 });
+  });
+
+  it('ledger_update_insight.confidence emits {"type":"number","minimum":0,"maximum":1}', () => {
+    const props = propertiesOf('ledger_update_insight');
+    expect(props.confidence).toMatchObject({ type: 'number', minimum: 0, maximum: 1 });
+  });
+
+  it('ledger_search_insights.limit and ledger_list_insights.limit/offset stay "type":"integer" with existing bounds', () => {
+    const searchProps = propertiesOf('ledger_search_insights');
+    expect(searchProps.limit).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
+
+    const listProps = propertiesOf('ledger_list_insights');
+    expect(listProps.limit).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
+    expect(listProps.offset).toMatchObject({ type: 'integer', minimum: 0 });
+  });
+
+  it('ledger_get_next_action.max_results stays "type":"integer" with existing bounds', () => {
+    const props = propertiesOf('ledger_get_next_action');
+    expect(props.max_results).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
+  });
+
+  it('ledger_get_repository_context.max_projects stays "type":"integer" with existing bounds', () => {
+    const props = propertiesOf('ledger_get_repository_context');
+    expect(props.max_projects).toMatchObject({ type: 'integer', exclusiveMinimum: 0 });
+  });
+
+  it('ledger_complete_pipeline.metrics counters stay "type":"number"', () => {
+    const props = propertiesOf('ledger_complete_pipeline');
+    const metricsProps = props.metrics?.properties;
+    expect(metricsProps, 'ledger_complete_pipeline.metrics: missing properties').toBeDefined();
+    expect(metricsProps.tests_passed).toMatchObject({ type: 'number' });
+    expect(metricsProps.tests_failed).toMatchObject({ type: 'number' });
+    expect(metricsProps.security_issues).toMatchObject({ type: 'number' });
+  });
 });

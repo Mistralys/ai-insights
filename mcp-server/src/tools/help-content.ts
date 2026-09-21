@@ -797,7 +797,7 @@ Add a reusable insight to the global or repository-scoped knowledge base.
   Alphanumeric characters, hyphens, and underscores only (e.g., \`"my-repo"\`). The name \`"global"\` is reserved and cannot be used.
 - **origin_plan** (string): Provenance metadata — the plan slug where this insight was first discovered or generated (e.g., \`"2026-05-29-knowledge-repository-scope"\`). Alphanumeric characters, hyphens, and underscores only. Optional; stored as-is for traceability.
 - **source** (string): Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string.
-- **confidence** (number): Confidence score 0–1 indicating reliability. Defaults to 1.
+- **confidence** (number): Confidence score as a decimal fraction between 0 and 1 (e.g. \`0.75\`) indicating reliability. Values outside this range are rejected. Defaults to 1. A string-encoded number (e.g. \`"0.75"\`) is also accepted and converted.
 
 ## Response
 The created insight object, including the auto-assigned **id** (UUID v4 string).
@@ -919,7 +919,7 @@ Immutable fields (id, scope, repository_name, created_at) cannot be changed.
 - **category** (string): New category.
 - **tags** (array): Replacement tags array.
 - **source** (string): New source reference.
-- **confidence** (number): New confidence score (0–1).
+- **confidence** (number): New confidence score as a decimal fraction between 0 and 1 (e.g. \`0.9\`). Values outside this range are rejected. A string-encoded number (e.g. \`"0.9"\`) is also accepted and converted.
 - **superseded_by** (string): UUID of the insight that supersedes this one.
   Use this to mark an insight as outdated when a newer insight replaces it.
 
@@ -938,6 +938,10 @@ The updated insight object with the new **updated_at** timestamp.
 \`\`\`
 \`\`\`json
 { "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "superseded_by": "b2c3d4e5-f6a7-8901-bcde-f12345678901" }
+\`\`\`
+Recalibrating confidence upward as new evidence accumulates:
+\`\`\`json
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "confidence": 0.9 }
 \`\`\`
 `,
 

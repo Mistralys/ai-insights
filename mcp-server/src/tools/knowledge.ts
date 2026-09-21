@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { KnowledgeStoreManager } from '../storage/knowledge-store.js';
 import { resolveLedgerRoot } from '../utils/ledger-root.js';
 import { InsightScope, SLUG_REGEX } from '../schema/knowledge.js';
+import { confidenceInput, nonNegativeIntInput, positiveIntInput } from '../schema/common.js';
 import { now } from '../utils/timestamp.js';
 import type { Insight } from '../schema/knowledge.js';
 import {
@@ -36,10 +37,13 @@ const AddInsightSchema = z.object({
     .describe(
       'Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string if omitted.'
     ),
-  confidence: z
-    .number()
+  confidence: confidenceInput()
     .optional()
-    .describe('Confidence score 0–1 indicating reliability. Defaults to 1 if omitted.'),
+    .describe(
+      'Confidence score as a decimal fraction between 0 and 1 (e.g. 0.75). ' +
+      'Values outside this range are rejected. Defaults to 1 if omitted. ' +
+      'A string-encoded number (e.g. "0.75") is also accepted and converted.'
+    ),
   origin_plan: z
     .string()
     .regex(SLUG_REGEX)
@@ -127,10 +131,7 @@ const SearchInsightsSchema = z.object({
     .regex(SLUG_REGEX)
     .optional()
     .describe('Optional. Restrict search to a specific repository store.'),
-  limit: z
-    .number()
-    .int()
-    .positive()
+  limit: positiveIntInput()
     .optional()
     .describe('Optional. Maximum number of results to return.'),
 });
@@ -215,16 +216,10 @@ const ListInsightsSchema = z.object({
     .regex(SLUG_REGEX)
     .optional()
     .describe('Optional. Restrict to a specific repository store.'),
-  limit: z
-    .number()
-    .int()
-    .positive()
+  limit: positiveIntInput()
     .optional()
     .describe('Optional. Maximum number of results to return (for pagination).'),
-  offset: z
-    .number()
-    .int()
-    .nonnegative()
+  offset: nonNegativeIntInput()
     .optional()
     .describe('Optional. Number of results to skip (for pagination). Defaults to 0.'),
 });
@@ -321,7 +316,13 @@ const UpdateInsightSchema = z.object({
   category: z.string().optional().describe('Optional. New category.'),
   tags: z.array(z.string()).optional().describe('Optional. Replace the tags array.'),
   source: z.string().optional().describe('Optional. New source reference.'),
-  confidence: z.number().optional().describe('Optional. New confidence score (0–1).'),
+  confidence: confidenceInput()
+    .optional()
+    .describe(
+      'Optional. New confidence score as a decimal fraction between 0 and 1 (e.g. 0.9). ' +
+      'Values outside this range are rejected. ' +
+      'A string-encoded number (e.g. "0.9") is also accepted and converted.'
+    ),
   superseded_by: z
     .string()
     .uuid()

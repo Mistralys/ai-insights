@@ -91,6 +91,8 @@ Delegates to `MultiStoreManager.listAllProjects()` and returns metadata for all 
 
 Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and `synthesis_generated_at = now()` (using the same timestamp for both the root index write and the response JSON), persists `outcome_summary` to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `outcome_summary` (echoed back from the submitted value), `archived_documents: string[]`, and, conditionally, `archive_skipped: string[]` (omitted when empty).
 
+**Active-time cache write:** immediately after `writeRootIndex()`, still inside the lock, `completeSynthesis()` reads every work package's detail file (`store.readWorkPackage()`), sums pipeline durations via `computeWpActiveMs()`, and writes `active_ms` / `pipeline_runs` into `.meta.json` with `{ preserveLastUpdated: true }`. This is the one server-side path that runs exactly once per project and can afford the fan-out read — `writeRootIndex()` runs on every WP write and cannot. A per-WP read failure is skipped, never fatal — synthesis must not fail because one WP detail file is unreadable. `active_ms` is written `null` when no pipeline in the project carries a measured duration.
+
 **`outcome_summary`** is a required string field — Zod rejects the call if it is absent or `null`. The value is written to `rootIndex.outcome_summary` and propagated to `.meta.json` via `writeRootIndex()` using key-presence semantics (`'outcome_summary' in validated`). The storage schema (`RootIndexSchema`) declares it as `z.string().nullable().optional()` for backward compatibility with legacy records that predate this field; the input schema (`CompleteSynthesisSchema`) enforces `z.string()` (required, non-nullable) so callers must always supply a value.
 
 **Required:** `agent_role` must be `"Synthesis"` or `"Project Manager"` — other roles receive an error.
@@ -461,9 +463,9 @@ Starts a new pipeline for a work package. The `type` field is validated by `Pipe
   };
   metrics?: {
     test_coverage?: string;
-    tests_passed?: number;
-    tests_failed?: number;
-    security_issues?: number;
+    tests_passed?: number;      // Tolerates a string-encoded number via numberInput().
+    tests_failed?: number;      // Tolerates a string-encoded number via numberInput().
+    security_issues?: number;   // Tolerates a string-encoded number via numberInput().
     [key: string]: any;
   };
   comments?: Array<{
@@ -588,7 +590,7 @@ Adds a comment to the project-level comments array in the root index. For `incid
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
-  max_results?: number; // default: 1 (single-action mode)
+  max_results?: number; // default: 1 (single-action mode); tolerates a string-encoded integer (e.g. "2") via positiveIntInput()
 }) => Promise<MCPResult>
 ```
 
@@ -702,7 +704,7 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
   cwd_path?: string;          // Workspace root used to derive the repository name when repository_name is not provided. Ignored when repository_name is supplied.
   repository_name?: string;   // Explicit repository name. When provided, takes precedence over cwd_path for name derivation and registry lookup.
   include_insights?: boolean; // default: true — include relevant_insights[] from the knowledge store. When false, returns an empty relevant_insights[] array (field always present).
-  max_projects?: number;      // default: 5 — maximum projects returned in projects[]; total_projects always reflects the full count.
+  max_projects?: number;      // default: 5 — maximum projects returned in projects[]; total_projects always reflects the full count. Tolerates a string-encoded integer (e.g. "3") via positiveIntInput().
 }) => Promise<MCPResult>
 ```
 
@@ -765,7 +767,7 @@ In single-store / legacy mode (no `stores.json`), `isMultiStore` is `false` and 
   category: string;                 // e.g. "architecture", "testing", "workflow", "security"
   tags: string[];
   source?: string;                  // Defaults to '' if omitted
-  confidence?: number;              // 0–1 float; defaults to 1 if omitted
+  confidence?: number;              // Decimal fraction in [0, 1]; out-of-range values rejected at the tool boundary; defaults to 1 if omitted. Tolerates a string-encoded number (e.g. "0.85") via confidenceInput().
 }) => Promise<MCPResult>
 ```
 
@@ -784,7 +786,7 @@ Adds a new insight to the knowledge store.
   category?: string;                   // Optional. Filter by category.
   tags?: string[];                     // Optional. Filter to insights containing ALL specified tags (AND semantics).
   repository_name?: string;            // Optional. Restrict search to a specific repository store.
-  limit?: number;                      // Optional. Maximum results to return.
+  limit?: number;                      // Optional. Maximum results to return. Tolerates a string-encoded integer (e.g. "5") via positiveIntInput().
 }) => Promise<MCPResult>
 ```
 
@@ -802,8 +804,8 @@ Searches insights using OR semantics: the `query` string is tokenized on whitesp
   category?: string;                   // Optional. Filter by category.
   tags?: string[];                     // Optional. Filter to insights containing ALL specified tags (AND semantics).
   repository_name?: string;            // Optional. Restrict to a specific repository store.
-  limit?: number;                      // Optional. Maximum results to return.
-  offset?: number;                     // Optional. Skip this many results (pagination). Default: 0.
+  limit?: number;                      // Optional. Maximum results to return. Tolerates a string-encoded integer (e.g. "5") via positiveIntInput().
+  offset?: number;                     // Optional. Skip this many results (pagination). Default: 0. Tolerates a string-encoded integer via nonNegativeIntInput().
 }) => Promise<MCPResult>
 ```
 
@@ -821,7 +823,7 @@ Lists insights with optional filters and pagination. Filter application order: s
   category?: string;
   tags?: string[];                    // Replaces the tags array
   source?: string;
-  confidence?: number;                // 0–1 float
+  confidence?: number;                // Decimal fraction in [0, 1]; out-of-range values rejected at the tool boundary. Tolerates a string-encoded number (e.g. "0.9") via confidenceInput().
   superseded_by?: string;             // UUID v4 of the insight that supersedes this one
 },
 filter?: {             // Optional scope filter — restricts which store is searched
@@ -2067,6 +2069,8 @@ class LedgerStore {
       total_work_packages?: number;
       pending_work_packages?: number;
       duration_ms?: number | null;      // wall-clock ms from date_created to synthesis_generated_at; uses key-presence semantics
+      active_ms?: number | null;        // project-wide sum of completed-pipeline duration_ms; uses key-presence semantics; distinct from duration_ms
+      pipeline_runs?: number;           // count of pipelines contributing to active_ms; always written alongside it; uses `!== undefined` semantics
       project_name?: string | null;
       repository_name?: string | null;
       outcome_summary?: string | null;  // 2–3 sentence synthesis summary; uses key-presence semantics
@@ -2859,6 +2863,8 @@ interface ProjectMeta {
   total_work_packages?: number;   // Synced by writeRootIndex, createWorkPackageWithSync, and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   duration_ms?: number | null;    // Wall-clock ms from date_created to synthesis_generated_at; synced by writeRootIndex whenever synthesis_generated_at is set. null when unmeasurable (clock skew, zero-duration standalone import); absent for un-backfilled legacy projects (see scripts/backfill-duration.js) or projects still in progress.
+  active_ms?: number | null;      // Project-wide sum of completed-pipeline duration_ms across every work package — distinct from the wall-clock duration_ms above. Written once at synthesis completion (completeSynthesis(), via computeWpActiveMs()) and lazily self-healed by handleGetProject() thereafter, gated on synthesis_generated_at exactly like duration_ms. null when the project has synthesised but no pipeline carries a measured duration; absent for un-backfilled legacy projects (see scripts/backfill-duration.js) or projects still in progress.
+  pipeline_runs?: number;         // Count of pipelines contributing to active_ms. Always written alongside it.
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived via deriveRepoName(plan_path) at initializeProject; 'unknown' when not detectable. Legacy records may hold null.
   outcome_summary?: string | null; // 2–3 sentence summary written by the Synthesis agent; null/absent before synthesis runs
@@ -3009,9 +3015,9 @@ interface Artifacts {
 
 interface Metrics {
   test_coverage?: string;
-  tests_passed?: number;
-  tests_failed?: number;
-  security_issues?: number;
+  tests_passed?: number;      // Storage schema — persisted value; the ledger_complete_pipeline tool input additionally tolerates a string-encoded number via numberInput() before it reaches this shape.
+  tests_failed?: number;      // Storage schema — persisted value; see note above.
+  security_issues?: number;   // Storage schema — persisted value; see note above.
   [key: string]: any; // Extensible for custom metrics
 }
 ```
@@ -4906,8 +4912,11 @@ export interface ProjectListEnvelope {
 //   2. Apply search filter (case-insensitive substring on slug, project_name, repository_name)
 //   3. Compute status_counts from search-filtered set (BEFORE status filter — supports badge counts)
 //   4. Apply status filter (ACTIVE excludes only ARCHIVED; ALL includes everything; specific status = exact match)
-//   5. Sort by sort+dir. 'duration' sorts on duration_ms, with a -1 sentinel for missing/null values
-//      so unmeasured projects sort before any real positive duration.
+//   5. Sort by sort+dir. 'duration' sorts on active_ms (the project-wide sum of completed-pipeline
+//      durations — the same value the list column renders), with a -1 sentinel for missing/null
+//      values so unmeasured projects sort before any real positive duration. The wall-clock
+//      duration_ms field is still present in the payload (surfaced as a UI tooltip) but no longer
+//      what the 'duration' sort key orders by.
 //   6. Paginate: page/limit → return projects slice + envelope metadata
 // Cache fast-path: if meta.total_work_packages !== undefined && meta.project_name !== undefined,
 // the handler skips per-project root index + manifest file reads. Falls back to I/O for legacy .meta.json.
@@ -4921,9 +4930,17 @@ export async function handleListProjects(
 //   timing?: { project_elapsed_ms: number | null; total_active_ms: number; pipeline_runs: number }; }
 // project_elapsed_ms fast path: reads meta.duration_ms directly when present (no recomputation).
 // Fallback (un-backfilled legacy projects): computed as (synthesis_generated_at ?? last_updated) - date_created,
-// nulled out for zero-duration standalone imports; the computed value is then written back to .meta.json
-// as a fire-and-forget lazy self-heal (preserveLastUpdated: true) so future reads hit the fast path.
-// total_active_ms = sum of duration_ms across all WP pipelines; pipeline_runs = count of pipelines with duration_ms set.
+// nulled out for zero-duration standalone imports.
+// total_active_ms / pipeline_runs: always recomputed via computeWpActiveMs() (workflow-helpers.ts)
+// across every loaded WP detail — total_active_ms = sum of duration_ms across all WP pipelines;
+// pipeline_runs = count of pipelines with duration_ms set.
+// Self-heal (gated on rootIndex.synthesis_generated_at): when meta.active_ms/meta.pipeline_runs are
+// absent or disagree with the recomputed figures, and/or when duration_ms needed the legacy fallback
+// above, ALL such corrections are collected into a single MetaCacheUpdates object and flushed in one
+// fire-and-forget writeProjectMeta() call (preserveLastUpdated: true) — never as separate calls, since
+// two independent unlocked read-modify-write calls against the same .meta.json would race. active_ms
+// is written as null when pipeline_runs is 0 (no measured runs). No write occurs for an unsynthesised
+// project — timing is still returned to the caller, but the cache stays empty until synthesis.
 export async function handleGetProject(ledgerRoot: string, slug: string, repoName?: string): Promise<ProjectDetail>;
 
 // GET /api/projects/:slug/work-packages — returns WP summary array
@@ -6469,6 +6486,16 @@ export function checkRevalidationGuard(
 
 // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
 export function getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
+
+// Sums duration_ms across every pipeline on a work package that carries one, and counts how
+// many contributed. Cancelled pipelines (ledger_cancel_pipeline never sets duration_ms) are
+// excluded by construction — no separate cancellation check. Returns { active_ms: 0,
+// pipeline_runs: 0 } for a WP with no pipelines or none carrying a measured duration.
+// Shared by completeSynthesis() (project-lifecycle.ts, the synthesis-time cache write) and
+// handleGetProject() (gui/api.ts, the authoritative detail-view recomputation) — a single
+// implementation of "active time" rather than two independently maintained ones.
+// Exported from src/utils/workflow-helpers.ts.
+export function computeWpActiveMs(wp: WorkPackageDetail): { active_ms: number; pipeline_runs: number };
 
 // Returns the prompt string passed to the next agent during auto-handoff.
 // When agentId is provided, prepends "@{agentId}\n" to the prompt so VS Code routes

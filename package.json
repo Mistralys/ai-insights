@@ -1,6 +1,6 @@
 {
   "name": "ai-insights-workspace",
-  "version": "2.11.0",
+  "version": "2.13.0",
   "private": true,
   "type": "module",
   "description": "Workspace root — dev tooling for scripts/ test suite",

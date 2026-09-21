@@ -23,6 +23,7 @@ import {
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
+import { numberInput } from '../schema/common.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -316,9 +317,15 @@ const CompletePipelineSchema = z.object({
   metrics: z
     .object({
       test_coverage: z.string().optional(),
-      tests_passed: z.number().optional(),
-      tests_failed: z.number().optional(),
-      security_issues: z.number().optional(),
+      tests_passed: numberInput()
+        .optional()
+        .describe('Number of tests that passed. A string-encoded number is also accepted.'),
+      tests_failed: numberInput()
+        .optional()
+        .describe('Number of tests that failed. A string-encoded number is also accepted.'),
+      security_issues: numberInput()
+        .optional()
+        .describe('Number of security issues found. A string-encoded number is also accepted.'),
     })
     .passthrough()
     .optional()

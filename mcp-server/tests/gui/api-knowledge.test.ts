@@ -460,6 +460,41 @@ describe('WP-004 handleUpdateKnowledge', () => {
     expect(updated.confidence).toBe(0.9);
   });
 
+  // AC-12: KnowledgeUpdateBodySchema tolerates string-encoded confidence,
+  // still rejects out-of-range values, and still rejects unknown keys.
+  it('AC-12: parses confidence: "0.9" (string-encoded) and persists the number 0.9', async () => {
+    const created = await manager.addInsight(
+      makeInsightInput({ title: 'String confidence', confidence: 0.5 })
+    );
+
+    const updated = await handleUpdateKnowledge(ledgerRoot, String(created.id), {
+      scope: 'global',
+      confidence: '0.9' as any,
+    });
+
+    expect(updated.confidence).toBe(0.9);
+  });
+
+  it('AC-12: rejects confidence: 1.5 (out of range) with VALIDATION_ERROR', async () => {
+    const created = await manager.addInsight(makeInsightInput({ title: 'Range guard' }));
+
+    await expect(
+      handleUpdateKnowledge(ledgerRoot, String(created.id), { scope: 'global', confidence: 1.5 })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-12: still rejects unknown keys alongside a string-encoded confidence (.strict() preserved)', async () => {
+    const created = await manager.addInsight(makeInsightInput({ title: 'Strict guard' }));
+
+    await expect(
+      handleUpdateKnowledge(ledgerRoot, String(created.id), {
+        scope: 'global',
+        confidence: '0.9' as any,
+        unknownField: 'bad',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
   // AC-2: clears superseded_by when null is passed in the body
   it('AC-2: clears superseded_by when null is passed', async () => {
     const created = await manager.addInsight(

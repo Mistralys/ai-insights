@@ -8,6 +8,7 @@ import { getMultiStoreManager, getStoreRouter, isStoreContextInitialized } from 
 import type { ProjectMeta } from '../schema/project-meta.js';
 import type { RepositoryEntry } from '../schema/repository-registry.js';
 import type { Insight } from '../schema/knowledge.js';
+import { positiveIntInput } from '../schema/common.js';
 
 // ─── Input Schema ─────────────────────────────────────────────────────────
 
@@ -35,15 +36,13 @@ const GetRepositoryContextSchema = z.object({
       'When true (default), the response includes relevant_insights[] queried from the ' +
       'knowledge store. Set to false to return an empty relevant_insights[] array and reduce response size.'
     ),
-  max_projects: z
-    .number()
-    .int()
-    .positive()
+  max_projects: positiveIntInput()
     .optional()
     .default(5)
     .describe(
       'Maximum number of projects to return in the projects[] array, sorted by date_created ' +
-      'descending (most recent first). Defaults to 5.'
+      'descending (most recent first). Defaults to 5. A string-encoded integer (e.g. "3") is ' +
+      'also accepted.'
     ),
 });
 

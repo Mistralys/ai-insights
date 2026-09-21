@@ -1,5 +1,15 @@
 # AI Insights Changelog
 
+## v2.13.0 - String-Tolerant Knowledge Confidence
+> mcp v2.11.0
+
+**The project-list Duration column now shows active pipeline time instead of a wall-clock.**
+Numeric MCP tool arguments serialised as strings by some clients (e.g. `"0.9"` for a
+confidence score) are now accepted to be more tolerant for the Knowledge Curator.**
+
+- GUI: List column, sort, and detail-page labels now display active time.
+- MCP Server: Added shared, string-tolerant numeric-input helpers.
+
 ## v2.11.0 - Global Agent Launcher
 > personas v3.33.0
 
