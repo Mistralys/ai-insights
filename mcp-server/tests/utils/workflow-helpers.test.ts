@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, latestNonCancelledPipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth, clearSynthesisState } from '../../src/utils/workflow-helpers.js';
+import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, latestNonCancelledPipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth, clearSynthesisState, computeWpActiveMs } from '../../src/utils/workflow-helpers.js';
 import type { Pipeline, WorkPackageDetail } from '../../src/schema/work-package.js';
 import type { PipelineType } from '../../src/utils/pipeline-maps.js';
 import { makePipeline, makeWorkPackageDetail } from '../helpers/fixtures.js';
@@ -784,5 +784,43 @@ describe('latestNonCancelledPipeline', () => {
     // makePipeline does not set auto_cancelled, so it is absent/undefined
     const pipeline = makePipeline('implementation', 'IN_PROGRESS', '2026-01-01T08:00:00');
     expect(latestNonCancelledPipeline([pipeline], 'implementation')).toBe(pipeline);
+  });
+});
+
+describe('computeWpActiveMs (AC-02)', () => {
+  it('sums duration_ms across pipelines and counts each contributing run', () => {
+    const wp = makeWorkPackageDetail({
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS', duration_ms: 1000 }),
+        makePipeline({ type: 'qa', status: 'PASS', duration_ms: 2000 }),
+        makePipeline({ type: 'code-review', status: 'PASS', duration_ms: 3000 }),
+      ],
+    });
+    expect(computeWpActiveMs(wp)).toEqual({ active_ms: 6000, pipeline_runs: 3 });
+  });
+
+  it('returns zeros for a work package with no pipelines', () => {
+    const wp = makeWorkPackageDetail({ pipelines: [] });
+    expect(computeWpActiveMs(wp)).toEqual({ active_ms: 0, pipeline_runs: 0 });
+  });
+
+  it('ignores pipelines lacking duration_ms (e.g. cancelled runs)', () => {
+    const wp = makeWorkPackageDetail({
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS', duration_ms: 1500 }),
+        makePipeline({ type: 'qa', status: 'CANCELLED' }), // no duration_ms
+      ],
+    });
+    expect(computeWpActiveMs(wp)).toEqual({ active_ms: 1500, pipeline_runs: 1 });
+  });
+
+  it('returns zeros when every pipeline lacks duration_ms', () => {
+    const wp = makeWorkPackageDetail({
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'CANCELLED' }),
+        makePipeline({ type: 'qa', status: 'CANCELLED' }),
+      ],
+    });
+    expect(computeWpActiveMs(wp)).toEqual({ active_ms: 0, pipeline_runs: 0 });
   });
 });

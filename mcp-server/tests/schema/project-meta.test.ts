@@ -289,3 +289,57 @@ describe('ProjectMetaSchema — duration_ms field (AC-01)', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ─── ProjectMetaSchema — active_ms / pipeline_runs ───────────────────────────
+
+describe('ProjectMetaSchema — active_ms / pipeline_runs fields (AC-01)', () => {
+  it('accepts active_ms as a nonnegative integer and pipeline_runs alongside it', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      active_ms: 9549000,
+      pipeline_runs: 75,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.active_ms).toBe(9549000);
+      expect(result.data.pipeline_runs).toBe(75);
+    }
+  });
+
+  it('accepts active_ms as null (no measured pipeline runs)', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      active_ms: null,
+      pipeline_runs: 0,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.active_ms).toBeNull();
+    }
+  });
+
+  it('accepts a meta document omitting both fields — backward compatibility', () => {
+    const result = ProjectMetaSchema.safeParse(BASE_META);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.active_ms).toBeUndefined();
+      expect(result.data.pipeline_runs).toBeUndefined();
+    }
+  });
+
+  it('rejects a negative active_ms', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      active_ms: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a negative pipeline_runs', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      pipeline_runs: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+});

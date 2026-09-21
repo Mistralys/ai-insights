@@ -19,6 +19,7 @@ import { rm, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
+import type { MetaCacheUpdates } from '../src/storage/ledger-store.js';
 import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath, resolveProjectDir } from '../src/utils/ledger-root.js';
 import { assertSafeSegment } from '../src/utils/path-validator.js';
@@ -35,6 +36,7 @@ import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus, WorkPackageStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../src/schema/work-package.js';
+import { computeWpActiveMs } from '../src/utils/workflow-helpers.js';
 
 /**
  * Extended WP detail response that includes the server's canonical default pipeline stages.
@@ -551,9 +553,11 @@ export async function handleListProjects(
         bVal = (b.runner ?? 'unknown').toLowerCase();
         break;
       case 'duration':
-        // Projects without a measured duration sort before any real positive duration.
-        aVal = a.duration_ms ?? -1;
-        bVal = b.duration_ms ?? -1;
+        // Sorts by active duration (a.active_ms), not the wall-clock duration_ms shown as
+        // a tooltip — what is sorted must be what the column displays. Projects without a
+        // measured active duration sort before any real positive duration.
+        aVal = a.active_ms ?? -1;
+        bVal = b.active_ms ?? -1;
         break;
       case 'last_updated':
       default:
@@ -656,13 +660,32 @@ export async function handleGetProject(
     let total_active_ms = 0;
     let pipeline_runs = 0;
     for (const wp of wpDetails) {
-      for (const p of wp.pipelines) {
-        if (p.duration_ms != null) {
-          total_active_ms += p.duration_ms;
-          pipeline_runs++;
-        }
+      const summed = computeWpActiveMs(wp);
+      total_active_ms += summed.active_ms;
+      pipeline_runs += summed.pipeline_runs;
+    }
+
+    // Self-heal cache updates are collected here and flushed in a single writeProjectMeta()
+    // call below (see the fire-and-forget call after this block) — issuing two independent
+    // fire-and-forget writes to the same .meta.json would race, since each does its own
+    // read-modify-write and the later one can silently discard the earlier one's update.
+    let selfHealUpdates: MetaCacheUpdates | undefined;
+
+    // Self-heal the active-time cache: only once the project has synthesised (mirrors the
+    // duration_ms self-heal gate below) and only when the cached values are absent or stale.
+    if (rootIndex.synthesis_generated_at) {
+      const cachedActiveMs = meta.active_ms ?? null;
+      const cachedPipelineRuns = meta.pipeline_runs ?? 0;
+      const authoritativeActiveMs = pipeline_runs > 0 ? total_active_ms : null;
+      if (cachedActiveMs !== authoritativeActiveMs || cachedPipelineRuns !== pipeline_runs) {
+        selfHealUpdates = {
+          ...selfHealUpdates,
+          active_ms: authoritativeActiveMs,
+          pipeline_runs,
+        };
       }
     }
+
     // Prefer the cached duration_ms from .meta.json (fast path — no recomputation).
     let project_elapsed_ms: number | null;
     if (meta.duration_ms !== undefined && meta.duration_ms !== null) {
@@ -683,13 +706,16 @@ export async function handleGetProject(
       project_elapsed_ms =
         rawElapsedMs === 0 && rootIndex.runner === 'standalone' ? null : rawElapsedMs;
 
-      // Lazy self-heal: persist the computed duration to .meta.json for future fast-path
-      // reads. Fire-and-forget — a failed write is harmless (the next detail view retries).
-      // preserveLastUpdated avoids distorting project-list sort order on a mere cache refresh.
       if (project_elapsed_ms !== null && rootIndex.synthesis_generated_at) {
-        store.writeProjectMeta('', undefined, { duration_ms: project_elapsed_ms },
-          { preserveLastUpdated: true }).catch(() => {});
+        selfHealUpdates = { ...selfHealUpdates, duration_ms: project_elapsed_ms };
       }
+    }
+
+    // Flush every self-heal update collected above in one fire-and-forget write.
+    // A failed write is harmless (the next detail view retries). preserveLastUpdated
+    // avoids distorting project-list sort order on a mere cache refresh.
+    if (selfHealUpdates !== undefined) {
+      store.writeProjectMeta('', undefined, selfHealUpdates, { preserveLastUpdated: true }).catch(() => {});
     }
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };

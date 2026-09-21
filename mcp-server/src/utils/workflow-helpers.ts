@@ -557,6 +557,31 @@ export function computePassedStages(
 }
 
 /**
+ * Sums the wall-clock `duration_ms` of every pipeline on a work package that
+ * carries one, and counts how many pipelines contributed.
+ *
+ * Cancelled pipelines (`ledger_cancel_pipeline`) never set `duration_ms`, so
+ * they are excluded from both the sum and the count by construction — no
+ * separate cancellation check is needed.
+ *
+ * Returns `{ active_ms: 0, pipeline_runs: 0 }` for a work package with no
+ * pipelines, or none carrying a measured duration.
+ */
+export function computeWpActiveMs(wp: WorkPackageDetail): { active_ms: number; pipeline_runs: number } {
+  let active_ms = 0;
+  let pipeline_runs = 0;
+
+  for (const pipeline of wp.pipelines) {
+    if (typeof pipeline.duration_ms === 'number') {
+      active_ms += pipeline.duration_ms;
+      pipeline_runs++;
+    }
+  }
+
+  return { active_ms, pipeline_runs };
+}
+
+/**
  * Computes a 0–100 integer project progress percentage from the root index's
  * work package summary array.
  *

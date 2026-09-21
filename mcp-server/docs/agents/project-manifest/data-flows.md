@@ -1228,6 +1228,13 @@ withLock(store.storageDir, async () => {
     computes duration_ms = synthesis_generated_at - date_created and syncs it to .meta.json
       (null on clock skew/NaN timestamps, or on zero-duration standalone same-session imports)
     ↓
+  for each WP summary in rootIndex.work_packages:      ← still inside the lock
+    store.readWorkPackage(wp_id)  — per-WP failure skipped, never fatal
+    computeWpActiveMs(wpDetail) → { active_ms, pipeline_runs }, accumulated across all WPs
+    ↓
+  store.writeProjectMeta('', undefined, { active_ms, pipeline_runs }, { preserveLastUpdated: true })
+    active_ms written as null when pipeline_runs totals 0 (no measured runs)
+    ↓
   store.archiveDocuments([synthesis_file])  — best-effort; inside lock scope
     ↓
     copyFile(join(planPath, synthesis_file), join(storageDir, synthesis_file))
@@ -1240,13 +1247,13 @@ withLock(store.storageDir, async () => {
 Return result + { outcome_summary, archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `outcome_summary` field (required, non-nullable in the input schema) is persisted to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, and echoed in the success response. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. `duration_ms` (wall-clock project duration) is computed and cached in `.meta.json` as a side effect of the same `writeRootIndex()` call — see [Flow 14b](#flow-14b-project-duration-caching) below. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `outcome_summary` field (required, non-nullable in the input schema) is persisted to both the root index (`project-ledger.json`) and the `.meta.json` enrichment cache, and echoed in the success response. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. `duration_ms` (wall-clock project duration) is computed and cached in `.meta.json` as a side effect of the same `writeRootIndex()` call — see [Flow 14b](#flow-14b-project-duration-caching) below. Immediately afterward, still inside the same lock, `active_ms` / `pipeline_runs` (project-wide active pipeline time) are computed by reading every work package's detail file and cached via a second `writeProjectMeta()` call — this is the one server-side path that can afford that fan-out read, since it runs exactly once per project. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 
 ## Flow 14b: Project Duration Caching
 
-**Entry Point:** Any call to `LedgerStore.writeRootIndex()` where the root index has `synthesis_generated_at` set (synthesis completion, standalone import, or the legacy `synthesis_generated_at` self-heal repair in `getProjectStatus()`).
+**Entry Point:** Any call to `LedgerStore.writeRootIndex()` where the root index has `synthesis_generated_at` set (synthesis completion, standalone import, or the legacy `synthesis_generated_at` self-heal repair in `getProjectStatus()`) computes and caches `duration_ms` (wall-clock). A separate write inside `completeSynthesis()` (see Flow 14 above) caches `active_ms` / `pipeline_runs` (active pipeline time) — the two figures are computed and stored independently, but both are gated on the same `synthesis_generated_at` timestamp.
 
 ```
 LedgerStore.writeRootIndex(validated)
@@ -1264,11 +1271,13 @@ else:
 store.writeProjectMeta('', validated.status, { ...counters, duration_ms: durationMs, ... })
 ```
 
-**GUI read path (`handleGetProject`):** Prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file). When absent but computable from the loaded root index, computes it inline, returns it in `timing.project_elapsed_ms`, and fires a **non-blocking** `writeProjectMeta(..., { preserveLastUpdated: true })` self-heal write so the next read hits the fast path. `preserveLastUpdated: true` is mandatory here — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order.
+`active_ms` / `pipeline_runs` are not computed by `writeRootIndex()` — it has no access to WP detail files and runs on every WP write, so it cannot afford the fan-out read. They are instead written once, directly, by `completeSynthesis()` (Flow 14) via `computeWpActiveMs()`.
 
-**One-time backfill (`scripts/backfill-duration.js`):** For projects created before this field existed, a root-level script scans every project directory, reads `date_created` / `synthesis_generated_at`, applies the same computation, and patches `.meta.json` directly (bypassing `writeRootIndex()` since it operates outside the running server process). Idempotent — skips projects that already have a non-null `duration_ms`. Supports `--dry-run` and `--verbose`; invokable via `node scripts/cli.js backfill-duration`.
+**GUI read path (`handleGetProject`):** For `duration_ms` — prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file); when absent but computable from the loaded root index, computes it inline and returns it in `timing.project_elapsed_ms`. For `active_ms` / `pipeline_runs` — always recomputes the authoritative sum via `computeWpActiveMs()` across every already-loaded WP detail (the endpoint reads every WP file regardless, for `timing.total_active_ms` / `timing.pipeline_runs`), and compares it against the cached `meta.active_ms` / `meta.pipeline_runs`. When any correction is needed — a stale/absent `active_ms`/`pipeline_runs`, or a `duration_ms` computed via the legacy fallback — **all of it is collected into one `MetaCacheUpdates` object and flushed in a single non-blocking `writeProjectMeta(..., { preserveLastUpdated: true })` call**, never as separate calls: two independent unlocked read-modify-write calls against the same `.meta.json` would race, with the later write silently discarding the earlier one's update. `preserveLastUpdated: true` is mandatory — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order. The self-heal for both fields is gated on `rootIndex.synthesis_generated_at`: an unsynthesised project has `timing` returned to the caller but nothing written to `.meta.json`, keeping the list column blank for it exactly as before this change.
 
-**GUI list/sort (`handleListProjects`):** `duration_ms` flows through `ProjectSummary` automatically (spread from `meta`). The `duration` sort field uses `-1` as a sentinel for missing/null values so unmeasured projects sort before any real positive duration.
+**One-time backfill (`scripts/backfill-duration.js`):** For projects created before these fields existed, a root-level script scans every project directory, reads `date_created` / `synthesis_generated_at` for `duration_ms`, and separately reads every `WP-###.json` detail file (the same `${wpId}.json` convention as `LedgerStore.wpDetailPath()` — **not** the root index's `work_packages[].file`, which is not the actual on-disk path) to sum pipeline durations for `active_ms` / `pipeline_runs`. All three fields are patched into `.meta.json` directly (bypassing `writeRootIndex()`/`writeProjectMeta()` since the script runs outside the live server process). Idempotent — each field is skipped independently once already cached, so a project with `duration_ms` set still receives `active_ms` / `pipeline_runs` on a later run. Supports `--dry-run` and `--verbose`; invokable via `node scripts/cli.js backfill-duration`.
+
+**GUI list/sort (`handleListProjects`):** `active_ms` and `pipeline_runs` flow through `ProjectSummary` automatically (spread from `meta`), exactly as `duration_ms` does. The `duration` sort field now sorts on `active_ms` (not `duration_ms`) — the same value the list column renders — using `-1` as a sentinel for missing/null values so unmeasured projects sort before any real positive duration. `duration_ms` remains in the payload and is rendered as the list cell's hover tooltip ("Elapsed (wall-clock): …").
 
 ---
 

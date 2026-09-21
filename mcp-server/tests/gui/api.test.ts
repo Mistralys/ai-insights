@@ -191,6 +191,20 @@ describe('gui/api.ts', () => {
       expect(summary).toHaveProperty('project_name');
       expect(summary).toHaveProperty('repository_name');
     });
+
+    it('surfaces cached active_ms / pipeline_runs on each summary without reading any WP file or root index (AC-08)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-04-active-summary');
+      await store.writeProjectMeta('plan.md', 'COMPLETE', {
+        active_ms: 9549000,
+        pipeline_runs: 75,
+      });
+
+      const results = await handleListProjects(ledgerRoot);
+      const summary = results.projects.find((p) => p.slug === '2026-02-04-active-summary');
+      expect(summary).toBeDefined();
+      expect((summary as unknown as { active_ms: number }).active_ms).toBe(9549000);
+      expect((summary as unknown as { pipeline_runs: number }).pipeline_runs).toBe(75);
+    });
   });
 
   // ─── handleGetProject ────────────────────────────────────────────────────
@@ -253,6 +267,114 @@ describe('gui/api.ts', () => {
       await new Promise((r) => setTimeout(r, 20));
       const healedMeta = await store.readProjectMeta();
       expect(healedMeta.duration_ms).toBe(10 * 60 * 1000);
+    });
+
+    it('returns timing.total_active_ms / timing.pipeline_runs summed from work-package pipelines (AC-06)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-12-active-time', {
+        synthesis_generated_at: now(),
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+      });
+      await store.writeWorkPackage('WP-001', {
+        ...makeWp('WP-001'),
+        pipelines: [
+          { type: 'implementation', status: 'PASS', duration_ms: 5000, summary: [] },
+          { type: 'qa', status: 'PASS', duration_ms: 7000, summary: [] },
+        ],
+      });
+
+      const result = await handleGetProject(ledgerRoot, '2026-02-12-active-time');
+      expect(result.timing?.total_active_ms).toBe(12000);
+      expect(result.timing?.pipeline_runs).toBe(2);
+    });
+
+    it('self-heals absent active_ms/pipeline_runs into .meta.json for a synthesised project, without altering last_updated (AC-07)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-13-active-self-heal', {
+        synthesis_generated_at: now(),
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+      });
+      await store.writeWorkPackage('WP-001', {
+        ...makeWp('WP-001'),
+        pipelines: [
+          { type: 'implementation', status: 'PASS', duration_ms: 9000, summary: [] },
+        ],
+      });
+      const metaBefore = await store.readProjectMeta();
+      expect(metaBefore.active_ms).toBeUndefined();
+
+      const result = await handleGetProject(ledgerRoot, '2026-02-13-active-self-heal');
+      expect(result.timing?.total_active_ms).toBe(9000);
+
+      await new Promise((r) => setTimeout(r, 20));
+      const healedMeta = await store.readProjectMeta();
+      expect(healedMeta.active_ms).toBe(9000);
+      expect(healedMeta.pipeline_runs).toBe(1);
+      expect(healedMeta.last_updated).toBe(metaBefore.last_updated);
+    });
+
+    it('self-heals stale cached active_ms/pipeline_runs when they disagree with the work-package files (AC-07)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-14-active-stale', {
+        synthesis_generated_at: now(),
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+      });
+      await store.writeProjectMeta('plan.md', 'COMPLETE', { active_ms: 1000, pipeline_runs: 1 });
+      await store.writeWorkPackage('WP-001', {
+        ...makeWp('WP-001'),
+        pipelines: [
+          { type: 'implementation', status: 'PASS', duration_ms: 3000, summary: [] },
+          { type: 'qa', status: 'PASS', duration_ms: 4000, summary: [] },
+        ],
+      });
+
+      await handleGetProject(ledgerRoot, '2026-02-14-active-stale');
+      await new Promise((r) => setTimeout(r, 20));
+      const healedMeta = await store.readProjectMeta();
+      expect(healedMeta.active_ms).toBe(7000);
+      expect(healedMeta.pipeline_runs).toBe(2);
+    });
+
+    it('clears active_ms to null on self-heal when the project has no measured runs (AC-07)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-15-active-none', {
+        synthesis_generated_at: now(),
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+      });
+      await store.writeProjectMeta('plan.md', 'COMPLETE', { active_ms: 1000, pipeline_runs: 1 });
+      await store.writeWorkPackage('WP-001', makeWp('WP-001')); // no pipelines
+
+      await handleGetProject(ledgerRoot, '2026-02-15-active-none');
+      await new Promise((r) => setTimeout(r, 20));
+      const healedMeta = await store.readProjectMeta();
+      expect(healedMeta.active_ms).toBeNull();
+      expect(healedMeta.pipeline_runs).toBe(0);
+    });
+
+    it('writes nothing to .meta.json for a project without synthesis_generated_at, while still returning timing (AC-07)', async () => {
+      const store = await createProject(ledgerRoot, '2026-02-16-active-unsynthesised', {
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+      });
+      await store.writeWorkPackage('WP-001', {
+        ...makeWp('WP-001'),
+        pipelines: [
+          { type: 'implementation', status: 'PASS', duration_ms: 2000, summary: [] },
+        ],
+      });
+
+      const result = await handleGetProject(ledgerRoot, '2026-02-16-active-unsynthesised');
+      expect(result.timing?.total_active_ms).toBe(2000);
+
+      await new Promise((r) => setTimeout(r, 20));
+      const meta = await store.readProjectMeta();
+      expect(meta.active_ms).toBeUndefined();
+      expect(meta.pipeline_runs).toBeUndefined();
     });
   });
 
@@ -1078,11 +1200,13 @@ describe('gui/api.ts', () => {
       expect(result.projects).toBeDefined();
     });
 
-    it('sort=duration dir=asc puts projects without a measured duration first (AC-07)', async () => {
+    it('sort=duration dir=asc orders by active_ms, with unmeasured projects sorting first (AC-09)', async () => {
       const storeShort = await createProject(ledgerRoot, '2026-01-01-short-duration');
-      await storeShort.writeProjectMeta('plan.md', 'IN_PROGRESS', { duration_ms: 5000 });
+      // duration_ms is intentionally larger than active_ms here — sorting must follow
+      // active_ms, the value the column actually displays, not the wall-clock figure.
+      await storeShort.writeProjectMeta('plan.md', 'IN_PROGRESS', { duration_ms: 999000, active_ms: 5000, pipeline_runs: 1 });
       await createProject(ledgerRoot, '2026-01-02-unmeasured-duration');
-      // No duration_ms written — sentinel of -1 sorts before any real positive duration.
+      // No active_ms written — sentinel of -1 sorts before any real positive duration.
 
       const result = await handleListProjects(ledgerRoot, { status: 'ALL', sort: 'duration', dir: 'asc' });
       const slugs = result.projects.map((p) => p.slug);

@@ -2070,6 +2070,106 @@ describe('completeSynthesis — outcome_summary persistence (WP-004)', () => {
     expect(typeof meta.duration_ms).toBe('number');
     expect(meta.duration_ms).toBeGreaterThanOrEqual(0);
   });
+
+  function makeWp(id: string, pipelines: WorkPackageDetail['pipelines']): WorkPackageDetail {
+    return {
+      work_package_id: id,
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'All tests pass', met: true }],
+      revision: 0,
+      pipelines,
+    };
+  }
+
+  function makeTwoWpRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 2,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+        {
+          work_package_id: 'WP-002',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-002.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  it('writes active_ms and pipeline_runs equal to the sum across all work packages (AC-03)', async () => {
+    await handle.store.writeRootIndex(makeTwoWpRoot());
+    await handle.store.writeWorkPackage('WP-001', makeWp('WP-001', [
+      { type: 'implementation', status: 'PASS', duration_ms: 1000, summary: [] },
+      { type: 'qa', status: 'PASS', duration_ms: 2000, summary: [] },
+    ]));
+    await handle.store.writeWorkPackage('WP-002', makeWp('WP-002', [
+      { type: 'implementation', status: 'PASS', duration_ms: 3000, summary: [] },
+    ]));
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBeUndefined();
+
+    const meta = await handle.store.readProjectMeta();
+    expect(meta.active_ms).toBe(6000);
+    expect(meta.pipeline_runs).toBe(3);
+    // The active-time cache write uses preserveLastUpdated — last_updated must match the
+    // value writeRootIndex() already set moments earlier, not a later timestamp.
+    expect(meta.last_updated).toBe((await handle.store.readRootIndex()).last_updated);
+  });
+
+  it('does not fail synthesis when one work package detail file is unreadable, and still sums the rest (AC-04)', async () => {
+    const root = makeTwoWpRoot();
+    await handle.store.writeRootIndex(root);
+    // WP-001 is intentionally never written — readWorkPackage() will throw for it.
+    await handle.store.writeWorkPackage('WP-002', makeWp('WP-002', [
+      { type: 'implementation', status: 'PASS', duration_ms: 4000, summary: [] },
+    ]));
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBeUndefined();
+
+    const meta = await handle.store.readProjectMeta();
+    expect(meta.active_ms).toBe(4000);
+    expect(meta.pipeline_runs).toBe(1);
+  });
+
+  it('writes active_ms: null when no pipeline in the project carries a duration (AC-05)', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+    await handle.store.writeWorkPackage('WP-001', makeWp('WP-001', [
+      { type: 'implementation', status: 'PASS', summary: [] }, // no duration_ms
+    ]));
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis', outcome_summary: SAMPLE_SUMMARY },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBeUndefined();
+
+    const meta = await handle.store.readProjectMeta();
+    expect(meta.active_ms).toBeNull();
+    expect(meta.pipeline_runs).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

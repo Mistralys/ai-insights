@@ -26,6 +26,16 @@ export interface MetaCacheUpdates {
   pending_work_packages?: number;
   progress_pct?: number;
   duration_ms?: number | null;
+  /**
+   * Project-wide sum of completed-pipeline `duration_ms` across every work package —
+   * distinct from the wall-clock `duration_ms` above. Nullable so a synthesised project
+   * with no measured pipeline runs can clear a stale cached value (`'key' in cacheUpdates`
+   * semantics, same as `duration_ms`).
+   */
+  active_ms?: number | null;
+  /** Count of pipelines that contributed to `active_ms`. Always written alongside it, so
+   * `!== undefined` semantics are sufficient (no independent "clear" use case). */
+  pipeline_runs?: number;
   project_name?: string | null;
   repository_name?: string | null;
   outcome_summary?: string | null;
@@ -536,6 +546,10 @@ export class LedgerStore {
    * @param status       - Optional status override; defaults to existing status or IN_PROGRESS
    * @param cacheUpdates - Optional enrichment fields to write into the cache. Supported keys:
    *                       `total_work_packages`, `pending_work_packages`, `progress_pct`, `duration_ms` (numeric counters);
+   *                       `active_ms` (nullable numeric counter, `'key' in cacheUpdates` semantics — the
+   *                       project-wide sum of completed-pipeline durations, distinct from `duration_ms`)
+   *                       and `pipeline_runs` (non-nullable, `!== undefined` semantics — always written
+   *                       alongside `active_ms`);
    *                       `project_name`, `repository_name`, `outcome_summary`, `project_summary`
    *                       (nullable strings — use key-presence semantics: `'key' in cacheUpdates`
    *                       distinguishes an explicit `null` clear from an absent field that should be
@@ -585,6 +599,8 @@ export class LedgerStore {
       ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
       ...(existing.progress_pct !== undefined ? { progress_pct: existing.progress_pct } : {}),
       ...(existing.duration_ms !== undefined ? { duration_ms: existing.duration_ms } : {}),
+      ...(existing.active_ms !== undefined ? { active_ms: existing.active_ms } : {}),
+      ...(existing.pipeline_runs !== undefined ? { pipeline_runs: existing.pipeline_runs } : {}),
       ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
       ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
       ...(existing.outcome_summary !== undefined ? { outcome_summary: existing.outcome_summary } : {}),
@@ -594,6 +610,8 @@ export class LedgerStore {
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
       ...(cacheUpdates?.progress_pct !== undefined ? { progress_pct: cacheUpdates.progress_pct } : {}),
       ...(cacheUpdates !== undefined && 'duration_ms' in cacheUpdates ? { duration_ms: cacheUpdates.duration_ms } : {}),
+      ...(cacheUpdates !== undefined && 'active_ms' in cacheUpdates ? { active_ms: cacheUpdates.active_ms } : {}),
+      ...(cacheUpdates?.pipeline_runs !== undefined ? { pipeline_runs: cacheUpdates.pipeline_runs } : {}),
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
       ...(cacheUpdates !== undefined && 'outcome_summary' in cacheUpdates ? { outcome_summary: cacheUpdates.outcome_summary } : {}),
