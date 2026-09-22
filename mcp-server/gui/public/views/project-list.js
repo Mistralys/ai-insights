@@ -229,7 +229,13 @@ function renderProjectList(app) {
         repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
       }
 
-      var durationCellHtml = p.duration_ms != null ? escapeHtml(formatDuration(p.duration_ms)) : '\u2014';
+      // The Duration column shows active (pipeline) time, not wall-clock elapsed time \u2014
+      // sorting and display must agree on the same quantity. Wall-clock stays available
+      // as a hover tooltip.
+      var durationCellHtml = p.active_ms != null ? escapeHtml(formatDuration(p.active_ms)) : '\u2014';
+      var durationCellTitle = p.duration_ms != null
+        ? ' title="' + escapeHtml('Elapsed (wall-clock): ' + formatDuration(p.duration_ms)) + '"'
+        : '';
 
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
         nameCell +
@@ -238,7 +244,7 @@ function renderProjectList(app) {
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td>' + runnerBadge(p.runner) + '</td>' +
-        '<td class="text-muted">' + durationCellHtml + '</td>' +
+        '<td class="text-muted"' + durationCellTitle + '>' + durationCellHtml + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +

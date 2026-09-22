@@ -181,6 +181,60 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
     expect(meta.duration_ms).toBe(999);
   });
 
+  it('writeProjectMeta with active_ms and pipeline_runs persists and readProjectMeta returns them unchanged', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      active_ms: 9549000,
+      pipeline_runs: 75,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.active_ms).toBe(9549000);
+    expect(meta.pipeline_runs).toBe(75);
+  });
+
+  it('writeProjectMeta clears active_ms when passed an explicit null ("key" in cacheUpdates semantics)', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      active_ms: 42000,
+      pipeline_runs: 3,
+    });
+
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      active_ms: null,
+      pipeline_runs: 0,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.active_ms).toBeNull();
+    expect(meta.pipeline_runs).toBe(0);
+  });
+
+  it('writeProjectMeta without active_ms in cacheUpdates preserves the existing value', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      active_ms: 7000,
+      pipeline_runs: 2,
+    });
+
+    // Subsequent write that omits active_ms/pipeline_runs entirely — key-absence must
+    // leave the cached values untouched, distinguishing it from an explicit null clear.
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      total_work_packages: 2,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.active_ms).toBe(7000);
+    expect(meta.pipeline_runs).toBe(2);
+  });
+
+  it('writeProjectMeta applies pipeline_runs under !== undefined semantics (0 is a real value, not a clear)', async () => {
+    await store.writeProjectMeta('plan.md', 'COMPLETE', {
+      active_ms: null,
+      pipeline_runs: 0,
+    });
+
+    const meta = await store.readProjectMeta();
+    expect(meta.pipeline_runs).toBe(0);
+  });
+
   it('updateWorkPackageWithSync auto-syncs .meta.json status', async () => {
     await store.writeRootIndex(makeRootIndex({
       status: 'IN_PROGRESS',

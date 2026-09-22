@@ -24,7 +24,16 @@ vi.mock('../../src/utils/ledger-root.js', () => ({
 
 import { _internal } from '../../src/tools/knowledge.js';
 
-const { addInsight, searchInsights, listInsights, updateInsight, deleteInsight } = _internal;
+const {
+  addInsight,
+  searchInsights,
+  listInsights,
+  updateInsight,
+  deleteInsight,
+  AddInsightSchema,
+  UpdateInsightSchema,
+  ListInsightsSchema,
+} = _internal;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -713,5 +722,198 @@ describe('ledger_delete_insight', () => {
       const globals = parseResult(listResult as any);
       expect(globals.find((i: { id: string }) => i.id === globalId)).toBeDefined();
     }
+  });
+});
+
+// ─── Confidence: string-tolerant numeric input + range enforcement ────────
+//
+// Schema (argument) validation happens at the MCP SDK boundary, before the
+// handler body runs — see the plan's Architectural Context. These tests
+// therefore parse the exported Zod schema first (as the SDK would) and only
+// then invoke the handler, so the string→number preprocess and the [0, 1]
+// range are actually exercised rather than bypassed by calling the handler
+// with already-typed arguments.
+
+describe('confidence — string-tolerant numeric input (AddInsightSchema / UpdateInsightSchema)', () => {
+  it('ledger_add_insight accepts confidence: 0.85 and persists 0.85 (AC-03)', async () => {
+    const args = AddInsightSchema.parse({
+      scope: 'global',
+      title: 'Numeric confidence',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: 0.85,
+    });
+    const result = await addInsight(args);
+    expect(parseResult(result as any).confidence).toBe(0.85);
+  });
+
+  it('ledger_add_insight accepts confidence: "0.85" and persists 0.85 (AC-03)', async () => {
+    const args = AddInsightSchema.parse({
+      scope: 'global',
+      title: 'String confidence',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: '0.85',
+    });
+    const result = await addInsight(args);
+    expect(parseResult(result as any).confidence).toBe(0.85);
+  });
+
+  it('ledger_update_insight accepts confidence: 0.9 and persists 0.9 (AC-01)', async () => {
+    const created = await addInsight({
+      scope: 'global',
+      title: 'To recalibrate',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: 0.8,
+    });
+    const id = parseResult(created as any).id;
+
+    const args = UpdateInsightSchema.parse({ id, confidence: 0.9 });
+    const result = await updateInsight(args);
+    expect(parseResult(result as any).confidence).toBe(0.9);
+  });
+
+  it('ledger_update_insight accepts confidence: "0.9" and persists 0.9 (AC-02)', async () => {
+    const created = await addInsight({
+      scope: 'global',
+      title: 'To recalibrate (string)',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: 0.8,
+    });
+    const id = parseResult(created as any).id;
+
+    const args = UpdateInsightSchema.parse({ id, confidence: '0.9' });
+    const result = await updateInsight(args);
+    expect(parseResult(result as any).confidence).toBe(0.9);
+  });
+
+  it('rejects confidence: 5 and confidence: -0.1 on both schemas, leaving the stored record unchanged (AC-04)', async () => {
+    expect(() =>
+      AddInsightSchema.parse({
+        scope: 'global',
+        title: 'Out of range',
+        content: 'Content.',
+        category: 'testing',
+        tags: [],
+        confidence: 5,
+      })
+    ).toThrow();
+    expect(() =>
+      AddInsightSchema.parse({
+        scope: 'global',
+        title: 'Out of range',
+        content: 'Content.',
+        category: 'testing',
+        tags: [],
+        confidence: -0.1,
+      })
+    ).toThrow();
+
+    const created = await addInsight({
+      scope: 'global',
+      title: 'Guard subject',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: 0.5,
+    });
+    const id = parseResult(created as any).id;
+
+    expect(() => UpdateInsightSchema.parse({ id, confidence: 5 })).toThrow();
+    expect(() => UpdateInsightSchema.parse({ id, confidence: -0.1 })).toThrow();
+
+    // The stored record must be untouched since the schema rejection happens
+    // before the handler — and thus before any store write — ever runs.
+    const listResult = await listInsights({ scope: 'global' });
+    const stored = parseResult(listResult as any).find((i: { id: string }) => i.id === id);
+    expect(stored.confidence).toBe(0.5);
+  });
+
+  it('rejects confidence: null / true / "" on both schemas — never coerced to 0 (AC-05)', () => {
+    for (const badConfidence of [null, true, '']) {
+      expect(() =>
+        AddInsightSchema.parse({
+          scope: 'global',
+          title: 'Malformed confidence',
+          content: 'Content.',
+          category: 'testing',
+          tags: [],
+          confidence: badConfidence,
+        }),
+        `AddInsightSchema should reject confidence: ${JSON.stringify(badConfidence)}`
+      ).toThrow();
+      expect(
+        () => UpdateInsightSchema.parse({ id: '00000000-0000-0000-0000-000000000000', confidence: badConfidence }),
+        `UpdateInsightSchema should reject confidence: ${JSON.stringify(badConfidence)}`
+      ).toThrow();
+    }
+  });
+
+  it('confidence: 0 still succeeds and, combined with superseded_by, produces the retired record (AC-06)', async () => {
+    const original = await addInsight({
+      scope: 'global',
+      title: 'To retire',
+      content: 'Content.',
+      category: 'testing',
+      tags: [],
+      confidence: 0.8,
+    });
+    const originalId = parseResult(original as any).id;
+
+    const replacement = await addInsight({
+      scope: 'global',
+      title: 'Replacement',
+      content: 'Supersedes the original.',
+      category: 'testing',
+      tags: [],
+    });
+    const replacementId = parseResult(replacement as any).id;
+
+    const args = UpdateInsightSchema.parse({
+      id: originalId,
+      confidence: 0,
+      superseded_by: replacementId,
+    });
+    const result = await updateInsight(args);
+    const data = parseResult(result as any);
+    expect(data.confidence).toBe(0);
+    expect(data.superseded_by).toBe(replacementId);
+  });
+});
+
+describe('ledger_list_insights — pagination string tolerance (AC-08)', () => {
+  it('limit: "2" / offset: "1" returns the same page as the numeric form', async () => {
+    for (let i = 0; i < 5; i++) {
+      await addInsight({
+        scope: 'global',
+        title: `Paginated insight ${i}`,
+        content: 'Content.',
+        category: 'pagination-test',
+        tags: [],
+      });
+    }
+
+    const numericArgs = ListInsightsSchema.parse({
+      category: 'pagination-test',
+      limit: 2,
+      offset: 1,
+    });
+    const stringArgs = ListInsightsSchema.parse({
+      category: 'pagination-test',
+      limit: '2',
+      offset: '1',
+    });
+
+    const numericResult = parseResult((await listInsights(numericArgs)) as any);
+    const stringResult = parseResult((await listInsights(stringArgs)) as any);
+
+    expect(stringResult).toEqual(numericResult);
+    expect(stringResult.length).toBe(2);
   });
 });

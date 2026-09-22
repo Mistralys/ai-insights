@@ -13,6 +13,12 @@ export const ProjectMetaSchema = z.object({
   pending_work_packages: z.number().int().nonnegative().optional(),
   progress_pct: z.number().nonnegative().optional(),
   duration_ms: z.number().int().nonnegative().nullable().optional(),
+  // Active-time cache — the sum of completed-pipeline wall-clock spans across every work
+  // package, distinct from the wall-clock `duration_ms` above. Absent (not zero) when never
+  // measured; nullable so a synthesised project with no measured pipeline runs can be
+  // distinguished from one that genuinely has zero active time.
+  active_ms: z.number().int().nonnegative().nullable().optional(),
+  pipeline_runs: z.number().int().nonnegative().optional(),
   project_name: z.string().nullable().optional(),
   repository_name: z.string().nullable().optional(),
   // Synthesis outcome — optional for backward compatibility

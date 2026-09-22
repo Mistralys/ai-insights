@@ -31,6 +31,27 @@ describe('Knowledge tool help content', () => {
   }
 });
 
+describe('Knowledge tool help content — confidence wording (AC-13)', () => {
+  it('ledger_add_insight help states the decimal [0, 1] range and string-encoded acceptance', () => {
+    const helpText = TOOL_HELP['ledger_add_insight']!;
+    expect(helpText).toMatch(/decimal fraction between 0 and 1/);
+    expect(helpText).toMatch(/rejected/);
+    expect(helpText).toMatch(/string-encoded number/);
+  });
+
+  it('ledger_update_insight help states the decimal [0, 1] range and string-encoded acceptance', () => {
+    const helpText = TOOL_HELP['ledger_update_insight']!;
+    expect(helpText).toMatch(/decimal fraction between 0 and 1/);
+    expect(helpText).toMatch(/rejected/);
+    expect(helpText).toMatch(/string-encoded number/);
+  });
+
+  it('ledger_update_insight help includes a worked recalibration example', () => {
+    const helpText = TOOL_HELP['ledger_update_insight']!;
+    expect(helpText).toContain('"confidence": 0.9');
+  });
+});
+
 describe('ledger_get_repository_context help content', () => {
   const toolName = 'ledger_get_repository_context';
 

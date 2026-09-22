@@ -15,7 +15,7 @@ import { resolveProjectPath, formatCandidateList } from '../utils/project-resolv
 import { withLock } from '../storage/file-lock.js';
 import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
-import { clearSynthesisState } from '../utils/workflow-helpers.js';
+import { clearSynthesisState, computeWpActiveMs } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
@@ -892,6 +892,34 @@ async function completeSynthesis(
       rootIndex.status = 'COMPLETE';
 
       await store.writeRootIndex(rootIndex);
+
+      // Cache project-wide active time now, while still inside the lock: synthesis
+      // completion is the one server-side path that runs exactly once per project and
+      // can therefore afford a fan-out read of every work-package detail file.
+      // `writeRootIndex()` cannot do this — it runs on every WP write. A per-WP read
+      // failure is skipped, never fatal: synthesis is the terminal workflow step and
+      // must not fail because one WP file is unreadable.
+      let totalActiveMs = 0;
+      let totalPipelineRuns = 0;
+      for (const summary of rootIndex.work_packages) {
+        try {
+          const wp = await store.readWorkPackage(summary.work_package_id);
+          const { active_ms, pipeline_runs } = computeWpActiveMs(wp);
+          totalActiveMs += active_ms;
+          totalPipelineRuns += pipeline_runs;
+        } catch {
+          // Unreadable/missing WP detail file — skip it, do not fail synthesis.
+        }
+      }
+      await store.writeProjectMeta(
+        '',
+        undefined,
+        {
+          active_ms: totalPipelineRuns > 0 ? totalActiveMs : null,
+          pipeline_runs: totalPipelineRuns,
+        },
+        { preserveLastUpdated: true }
+      );
 
       const synthesisFile = args.synthesis_file ?? SYNTHESIS_ARCHIVE_FILENAME;
       const archiveResult = await store.archiveDocuments([synthesisFile]);

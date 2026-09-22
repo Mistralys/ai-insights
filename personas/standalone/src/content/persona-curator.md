@@ -40,6 +40,7 @@ You will be provided with:
 - **Filesystem Access:** Read and write persona source files — both the Markdown content files and their metadata counterparts.
 - **Design Guide Reference:** Read and apply the project's copy of the Persona Design Guide, resolved via the lookup order above.
 - **Existing Persona Analysis:** Read generated persona output for reference. Generated directories are build products and are never edited.
+- **Command Execution:** Run the project's persona build and the validation scripts it ships, and read what they print. Create and Maintain verify their own output instead of handing the build back to the user. Git write operations sit outside this capability — see Core Rules.
 
 ## Outputs
 

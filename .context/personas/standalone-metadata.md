@@ -157,6 +157,9 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.5.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.5.0 (2026-08-25): Design Guide v2.8 audit fixes — added Inputs with Capabilities, Operating Philosophy, Quality Checklist, Outputs with a location, and a WHATSNEW Curator scope boundary; fixed both modes writing before user approval; added a change inventory between history gathering and drafting; added conditional checkpoints for breaking/deprecation subsections and the file heading; restated style rules inside the Entry Format template; reordered sections and de-imperativised reference prose
   1.4.0 (2026-07-23): Added AX Feedback pre-handoff step via shared partial for agent experience self-reporting
   1.3.0 (2026-07-15): Added importance weighting and promoted-change bold sentence to summary rules
@@ -173,6 +176,21 @@ tools:
   - search
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
@@ -195,6 +213,9 @@ vs_file_name: comms-curator.agent.md
 id: standalone-comms-curator
 cc_file_name: comms-curator.md
 changelog: |
+  1.1.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.1.0 (2026-08-26): Design Guide v2.8 audit fixes — added per-mode Output Templates with the no-superlative, no-counts and no-implementation-detail rules restated inside the slots; split the mixed research/production workflow into read, brief, structure and prose phases with a content brief between them; added a session-start checkpoint for audience, format and source material; gave the gap-reporting duty a mandatory Gaps slot with a nothing-found form and its own workflow step; reframed the Operating Philosophy as positive values and de-imperativised Inputs, Outputs, Modes, Workflow and the content type reference; added no-meta-commentary and write-only-the-named-destination constraints and alternatives to the boundary-only ones; moved Strict Constraints ahead of the Quality Checklist; added the AX Feedback step; specified input paths and formats; removed redundant separators
   1.0.0 (2026-06-19): Initial release — multi-mode content writing for user- and stakeholder-facing communications
 
@@ -207,6 +228,22 @@ tools:
   - web
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
@@ -232,6 +269,9 @@ vs_file_name: composer-curator.agent.md
 id: standalone-composer-curator
 cc_file_name: composer-curator.md
 changelog: |
+  1.1.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.1.0 (2026-08-25): Design Guide v2.8 audit — added Outputs and Strict Constraints sections, extracted Capabilities sub-section, reformatted Workflow with bold step names, applied tone stratification, promoted AGENTS.md check to explicit workflow step, removed redundant separators
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-24): Initial release — composer.json verification for agentic coding
@@ -244,6 +284,21 @@ tools:
   - search
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
@@ -316,6 +371,9 @@ vs_file_name: dependency-curator.agent.md
 id: standalone-dependency-curator
 cc_file_name: dependency-curator.md
 changelog: |
+  1.3.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.3.0 (2026-09-10): Added an Audit mode producing a Dependency Health Scorecard — every declared dependency graded A–E on security, currency, upstream activity and support window, with the worst dimension setting the grade rather than an average, an unmeasured dimension marked `?` instead of assumed healthy, and integration depth (foundational/structural/peripheral, derived from call sites) carried as a separate column that never moves the grade; the survey reuses Maintenance phases 1–8 across the whole declaration set rather than restating them, and Maintenance was re-scoped in the mode table as the prescriptive counterpart to Audit's descriptive one
   1.2.1 (2026-08-26): Rewrote two Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.2.0 (2026-08-26): Added the Dependency Decision Ledger and a Record mode — decisions and rationale accumulate across sessions, expired decisions surface as findings, and deferred upgrade research is revalidated rather than re-derived
@@ -332,6 +390,22 @@ tools:
   - browser
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
@@ -569,6 +643,9 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.6.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.6.0 (2026-09-02): Added the Changed-Code Intersection — comparing documents only to each other cannot catch a coherent document the code moved out from under, so Update and Audit now read the diff of every changed file the manifest names; added the emphatic-claims rule, since a fact stated absolutely is re-checked least and falsified most; delegation briefs now carry fact provenance
   1.5.0 (2026-09-02): Gained read-only Git history as a verification capability, applied at the agent's discretion; added the Reverted Decisions search as one named use of it, since a decision made and later undone is a constraint nobody wrote down; curation log entries gained a Commit line that anchors the next pass's search range
   1.4.2 (2026-09-02): Curation log entries no longer link the Discrepancy Report — the report is a temporary artefact the user deletes after acting on it, so audit findings are now written into the log entry itself
@@ -592,6 +669,22 @@ tools:
   - web
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Technical Knowledge Architect"
@@ -670,6 +763,15 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.17.0 (2026-09-18): Gained a Command Execution capability, closing a contradiction the tool grant had
+    hidden — Core Rules required running the build after every source change while Capabilities
+    authorised filesystem access and nothing else, so the build-and-read step was handed back to the
+    user as a matter of course rather than by exception. Git writes are named as sitting outside the
+    capability, since the existing Core Rule is the only thing bounding shell access
+  1.16.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task, which is why the build-and-read
+    step of Create and Maintain could not run in a Claude Code session
   1.16.0 (2026-09-08): Added Reduce mode — an audit's unit is the single statement and its remedy is almost
     always an addition, so repeated auditing grew personas past the point their owners could review them while
     reporting no defect; the mode judges what each statement buys, cuts modes before features and features
@@ -702,6 +804,22 @@ tools:
   - agent
   - todo
 
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
+
 # overview metadata
 identity: "Agent Design Architect"
 use_when: "Designing a new agent persona, auditing existing personas for compliance, or applying targeted fixes"
@@ -722,6 +840,10 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task; Task kept, since the workflow
+    dispatches the Researcher
   2.3.2 (2026-09-10): research-brief-protocol split into a nested reader half (research-brief-reference, shared with the implementer personas) and an author half carrying the size guard and append rules — brief_tag replaced by brief_orientation, contribute-back trigger-anchored via brief_contribution_point, status line derived from brief_report_file; rendered review behaviour unchanged
   2.3.1 (2026-08-26): Rewrote all five Operating Philosophy principles into indicative mood per design guide v3.0; retitled "Confirm What Works", "Stay Within the Scope Boundary" and "Favor Durable Structures"
   2.3.0 (2026-08-25): Guide v2.8 audit — split alternative gathering from verdict assignment into separate phases; consolidated three overlapping criteria lists into one canonical Evaluation Dimensions set; added Scope Boundaries table; structured the Researcher delegation as its own workflow step; added research brief and contribute-back workflow checkpoints; removed the unreachable Audit Cycle Tracking rule
@@ -743,6 +865,22 @@ tools:
   - browser
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # research-brief-protocol partial
 brief_orientation: "Entries tagged `[arch]`, and untagged entries, are the ones this review draws on"
@@ -771,6 +909,9 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.9.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.9.2 (2026-09-10): research-brief-protocol split into a nested reader half (research-brief-reference, shared with the implementer personas) and an author half carrying the size guard and append rules — brief_tag replaced by brief_orientation, contribute-back trigger-anchored via brief_contribution_point, status line derived from brief_report_file; rendered audit behaviour unchanged
   1.9.1 (2026-08-26): Retitled "Verify, Don't Trust" to "Claims Await Verification" per design guide v3.0 mood rule
   1.9.0 (2026-08-25): Design Guide v2.8 audit fixes — added Scope Boundaries table against the Plan
@@ -800,6 +941,22 @@ tools:
   - browser
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # research-brief-protocol partial
 brief_orientation: "Entries tagged `[verify]`, and untagged entries, are the ones this audit draws on"
@@ -885,6 +1042,9 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.4.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   2.4.0 (2026-09-11): Findings Integration declared as a third operating mode — an `audit.md`,
     `design-review.md`, or `scenario-coverage.md` file beside the plan now has a named mode and a
     detection rule rather than only a Rework Handling section
@@ -905,6 +1065,22 @@ tools:
   - web
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # leaves the ledger-only plan sections out of planner-output-template.md
 has_ledger_workflow: false
@@ -1004,6 +1180,10 @@ vs_file_name: recipe-curator.agent.md
 id: standalone-recipe-curator
 cc_file_name: recipe-curator.md
 changelog: |
+  1.11.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim;
+    the grant stays read-only with web access, mirroring the vs-code list, since this persona curates
+    rather than edits
   1.11.1 (2026-08-26): Documented the inline-reference-material deviation in design_notes - web-LLM deployment cannot access external documents, so the 60-Second Rule and reference extraction do not apply
   1.11.0 (2026-08-26): Design Guide v2.8 audit fixes - tone stratification across Philosophy, Protocol and both workflows; Recipe Ledger added as a durable counter sink with liveness marker; metric, language and template-fidelity rules restated inside the output templates; Survey Options split into Gather Candidates and Select; Session Opener, Bread Plan Check and Quality Checklist added; constraints regrouped as Core Rules with Household Boundaries, Process Discipline and Output Fidelity
   1.10.0 (2026-06-29): Recipe identifiers — every recipe gets a short ID (R1, R2, …) that persists across the conversation; IDs appear in previews, weekly plan tables, and full recipe headings for easy back-reference
@@ -1035,6 +1215,17 @@ tools:
   - web
   - browser
 
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# Read-only, matching the vs-code grant (no `execute`, no `edit`, no `agent`).
+cc_tools:
+  - Read
+  - Grep
+  - Glob
+  - WebFetch
+  - WebSearch
+
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
 
@@ -1064,6 +1255,10 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.3.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task, leaving research with no way to
+    discover a file it was not handed
   1.3.1 (2026-08-26): Rewrote four Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.3.0 (2026-08-25): Consolidated duplicated philosophy and rules content; positive-framed philosophy
   1.2.0 (2026-05-29): Gained browser tool for research verification
@@ -1080,6 +1275,22 @@ tools:
   - browser
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Senior Research Engineer & Solution Architect"
@@ -1099,6 +1310,9 @@ vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 changelog: |
+  1.2.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.2.1 (2026-08-26): Renamed "Counts Age Badly" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
   1.2.0 (2026-08-26): Design Guide v2.8 audit fixes — reframed Operating Philosophy as positive values and de-imperativised Inputs and Outputs; added scope, file-write, reference-verification, coverage-padding and no-stale-counts constraints; converted the Output Template to a fenced block and moved its example rows into a Worked Example; added an Out of Scope report section and a nothing-found form for Technical Debt Observations; restated the no-counts and path-plus-line rules inside the template slots; split the workflow into audit and writing phases with a consolidated findings brief between them; added a Quality Checklist and the AX Feedback step; renamed Audit Protocol to Operational Protocol; specified input sources and the no-test-suite case; documented read-only command execution as a capability; removed redundant separators
   1.1.1 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
@@ -1114,6 +1328,22 @@ tools:
   - web
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
@@ -1133,6 +1363,10 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.2.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep or Glob; Task omitted, since this persona
+    dispatches no sub-agents and the VS Code grant carries no `agent` tool
   1.2.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.2.0 (2026-08-20): Added Change Management for evolving GUI features: feature changes are scenario
     changes first and the plan references scenarios by [SCnn] ID; materially changed approved
@@ -1154,6 +1388,21 @@ tools:
   - search
   - browser
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch and no Task, matching the vs-code grant (no `web`,
+# no `agent`).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Product Usage Scenario Analyst"
@@ -1240,6 +1489,9 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.1.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.1.1 (2026-08-26): Rewrote trailing imperative sentences in two philosophy principles into indicative mood
   1.1.0 (2026-08-25): Design Guide v2.8 audit — added Operating Philosophy, Capabilities, Outputs with location, scope boundary against the Changelog Curator, and a Quality Checklist; reordered sections to guide order; added the missing Rewrite-mode apply step and a conditional-case checkpoint to Generate; de-duplicated formatting rules against constraints; applied tone stratification; removed redundant separators
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
@@ -1256,6 +1508,21 @@ tools:
   - search
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Release Notes Editor"

@@ -5,6 +5,10 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.2.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep or Glob; Task omitted, since this persona
+    dispatches no sub-agents and the VS Code grant carries no `agent` tool
   1.2.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
   1.2.0 (2026-08-20): Added Change Management for evolving GUI features: feature changes are scenario
     changes first and the plan references scenarios by [SCnn] ID; materially changed approved
@@ -26,6 +30,21 @@ tools:
   - search
   - browser
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch and no Task, matching the vs-code grant (no `web`,
+# no `agent`).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Product Usage Scenario Analyst"

@@ -5,6 +5,10 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task; Task kept, since the workflow
+    dispatches the Researcher
   2.3.2 (2026-09-10): research-brief-protocol split into a nested reader half (research-brief-reference, shared with the implementer personas) and an author half carrying the size guard and append rules — brief_tag replaced by brief_orientation, contribute-back trigger-anchored via brief_contribution_point, status line derived from brief_report_file; rendered review behaviour unchanged
   2.3.1 (2026-08-26): Rewrote all five Operating Philosophy principles into indicative mood per design guide v3.0; retitled "Confirm What Works", "Stay Within the Scope Boundary" and "Favor Durable Structures"
   2.3.0 (2026-08-25): Guide v2.8 audit — split alternative gathering from verdict assignment into separate phases; consolidated three overlapping criteria lists into one canonical Evaluation Dimensions set; added Scope Boundaries table; structured the Researcher delegation as its own workflow step; added research brief and contribute-back workflow checkpoints; removed the unreachable Audit Cycle Tracking rule
@@ -26,6 +30,22 @@ tools:
   - browser
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # research-brief-protocol partial
 brief_orientation: "Entries tagged `[arch]`, and untagged entries, are the ones this review draws on"

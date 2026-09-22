@@ -17,6 +17,7 @@ import {
   firstActiveStage,
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
+import { positiveIntInput } from '../schema/common.js';
 import {
   extractStalePipelineAction,
   isMostRecentPipelineFail,
@@ -73,12 +74,9 @@ const GetNextActionSchema = z.object({
     .describe(
       'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"'
     ),
-  max_results: z
-    .number()
-    .int()
-    .positive()
+  max_results: positiveIntInput()
     .optional()
-    .describe('Maximum number of actionable WPs to return (default: 1). When > 1, returns up to this many actions as an array under the "actions" key instead of a single action object. Useful for projects with many independent WPs.'),
+    .describe('Maximum number of actionable WPs to return (default: 1). When > 1, returns up to this many actions as an array under the "actions" key instead of a single action object. Useful for projects with many independent WPs. A string-encoded integer (e.g. "2") is also accepted.'),
 });
 
 async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
@@ -1893,7 +1891,7 @@ export async function getDocumentationAction(
  * Register the ledger_get_next_action tool on the MCP server.
  */
 /** @internal — exported for unit tests only */
-export const _internal = { getNextAction, buildBatchNextSteps, getNextActionsCollector, embedHandoffStatusInWait, getSecurityAuditorAction, getReleaseEngineerAction };
+export const _internal = { getNextAction, buildBatchNextSteps, getNextActionsCollector, embedHandoffStatusInWait, getSecurityAuditorAction, getReleaseEngineerAction, GetNextActionSchema };
 
 export function register(server: McpServer): void {
   server.registerTool(

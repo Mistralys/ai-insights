@@ -7106,7 +7106,8 @@ globalThis.renderRunsList = renderRunsList;
      #timing-info            — Wrapper <span> for the three timing fields
                                below; _patchTimingInfo checks for its
                                presence before patching children.
-       #timing-duration      — <span> showing elapsed project duration.
+       #timing-duration      — <span> showing wall-clock elapsed project time,
+                               labelled "Elapsed:" (distinct from "Active:").
        #timing-active        — <span> showing total active pipeline time.
        #timing-runs          — <span> showing total pipeline-run count.
      tr[data-wp-id="WP-###"] — One <tr> per work package row; the
@@ -7790,7 +7791,7 @@ function renderProjectDetail(app, repo, slug) {
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
           '<span id="timing-info">' +
           (project.timing
-            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
+            ? '<br><strong>Elapsed:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
                 (project.timing.pipeline_runs > 0
                   ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> <span id="timing-active">' + escapeHtml(formatDuration(project.timing.total_active_ms)) + '</span> across <span id="timing-runs">' + project.timing.pipeline_runs + '</span> pipeline runs'
                   : '')
@@ -8571,7 +8572,13 @@ function renderProjectList(app) {
         repoCell = '<td class="repo-col">' + escapeHtml(repo || '\u2014') + '</td>';
       }
 
-      var durationCellHtml = p.duration_ms != null ? escapeHtml(formatDuration(p.duration_ms)) : '\u2014';
+      // The Duration column shows active (pipeline) time, not wall-clock elapsed time \u2014
+      // sorting and display must agree on the same quantity. Wall-clock stays available
+      // as a hover tooltip.
+      var durationCellHtml = p.active_ms != null ? escapeHtml(formatDuration(p.active_ms)) : '\u2014';
+      var durationCellTitle = p.duration_ms != null
+        ? ' title="' + escapeHtml('Elapsed (wall-clock): ' + formatDuration(p.duration_ms)) + '"'
+        : '';
 
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '">' +
         nameCell +
@@ -8580,7 +8587,7 @@ function renderProjectList(app) {
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td>' + runnerBadge(p.runner) + '</td>' +
-        '<td class="text-muted">' + durationCellHtml + '</td>' +
+        '<td class="text-muted"' + durationCellTitle + '>' + durationCellHtml + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +

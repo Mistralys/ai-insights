@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.4.5 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
   1.4.4 (2026-08-28): Renamed the philosophy principle "The Decomposer Already Looked" to the canonical "The Upstream Stage Already Looked" (C5c) — the WP Decomposer now carries the same principle for the research brief, and a per-predecessor name forks on every new consumer
   1.4.3 (2026-08-27): Prose Density Pass (guide v3.4) — split three philosophy bodies that carried a second idea past their main claim
   1.4.2 (2026-08-27): Rewrote the philosophy principles, protocol prose and constraints in plain language — same meaning, concrete phrasing, no abstract-noun density
@@ -24,6 +28,17 @@ tools:
   - read
   - edit
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Technical Program Manager — Dependency Analyst"

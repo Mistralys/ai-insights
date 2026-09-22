@@ -62,13 +62,18 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
 /**
  * scripts/backfill-duration.js
  *
- * One-time backfill: populates `duration_ms` in `.meta.json` for existing
- * projects that already have `synthesis_generated_at` set on their root index
- * (`project-ledger.json`) but predate the enrichment-cache field.
+ * One-time backfill: populates `duration_ms`, `active_ms`, and `pipeline_runs`
+ * in `.meta.json` for existing projects that already have `synthesis_generated_at`
+ * set on their root index (`project-ledger.json`) but predate one or more of these
+ * enrichment-cache fields.
  *
- * duration_ms = synthesis_generated_at - date_created (milliseconds).
+ * duration_ms = synthesis_generated_at - date_created (milliseconds, wall-clock).
  * Standalone projects with a zero-duration same-session import are nulled out,
  * matching the semantics of `LedgerStore.writeRootIndex()`.
+ *
+ * active_ms / pipeline_runs = the sum of completed-pipeline `duration_ms` (and
+ * their count) across every work package, read from each `WP-###.json` detail
+ * file. `active_ms` is null when no pipeline in the project carries a duration.
  *
  * Usage:
  *   node scripts/backfill-duration.js [options]
@@ -82,8 +87,9 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
  *   1. ~/.ai-insights/stores.json — multi-store config
  *   2. LEDGER_ROOT env var         — single-store fallback path
  *
- * Idempotent: projects whose .meta.json already has a non-null duration_ms
- * are skipped.
+ * Idempotent: each of `duration_ms` and `active_ms`/`pipeline_runs` is skipped
+ * independently once already cached, so a project with one field populated
+ * still receives the other.
  */
 
 import { readFileSync, writeFileSync, renameSync, existsSync, statSync } from 'fs';
@@ -131,9 +137,75 @@ function resolveStorePaths() {
 // ─── Backfill logic ───────────────────────────────────────────────────────────
 
 /**
- * Backfills `duration_ms` for a single project directory.
+ * Computes the wall-clock `duration_ms` for a project, or `null` when it
+ * cannot be determined or should be nulled (zero-duration standalone import).
+ * @param {object} rootIndex
+ * @param {object} meta
+ * @returns {number|null}
+ */
+function computeWallClockDurationMs(rootIndex, meta) {
+  // Use the root index's date_created — it is the source of truth (e.g. standalone imports
+  // derive it from plan.md's filesystem birthtime, which can predate .meta.json's own
+  // date_created by days). Falling back to meta.date_created would silently misreport duration.
+  const created = new Date(rootIndex.date_created ?? meta.date_created).getTime();
+  const synth = new Date(rootIndex.synthesis_generated_at).getTime();
+
+  if (isNaN(created) || isNaN(synth) || synth < created) {
+    return null;
+  }
+  if (synth === created && rootIndex.runner === 'standalone') {
+    return null;
+  }
+  return synth - created;
+}
+
+/**
+ * Sums `duration_ms` across every pipeline of every work package in a project,
+ * reading each `WP-###.json` detail file directly under `projectDir` — the same
+ * convention as `LedgerStore.wpDetailPath()` (the root index's `work_packages[].file`
+ * field is not the actual on-disk path and is not used here).
+ *
+ * Unreadable or malformed WP detail files are skipped with a `--verbose` note
+ * rather than failing the whole project.
+ *
  * @param {string} projectDir
- * @returns {{ action: 'skipped-has-duration'|'skipped-no-synthesis'|'skipped-error'|'backfilled'|'dry-run', durationMs?: number|null, error?: string }}
+ * @param {Array<{work_package_id: string}>} workPackages
+ * @returns {{ active_ms: number|null, pipeline_runs: number }}
+ */
+function computeActiveTime(projectDir, workPackages) {
+  let activeMs = 0;
+  let pipelineRuns = 0;
+
+  for (const wp of workPackages ?? []) {
+    const wpPath = join(projectDir, `${wp.work_package_id}.json`);
+    let wpDetail;
+    try {
+      wpDetail = JSON.parse(readFileSync(wpPath, 'utf8'));
+    } catch (err) {
+      if (VERBOSE) {
+        console.log(`  [warn]      ${projectDir} — unreadable ${wp.work_package_id}.json: ${err.message}`);
+      }
+      continue;
+    }
+
+    for (const pipeline of wpDetail.pipelines ?? []) {
+      if (typeof pipeline.duration_ms === 'number') {
+        activeMs += pipeline.duration_ms;
+        pipelineRuns++;
+      }
+    }
+  }
+
+  return { active_ms: pipelineRuns > 0 ? activeMs : null, pipeline_runs: pipelineRuns };
+}
+
+/**
+ * Backfills `duration_ms`, `active_ms`, and `pipeline_runs` for a single project
+ * directory. Each field is skipped independently once already cached, so a
+ * project with `duration_ms` set still receives `active_ms` / `pipeline_runs`.
+ *
+ * @param {string} projectDir
+ * @returns {{ action: 'skipped-no-synthesis'|'skipped-error'|'skipped-up-to-date'|'backfilled'|'dry-run', durationMs?: number|null, activeMs?: number|null, pipelineRuns?: number, error?: string }}
  */
 function backfillProject(projectDir) {
   const metaPath = join(projectDir, '.meta.json');
@@ -144,10 +216,6 @@ function backfillProject(projectDir) {
     meta = JSON.parse(readFileSync(metaPath, 'utf8'));
   } catch (err) {
     return { action: 'skipped-error', error: `Malformed .meta.json: ${err.message}` };
-  }
-
-  if (meta.duration_ms !== undefined && meta.duration_ms !== null) {
-    return { action: 'skipped-has-duration' };
   }
 
   let rootIndex;
@@ -161,31 +229,28 @@ function backfillProject(projectDir) {
     return { action: 'skipped-no-synthesis' };
   }
 
-  // Use the root index's date_created — it is the source of truth (e.g. standalone imports
-  // derive it from plan.md's filesystem birthtime, which can predate .meta.json's own
-  // date_created by days). Falling back to meta.date_created would silently misreport duration.
-  const created = new Date(rootIndex.date_created ?? meta.date_created).getTime();
-  const synth = new Date(rootIndex.synthesis_generated_at).getTime();
+  const needsDuration = meta.duration_ms === undefined || meta.duration_ms === null;
+  const needsActiveTime = meta.active_ms === undefined || meta.pipeline_runs === undefined;
 
-  let durationMs;
-  if (isNaN(created) || isNaN(synth) || synth < created) {
-    durationMs = null;
-  } else if (synth === created && rootIndex.runner === 'standalone') {
-    durationMs = null;
-  } else {
-    durationMs = synth - created;
+  if (!needsDuration && !needsActiveTime) {
+    return { action: 'skipped-up-to-date' };
   }
+
+  const durationMs = needsDuration ? computeWallClockDurationMs(rootIndex, meta) : meta.duration_ms;
+  const { active_ms: activeMs, pipeline_runs: pipelineRuns } = needsActiveTime
+    ? computeActiveTime(projectDir, rootIndex.work_packages)
+    : { active_ms: meta.active_ms, pipeline_runs: meta.pipeline_runs };
 
   if (DRY_RUN) {
-    return { action: 'dry-run', durationMs };
+    return { action: 'dry-run', durationMs, activeMs, pipelineRuns };
   }
 
-  const updatedMeta = { ...meta, duration_ms: durationMs };
+  const updatedMeta = { ...meta, duration_ms: durationMs, active_ms: activeMs, pipeline_runs: pipelineRuns };
   const tmp = metaPath + '.tmp';
   writeFileSync(tmp, JSON.stringify(updatedMeta, null, 2) + '\n', 'utf8');
   renameSync(tmp, metaPath);
 
-  return { action: 'backfilled', durationMs };
+  return { action: 'backfilled', durationMs, activeMs, pipelineRuns };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -209,7 +274,7 @@ async function main() {
 
   let total = 0;
   let backfilled = 0;
-  let skippedHasDuration = 0;
+  let skippedUpToDate = 0;
   let skippedNoSynthesis = 0;
   let skippedError = 0;
 
@@ -227,9 +292,9 @@ async function main() {
       total++;
 
       switch (result.action) {
-        case 'skipped-has-duration':
-          skippedHasDuration++;
-          if (VERBOSE) console.log(`  [skip]      ${projectDir} — already has duration_ms`);
+        case 'skipped-up-to-date':
+          skippedUpToDate++;
+          if (VERBOSE) console.log(`  [skip]      ${projectDir} — duration_ms and active_ms/pipeline_runs already cached`);
           break;
         case 'skipped-no-synthesis':
           skippedNoSynthesis++;
@@ -241,11 +306,11 @@ async function main() {
           break;
         case 'dry-run':
           backfilled++;
-          console.log(`  [dry-run]   ${projectDir} — duration_ms would be ${result.durationMs}`);
+          console.log(`  [dry-run]   ${projectDir} — duration_ms would be ${result.durationMs}, active_ms would be ${result.activeMs}, pipeline_runs would be ${result.pipelineRuns}`);
           break;
         case 'backfilled':
           backfilled++;
-          if (VERBOSE) console.log(`  [backfilled] ${projectDir} — duration_ms = ${result.durationMs}`);
+          if (VERBOSE) console.log(`  [backfilled] ${projectDir} — duration_ms = ${result.durationMs}, active_ms = ${result.activeMs}, pipeline_runs = ${result.pipelineRuns}`);
           break;
       }
     }
@@ -254,7 +319,7 @@ async function main() {
   console.log(
     `\n[backfill-duration] Done. ${total} project(s) processed: ` +
     `${backfilled} ${DRY_RUN ? 'would be backfilled' : 'backfilled'}, ` +
-    `${skippedHasDuration} skipped (already had duration), ` +
+    `${skippedUpToDate} skipped (already up to date), ` +
     `${skippedNoSynthesis} skipped (no synthesis), ` +
     `${skippedError} skipped (error).`
   );
@@ -2483,7 +2548,7 @@ const COMMANDS = [
     key:          null,
     label:        'Backfill project duration',
     category:     'MCP Server',
-    description:  'One-time backfill of duration_ms in .meta.json for existing projects',
+    description:  'One-time backfill of duration_ms, active_ms, and pipeline_runs in .meta.json for existing projects',
     helpVariants: [
       ['backfill-duration --dry-run', 'Preview changes without writing'],
       ['backfill-duration --verbose', 'Log each project processed'],

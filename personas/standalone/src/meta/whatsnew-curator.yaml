@@ -5,6 +5,9 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.1.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Bash, Grep, Glob or Task
   1.1.1 (2026-08-26): Rewrote trailing imperative sentences in two philosophy principles into indicative mood
   1.1.0 (2026-08-25): Design Guide v2.8 audit — added Operating Philosophy, Capabilities, Outputs with location, scope boundary against the Changelog Curator, and a Quality Checklist; reordered sections to guide order; added the missing Rewrite-mode apply step and a conditional-case checkpoint to Generate; de-duplicated formatting rules against constraints; applied tone stratification; removed redundant separators
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
@@ -21,6 +24,21 @@ tools:
   - search
   - agent
   - todo
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Release Notes Editor"

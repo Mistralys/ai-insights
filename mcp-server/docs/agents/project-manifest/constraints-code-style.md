@@ -20,6 +20,7 @@
 - [`assigned_to` Requires a Canonical AgentRole](#assigned_to-requires-a-canonical-agentrole-project_commentsagent-does-not)
 - [`project_path` Takes Precedence Over `cwd_path`](#project_path-takes-precedence-over-cwd_path)
 - [No `.refine()` on Outer Tool Schemas](#do-not-use-refine-transform-or-superrefine-on-outer-tool-schemas)
+- [Numeric Tool Inputs Use the Shared Coercing Helpers](#numeric-tool-inputs-use-the-shared-coercing-helpers)
 - [MCP SDK Injects `RequestHandlerExtra`](#mcp-sdk-injects-requesthandlerextra--handler-registration-must-use-wrapper-functions)
 - [Zod `.describe()` for Pipeline Types](#zod-describe-annotations-for-pipeline-type-must-use-describepipelinetypes)
 
@@ -250,9 +251,33 @@ const MyToolSchema = z.object({
 }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 ```
 
-**Exception:** Field-level `.refine()` applied to an individual field definition (e.g., `z.string().refine(...)`, `plan_file: z.string().refine(v => v === 'plan.md', ...)`) is safe — the outer `z.object()` remains a `ZodObject`.
+**Exception:** Field-level `.refine()`, `.transform()`, or `.preprocess()` applied to an individual field definition (e.g., `z.string().refine(...)`, `plan_file: z.string().refine(v => v === 'plan.md', ...)`, `confidence: numericInput(z.number().min(0).max(1))`) is safe — the outer `z.object()` remains a `ZodObject`. See [Numeric Tool Inputs Use the Shared Coercing Helpers](#numeric-tool-inputs-use-the-shared-coercing-helpers) for the `.preprocess()` case.
 
 **Regression guard:** `tests/tools/schema-integrity.test.ts` converts every registered tool schema to JSON Schema and asserts non-empty `properties`. This test fails if a `.refine()` / `.transform()` / `.superRefine()` is re-added to any outer schema.
+
+---
+
+### Numeric Tool Inputs Use the Shared Coercing Helpers
+
+**Rule:** Any numeric tool or HTTP-body input field must use one of the helpers exported from `src/schema/common.ts` — `confidenceInput()`, `positiveIntInput()`, `nonNegativeIntInput()`, or `numberInput()` — instead of a bare `z.number()…` chain.
+
+**Pattern:**
+```typescript
+import { confidenceInput, positiveIntInput } from '../schema/common.js';
+
+const MyToolSchema = z.object({
+  confidence: confidenceInput().optional().describe('Decimal fraction in [0, 1]. String-encoded values accepted.'),
+  limit: positiveIntInput().optional().describe('Maximum number of results.'),
+});
+```
+
+**Reason:** Some MCP clients serialise fractional or numeric tool arguments as strings (e.g. `"0.9"` instead of `0.9`). A bare `z.number()` rejects that input outright with `Expected number, received string` — an unrecoverable failure in the headless orchestrator path, where nothing retries the call with an unquoted value. `z.coerce.number()` looks like the obvious fix but is unsafe: it also converts `null`, `true`/`false`, and `""` into a number (`Number(null) === 0`), which is dangerous wherever `0` carries meaning — `confidence: 0` is the Knowledge Curator's insight-retirement marker, so a malformed `null` argument silently coercing to `0` would retire an insight by accident. The shared helpers instead wrap the inner schema in a field-level `z.preprocess()` that converts *only* non-empty strings via `Number(...)`; every other input (`null`, booleans, `""`) falls through to the inner schema and keeps failing loudly.
+
+**Storage-schema exemption:** These helpers are for **tool and HTTP inputs only**. Never apply them to a storage schema (e.g. `InsightSchema` in `schema/knowledge.ts`) — a string-encoded number in a persisted record is data corruption and must keep failing strictly on read, not self-heal.
+
+**Field-level only:** Per the [outer-tool-schema restriction](#do-not-use-refine-transform-or-superrefine-on-outer-tool-schemas) above, only ever wrap an individual field's schema. Never apply `numericInput()` (or any of the named constructors) to the outer `z.object()` of a tool's `inputSchema` — doing so converts it from a `ZodObject` to a `ZodEffects`, blanking the advertised tool signature the same way an outer `.refine()` does.
+
+**Regression guard:** `tests/tools/schema-integrity.test.ts` asserts the emitted JSON Schema `type` and bound keywords (`minimum`/`maximum`/`exclusiveMinimum`) for every helper-wrapped field, so a future switch to `z.coerce` or `z.union` that degrades or changes the advertised signature fails the build.
 
 ---
 

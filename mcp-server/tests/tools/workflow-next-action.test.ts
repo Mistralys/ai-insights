@@ -2285,4 +2285,39 @@ describe('getNextAction — plan_path injection', () => {
       process.argv = originalArgv;
     }
   });
+
+  it('max_results: "2" (string-encoded) returns the same actions array as max_results: 2 (AC-08)', async () => {
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', assigned_to: 'Developer', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY', assigned_to: 'Developer', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-003', status: 'READY', assigned_to: 'Developer', pipelines: [] }),
+    ];
+    await setupStore(handle, wps);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      // Argument validation happens at the MCP SDK boundary, before the handler
+      // runs — parse via the exported schema first (as the SDK would) so the
+      // string→number preprocess is actually exercised.
+      const numericArgs = _internal.GetNextActionSchema.parse({
+        project_path: planPath,
+        agent_role: 'Developer',
+        max_results: 2,
+      });
+      const stringArgs = _internal.GetNextActionSchema.parse({
+        project_path: planPath,
+        agent_role: 'Developer',
+        max_results: '2',
+      });
+
+      const numericResult = await parseResult(_internal.getNextAction(numericArgs));
+      const stringResult = await parseResult(_internal.getNextAction(stringArgs));
+
+      expect(stringResult.actions).toEqual(numericResult.actions);
+      expect(stringResult.actions).toHaveLength(2);
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
 });

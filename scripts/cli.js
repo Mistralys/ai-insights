@@ -1224,7 +1224,7 @@ const COMMANDS = [
     key:          null,
     label:        'Backfill project duration',
     category:     'MCP Server',
-    description:  'One-time backfill of duration_ms in .meta.json for existing projects',
+    description:  'One-time backfill of duration_ms, active_ms, and pipeline_runs in .meta.json for existing projects',
     helpVariants: [
       ['backfill-duration --dry-run', 'Preview changes without writing'],
       ['backfill-duration --verbose', 'Log each project processed'],

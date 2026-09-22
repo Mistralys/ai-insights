@@ -192,6 +192,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.4.5 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
   1.4.4 (2026-08-28): Renamed the philosophy principle "The Decomposer Already Looked" to the canonical "The Upstream Stage Already Looked" (C5c) — the WP Decomposer now carries the same principle for the research brief, and a per-predecessor name forks on every new consumer
   1.4.3 (2026-08-27): Prose Density Pass (guide v3.4) — split three philosophy bodies that carried a second idea past their main claim
   1.4.2 (2026-08-27): Rewrote the philosophy principles, protocol prose and constraints in plain language — same meaning, concrete phrasing, no abstract-noun density
@@ -208,6 +212,17 @@ tools:
   - read
   - edit
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Technical Program Manager — Dependency Analyst"
@@ -415,6 +430,10 @@ vs_file_name: ledger-orchestrator-archaeologist.agent.md
 id: standalone-ledger-orchestrator-archaeologist
 cc_file_name: ledger-orchestrator-archaeologist.md
 changelog: |
+  1.0.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all, which is every tool this
+    read-only forensic analysis depends on
   1.0.2 (2026-08-26): Rewrote trailing imperative sentences in two philosophy principles into indicative mood
   1.0.1 (2026-07-23): Domain knowledge audit fixes — remove non-existent `halt` action, add `halted_wp_cancelled`; fix `route` field description to distinguish WP-routing vs early-routing fields; fix `metadata.checkpoint_ns` → `metadata.langgraph_checkpoint_ns`; fix `lc_versions` key casing (`langchain-core` → `langchain_core`)
   1.0.0 (2026-07-23): Initial release — forensic analysis of orchestrator logs and dialogue chunks
@@ -423,6 +442,15 @@ tools:
   - vscode
   - read
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# Read-only, matching the vs-code grant (no `execute`, no `edit`).
+cc_tools:
+  - Read
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Forensic Operations Analyst"
@@ -486,6 +514,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.2.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
   1.2.0 (2026-08-28): First full audit (guide v3.4) — 14 findings, all resolved. Inputs rewritten to match the PM's single-folder-path dispatch contract, replacing the four-item list and the "if the plan document is available" hedge. Added an Operating Philosophy with four principles, two of them the canonical "The Upstream Stage Already Looked" and "A Few Right Files Beat Many" (C5c). Added a Codebase Verification capability — the narrowing pre-requisites always required reading source that Capabilities never authorised. Split the fused classify-and-verify workflow step into triage / verify / assign per Pattern 14, and gave the Guardrail Notes slot an explicit nothing-found form so a clean run reads differently from a skipped one. Decision Criteria gained its own Constraints block; headings de-imperativised; handoff now emits the full persona name
   1.1.0 (2026-07-09): Verification-only chain gains state-changing operation pre-requisite; Workflow Step 2 adds AC coverage check for CLI commands; quality checklist item added for side-effect verification
   1.0.2 (2026-05-18): Write step references Output Location; subagent handoff precision improved
@@ -496,6 +528,17 @@ tools:
   - read
   - edit
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Technical Program Manager — Pipeline Stage Analyst"
@@ -515,6 +558,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
   1.5.2 (2026-09-10): Missing-brief report drops the stale gitignore rationale — the remedy is a fresh Planner write against the current codebase, not a workaround
   1.5.1 (2026-08-28): A missing research brief is now reported as a gitignored file only the Planner can regenerate, instead of as a failed upstream stage; the PM gates the check before dispatch
   1.5.0 (2026-08-28): Consumes the Planner's research-brief.md as a required input — Step 3 now checks Verified References and the Scope Sketch before opening any source file, Code Observations mark each finding [brief] or [verified], and the brief's Structural Observations are barred as a WP source since the Planner already resolved them
@@ -533,6 +580,17 @@ tools:
   - read
   - edit
   - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
 
 # overview metadata
 identity: "Technical Program Manager — Work Package Analyst"

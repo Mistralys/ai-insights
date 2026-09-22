@@ -28,7 +28,8 @@
      #timing-info            — Wrapper <span> for the three timing fields
                                below; _patchTimingInfo checks for its
                                presence before patching children.
-       #timing-duration      — <span> showing elapsed project duration.
+       #timing-duration      — <span> showing wall-clock elapsed project time,
+                               labelled "Elapsed:" (distinct from "Active:").
        #timing-active        — <span> showing total active pipeline time.
        #timing-runs          — <span> showing total pipeline-run count.
      tr[data-wp-id="WP-###"] — One <tr> per work package row; the
@@ -712,7 +713,7 @@ function renderProjectDetail(app, repo, slug) {
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
           '<span id="timing-info">' +
           (project.timing
-            ? '<br><strong>Duration:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
+            ? '<br><strong>Elapsed:</strong> <span id="timing-duration">' + (project.timing.project_elapsed_ms == null ? 'Not measured' : escapeHtml(formatDuration(project.timing.project_elapsed_ms))) + '</span>' +
                 (project.timing.pipeline_runs > 0
                   ? ' &nbsp;\u00b7&nbsp; <strong>Active:</strong> <span id="timing-active">' + escapeHtml(formatDuration(project.timing.total_active_ms)) + '</span> across <span id="timing-runs">' + project.timing.pipeline_runs + '</span> pipeline runs'
                   : '')
