@@ -5,6 +5,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.15.1 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.15.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Contextual Analysis starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.14.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; synthesis template renders both subsections, omitting whichever is empty
   1.13.0 (2026-08-27): Paired v3.3 audit with the ledger twin — cc_tools regained Task, Write and Glob, which the archiver dispatch and synthesis writes required but the override had removed; gained the Atomic Changes constraint; No Stale Counts moved to a shared partial
@@ -79,7 +80,7 @@ brief_purpose: "Contextual Analysis"
 brief_authority: "the current state of the code"
 
 subagents:
-  - standalone-archiver
+  - ledger-synthesis-maintainer
 
 # overview metadata
 identity: "Staff Software Engineer"

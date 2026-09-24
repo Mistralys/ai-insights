@@ -397,24 +397,24 @@
   },
   {
     "number": null,
-    "id": "ledger-support-standalone-archiver",
-    "role": "Ledger Standalone Archiver",
-    "version": "1.7.1",
+    "id": "ledger-support-synthesis-maintainer",
+    "role": "Ledger Synthesis Maintainer",
+    "version": "2.0.0",
     "suite": "ledger-support",
-    "model": "Claude Sonnet 5 (Copilot)",
-    "model_slug": "Claude Sonnet 5 (copilot)",
-    "cc_model": "claude-sonnet-5",
+    "model": "Inherit / Auto",
+    "model_slug": "inherit",
+    "cc_model": "inherit",
     "vscode": {
-      "file_name": "standalone-archiver.agent.md",
-      "agent_name": "Ledger Standalone Archiver"
+      "file_name": "ledger-synthesis-maintainer.agent.md",
+      "agent_name": "Ledger Synthesis Maintainer"
     },
     "claude_code": {
-      "file_name": "standalone-archiver.md",
-      "agent_name": "standalone-archiver"
+      "file_name": "ledger-synthesis-maintainer.md",
+      "agent_name": "ledger-synthesis-maintainer"
     },
     "deep_agents": {
-      "file_name": "standalone-archiver.md",
-      "agent_name": "standalone-archiver"
+      "file_name": "ledger-synthesis-maintainer.md",
+      "agent_name": "ledger-synthesis-maintainer"
     }
   },
   {
@@ -575,7 +575,7 @@
     "number": null,
     "id": "developer-standalone",
     "role": "Developer",
-    "version": "1.15.0",
+    "version": "1.15.1",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",
@@ -927,7 +927,7 @@
     "number": null,
     "id": "standalone-web-gui-specialist",
     "role": "Web GUI Specialist",
-    "version": "1.7.2",
+    "version": "1.7.3",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",

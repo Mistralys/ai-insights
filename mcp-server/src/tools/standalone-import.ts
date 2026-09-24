@@ -70,7 +70,7 @@ const UpdateSynthesisSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Absolute path to the standalone plan folder whose synthesis should be updated ' +
+      'Absolute path to the plan folder whose synthesis should be updated ' +
       '(e.g. "/repo/docs/agents/plans/2026-06-30-my-feature"). ' +
       'The project must already exist in the ledger. Takes precedence over cwd_path when both are supplied.'
     ),
@@ -78,7 +78,7 @@ const UpdateSynthesisSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Absolute path to the standalone plan folder. Used as a fallback when ' +
+      'Absolute path to the plan folder. Used as a fallback when ' +
       'project_path is not provided. Must point to the plan folder itself (not a ' +
       'parent directory).'
     ),
@@ -362,7 +362,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     };
   }
 
-  // Read root index for pre-lock guard checks (status, runner, staleness).
+  // Read root index for pre-lock guard checks (status, staleness).
   // This is intentionally read twice: once here for cheap fast-fail rejection without holding
   // the lock, and again inside the withLock scope for TOCTOU safety. This mirrors the
   // completeSynthesis pattern in project-lifecycle.ts.
@@ -388,19 +388,6 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
         {
           type: 'text' as const,
           text: `Update failed: project "${slug}" status is "${rootIndexPreLock.status}" — only COMPLETE projects can have their synthesis updated.`,
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  // Guard: project must be a standalone runner.
-  if (rootIndexPreLock.runner !== 'standalone') {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `Update failed: project "${slug}" runner is "${rootIndexPreLock.runner ?? 'unknown'}" — only standalone projects support this tool.`,
         },
       ],
       isError: true,
@@ -551,11 +538,12 @@ export function register(server: McpServer): void {
     'ledger_update_synthesis',
     {
       description:
-        'Updates the outcome summary and archived synthesis.md for an already-imported standalone project. ' +
+        'Updates the outcome summary and archived synthesis.md for a COMPLETE project tracked by the ledger, ' +
+        'regardless of runner (standalone, claude-code, or orchestrator). ' +
         'Re-reads synthesis.md from the original plan folder, re-extracts the outcome summary, ' +
         'overwrites the archived copy in storage, and syncs outcome_summary in the root index and .meta.json. ' +
         'Use this when synthesis.md has been edited after archival (e.g. marking deferred items as done). ' +
-        'Guards: project must exist in ledger, status must be COMPLETE, runner must be standalone, ' +
+        'Guards: project must exist in ledger, status must be COMPLETE, ' +
         'and the project must have been imported within the last 90 days. ' +
         'REQUIRED: either project_path or cwd_path (plan folder path).',
       inputSchema: UpdateSynthesisSchema,

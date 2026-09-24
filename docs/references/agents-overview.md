@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-21
+> **Generated:** 2026-09-23
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -233,14 +233,14 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.15.0)
+### Developer — Standalone (v1.15.1)
 
 **Identity:** Staff Software Engineer
 
 Implement scoped plan documents without ledger workflow, including code insights and end-of-plan synthesis.
 
 - **Use When:** Implementing a plan document outside the ledger workflow (no MCP server needed)
-- **Sub-agents:** Ledger Standalone Archiver
+- **Sub-agents:** Ledger Synthesis Maintainer
 - **Notes:** Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis
 
 ---
@@ -396,14 +396,14 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.7.2)
+### Web GUI Specialist (v1.7.3)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
 Design and implement engaging, visually optimized web app and tool interfaces with strong UX, accessibility, and frontend performance discipline.
 
 - **Use When:** Building or improving a web interface with strong UX, accessibility, and visual polish requirements
-- **Sub-agents:** Ledger Standalone Archiver
+- **Sub-agents:** Ledger Synthesis Maintainer
 
 ---
 
@@ -528,6 +528,17 @@ Determine which pipeline stages should be active for each Work Package based on 
 
 ---
 
+### Ledger Synthesis Maintainer (v2.0.0)
+
+**Identity:** Ledger Archivist
+
+Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its synthesis.md was edited.
+
+- **Modes:** Archive, Update
+- **Use When:** A completed standalone plan should be tracked in the project ledger, or an edited synthesis.md needs its ledger record refreshed
+
+---
+
 ### Ledger WP Decomposer (v1.5.3)
 
 **Identity:** Technical Program Manager — Work Package Analyst
@@ -536,17 +547,6 @@ Analyze a plan document and decompose it into atomic, actionable Work Package de
 
 - **Use When:** Invoked by the Project Manager to break a plan into implementable Work Packages
 - **Key Behavior:** Ensures WPs are atomic, self-contained, and properly scoped for single-session completion
-
----
-
-### Ledger Standalone Archiver (v1.7.1)
-
-**Identity:** Ledger Archivist
-
-Import a completed standalone plan folder into the project ledger for archival and project history, or update the ledger when the user has edited synthesis.md after archival.
-
-- **Modes:** Import, Update
-- **Use When:** A standalone plan has been completed and should be tracked in the project ledger for historical reference
 
 ---
 

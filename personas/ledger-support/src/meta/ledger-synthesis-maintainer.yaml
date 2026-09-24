@@ -1,10 +1,16 @@
-slug: standalone-archiver
-name: "Ledger Standalone Archiver"
-description: "Import a completed standalone plan folder into the project ledger for archival and project history, or update the ledger when the user has edited synthesis.md after archival."
-vs_file_name: standalone-archiver.agent.md
-id: ledger-support-standalone-archiver
-cc_file_name: standalone-archiver.md
+slug: ledger-synthesis-maintainer
+name: "Ledger Synthesis Maintainer"
+description: "Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its synthesis.md was edited."
+vs_file_name: ledger-synthesis-maintainer.agent.md
+id: ledger-support-synthesis-maintainer
+cc_file_name: ledger-synthesis-maintainer.md
 changelog: |
+  2.0.0 (2026-09-23): BREAKING — renamed from Ledger Standalone Archiver to Ledger Synthesis Maintainer
+    (slug `standalone-archiver` -> `ledger-synthesis-maintainer`, matching the suite's `ledger-` prefix;
+    id and output filenames follow); Update mode
+    is now runner-agnostic and maintains the ledger synthesis record of any COMPLETE project, matching
+    the relaxed runner guard on `ledger_update_synthesis`; Import mode renamed to Archive mode and stays
+    standalone-only, since `ledger_import_standalone` is what creates a standalone record
   1.7.1 (2026-09-14): Added `cc_tools` override with explicit `mcp__central_pm__ledger_import_standalone`
     and `mcp__central_pm__ledger_update_synthesis` grants — the raw `central_pm/ledger_*` entries in
     `tools:` are VS Code-only syntax and never resolve under Claude Code `--agent` invocation, which
@@ -41,7 +47,7 @@ cc_tools:
 
 # overview metadata
 identity: "Ledger Archivist"
-use_when: "A standalone plan has been completed and should be tracked in the project ledger for historical reference"
+use_when: "A completed standalone plan should be tracked in the project ledger, or an edited synthesis.md needs its ledger record refreshed"
 modes: |
-  Import
+  Archive
   Update

@@ -47,7 +47,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_delete_insight | id | Permanently delete an insight by UUID |
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 | ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
-| ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for an already-imported standalone project |
+| ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for a COMPLETE project (any runner) |
 | ledger_ping | None | Health check — verify reachability and detect stale instances (use for preflight instead of ledger_help) |
 
 ## Common Mistakes
@@ -1122,9 +1122,10 @@ into a single sorted list. This ensures projects stored across aliased repositor
   ledger_update_synthesis: `
 # ledger_update_synthesis
 
-Updates the outcome summary and archived \`synthesis.md\` for an already-imported standalone project.
-Use this after editing \`synthesis.md\` post-archival (e.g. marking deferred improvements as done) to
-propagate the changes back into the ledger.
+Updates the outcome summary and archived \`synthesis.md\` for a COMPLETE project tracked by the
+ledger, regardless of runner (\`standalone\`, \`claude-code\`, or \`orchestrator\`). Use this after
+editing \`synthesis.md\` post-archival (e.g. marking deferred improvements as done) to propagate
+the changes back into the ledger.
 
 > **⚠ cwd_path semantics differ here:** Like \`ledger_import_standalone\`, both \`project_path\` and
 > \`cwd_path\` point to the **plan folder itself** — not the workspace root.
@@ -1136,11 +1137,10 @@ ${CWD_PATH_PARAM}
 ## Guards (evaluated in order)
 1. **Path required** — rejects calls that supply neither \`project_path\` nor \`cwd_path\`.
 2. **Plan folder naming** — the folder basename must match the \`{YYYY-MM-DD}-{name}\` convention.
-3. **Project must exist** — the project must already have been imported via \`ledger_import_standalone\`.
+3. **Project must exist** — the project must already be tracked in the ledger.
 4. **Status must be COMPLETE** — only finalized projects can have their synthesis updated.
-5. **Runner must be standalone** — ledger workflow projects have their own synthesis lifecycle.
-6. **Staleness guard** — the project must have been imported within the last 90 days.
-7. **\`synthesis.md\` must exist** — the file must be present in the plan folder.
+5. **Staleness guard** — the project must have been imported within the last 90 days.
+6. **\`synthesis.md\` must exist** — the file must be present in the plan folder.
 
 ## Response (on success)
 \`\`\`json

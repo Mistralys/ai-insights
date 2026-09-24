@@ -23,6 +23,6 @@
     "ledger-orchestrator-archaeologist": "Tone fix only",
     "ledger-pipeline-configurator": "First audit — 14 findings, all resolved; Capabilities had never authorised the codebase reads its own criteria required",
     "ledger-wp-decomposer": "First audit — 20 findings, all resolved; roster partial fixed for all 4 pipeline personas",
-    "standalone-archiver": "First audit — 16 findings, all resolved; Inputs described a three-way choice the subagent dispatch never offers, and Outputs omitted the file it writes"
+    "ledger-synthesis-maintainer": "First audit — 16 findings, all resolved; Inputs described a three-way choice the subagent dispatch never offers, and Outputs omitted the file it writes"
   }
 }

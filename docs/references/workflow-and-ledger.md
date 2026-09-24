@@ -387,7 +387,7 @@ Several support personas manage the workflow infrastructure rather than contribu
 | **Ledger Doctor** | Diagnoses and repairs stuck, deadlocked, or corrupted ledger projects |
 | **Ledger Knowledge Archiver** | Extracts and commits insights from completed projects into the knowledge store |
 | **Ledger Knowledge Curator** | Audits knowledge store entries for quality and removes outdated insights |
-| **Ledger Standalone Archiver** | Imports a completed standalone plan folder into the ledger for archival and project history |
+| **Ledger Synthesis Maintainer** | Archives a completed standalone plan folder into the ledger, and refreshes the ledger record of any completed project whose synthesis.md was edited |
 | **Ledger Orchestrator Runner** | Pre-flight checks, launch, and monitoring for Orchestrator runs |
 | **Ledger Orchestrator Archaeologist** | Post-run analysis of Orchestrator logs for issues and performance anomalies |
 | **Ledger Claude Coordinator** | Automates the VS Code Chat pipeline — dispatches agents in order based on ledger state |

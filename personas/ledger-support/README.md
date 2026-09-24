@@ -80,7 +80,7 @@ All 9 ledger-support personas, sourced from `personas/ledger-support/src/meta/*.
 
 | Slug | Name | Description | VS Code file | Claude Code file |
 |------|------|-------------|-------------|------------------|
-| `standalone-archiver` | Standalone Archiver | Import a completed standalone plan folder into the project ledger for archival and project history. | `standalone-archiver.agent.md` | `standalone-archiver.md` |
+| `ledger-synthesis-maintainer` | Synthesis Maintainer | Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its `synthesis.md` was edited. | `ledger-synthesis-maintainer.agent.md` | `ledger-synthesis-maintainer.md` |
 
 ---
 
@@ -118,4 +118,4 @@ node scripts/sync-personas.js --target claude-code
 
 The 9 historically migrated personas in this suite carry `id` values with the `standalone-` prefix (e.g., `id: standalone-ledger-bootstrapper`). These IDs were assigned when the personas lived in the standalone suite and must **never change** — they are VS Code `@id` routing keys. The `standalone-*` prefix is a permanent historical artifact.
 
-> ⚠️ **`standalone-*` namespace is CLOSED to new personas.** New personas added to the `ledger-support` suite must use the `ledger-support-{slug}` prefix (e.g., `id: ledger-support-standalone-archiver`). Never adopt the `standalone-*` prefix for a newly authored persona, even if its slug begins with "standalone-".
+> ⚠️ **`standalone-*` namespace is CLOSED to new personas.** New personas added to the `ledger-support` suite must use the `ledger-support-{slug}` prefix (e.g., `id: ledger-support-synthesis-maintainer`). Never adopt the `standalone-*` prefix for a newly authored persona, even if its slug begins with "standalone-".
