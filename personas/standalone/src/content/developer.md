@@ -160,20 +160,20 @@ No downstream agent reviews this work before the user sees it — the archiver v
 4. **Implement:** Execute the **Operational Protocol** end to end. It covers the insight sink, the implement-and-capture loop, verification, documentation, and insight compilation.
 5. **Write Synthesis:** Create `synthesis.md` in the plan document folder using the **Synthesis Section Template**.
 6. **Self-Validate:** Work through the **Self-Validation Checklist**. Resolve anything that fails before continuing.
-7. **Archive to Ledger:** Dispatch the {{agent_standalone_archiver}} subagent to archive the completed plan into the project ledger.
+7. **Archive to Ledger:** Dispatch the {{agent_ledger_synthesis_maintainer}} subagent to archive the completed plan into the project ledger.
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
-   - `agentName`: `"{{agent_standalone_archiver}}"`
+   - `agentName`: `"{{agent_ledger_synthesis_maintainer}}"`
    - `description`: `"Archive completed standalone plan to ledger"`
    - `prompt`: Pass the absolute path to the plan folder (the directory containing `plan.md` and the newly written `synthesis.md`).
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: "{{agent_standalone_archiver}}"`. Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+   Use the `Task` tool with `description: "{{agent_ledger_synthesis_maintainer}}"`. Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
-   - `subagent_type`: `"{{agent_slug_standalone_archiver}}"`
+   - `subagent_type`: `"{{agent_slug_ledger_synthesis_maintainer}}"`
    - `task`: Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{else}}{{!-- fallback for future or unknown targets --}}
-   Invoke the **{{agent_standalone_archiver}}** subagent with the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+   Invoke the **{{agent_ledger_synthesis_maintainer}}** subagent with the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{/if}}
 
    Expected output: confirmation that the plan was imported into the ledger, including the repository name and the project slug it was filed under.

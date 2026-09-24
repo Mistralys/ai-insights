@@ -315,6 +315,31 @@ describe('ledger_import_standalone — validation errors', () => {
       await rm(badPlanDir, { recursive: true, force: true });
     }
   });
+
+  it('rejects a plan folder with an uppercase segment before any files are written (MS01 regression)', async () => {
+    // Regression coverage: a folder like "2026-09-22-MS01-my-feature" passed the
+    // old date-prefix-only check and got imported, then failed every GUI detail-page
+    // load with "Invalid repo or slug parameter." (assertSafeSlug() rejects the
+    // uppercase segment). validateSlugSafety() must now catch this at import time.
+    const uppercasePlanDir = join(tmpdir(), '2026-09-22-MS01-my-feature');
+    await mkdir(uppercasePlanDir, { recursive: true });
+    await writeFile(join(uppercasePlanDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(uppercasePlanDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    try {
+      const result = await importStandalone({ project_path: uppercasePlanDir });
+      const { isError, text } = parseResult(result);
+
+      expect(isError).toBe(true);
+      expect(text).toContain('all-lowercase');
+
+      // Nothing should have been written to the ledger for the rejected slug.
+      const store = new LedgerStore(uppercasePlanDir, tempLedgerRoot);
+      await expect(store.readRootIndex()).rejects.toThrow();
+    } finally {
+      await rm(uppercasePlanDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── Uses deriveRepoName (AC6) ─────────────────────────────────────────────
@@ -596,22 +621,29 @@ describe('ledger_update_synthesis — guard errors', () => {
     expect(text).toContain('status is "IN_PROGRESS"');
   });
 
-  it('rejects when runner is not standalone (AC-05)', async () => {
-    // Import the project, then manually set runner to something else.
+  it('updates synthesis for a non-standalone runner and leaves runner unchanged (AC-05)', async () => {
+    // Import the project, then manually set runner to a non-standalone value, as would be the
+    // case for a project completed through the full claude-code ledger workflow.
     await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
     await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
     await importStandalone({ project_path: planDir });
 
     const store = new LedgerStore(planDir, tempLedgerRoot);
     const root = await store.readRootIndex();
-    root.runner = 'orchestrator';
+    root.runner = 'claude-code';
     await store.writeRootIndex(root);
 
-    const result = await updateSynthesis({ project_path: planDir });
-    const { isError, text } = parseResult(result);
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
 
-    expect(isError).toBe(true);
-    expect(text).toContain('runner is "orchestrator"');
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, parsed } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.outcome_summary).toContain('Updated outcome summary after post-import edits');
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.outcome_summary).toContain('Updated outcome summary after post-import edits');
+    expect(updatedRoot.runner).toBe('claude-code');
   });
 
   it('rejects when project is older than 90 days (AC-06)', async () => {

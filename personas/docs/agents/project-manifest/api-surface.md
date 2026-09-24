@@ -615,10 +615,10 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `docs-output-format.md` | Agent 8 | *(none)* |
 | `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
-| `summary-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
+| `summary-crafting-guide.md` | Ledger Bootstrapper, Synthesis Maintainer | *(none)* |
 | `research-brief-reference.md` | Standalone Developer, Web GUI Specialist — and, nested, `research-brief-protocol.md` | `{{brief_orientation}}`, `{{brief_purpose}}`, `{{brief_authority}}`. **Reader-facing half:** what a `research-brief.md` is, which entries to orient on, and the three don't-trust / don't-assume-complete / don't-reconstruct constraints. Carries no heading of its own — the including persona supplies `## Research Brief` — and says nothing about appending, since a reader never writes to the brief. Consumers supply the three variables, place the section anywhere after Outputs and before the protocol step that references it, carry a **Research brief** status line in their output template, and reference the brief from the protocol step that opens their codebase-discovery phase. |
 | `research-brief-protocol.md` | Plan Auditor, Plan Architect Reviewer | Nests `research-brief-reference.md`, then adds a `### Contributing Back` section. Adds `{{brief_contribution_point}}`, `{{brief_contributor}}`, `{{brief_report_file}}` on top of the reference partial's three, so authoring consumers supply all six. **Author-facing half:** the 5,000-token size guard, the `[added by: …, unverified]` append format, and the two do-not-append constraints. Reserved for personas that write back to a brief whose plan is not yet implemented — implementers must not include it, because a brief is deleted at archival and anything they append has no reader. Authoring consumers additionally carry a brief-existence workflow checkpoint, a contribute-back step gated on `{{brief_contribution_point}}`, and a **Research brief** line in `{{brief_report_file}}`. The size guard is defined here only — never restate it in a persona. |
-| `title-crafting-guide.md` | Ledger Bootstrapper, Standalone Archiver | *(none)* |
+| `title-crafting-guide.md` | Ledger Bootstrapper, Synthesis Maintainer | *(none)* |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 

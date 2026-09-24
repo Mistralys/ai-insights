@@ -110,7 +110,7 @@ describe('generate-agents-overview.js', () => {
 
   it('contains ledger-support persona headings', () => {
     expect(content).toContain('### Ledger Bootstrapper');
-    expect(content).toContain('### Ledger Standalone Archiver');
+    expect(content).toContain('### Ledger Synthesis Maintainer');
   });
 
   it('contains the summary table with metadata-derived counts', () => {

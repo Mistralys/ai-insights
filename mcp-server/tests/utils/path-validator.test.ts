@@ -4,6 +4,7 @@ import {
   validatePlanPath,
   planFolderBasename,
   assertSafeSegment,
+  validateSlugSafety,
   MAX_SEGMENT_LENGTH,
 } from '../../src/utils/path-validator.js';
 
@@ -200,5 +201,35 @@ describe('assertSafeSegment', () => {
   it('returns false for a very long but otherwise valid segment', () => {
     const veryLong = 'a' + 'b'.repeat(499);
     expect(assertSafeSegment(veryLong)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateSlugSafety
+// ---------------------------------------------------------------------------
+
+describe('validateSlugSafety', () => {
+  it('accepts an all-lowercase date-prefixed slug', () => {
+    const result = validateSlugSafety('2026-09-22-ms01-coma-config-model-decomposition');
+    expect(result.isValid).toBe(true);
+    expect(result.error).toBeUndefined();
+  });
+
+  it('rejects a slug with an uppercase segment (the MS01-style regression)', () => {
+    const result = validateSlugSafety('2026-09-22-MS01-coma-config-model-decomposition');
+    expect(result.isValid).toBe(false);
+    expect(result.error).toContain('all-lowercase');
+    expect(result.error).toContain('2026-09-22-MS01-coma-config-model-decomposition');
+    // Suggests the corrected lowercase form as an actionable next step.
+    expect(result.error).toContain('2026-09-22-ms01-coma-config-model-decomposition');
+  });
+
+  it('rejects a slug containing spaces or underscores', () => {
+    expect(validateSlugSafety('2026-09-22-my feature').isValid).toBe(false);
+    expect(validateSlugSafety('2026-09-22-my_feature').isValid).toBe(false);
+  });
+
+  it('rejects an empty string', () => {
+    expect(validateSlugSafety('').isValid).toBe(false);
   });
 });

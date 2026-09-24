@@ -1,5 +1,21 @@
 # Personas Changelog
 
+## v3.34.0 - Synthesis Maintainer
+
+**The Standalone Archiver is now the Ledger Synthesis Maintainer, and its Update mode serves
+projects from any runner.** Correcting a `synthesis.md` after a project completes is a normal
+maintenance act rather than a standalone-only escape hatch, so the persona that owns the ledger's
+synthesis record now covers the whole roster of runners.
+
+- Renamed: `standalone-archiver` is now `ledger-synthesis-maintainer`, matching the suite's `ledger-` prefix (id `ledger-support-synthesis-maintainer`,
+  output files follow). Import mode is now Archive mode.
+- Changed: Update mode applies to any COMPLETE project the ledger tracks, not just standalone imports.
+  Archive mode stays standalone-only — `ledger_import_standalone` is what creates a standalone record.
+- Changed: The Standalone Developer and Web GUI Specialist dispatch the renamed subagent; behaviour
+  is unchanged.
+- Note: Update mode's runner reach depends on the matching `ledger_update_synthesis` guard change in
+  the MCP server.
+
 ## v3.33.0 - Agent Picker Role Labels
 
 - Outputs: Standalone Claude Code personas now emit a `role` field for picker-friendly labels.

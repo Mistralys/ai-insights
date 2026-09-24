@@ -1380,7 +1380,7 @@ project.synthesis_generated === true?
 
 ---
 
-## Flow 17: Standalone Project Import (Multi-Store Routing)
+## Flow 17: Standalone Import & Synthesis Update (Multi-Store Routing)
 
 **Entry Point:** Agent invokes `ledger_import_standalone` or `ledger_update_synthesis` tool.
 
@@ -1415,7 +1415,7 @@ store.importStandaloneProject({ ... })  ← LedgerStore handles locking internal
 Return import result + archived_documents to agent
 ```
 
-### Flow 17b: Update synthesis on an existing standalone project (`updateSynthesis`)
+### Flow 17b: Update synthesis on a tracked project (`updateSynthesis`)
 
 Read-then-write path — uses `resolveMultiStoreLedgerRoot` (same as MCP tool handlers).
 
@@ -1434,15 +1434,20 @@ ledgerRoot = await resolveMultiStoreLedgerRoot(planPath, undefined)
   ↓
 new LedgerStore(ledgerRoot ?? planPath)  ← resolves storageDir from correct store
   ↓
-Pre-lock reads (fast-fail guards outside lock scope):
-  store.readRootIndex()   ← guard 1: project must exist in this store
-  Check project status !== COMPLETE or synthesis_generated !== true  ← guard 2
+Pre-lock guards (fast-fail outside lock scope):
+  store.ledgerDirExists()  ← guard 1: project must already exist in this store
+  rootIndex.status !== 'COMPLETE'  ← guard 2 (runner is not inspected — any runner qualifies)
+  age of synthesis_generated_at (falling back to date_created) > MAX_SYNTHESIS_UPDATE_AGE_DAYS  ← guard 3
+  synthesis.md missing from the plan folder  ← guard 4
+  ↓
+outcomeSummary = parseOutcomeSummary(synthesis.md read from the plan folder)
   ↓
 withLock(store.storageDir, async () => {
   store.readRootIndex()  ← re-read inside lock (TOCTOU safety)
-  Re-apply guards inside lock
-  store.writeRootIndex({ ...root, synthesis_generated: true, outcome_summary })
-  store.archiveDocuments([synthesis_file])  ← best-effort copy inside lock
+  rootIndex.outcome_summary = outcomeSummary
+  rootIndex.last_updated = now()
+  store.writeRootIndex(rootIndex)         ← runner left untouched
+  store.archiveDocuments(['synthesis.md'])  ← overwrite archived copy inside lock
 })
   ↓
 Return update result + archived_documents to agent
@@ -1451,6 +1456,7 @@ Return update result + archived_documents to agent
 **Key properties:**
 - `importStandalone` follows the exact same multi-store routing pattern as `initializeProject` — both call `resolveStoreForWrite(repoName)` for the write target.
 - `updateSynthesis` follows the MCP tool handler pattern — uses `resolveMultiStoreLedgerRoot(planPath, undefined)` (no `_ledgerRoot` parameter in this handler).
+- `importStandalone` creates `runner: 'standalone'` records only, while `updateSynthesis` operates on any `COMPLETE` project the ledger tracks whatever its `runner`. The update path reads the runner for no decision and never writes it.
 - In single-store mode both handlers fall through to `new LedgerStore(planPath)` / `new LedgerStore(undefined ?? planPath)` — backward-compatible with no behavior change.
 - Unregistered repos in multi-store mode produce a structured, actionable error (not a crash or silent default-store write).
 
