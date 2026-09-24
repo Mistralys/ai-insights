@@ -1074,6 +1074,48 @@ describe('initializeProject — rejects re-initialization when ledger exists (FI
 });
 
 // ---------------------------------------------------------------------------
+// Regression — reject uppercase plan-folder slugs at creation time (MS01)
+// A folder like "2026-09-22-MS01-my-feature" passed the old date-prefix-only
+// validatePlanPath() check and got initialized, then failed every GUI
+// detail-page load with "Invalid repo or slug parameter." (assertSafeSlug()
+// rejects the uppercase segment downstream). validateSlugSafety() now catches
+// this before the ledger directory is ever created.
+// ---------------------------------------------------------------------------
+describe('initializeProject — rejects uppercase plan-folder slugs (MS01 regression)', () => {
+  let tempLedgerRoot: string;
+  let planDir: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'uppercase-slug-reject-'));
+    planDir = join(tmpdir(), '2026-09-22-MS01-my-feature');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('returns an actionable error and creates no ledger directory', async () => {
+    const result = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toContain('all-lowercase');
+    expect((result as any).content[0].text).toContain('2026-09-22-ms01-my-feature');
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    await expect(store.readRootIndex()).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Regression — MCP extra-argument leak (_ledgerRoot type guard)
 // Bug reported: 2026-03-01 (docs/agents/plans/2026-03-01-.../pm-findings.md)
 // ---------------------------------------------------------------------------

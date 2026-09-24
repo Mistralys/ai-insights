@@ -10,7 +10,7 @@ import { StoreNotRegisteredError } from '../storage/store-router.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
 import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { parseOutcomeSummary } from '../utils/synthesis-parser.js';
-import { planFolderBasename } from '../utils/path-validator.js';
+import { planFolderBasename, validateSlugSafety } from '../utils/path-validator.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
@@ -30,7 +30,9 @@ export const ImportStandaloneSchema = z.object({
       'Absolute path to the standalone plan folder to import (e.g. ' +
       '"/repo/docs/agents/plans/2026-06-30-my-feature"). ' +
       'The folder must follow the {YYYY-MM-DD}-{name} naming convention and contain ' +
-      'plan.md and synthesis.md. Takes precedence over cwd_path when both are supplied.'
+      'plan.md and synthesis.md. The {name} portion must be all-lowercase (letters, digits, ' +
+      'hyphens only) — an uppercase segment (e.g. "MS01") is rejected, since the GUI can list ' +
+      'but never open such a slug. Takes precedence over cwd_path when both are supplied.'
     ),
   cwd_path: z
     .string()
@@ -38,7 +40,8 @@ export const ImportStandaloneSchema = z.object({
     .describe(
       'Absolute path to the standalone plan folder. Used as a fallback when ' +
       'project_path is not provided. Must point to the plan folder itself (not a ' +
-      'parent directory) and must satisfy the {YYYY-MM-DD}-{name} naming convention.'
+      'parent directory) and must satisfy the {YYYY-MM-DD}-{name} naming convention, with an ' +
+      'all-lowercase {name} portion.'
     ),
   project_summary: z
     .string()
@@ -146,6 +149,13 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
       content: [{ type: 'text' as const, text: `Error: ${(error as Error).message}` }],
       isError: true,
     };
+  }
+
+  // Reject slugs the GUI can list but never open (see validateSlugSafety() JSDoc).
+  // Creation-time-only check — this handler only runs for first-time imports.
+  const slugSafety = validateSlugSafety(slug);
+  if (!slugSafety.isValid) {
+    return { content: [{ type: 'text' as const, text: slugSafety.error }], isError: true };
   }
 
   // Check plan.md exists.

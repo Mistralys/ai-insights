@@ -315,6 +315,31 @@ describe('ledger_import_standalone — validation errors', () => {
       await rm(badPlanDir, { recursive: true, force: true });
     }
   });
+
+  it('rejects a plan folder with an uppercase segment before any files are written (MS01 regression)', async () => {
+    // Regression coverage: a folder like "2026-09-22-MS01-my-feature" passed the
+    // old date-prefix-only check and got imported, then failed every GUI detail-page
+    // load with "Invalid repo or slug parameter." (assertSafeSlug() rejects the
+    // uppercase segment). validateSlugSafety() must now catch this at import time.
+    const uppercasePlanDir = join(tmpdir(), '2026-09-22-MS01-my-feature');
+    await mkdir(uppercasePlanDir, { recursive: true });
+    await writeFile(join(uppercasePlanDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(uppercasePlanDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    try {
+      const result = await importStandalone({ project_path: uppercasePlanDir });
+      const { isError, text } = parseResult(result);
+
+      expect(isError).toBe(true);
+      expect(text).toContain('all-lowercase');
+
+      // Nothing should have been written to the ledger for the rejected slug.
+      const store = new LedgerStore(uppercasePlanDir, tempLedgerRoot);
+      await expect(store.readRootIndex()).rejects.toThrow();
+    } finally {
+      await rm(uppercasePlanDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── Uses deriveRepoName (AC6) ─────────────────────────────────────────────

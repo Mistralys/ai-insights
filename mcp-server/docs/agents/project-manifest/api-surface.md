@@ -3517,6 +3517,17 @@ function assertSafeSegment(segment: string): boolean;
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
 function planFolderBasename(projectPath: string): string;
 
+// Validates a plan-folder basename against assertSafeSegment() / SAFE_SLUG_REGEX (all-lowercase
+// alphanumeric + hyphens) — the same rule the GUI enforces on every /api/projects/:repo/:slug
+// route. planFolderBasename()/validatePlanPath() only check the YYYY-MM-DD- date prefix and
+// accept any casing after it; a slug that fails this check loads in the GUI project list but
+// fails "Invalid repo or slug parameter." the moment it's opened. Call ONLY at project
+// creation/import boundaries (initializeProject(), importStandalone()) — never at read/update
+// call sites, since existing on-disk projects created before this check existed must remain
+// readable. Non-throwing; error string suggests the corrected lowercase form.
+// Exported from src/utils/path-validator.ts.
+function validateSlugSafety(folderName: string): { isValid: boolean; error?: string };
+
 // Resolves the project path from either an explicit project_path or a cwd_path.
 // Resolution order:
 //   0. If BOTH project_path and cwd_path are provided: throws Error(MUTUAL_EXCLUSIVITY_PATH_MSG).
