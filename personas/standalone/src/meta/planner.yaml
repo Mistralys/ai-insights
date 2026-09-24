@@ -5,6 +5,10 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.5.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
+    **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
+    Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
+    completed before the run or follow-ups after it; checklist item added
   2.4.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task

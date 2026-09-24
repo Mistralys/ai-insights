@@ -7,6 +7,10 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.9.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
+    **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
+    Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
+    completed before the run or follow-ups after it; checklist item added
   2.8.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this

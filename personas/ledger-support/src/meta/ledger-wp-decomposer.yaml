@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.6.0 (2026-09-24): A user action never becomes a WP — one blocks every WP behind it until cancelled
+    by hand, since the pipeline cannot pause for a person; Step 2 and a new constraint route such actions
+    into a `## Human Actions` section of the draft, marked as prerequisites or follow-ups, with a
+    checklist item covering it
   1.5.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona

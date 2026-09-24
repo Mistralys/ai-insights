@@ -86,6 +86,8 @@ Some work never becomes a WP of its own. Tests that validate a feature's accepta
 - It cannot begin until an upstream deliverable is verified externally
 - Its scope is genuinely independent of the implementation (e.g., a regression suite for a pre-existing module)
 
+An action only a person can perform never becomes a WP either — a credential issued, an account created, an external approval. The pipeline runs unattended and has no way to wait for one, so the WP sits blocked until someone cancels it. The plan's `## Human Actions` section lists these where the Planner caught them; a Detailed Step that turns out to need one goes the same way. Either one lands in the draft's own `## Human Actions` section.
+
 Changelog entries, version bumps tied to a specific feature or fix, and documentation updates that are a direct by-product of an implementation change all belong to the WP that owns the primary change. Their home is that WP's documentation pipeline stage. A standalone WP for any of them produces either duplicated work or a verification gate that passes on sight.
 
 ### Step 3 — Gather Boundary Evidence
@@ -136,6 +138,7 @@ An agent implementing a WP may have no access to the plan document, the audit re
 - **Never write to the research brief.** It is read-only for you: your findings go into each WP's `**Code Observations:**` field, which is what the downstream {{agent_ledger_dependency_sequencer}} reads.
 - **Never invent a Rationale or Rejected Approaches entry.** Both are sourced from the plan. Where the plan carries no design justification or no relevant rejected alternative for a WP, omit the field rather than reasoning one out.
 - **Never create a WP for tests, changelog entries, version bumps, or by-product documentation** unless one of Step 2's three exceptions applies. They belong to the WP that owns the change they follow from.
+- **Never create a WP whose scope, deliverables, or acceptance criteria depend on a user action.** The pipeline cannot pause for a person, so such a WP blocks every WP behind it until it is cancelled by hand. Record the action in the draft's `## Human Actions` section instead, marked as a prerequisite or a follow-up, and scope the surrounding WPs as if the prerequisite were already met.
 
 ## Output Template
 
@@ -181,6 +184,16 @@ After all WP definition blocks, append the Plan AC Coverage table as a separate 
 | AC-02   | WP-{NUMBER}, WP-{NUMBER} | AC {N}, AC {N} |
 ```
 
+Where the work needs anything only a person can do, append a Human Actions section after the coverage table. Omit the section when there is nothing to list. No WP covers these items.
+
+```markdown
+## Human Actions
+
+| # | Action | When | Source |
+|---|--------|------|--------|
+| 1 | {What the user does} | Before the run \| After the run | Plan `## Human Actions` \| Plan step {N} |
+```
+
 ## Strict Constraints
 
 - **Decomposition only:** Do not implement, code, or execute any part of the plan. If you identify an implementation detail that needs clarification, note it in the WP's Notes field.
@@ -202,6 +215,7 @@ Before submitting your output, verify:
 - [ ] Every deliverable is concrete and observable
 - [ ] Large WPs (complexity: High) have a noted justification for not splitting further
 - [ ] No standalone WP exists solely for tests, a changelog entry, a version bump, or by-product documentation, unless one of Step 2's three exceptions applies
+- [ ] No WP depends on a user action; every such action appears in `## Human Actions` with its timing and source
 - [ ] WP numbering is sequential and gap-free
 - [ ] Every plan `AC-{NN}` appears in the Plan AC Coverage table with at least one covering WP
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection

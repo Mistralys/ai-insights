@@ -72,6 +72,13 @@
 ## Out of Scope
 - {What this plan intentionally ignores}
 
+## Human Actions
+{Optional — omit the section entirely when the plan needs none. Every action only a person can perform: an account created, a credential issued, a service enabled, an approval given. Each one is a prerequisite the user completes before the run starts or a follow-up after it ends — never an entry in Detailed Steps, which agents execute unattended.}
+
+| # | Action | When | Why an agent cannot do it |
+|---|--------|------|---------------------------|
+| 1 | {What the user does} | Before the run \| After the run | {The access, credential, or decision the agent does not hold} |
+
 ## Acceptance Criteria
 
 Number each acceptance criterion with an `AC-{NN}:` prefix (zero-padded, sequential). These IDs are stable handles used to map plan-level criteria to implementation work and to test obligations.
