@@ -5,6 +5,18 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.0.0 (2026-09-24): Recast the coordinator from a stage-by-stage dispatcher into a monitor that
+    reseeds a self-advancing chain, since ledger agents already follow `auto_handoff` to dispatch
+    their own successors. A dispatch is now a seed; the Dispatch Protocol is the Monitoring
+    Protocol, running once per run instead of per stage. Sub-agent nesting and ledger handoff
+    depth caps mean most runs end short of COMPLETE, now treated as a routing disruption to
+    repair — restart role comes from `ledger_get_handoff_status`, not `assigned_to` or pipeline
+    order. Also fixes "still running" reports with no agent active: step 7 now reads progress off
+    `ledger_get_project_status` (a chain one level below is otherwise invisible), and a run counts
+    as active only while a dispatch is unreturned or a background completion is outstanding.
+    Since Claude Code backgrounds sub-agents by default (v2.1.198+) with no way to enumerate them,
+    dispatches now pass `run_in_background: false` so a returned dispatch reliably means the chain
+    stopped. The Status Report gained `Chain ran`, `Stopped at`, and `Restart` lines.
   2.1.0 (2026-09-16): Reduced the dispatch prompt to the project path, matching
     `buildHandoffPrompt()` in `mcp-server/src/utils/workflow-helpers.ts` — the ledger's own
     auto-handoff prompt is `Project path: {planFolder}` and nothing else, prefixed with `@{agentId}`
