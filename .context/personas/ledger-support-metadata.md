@@ -23,8 +23,8 @@ _SOURCE: YAML metadata for all 9 ledger-support personas (shared defaults + per-
                 └── ledger-orchestrator-archaeologist.yaml
                 └── ledger-orchestrator-runner.yaml
                 └── ledger-pipeline-configurator.yaml
+                └── ledger-synthesis-maintainer.yaml
                 └── ledger-wp-decomposer.yaml
-                └── standalone-archiver.yaml
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/_shared.yaml`
@@ -113,6 +113,18 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.0.0 (2026-09-24): Recast the coordinator from a stage-by-stage dispatcher into a monitor that
+    reseeds a self-advancing chain, since ledger agents already follow `auto_handoff` to dispatch
+    their own successors. A dispatch is now a seed; the Dispatch Protocol is the Monitoring
+    Protocol, running once per run instead of per stage. Sub-agent nesting and ledger handoff
+    depth caps mean most runs end short of COMPLETE, now treated as a routing disruption to
+    repair — restart role comes from `ledger_get_handoff_status`, not `assigned_to` or pipeline
+    order. Also fixes "still running" reports with no agent active: step 7 now reads progress off
+    `ledger_get_project_status` (a chain one level below is otherwise invisible), and a run counts
+    as active only while a dispatch is unreturned or a background completion is outstanding.
+    Since Claude Code backgrounds sub-agents by default (v2.1.198+) with no way to enumerate them,
+    dispatches now pass `run_in_background: false` so a returned dispatch reliably means the chain
+    stopped. The Status Report gained `Chain ran`, `Stopped at`, and `Restart` lines.
   2.1.0 (2026-09-16): Reduced the dispatch prompt to the project path, matching
     `buildHandoffPrompt()` in `mcp-server/src/utils/workflow-helpers.ts` — the ledger's own
     auto-handoff prompt is `Project path: {planFolder}` and nothing else, prefixed with `@{agentId}`
@@ -545,70 +557,22 @@ identity: "Technical Program Manager — Pipeline Stage Analyst"
 use_when: "Invoked by the Project Manager to determine which pipeline stages each WP should go through"
 
 ```
-###  Path: `/personas/ledger-support/src/meta/ledger-wp-decomposer.yaml`
+###  Path: `/personas/ledger-support/src/meta/ledger-synthesis-maintainer.yaml`
 
 ```yaml
-slug: ledger-wp-decomposer
-name: "Ledger WP Decomposer"
-description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
-vs_file_name: ledger-wp-decomposer.agent.md
-id: standalone-ledger-wp-decomposer
-cc_file_name: ledger-wp-decomposer.md
-audit_guide_version: "3.4"
-audit_date: "2026-08-27"
-
+slug: ledger-synthesis-maintainer
+name: "Ledger Synthesis Maintainer"
+description: "Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its synthesis.md was edited."
+vs_file_name: ledger-synthesis-maintainer.agent.md
+id: ledger-support-synthesis-maintainer
+cc_file_name: ledger-synthesis-maintainer.md
 changelog: |
-  1.5.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
-    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
-    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
-    dispatches no sub-agents
-  1.5.2 (2026-09-10): Missing-brief report drops the stale gitignore rationale — the remedy is a fresh Planner write against the current codebase, not a workaround
-  1.5.1 (2026-08-28): A missing research brief is now reported as a gitignored file only the Planner can regenerate, instead of as a failed upstream stage; the PM gates the check before dispatch
-  1.5.0 (2026-08-28): Consumes the Planner's research-brief.md as a required input — Step 3 now checks Verified References and the Scope Sketch before opening any source file, Code Observations mark each finding [brief] or [verified], and the brief's Structural Observations are barred as a WP source since the Planner already resolved them
-  1.4.0 (2026-08-27): Audit compliance (guide v3.4) — Inputs now state the Project Manager's dispatch contract instead of hedging against an absent plan; split boundary evidence-gathering from boundary assertion per Pattern 14; promoted two protocol imperatives into philosophy principles; consolidated protocol constraints into their own block; deliverable-AC parity now stated once
-  1.3.1 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0
-  1.3.0 (2026-07-09): Deliverable-AC parity enforcement; Step 4 gains coverage test for state-changing operations; two quality checklist items added; strict constraint added requiring every deliverable to trace to a covering AC
-  1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
-  1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
-  1.0.7 (2026-06-04): Minor output format tweaks
-  1.0.6 (2026-06-03): Minor refinements
-  1.0.5 (2026-05-19): Added Plan Context, Rationale, Rejected Approaches; improved handoff
-  1.0.4 (2026-04-30): Overall improvements
-  1.0.0 (2026-04-11): Initial release — plan decomposition into atomic WP definitions
-
-tools:
-  - read
-  - edit
-  - search
-
-# cc_tools: explicit list required — the builder resolves cc_tools from
-# cc_tools → tools (never default_cc_tools), so the VS Code tools list
-# would be used otherwise, and none of its names resolve under Claude Code.
-# No Bash and no web access, matching the narrow vs-code grant.
-cc_tools:
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-
-# overview metadata
-identity: "Technical Program Manager — Work Package Analyst"
-use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages"
-key_behavior: |
-  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion
-
-```
-###  Path: `/personas/ledger-support/src/meta/standalone-archiver.yaml`
-
-```yaml
-slug: standalone-archiver
-name: "Ledger Standalone Archiver"
-description: "Import a completed standalone plan folder into the project ledger for archival and project history, or update the ledger when the user has edited synthesis.md after archival."
-vs_file_name: standalone-archiver.agent.md
-id: ledger-support-standalone-archiver
-cc_file_name: standalone-archiver.md
-changelog: |
+  2.0.0 (2026-09-23): BREAKING — renamed from Ledger Standalone Archiver to Ledger Synthesis Maintainer
+    (slug `standalone-archiver` -> `ledger-synthesis-maintainer`, matching the suite's `ledger-` prefix;
+    id and output filenames follow); Update mode
+    is now runner-agnostic and maintains the ledger synthesis record of any COMPLETE project, matching
+    the relaxed runner guard on `ledger_update_synthesis`; Import mode renamed to Archive mode and stays
+    standalone-only, since `ledger_import_standalone` is what creates a standalone record
   1.7.1 (2026-09-14): Added `cc_tools` override with explicit `mcp__central_pm__ledger_import_standalone`
     and `mcp__central_pm__ledger_update_synthesis` grants — the raw `central_pm/ledger_*` entries in
     `tools:` are VS Code-only syntax and never resolve under Claude Code `--agent` invocation, which
@@ -645,9 +609,78 @@ cc_tools:
 
 # overview metadata
 identity: "Ledger Archivist"
-use_when: "A standalone plan has been completed and should be tracked in the project ledger for historical reference"
+use_when: "A completed standalone plan should be tracked in the project ledger, or an edited synthesis.md needs its ledger record refreshed"
 modes: |
-  Import
+  Archive
   Update
+
+```
+###  Path: `/personas/ledger-support/src/meta/ledger-wp-decomposer.yaml`
+
+```yaml
+slug: ledger-wp-decomposer
+name: "Ledger WP Decomposer"
+description: "Decompose a plan document into atomic, actionable Work Package definitions, and check the finished set on a second consistency pass."
+vs_file_name: ledger-wp-decomposer.agent.md
+id: standalone-ledger-wp-decomposer
+cc_file_name: ledger-wp-decomposer.md
+audit_guide_version: "3.4"
+audit_date: "2026-08-27"
+
+changelog: |
+  1.7.1 (2026-09-24): Mode arbitration no longer contradicts itself — the dispatched mode is
+    authoritative, a Decompose dispatch overwrites an existing draft instead of halting on it, and only
+    a Consistency Pass with no draft to read stops the session; the pass record states `7 of 7` rather
+    than inviting a partial count
+  1.7.0 (2026-09-24): Gained a second mode — Consistency Pass, dispatched separately by the Project
+    Manager over the finished draft. A per-WP checklist cannot see a property of the set, and the session
+    that drew the boundaries holds the reasoning that makes them look self-evident, so the pass runs in a
+    fresh session with seven set-level checks: plan step coverage, AC coverage agreement, scope
+    exclusivity, reference integrity, granularity spread, unattended execution, deliverable-AC parity.
+    Constraints bar re-decomposition and ordering resolution; the mandatory `## Consistency Pass` block
+    keeps a clean pass distinguishable from one that never ran
+  1.6.0 (2026-09-24): A user action never becomes a WP — one blocks every WP behind it until cancelled
+    by hand, since the pipeline cannot pause for a person; Step 2 and a new constraint route such actions
+    into a `## Human Actions` section of the draft, marked as prerequisites or follow-ups, with a
+    checklist item covering it
+  1.5.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
+    through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
+    and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
+    dispatches no sub-agents
+  1.5.2 (2026-09-10): Missing-brief report drops the stale gitignore rationale — the remedy is a fresh Planner write against the current codebase, not a workaround
+  1.5.1 (2026-08-28): A missing research brief is now reported as a gitignored file only the Planner can regenerate, instead of as a failed upstream stage; the PM gates the check before dispatch
+  1.5.0 (2026-08-28): Consumes the Planner's research-brief.md as a required input — Step 3 now checks Verified References and the Scope Sketch before opening any source file, Code Observations mark each finding [brief] or [verified], and the brief's Structural Observations are barred as a WP source since the Planner already resolved them
+  1.4.0 (2026-08-27): Audit compliance (guide v3.4) — Inputs now state the Project Manager's dispatch contract instead of hedging against an absent plan; split boundary evidence-gathering from boundary assertion per Pattern 14; promoted two protocol imperatives into philosophy principles; consolidated protocol constraints into their own block; deliverable-AC parity now stated once
+  1.3.1 (2026-08-26): Rewrote Operating Philosophy into indicative mood per design guide v3.0
+  1.3.0 (2026-07-09): Deliverable-AC parity enforcement; Step 4 gains coverage test for state-changing operations; two quality checklist items added; strict constraint added requiring every deliverable to trace to a covering AC
+  1.2.0 (2026-07-06): Added codebase verification capability; Step 2 gains targeted code checks for scope sizing, coupling detection, and separation confirmation; output template gains Code Observations field for downstream reuse by Dependency Sequencer
+  1.1.0 (2026-07-03): Decomposition Protocol gains Step 3 (Map Plan AC to WPs); Step 4 Write WP Definitions renumbered; Plan AC Coverage table added to Output Template; quality checklist item added for full AC coverage
+  1.0.7 (2026-06-04): Minor output format tweaks
+  1.0.6 (2026-06-03): Minor refinements
+  1.0.5 (2026-05-19): Added Plan Context, Rationale, Rejected Approaches; improved handoff
+  1.0.4 (2026-04-30): Overall improvements
+  1.0.0 (2026-04-11): Initial release — plan decomposition into atomic WP definitions
+
+tools:
+  - read
+  - edit
+  - search
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, and none of its names resolve under Claude Code.
+# No Bash and no web access, matching the narrow vs-code grant.
+cc_tools:
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+
+# overview metadata
+identity: "Technical Program Manager — Work Package Analyst"
+use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages, then again to check the finished draft"
+key_behavior: |
+  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion; the second dispatch checks the set in a fresh session
 
 ```

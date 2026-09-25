@@ -197,26 +197,25 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 ```typescript
 (args: {
-  project_path?: string;  // Absolute path to the standalone plan folder. Takes precedence over cwd_path.
+  project_path?: string;  // Absolute path to the plan folder. Takes precedence over cwd_path.
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
 }) => Promise<MCPResult>
 ```
 
-Updates the `outcome_summary` and archived `synthesis.md` for an already-imported standalone project. Use this when `synthesis.md` has been edited after archival (e.g. marking deferred improvements as done) to propagate the changes back into the ledger.
+Updates the `outcome_summary` and archived `synthesis.md` for a project the ledger already tracks, regardless of its `runner`. Use this when `synthesis.md` has been edited after the project reached `COMPLETE` (e.g. marking deferred improvements as done) to propagate the changes back into the ledger.
 
 **Guards (evaluated in order):**
 1. **Path required** — rejects calls that supply neither `project_path` nor `cwd_path`.
 2. **Plan folder naming** — the folder basename must match the `{YYYY-MM-DD}-{name}` convention.
 3. **Project must exist** — `store.ledgerDirExists()` must return `true`; the project must already be imported.
 4. **Status must be COMPLETE** — rejects with `"status is "…""` when the project is not in `COMPLETE` state.
-5. **Runner must be standalone** — rejects with `"runner is "…""` when `runner !== 'standalone'`.
-6. **Staleness guard** — compares `synthesis_generated_at` (falling back to `date_created`) against the current clock; rejects when the project is more than `MAX_SYNTHESIS_UPDATE_AGE_DAYS` (90) days old.
-7. **`synthesis.md` must exist** — rejects when the file is absent from the plan folder.
+5. **Staleness guard** — compares `synthesis_generated_at` (falling back to `date_created`) against the current clock; rejects when the project is more than `MAX_SYNTHESIS_UPDATE_AGE_DAYS` (90) days old.
+6. **`synthesis.md` must exist** — rejects when the file is absent from the plan folder.
 
 **Outcome summary extraction:** Re-reads `synthesis.md` from the plan folder and calls `parseOutcomeSummary()`. The extracted summary replaces the existing `outcome_summary` in the root index.
 
-**Storage writes:** Inside a `withLock(store.storageDir)` scope — reads root index (TOCTOU safety), mutates `outcome_summary` and `last_updated`, calls `store.writeRootIndex()` (auto-syncs `.meta.json`), then calls `store.archiveDocuments(['synthesis.md'])` to overwrite the archived copy.
+**Storage writes:** Inside a `withLock(store.storageDir)` scope — reads root index (TOCTOU safety), mutates `outcome_summary` and `last_updated`, calls `store.writeRootIndex()` (auto-syncs `.meta.json`), then calls `store.archiveDocuments(['synthesis.md'])` to overwrite the archived copy. `runner` is never written, so the record keeps the runner its original import or workflow run assigned.
 
 **Response shape (on success):**
 
@@ -3535,6 +3534,17 @@ function assertSafeSegment(segment: string): boolean;
 // Extracts the plan folder basename and validates the YYYY-MM-DD naming convention.
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
 function planFolderBasename(projectPath: string): string;
+
+// Validates a plan-folder basename against assertSafeSegment() / SAFE_SLUG_REGEX (all-lowercase
+// alphanumeric + hyphens) — the same rule the GUI enforces on every /api/projects/:repo/:slug
+// route. planFolderBasename()/validatePlanPath() only check the YYYY-MM-DD- date prefix and
+// accept any casing after it; a slug that fails this check loads in the GUI project list but
+// fails "Invalid repo or slug parameter." the moment it's opened. Call ONLY at project
+// creation/import boundaries (initializeProject(), importStandalone()) — never at read/update
+// call sites, since existing on-disk projects created before this check existed must remain
+// readable. Non-throwing; error string suggests the corrected lowercase form.
+// Exported from src/utils/path-validator.ts.
+function validateSlugSafety(folderName: string): { isValid: boolean; error?: string };
 
 // Resolves the project path from either an explicit project_path or a cwd_path.
 // Resolution order:

@@ -499,8 +499,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-orchestrator-archaeologist.md
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
+    │   │   ├── ledger-synthesis-maintainer.md
     │   │   ├── ledger-wp-decomposer.md
-    │   │   ├── standalone-archiver.md
     │   ├── deep-agents/
     │   │   ├── ledger-bootstrapper.md
     │   │   ├── ledger-claude-coordinator.md
@@ -511,8 +511,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-orchestrator-archaeologist.md
     │   │   ├── ledger-orchestrator-runner.md
     │   │   ├── ledger-pipeline-configurator.md
+    │   │   ├── ledger-synthesis-maintainer.md
     │   │   ├── ledger-wp-decomposer.md
-    │   │   ├── standalone-archiver.md
     │   ├── vs-code/
     │   │   └── ledger-bootstrapper.agent.md
     │   │   └── ledger-claude-coordinator.agent.md
@@ -523,8 +523,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── ledger-orchestrator-archaeologist.agent.md
     │   │   └── ledger-orchestrator-runner.agent.md
     │   │   └── ledger-pipeline-configurator.agent.md
+    │   │   └── ledger-synthesis-maintainer.agent.md
     │   │   └── ledger-wp-decomposer.agent.md
-    │   │   └── standalone-archiver.agent.md
     ├── ledger/
     │   ├── README.md
     │   ├── claude-code/
@@ -597,6 +597,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── planner-quality-checklist.md
     │   │   └── planner-research-brief-template.md
     │   │   └── pm-subagent-roster.md
+    │   │   └── refinement-pass-label.md
     │   │   └── research-brief-protocol.md
     │   │   └── research-brief-reference.md
     │   │   └── summary-crafting-guide.md

@@ -37,6 +37,13 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.10.0 (2026-09-25): The audit counter now carries a per-model tally — a rework dispatch naming a
+    refinement pass label increments that label's count beside the total, so a plan refined by two models
+    records both without the section growing past two lines
+  2.9.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
+    **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
+    Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
+    completed before the run or follow-ups after it; checklist item added
   2.8.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -143,6 +150,10 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.10.0 (2026-09-24): Dispatches the WP Decomposer twice — the new step 6 runs its Consistency Pass over
+    the draft before the Dependency Sequencer sees it, and the next stage is gated on the
+    `## Consistency Pass` block the pass leaves behind; both Decomposer dispatches now name their mode,
+    since an unnamed one decomposes again and overwrites the draft
   3.9.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
     but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
     `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
@@ -208,7 +219,7 @@ mcp_tools:
   - tool: ledger_get_project_status
     purpose: Read the root index (self-heals incorrect counters). Use to verify the ledger after creation.
   - tool: ledger_get_work_package
-    purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
+    purpose: Read full detail for a specific WP — used in Step 10 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
 

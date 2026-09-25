@@ -430,6 +430,7 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.15.1 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.15.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Contextual Analysis starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.14.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; synthesis template renders both subsections, omitting whichever is empty
   1.13.0 (2026-08-27): Paired v3.3 audit with the ledger twin — cc_tools regained Task, Write and Glob, which the archiver dispatch and synthesis writes required but the override had removed; gained the Atomic Changes constraint; No Stale Counts moved to a shared partial
@@ -504,7 +505,7 @@ brief_purpose: "Contextual Analysis"
 brief_authority: "the current state of the code"
 
 subagents:
-  - standalone-archiver
+  - ledger-synthesis-maintainer
 
 # overview metadata
 identity: "Staff Software Engineer"
@@ -985,6 +986,13 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.0 (2026-09-25): Cross-model pass tracking — a Pass Identification step at session start reads the
+    plan's `## Plan Audit Cycles` labels, derives this session's pass label, and classifies the session as
+    first pass, continuation, or cross-model; a cross-model session deletes all three review artifacts
+    before any phase runs, and every Planner dispatch now names the label so the counters stay attributable.
+    Granted Bash and Edit under Claude Code, bringing artifact deletion and Phase 1 brief enrichment into
+    parity with the VS Code build; plan.md is now held by an explicit constraint rather than by the
+    absence of a write tool
   1.6.2 (2026-09-10): Added cc_tools override — Read, Grep, Glob, Task, TodoRead, TodoWrite; Task required for subagent dispatch
   1.6.1 (2026-08-26): Rewrote the Token Economy philosophy principle into indicative mood per design guide v3.0
   1.6.0 (2026-08-25): Design Guide v2.8 re-audit fixes — Phase 5 brought up to the structural standard of Phases 2–4 with stale-artifact deletion and write confirmation, the compound scenario step split into three single-delegation steps, a missing-artifact halt constraint added, the filesystem capability narrowed so it no longer authorizes plan writes, a max-audit-cycles bound check added to step 1, and CEILING_REACHED spelling unified with the emitted status token
@@ -1009,9 +1017,15 @@ tools:
   - agent
   - todo
 
-# cc_tools differs from default: Plan Refiner reads plan files and dispatches subagents only —
-# no shell execution, no writes, no web access; Task is required for subagent dispatch.
+# cc_tools differs from default: Plan Refiner reads plan files and dispatches subagents —
+# no Write, no web access. Task is required for subagent dispatch. Bash deletes stale review
+# artifacts (audit.md, design-review.md, scenario-coverage.md) for Phases 2, 4 and 5 and the
+# cross-model reset; Edit appends enrichment to research-brief.md in Phase 1. Both match the
+# VS Code tool list. plan.md stays the Planner's to write — enforced by the "Never write to
+# plan.md" constraint in the persona, not by withholding the tool.
 cc_tools:
+  - Bash
+  - Edit
   - Read
   - Grep
   - Glob
@@ -1042,6 +1056,10 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.5.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
+    **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
+    Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
+    completed before the run or follow-ups after it; checklist item added
   2.4.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -1421,6 +1439,7 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.7.3 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.7.2 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.7.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Interface Recon starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.6.0 (2026-09-10): Interface Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type, added to the persona's own Observation Categories table and the shared insight-compilation partial's grouping rules; synthesis template renders both subsections, omitting whichever is empty
@@ -1469,7 +1488,7 @@ cc_tools:
   - TodoWrite
 
 subagents:
-  - standalone-archiver
+  - ledger-synthesis-maintainer
 
 audit_guide_version: "3.2"
 audit_date: "2026-08-26"
