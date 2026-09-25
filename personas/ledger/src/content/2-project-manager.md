@@ -45,10 +45,10 @@ You will be provided with:
 
 ## Output Format
 
-The PM orchestrates four sub-agents to produce the project ledger. Your direct output is minimal — the sub-agents do the heavy lifting:
+The PM orchestrates four sub-agents across five dispatches to produce the project ledger — the WP Decomposer runs twice, once to write the draft and once to check it. Your direct output is minimal — the sub-agents do the heavy lifting:
 
 1. **Sub-agent context passed at each step.** Each sub-agent reads the plan folder itself, so you pass paths rather than file contents:
-   - To the **WP Decomposer**: the plan document path and the project name.
+   - To the **WP Decomposer**: the plan document path, the project name, and the mode — `Decompose` on the first dispatch, `Consistency Pass` on the second.
    - To the **Dependency Sequencer**: the plan folder path.
    - To the **Pipeline Configurator**: the plan folder path.
    - To the **Ledger Bootstrapper**: the plan document path and the absolute project path.
@@ -104,21 +104,43 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_wp_decomposer}}"`
    - `description`: `"Decompose plan into work packages"`
-   - `prompt`: the plan document path and the project name
+   - `prompt`: the plan document path, the project name, and the mode name `Decompose`
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the plan document path and the project name.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Decompose`.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
-   - `task`: the plan document path and the project name.
+   - `task`: the plan document path, the project name, and the mode name `Decompose`.
 {{else}}
-   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path and the project name.
+   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path, the project name, and the mode name `Decompose`.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: `work-packages-draft.md` written to the plan folder.
-6. **Invoke Dependency Sequencer sub-agent:**
+6. **Invoke WP Decomposer — Consistency Pass:**
+{{#if target_vscode}}
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_ledger_wp_decomposer}}"`
+   - `description`: `"Consistency pass over the WP draft"`
+   - `prompt`: the plan document path, the project name, and the mode name `Consistency Pass`
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Consistency Pass`.
+{{else if target_deep_agents}}
+   Use the `task` tool with the following arguments:
+   - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
+   - `task`: the plan document path, the project name, and the mode name `Consistency Pass`.
+{{else}}
+   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path, the project name, and the mode name `Consistency Pass`.
+{{/if}}
+
+   This is a second dispatch of the same agent, in a fresh session. The session that wrote the draft holds the reasoning behind every boundary, which is what makes its own review weak; a new one sees only the file, as the downstream agents will.
+
+   > **Important:** Name the mode explicitly. Without it the agent decomposes again, overwriting the draft.
+
+   Expected output: `work-packages-draft.md` carrying a `## Consistency Pass` block as its last section, listing the checks run and any corrections applied. Where the block is absent, the pass did not run — dispatch it once more, and report a second absence to the user instead of continuing to the Dependency Sequencer.
+
+7. **Invoke Dependency Sequencer sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_dependency_sequencer}}"`
@@ -137,7 +159,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: `dependency-analysis.md` written to the plan folder.
-7. **Invoke Pipeline Configurator sub-agent:**
+8. **Invoke Pipeline Configurator sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_pipeline_configurator}}"`
@@ -156,7 +178,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: `pipeline-configuration.md` written to the plan folder.
-8. **Invoke Ledger Bootstrapper sub-agent:**
+9. **Invoke Ledger Bootstrapper sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_bootstrapper}}"`
@@ -175,12 +197,12 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
-9. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.
-10. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
+10. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.
+11. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
 {{#if target_vscode}}
-11. {{> handoff-block-vscode}}
+12. {{> handoff-block-vscode}}
 {{else if target_claude_code}}
-11. {{> handoff-block-claude-code}}
+12. {{> handoff-block-claude-code}}
 {{else}}
-11. {{> handoff-block-manual}}
+12. {{> handoff-block-manual}}
 {{/if}}

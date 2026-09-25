@@ -1,6 +1,6 @@
 slug: ledger-wp-decomposer
 name: "Ledger WP Decomposer"
-description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
+description: "Decompose a plan document into atomic, actionable Work Package definitions, and check the finished set on a second consistency pass."
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
@@ -8,6 +8,17 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.7.1 (2026-09-24): Mode arbitration no longer contradicts itself — the dispatched mode is
+    authoritative, a Decompose dispatch overwrites an existing draft instead of halting on it, and only
+    a Consistency Pass with no draft to read stops the session; the pass record states `7 of 7` rather
+    than inviting a partial count
+  1.7.0 (2026-09-24): Gained a second mode — Consistency Pass, dispatched separately by the Project
+    Manager over the finished draft. A per-WP checklist cannot see a property of the set, and the session
+    that drew the boundaries holds the reasoning that makes them look self-evident, so the pass runs in a
+    fresh session with seven set-level checks: plan step coverage, AC coverage agreement, scope
+    exclusivity, reference integrity, granularity spread, unattended execution, deliverable-AC parity.
+    Constraints bar re-decomposition and ordering resolution; the mandatory `## Consistency Pass` block
+    keeps a clean pass distinguishable from one that never ran
   1.6.0 (2026-09-24): A user action never becomes a WP — one blocks every WP behind it until cancelled
     by hand, since the pipeline cannot pause for a person; Step 2 and a new constraint route such actions
     into a `## Human Actions` section of the draft, marked as prerequisites or follow-ups, with a
@@ -48,6 +59,6 @@ cc_tools:
 
 # overview metadata
 identity: "Technical Program Manager — Work Package Analyst"
-use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages"
+use_when: "Invoked by the Project Manager to break a plan into implementable Work Packages, then again to check the finished draft"
 key_behavior: |
-  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion
+  Ensures WPs are atomic, self-contained, and properly scoped for single-session completion; the second dispatch checks the set in a fresh session

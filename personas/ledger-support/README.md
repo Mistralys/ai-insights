@@ -23,17 +23,22 @@ For build and sync instructions see [personas/docs/agents/project-manifest/](../
 
 ## PM Sub-Agent Cluster
 
-Four ledger-support personas form the **Project Manager sub-agent cluster** — a sequential orchestration chain where each agent's output is the next agent's input. The PM persona (`2-project-manager`) invokes these in order when decomposing a plan into a ready-to-run ledger:
+Four ledger-support personas form the **Project Manager sub-agent cluster** — a sequential orchestration chain where each agent's output is the next agent's input. The PM persona (`2-project-manager`) invokes these across five dispatches when decomposing a plan into a ready-to-run ledger; the WP Decomposer runs twice, once to write the draft and once to check it in a fresh session:
 
 ```
 [Plan Document]
       │
       ▼
-┌─────────────────────┐
-│  Ledger WP Decomposer  │  Analyze plan → produce atomic WP definitions
-└─────────┬───────────┘
-          │ WP definitions
-          ▼
+┌──────────────────────────────────────────┐
+│  Ledger WP Decomposer (Decompose)        │  Analyze plan → produce atomic WP definitions
+└─────────────────────┬────────────────────┘
+                      │ work-packages-draft.md
+                      ▼
+┌──────────────────────────────────────────┐
+│  Ledger WP Decomposer (Consistency Pass) │  Re-read the draft → seven set-level checks
+└─────────────────────┬────────────────────┘
+                      │ Draft + `## Consistency Pass` record
+                      ▼
 ┌──────────────────────────────┐
 │  Ledger Dependency Sequencer │  Map WP dependencies → determine execution order
 └──────────────┬───────────────┘
@@ -61,7 +66,7 @@ All 9 ledger-support personas, sourced from `personas/ledger-support/src/meta/*.
 
 | Slug | Name | Description | VS Code file | Claude Code file |
 |------|------|-------------|-------------|-----------------|
-| `ledger-wp-decomposer` | Ledger WP Decomposer | Analyze a plan document and decompose it into atomic, actionable Work Package definitions. | `ledger-wp-decomposer.agent.md` | `ledger-wp-decomposer.md` |
+| `ledger-wp-decomposer` | Ledger WP Decomposer | Decompose a plan document into atomic, actionable Work Package definitions, and check the finished set on a second consistency pass. | `ledger-wp-decomposer.agent.md` | `ledger-wp-decomposer.md` |
 | `ledger-dependency-sequencer` | Ledger Dependency Sequencer | Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering. | `ledger-dependency-sequencer.agent.md` | `ledger-dependency-sequencer.md` |
 | `ledger-pipeline-configurator` | Ledger Pipeline Configurator | Determine which pipeline stages should be active for each Work Package based on the nature of the work. | `ledger-pipeline-configurator.agent.md` | `ledger-pipeline-configurator.md` |
 | `ledger-bootstrapper` | Ledger Bootstrapper | Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete. | `ledger-bootstrapper.agent.md` | `ledger-bootstrapper.md` |

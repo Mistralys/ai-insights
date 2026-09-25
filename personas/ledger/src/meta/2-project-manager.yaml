@@ -7,6 +7,10 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.10.0 (2026-09-24): Dispatches the WP Decomposer twice — the new step 6 runs its Consistency Pass over
+    the draft before the Dependency Sequencer sees it, and the next stage is gated on the
+    `## Consistency Pass` block the pass leaves behind; both Decomposer dispatches now name their mode,
+    since an unnamed one decomposes again and overwrites the draft
   3.9.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
     but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
     `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
@@ -72,7 +76,7 @@ mcp_tools:
   - tool: ledger_get_project_status
     purpose: Read the root index (self-heals incorrect counters). Use to verify the ledger after creation.
   - tool: ledger_get_work_package
-    purpose: Read full detail for a specific WP — used in Step 9 to compare ledger AC against spec file AC and self-heal mismatches.
+    purpose: Read full detail for a specific WP — used in Step 10 to compare ledger AC against spec file AC and self-heal mismatches.
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
 
