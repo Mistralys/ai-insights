@@ -1,5 +1,57 @@
 # Personas Changelog
 
+## v3.37.0 - Cross-Model Refinement Passes
+
+**A plan refined by two models now records which model did what.** The `## Plan Audit Cycles` counters
+carried a bare total, so a second model's pass was indistinguishable from the first model's — and every
+review artifact had already been overwritten by then.
+
+- Changed: The counters carry a per-model tally beside the total (`4 (Sonnet 4.6 ×2, GPT-5.6 ×2)`). The
+  section stays two lines however many passes run.
+- Changed: The Plan Refiner opens each session by identifying its pass label and classifying the session
+  as first pass, continuation, or cross-model; a cross-model pass resets all three review artifacts first,
+  and the Claude Code build gained the Bash grant that artifact deletion requires.
+- Changed: The Planner increments the tally for the label its dispatch names, and the total alone when
+  none is named.
+- Docs: New `refinement-pass-label.md` shared partial holds the label form and tally format.
+
+## v3.36.1 - Decomposer Mode Arbitration
+
+**The dispatched mode decides, and a re-run no longer deadlocks.** The Decomposer's mode table said
+an existing draft was the signal for a Consistency Pass, which meant a repeat Decompose dispatch over
+the same plan folder stopped on a mismatch until someone deleted the file by hand.
+
+- Fixed: A Decompose dispatch overwrites an existing draft. Only a Consistency Pass with no draft to
+  read stops the session.
+- Changed: The pass record states `7 of 7` checks rather than a variable count — the protocol admits
+  no partial pass.
+- Docs: The ledger-support README shows both Decomposer dispatches and carries the current
+  description.
+
+## v3.36.0 - WP Draft Consistency Pass
+
+**The WP Decomposer now runs twice: once to write the draft, once to check it.** A self-validation
+checklist tests each work package on its own and can never surface a property of the set — a plan
+step that landed in no WP, a file claimed by two, a coverage table that stopped matching. The second
+run is a fresh session, so it reads the draft as the downstream agents will.
+
+- Changed: Ledger WP Decomposer gained a Consistency Pass mode with seven set-level checks, a
+  mandatory pass record in the draft, and constraints barring re-decomposition and ordering changes.
+- Changed: The Project Manager dispatches the Decomposer a second time before the Dependency
+  Sequencer, names the mode on both dispatches, and gates the next stage on the pass record.
+
+## v3.35.0 - Unattended Runs
+
+**A plan no longer parks a user action inside its steps.** A step waiting on a person becomes a work
+package that blocks everything behind it until someone cancels it by hand, so anything only a human
+can do is now a prerequisite completed before the run or a follow-up after it.
+
+- Changed: Both Planners carry the principle **User Actions Bracket the Run**, a Core Rule barring a
+  plan step that depends on a user action, and a new `## Human Actions` plan section that records each
+  one with its timing and the reason an agent cannot do it.
+- Changed: The Ledger WP Decomposer never creates a WP that depends on a user action, and collects
+  those actions in a `## Human Actions` section of `work-packages-draft.md` instead.
+
 ## v3.34.0 - Synthesis Maintainer
 
 **The Standalone Archiver is now the Ledger Synthesis Maintainer, and its Update mode serves

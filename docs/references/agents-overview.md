@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-24
+> **Generated:** 2026-09-25
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.8.1)
+### Stage 1 — Planner (v2.10.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.9.2)
+### Stage 2 — Project Manager (v3.10.0)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -321,7 +321,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.6.2)
+### Plan Refiner (v1.7.0)
 
 **Identity:** Plan Quality Director
 
@@ -332,7 +332,7 @@ Orchestrate iterative plan refinement: architectural review, finding integration
 
 ---
 
-### Planner — Standalone (v2.4.1)
+### Planner — Standalone (v2.5.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -539,14 +539,14 @@ Archive a completed standalone plan folder into the project ledger, or refresh t
 
 ---
 
-### Ledger WP Decomposer (v1.5.3)
+### Ledger WP Decomposer (v1.7.1)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 
-Analyze a plan document and decompose it into atomic, actionable Work Package definitions.
+Decompose a plan document into atomic, actionable Work Package definitions, and check the finished set on a second consistency pass.
 
-- **Use When:** Invoked by the Project Manager to break a plan into implementable Work Packages
-- **Key Behavior:** Ensures WPs are atomic, self-contained, and properly scoped for single-session completion
+- **Use When:** Invoked by the Project Manager to break a plan into implementable Work Packages, then again to check the finished draft
+- **Key Behavior:** Ensures WPs are atomic, self-contained, and properly scoped for single-session completion; the second dispatch checks the set in a fresh session
 
 ---
 
