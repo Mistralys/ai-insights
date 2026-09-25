@@ -5,6 +5,13 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.0 (2026-09-25): Cross-model pass tracking — a Pass Identification step at session start reads the
+    plan's `## Plan Audit Cycles` labels, derives this session's pass label, and classifies the session as
+    first pass, continuation, or cross-model; a cross-model session deletes all three review artifacts
+    before any phase runs, and every Planner dispatch now names the label so the counters stay attributable.
+    Granted Bash and Edit under Claude Code, bringing artifact deletion and Phase 1 brief enrichment into
+    parity with the VS Code build; plan.md is now held by an explicit constraint rather than by the
+    absence of a write tool
   1.6.2 (2026-09-10): Added cc_tools override — Read, Grep, Glob, Task, TodoRead, TodoWrite; Task required for subagent dispatch
   1.6.1 (2026-08-26): Rewrote the Token Economy philosophy principle into indicative mood per design guide v3.0
   1.6.0 (2026-08-25): Design Guide v2.8 re-audit fixes — Phase 5 brought up to the structural standard of Phases 2–4 with stale-artifact deletion and write confirmation, the compound scenario step split into three single-delegation steps, a missing-artifact halt constraint added, the filesystem capability narrowed so it no longer authorizes plan writes, a max-audit-cycles bound check added to step 1, and CEILING_REACHED spelling unified with the emitted status token
@@ -29,9 +36,15 @@ tools:
   - agent
   - todo
 
-# cc_tools differs from default: Plan Refiner reads plan files and dispatches subagents only —
-# no shell execution, no writes, no web access; Task is required for subagent dispatch.
+# cc_tools differs from default: Plan Refiner reads plan files and dispatches subagents —
+# no Write, no web access. Task is required for subagent dispatch. Bash deletes stale review
+# artifacts (audit.md, design-review.md, scenario-coverage.md) for Phases 2, 4 and 5 and the
+# cross-model reset; Edit appends enrichment to research-brief.md in Phase 1. Both match the
+# VS Code tool list. plan.md stays the Planner's to write — enforced by the "Never write to
+# plan.md" constraint in the persona, not by withholding the tool.
 cc_tools:
+  - Bash
+  - Edit
   - Read
   - Grep
   - Glob

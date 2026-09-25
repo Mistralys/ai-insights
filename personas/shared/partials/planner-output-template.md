@@ -7,6 +7,7 @@
 ## Plan Audit Cycles
 - Audits: none — {{agent_plan_auditor}}
 - Architectural Reviews: none — {{agent_plan_architect_reviewer}}
+{Initialize both counters to `none`. Once passes have run, each line reads `{TOTAL} ({LABEL} ×{N}, …)` — e.g. `4 (Sonnet 4.6 ×2, GPT-5.6 ×2)`. Never more than these two lines.}
 {{/if}}
 {{#if has_mcp}}
 

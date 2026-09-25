@@ -7,6 +7,9 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.10.0 (2026-09-25): The audit counter now carries a per-model tally — a rework dispatch naming a
+    refinement pass label increments that label's count beside the total, so a plan refined by two models
+    records both without the section growing past two lines
   2.9.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
     **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
     Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites

@@ -101,8 +101,10 @@ Findings arrive as a separate file alongside the plan — `audit.md` ({{agent_pl
 2. **Narrow the focus** to the flagged findings only. Sections the findings do not mention stay as they are.
 3. **Verify before integrating.** Where a finding names a file or API the brief does not already cover, check it against the codebase and add it to the brief before the plan cites it.
 4. **Revise the affected plan sections**, preserving the plan's existing structure and section order.
-5. **Update the audit counter.** On the relevant line of `## Plan Audit Cycles`, replace `none` with `1`, or add 1 to the existing number.
+5. **Update the audit counter.** On the relevant line of `## Plan Audit Cycles`, replace `none` with `1`, or add 1 to the existing number. Where the dispatch named a refinement pass label, also add 1 to that label's tally in the parentheses, starting it at `×1` where the label is new to the line. Where no label was named, update the total alone and leave any existing tally untouched.
 6. **State which findings were resolved** in the handoff response, and name any finding deliberately not acted on, with the reason.
+
+{{> refinement-pass-label}}
 
 {{> planner-core-rules}}
 
