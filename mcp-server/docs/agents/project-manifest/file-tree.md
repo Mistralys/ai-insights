@@ -150,7 +150,7 @@ mcp-server/
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
 │       ├── server-version.ts      # Reads MCP server version from package.json
 │       ├── store-resolution.ts    # extractLedgerRoot(), resolveMultiStoreLedgerRoot() — shared multi-store ledger root resolution utility; imports only store-context.ts and ledger-root.ts
-│       ├── synthesis-parser.ts    # parseOutcomeSummary() — extracts ### Outcome Summary from a synthesis Markdown string; falls back to first bullet of ### Implementation Summary; returns null when neither section yields content; pure utility, zero dependencies
+│       ├── synthesis-parser.ts    # parseOutcomeSummary() — extracts an Outcome Summary section (## or ###) from a synthesis Markdown string, bounded by the next ##/### heading or EOF; falls back to first bullet of an Implementation Summary section; returns null when neither section yields content; pure utility, zero dependencies
 │       ├── timestamp.ts           # Timestamp formatting
 │       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
 │       └── wp-id.ts             # Work package ID formatting (WP-###)

@@ -3975,16 +3975,23 @@ Used by WP-006 (ledger_complete_synthesis enrichment) to populate `outcome_summa
 // Exported from src/utils/synthesis-parser.ts.
 //
 // Behaviour:
-//   1. Looks for a `### Outcome Summary` section (case-insensitive heading match).
+//   1. Looks for an `Outcome Summary` section, written as either `##` or `###`
+//      (case-insensitive heading match).
 //      Returns trimmed body text when the section is present and non-empty.
-//   2. Falls back to the first `- …` or `* …` bullet in `### Implementation Summary`
-//      when Outcome Summary is absent or its body is whitespace-only.
+//   2. Falls back to the first `- …` or `* …` bullet in an `Implementation Summary`
+//      section (again `##` or `###`) when Outcome Summary is absent or its body
+//      is whitespace-only.
 //   3. Returns null when neither section yields usable content.
 //
 // Private helpers (unexported):
-//   extractSection(content, heading)  — returns body between `### <heading>` and
-//     the next `###` heading (or EOF); null when heading is absent. Uses a
-//     case-insensitive regex; `####` sub-headings do NOT match the `^###\s` boundary.
+//   extractSection(content, heading)  — returns body between a `##`/`###
+//     <heading>` line and the next `##` or `###` heading anywhere in the
+//     document (or EOF); null when heading is absent. Uses a case-insensitive
+//     regex (`^#{2,3}\s+<heading>\s*$`); `####` sub-headings do NOT match the
+//     `^#{2,3}\s` boundary, so they stay inside the extracted body. Matching
+//     both levels on the way out is what prevents an unrelated `##` section
+//     (e.g. `## Metrics`, `## Rework Log`) placed after the target section
+//     from being swallowed into the extracted text.
 //   extractFirstBullet(sectionContent) — returns the text of the first `- …` or
 //     `* …` bullet; null when none is found.
 function parseOutcomeSummary(synthesisContent: string): string | null;

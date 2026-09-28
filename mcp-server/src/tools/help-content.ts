@@ -1209,9 +1209,9 @@ character is rejected.
   "project_storage_path": "/absolute/path/to/storage/repo/2026-06-30-my-feature"
 }
 \`\`\`
-\`outcome_summary\` is extracted from the \`### Outcome Summary\` section of \`synthesis.md\`,
-falling back to the first bullet of \`### Implementation Summary\`. Returns \`null\` when neither
-section is found.
+\`outcome_summary\` is extracted from the \`Outcome Summary\` section of \`synthesis.md\`
+(written as either \`##\` or \`###\`), falling back to the first bullet of an
+\`Implementation Summary\` section. Returns \`null\` when neither section is found.
 
 ## Examples
 \`\`\`json

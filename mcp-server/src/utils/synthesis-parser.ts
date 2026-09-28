@@ -23,19 +23,28 @@ export function parseOutcomeSummary(synthesisContent: string): string | null {
 }
 
 /**
- * Returns the body text of a `### <heading>` section (the content between the
- * heading line and the next `###` heading or EOF). Returns `null` if the
- * section heading is not found.
+ * Returns the body text of a `##` or `###` `<heading>` section (the content
+ * between the heading line and the next `##`/`###` heading anywhere in the
+ * document, or EOF). Returns `null` if the section heading is not found.
+ *
+ * Matching both heading levels on the way in (the heading itself may be
+ * written as `##` or `###`) and on the way out (the next section boundary is
+ * the next `##` or `###` heading, regardless of which level opened the
+ * section) keeps the extraction correct for documents that mix heading
+ * levels — e.g. a `### Outcome Summary` section followed later by an
+ * unrelated `## Metrics` or `## Rework Log` heading. A deeper `####`
+ * sub-heading is intentionally not treated as a boundary, since it is a
+ * subsection of the content being extracted, not a sibling section.
  */
 function extractSection(content: string, heading: string): string | null {
   const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const headingRe = new RegExp(`^###\\s+${escapedHeading}\\s*$`, 'im');
+  const headingRe = new RegExp(`^#{2,3}\\s+${escapedHeading}\\s*$`, 'im');
   const match = headingRe.exec(content);
   if (!match) {
     return null;
   }
   const afterHeading = content.slice(match.index + match[0].length);
-  const nextHeadingMatch = /^###\s/m.exec(afterHeading);
+  const nextHeadingMatch = /^#{2,3}\s/m.exec(afterHeading);
   return nextHeadingMatch
     ? afterHeading.slice(0, nextHeadingMatch.index)
     : afterHeading;
