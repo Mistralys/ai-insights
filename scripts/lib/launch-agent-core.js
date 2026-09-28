@@ -24,14 +24,32 @@ import { parseFrontmatter } from './frontmatter.js';
 const MAX_VISIBLE_ROWS = 15;
 
 // Non-list overhead rendered by renderPickerLines(): the query line, the
-// instructions line, one blank line, and the trailing "…and N more" line
-// that appears whenever the list is truncated. Reserving room for all four
-// up front (rather than only when actually rendered) keeps the row budget
-// stable across redraws, which matters because the query line is drawn
-// first — if a redraw ever grows taller than the terminal, the terminal
-// auto-scrolls and it's always the *top* line (the one showing what the
-// user is currently typing) that scrolls out of view first.
-const CHROME_ROWS = 4;
+// instructions line, one blank line, the pinned-block divider (drawn
+// whenever both a session entry and at least one agent entry are present),
+// and the trailing "…and N more" line that appears whenever the list is
+// truncated. Reserving room for all five up front (rather than only when
+// actually rendered) keeps the row budget stable across redraws, which
+// matters because the query line is drawn first — if a redraw ever grows
+// taller than the terminal, the terminal auto-scrolls and it's always the
+// *top* line (the one showing what the user is currently typing) that
+// scrolls out of view first.
+export const CHROME_ROWS = 5;
+
+/**
+ * The single pinned "resume a previous session" launch entry, prepended to
+ * every discovered agent by {@link buildLaunchEntries}. `claudeArgs` is what
+ * lets the spawn site in scripts/launch-agent.js stay branch-free: it reads
+ * argv straight off the selected entry instead of switching on `kind`.
+ */
+const SESSION_LAUNCH_ENTRIES = [
+  {
+    id: 'resume-session',
+    label: 'Resume a previous session',
+    description: "Open Claude Code's own session picker for this directory (claude --resume)",
+    kind: 'session',
+    claudeArgs: ['--resume'],
+  },
+];
 
 /**
  * Scan a Claude Code agents directory and build the discoverable agent list.
@@ -71,23 +89,55 @@ export function discoverAgents(agentsDir) {
 }
 
 /**
+ * Composes the discovered agents into the launch-entry list the picker
+ * actually renders: the pinned {@link SESSION_LAUNCH_ENTRIES} first, then
+ * every discovered agent (in the order given) widened with `kind: 'agent'`
+ * and `claudeArgs: ['--agent', id]`. Each entry carries the argv it wants
+ * handed to `claude`, so the spawn site in scripts/launch-agent.js reads
+ * `claudeArgs` off the selection instead of switching on `kind`.
+ *
+ * @param {Array<{id: string, label: string, description: string, file: string}>} agents
+ * @returns {Array<{id: string, label: string, description: string, kind: ('session'|'agent'), claudeArgs: string[], file?: string}>}
+ */
+export function buildLaunchEntries(agents) {
+  return [
+    ...SESSION_LAUNCH_ENTRIES,
+    ...agents.map((agent) => ({ ...agent, kind: 'agent', claudeArgs: ['--agent', agent.id] })),
+  ];
+}
+
+/**
  * Case-insensitive substring filter against label, id, and description.
  * An empty/whitespace-only query returns the full list unfiltered.
  *
- * @param {Array<{id: string, label: string, description: string}>} agents
+ * @param {Array<{id: string, label: string, description: string}>} entries
  * @param {string} query
  * @returns {Array<object>}
  */
-export function filterAgents(agents, query) {
+export function filterEntries(entries, query) {
   const q = (query || '').trim().toLowerCase();
-  if (!q) return agents;
-  return agents.filter((agent) => {
+  if (!q) return entries;
+  return entries.filter((entry) => {
     return (
-      agent.label.toLowerCase().includes(q) ||
-      agent.id.toLowerCase().includes(q) ||
-      (agent.description || '').toLowerCase().includes(q)
+      entry.label.toLowerCase().includes(q) ||
+      entry.id.toLowerCase().includes(q) ||
+      (entry.description || '').toLowerCase().includes(q)
     );
   });
+}
+
+/**
+ * Index of the first `kind === 'agent'` entry in a launch-entry list, or `0`
+ * when the list contains none (including the empty list). Used to seed and
+ * re-seed the interactive picker's cursor so the pinned session row never
+ * steals the default selection from the agent path.
+ *
+ * @param {Array<{kind: string}>} entries
+ * @returns {number}
+ */
+export function firstAgentIndex(entries) {
+  const index = entries.findIndex((entry) => entry.kind === 'agent');
+  return index === -1 ? 0 : index;
 }
 
 /**
@@ -170,21 +220,57 @@ function exitAltScreen() {
   process.stdout.write('\x1B[?1049l');
 }
 
-function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS) {
+/**
+ * Renders the picker's full frame as an array of lines: the filter/query
+ * row, the instructions row, a blank line, the pinned session row(s), a dim
+ * divider (only when both kinds are present in the full `filtered` list),
+ * the agent rows, and — when the list is truncated — a trailing
+ * "…and N more" row. Pure: no raw-mode or `process.stdout` I/O of its own.
+ *
+ * Whether the divider renders is decided from the full `filtered` array,
+ * *before* it is sliced to `maxVisibleRows` — never from the post-slice
+ * `visible` rows. On a short terminal `getVisibleRowBudget()` can return as
+ * low as `1`, which makes the visible slice the session row alone with
+ * every agent row folded into the `… and N more` line; deciding from the
+ * slice would drop the divider in exactly that case, leaving the one
+ * visible row indistinguishable from a persona.
+ *
+ * @param {{query: string, cursor: number}} state
+ * @param {Array<{kind?: string, label: string}>} filtered
+ * @param {number} [maxVisibleRows]
+ * @returns {string[]}
+ */
+export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS) {
   const lines = [];
   lines.push(C.bold('  Filter agents:') + ' ' + state.query);
   lines.push(C.dim('  Type to filter · ↑/↓ navigate · Enter launch · Esc/Ctrl+C cancel'));
   lines.push('');
+
+  const hasBothKinds =
+    filtered.some((entry) => entry.kind === 'session') && filtered.some((entry) => entry.kind === 'agent');
   const visible = filtered.slice(0, maxVisibleRows);
+
   if (visible.length === 0) {
     lines.push(C.dim('  No matches.'));
   } else {
-    visible.forEach((agent, i) => {
+    let dividerDrawn = false;
+    visible.forEach((entry, i) => {
+      if (hasBothKinds && !dividerDrawn && entry.kind === 'agent') {
+        lines.push(C.dim('  ─────────────'));
+        dividerDrawn = true;
+      }
       const isActive = i === state.cursor;
       const pointer = isActive ? C.cyan('▶') : ' ';
-      const label = isActive ? C.bold(agent.label) : agent.label;
+      const label = isActive ? C.bold(entry.label) : entry.label;
       lines.push(`  ${pointer} ${label}`);
     });
+    if (hasBothKinds && !dividerDrawn && visible.some((entry) => entry.kind === 'session')) {
+      // Every visible row is a session row (a very short terminal folded
+      // every agent row into "… and N more") — the divider still belongs
+      // above that trailing line so the pinned block stays visually set
+      // apart even though no agent row made it into the slice.
+      lines.push(C.dim('  ─────────────'));
+    }
     if (filtered.length > maxVisibleRows) {
       lines.push(C.dim(`  … and ${filtered.length - maxVisibleRows} more (keep typing to narrow)`));
     }
@@ -194,15 +280,24 @@ function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS) {
 
 /**
  * Raw-mode, type-to-filter interactive picker. Resolves with the selected
- * agent's `id`, or `null` when the user cancels (Escape / Ctrl+C).
+ * launch entry (see {@link buildLaunchEntries}), or `null` when the user
+ * cancels (Escape / Ctrl+C).
  *
- * @param {Array<{id: string, label: string, description: string}>} agents
- * @returns {Promise<string|null>}
+ * The initial cursor — and the cursor after any query-changing keystroke —
+ * is seeded via {@link firstAgentIndex}, so the pinned session entry never
+ * steals the default selection: type-then-Enter still lands on the top
+ * persona, exactly as before the session entry existed. `reducePickerInput`
+ * itself stays untouched; this re-seeding is a shell concern layered on top
+ * of its pure `cursor: 0` result whenever the query changed.
+ *
+ * @param {Array<{id: string, label: string, description: string, kind: string, claudeArgs: string[]}>} entries
+ * @param {string} [initialQuery]
+ * @returns {Promise<object|null>}
  */
-export function runInteractivePicker(agents) {
+export function runInteractivePicker(entries, initialQuery = '') {
   return new Promise((resolve) => {
-    let state = { query: '', cursor: 0 };
-    let filtered = filterAgents(agents, state.query);
+    let state = { query: initialQuery, cursor: firstAgentIndex(filterEntries(entries, initialQuery)) };
+    let filtered = filterEntries(entries, state.query);
 
     // Full clear-and-redraw on every frame, rather than the original
     // relative "move cursor up N rows, erase to end" delta redraw (which
@@ -236,16 +331,19 @@ export function runInteractivePicker(agents) {
     };
 
     const onKeypress = (str, key) => {
+      const queryBefore = state.query;
       const next = reducePickerInput(state, { str, key }, filtered.length);
       const { action, ...nextState } = next;
       state = nextState;
-      filtered = filterAgents(agents, state.query);
-      if (state.cursor > Math.max(0, filtered.length - 1)) {
+      filtered = filterEntries(entries, state.query);
+      if (state.query !== queryBefore) {
+        state.cursor = firstAgentIndex(filtered);
+      } else if (state.cursor > Math.max(0, filtered.length - 1)) {
         state.cursor = Math.max(0, filtered.length - 1);
       }
 
       if (action === 'select') {
-        cleanup(filtered[state.cursor] ? filtered[state.cursor].id : null);
+        cleanup(filtered[state.cursor] || null);
         return;
       }
       if (action === 'cancel') {
@@ -266,17 +364,17 @@ export function runInteractivePicker(agents) {
  * prompt accepting either a number (selects that row) or free text
  * (re-filters and reprints); empty input cancels.
  *
- * @param {Array<{id: string, label: string, description: string}>} agents
+ * @param {Array<{id: string, label: string, description: string}>} entries
  * @param {string} [initialQuery]
  * @param {{readlineFactory?: Function}} [opts] - `readlineFactory` defaults
  *   to `readline.createInterface`; overridable for tests with a stub
  *   `{ question(prompt, cb), close() }`-shaped object.
- * @returns {Promise<string|null>}
+ * @returns {Promise<object|null>}
  */
-export async function runNonInteractivePicker(agents, initialQuery = '', opts = {}) {
+export async function runNonInteractivePicker(entries, initialQuery = '', opts = {}) {
   const { readlineFactory = readline.createInterface } = opts;
   let query = initialQuery || '';
-  let filtered = filterAgents(agents, query);
+  let filtered = filterEntries(entries, query);
 
   const ask = (rl, prompt) => new Promise((resolve) => rl.question(prompt, resolve));
 
@@ -288,8 +386,8 @@ export async function runNonInteractivePicker(agents, initialQuery = '', opts = 
       if (filtered.length === 0) {
         console.log('  No matching agents.');
       } else {
-        filtered.forEach((agent, i) => {
-          console.log(`  [${i + 1}] ${agent.label}`);
+        filtered.forEach((entry, i) => {
+          console.log(`  [${i + 1}] ${entry.label}`);
         });
       }
 
@@ -302,11 +400,11 @@ export async function runNonInteractivePicker(agents, initialQuery = '', opts = 
 
       const num = Number(trimmed);
       if (Number.isInteger(num) && num >= 1 && num <= filtered.length) {
-        return filtered[num - 1].id;
+        return filtered[num - 1];
       }
 
       query = trimmed;
-      filtered = filterAgents(agents, query);
+      filtered = filterEntries(entries, query);
     }
   } finally {
     exitAltScreen();

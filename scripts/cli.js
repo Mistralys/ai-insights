@@ -983,7 +983,7 @@ const COMMANDS = [
     key:          'a',
     label:        'Launch an agent',
     category:     'Personas',
-    description:  'Pick a persona and launch it with Claude Code',
+    description:  'Launch a persona with Claude Code, or resume a session',
     helpVariants: [
       ['agent --filter <term>', 'Pre-fill the filter query'],
     ],

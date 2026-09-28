@@ -3,17 +3,21 @@
  *
  * Unit tests for scripts/lib/launch-agent-core.js
  *
- * Imports discoverAgents, filterAgents, reducePickerInput, and
+ * Imports discoverAgents, buildLaunchEntries, filterEntries, firstAgentIndex,
+ * reducePickerInput, renderPickerLines, CHROME_ROWS, and
  * runNonInteractivePicker directly from scripts/lib/launch-agent-core.js —
  * never from scripts/launch-agent.js, whose main() runs unconditionally on
  * import (see plan Structural Improvements, cycle-2 rework).
  *
  * Acceptance Criteria verified:
- *   AC-01: discoverAgents() returns a sorted-by-label list.
- *   AC-02: role: frontmatter → label, else filename-without-extension.
- *   AC-03: filterAgents() substring matching; reducePickerInput() state transitions.
- *   AC-04: runNonInteractivePicker() number-select / re-filter / cancel behavior.
- *   AC-05: discoverAgents() returns [] for a non-existent directory.
+ *   AC-01: buildLaunchEntries() prepends the session entry, preserves agent order/fields.
+ *   AC-02: buildLaunchEntries([]) returns exactly the session entry.
+ *   AC-03: filterEntries() substring matching, including the session entry.
+ *   AC-04: firstAgentIndex() returns the first kind === 'agent' index, else 0.
+ *   AC-05: runNonInteractivePicker() number-select / re-filter / cancel resolve with entries.
+ *   AC-06: runNonInteractivePicker() can select the session entry via --filter.
+ *   AC-11: discoverAgents() / reducePickerInput() are unchanged (non-regression).
+ *   AC-12, AC-15: renderPickerLines() divider placement and row-budget bound.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -21,7 +25,16 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { discoverAgents, filterAgents, reducePickerInput, runNonInteractivePicker } from '../lib/launch-agent-core.js';
+import {
+  discoverAgents,
+  buildLaunchEntries,
+  filterEntries,
+  firstAgentIndex,
+  reducePickerInput,
+  renderPickerLines,
+  CHROME_ROWS,
+  runNonInteractivePicker,
+} from '../lib/launch-agent-core.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,27 +119,82 @@ describe('discoverAgents()', () => {
   });
 });
 
-// ─── filterAgents() ────────────────────────────────────────────────────────────
+// ─── buildLaunchEntries() ──────────────────────────────────────────────────────
 
-describe('filterAgents()', () => {
+describe('buildLaunchEntries()', () => {
   const agents = [
-    { id: '1-planner', label: 'Planner', description: 'Plans and strategizes.' },
-    { id: 'developer-standalone', label: 'developer-standalone', description: 'Turns plans into working code.' },
+    { id: '1-planner', label: 'Planner', description: 'Plans things.', file: '/x/1-planner.md' },
+    { id: 'developer-standalone', label: 'developer-standalone', description: 'Implements plans.', file: '/x/developer-standalone.md' },
   ];
 
+  it('returns the session entry first, followed by every agent in order, with kind and claudeArgs added', () => {
+    const entries = buildLaunchEntries(agents);
+
+    expect(entries[0]).toMatchObject({ id: 'resume-session', kind: 'session', claudeArgs: ['--resume'] });
+    expect(entries.slice(1)).toEqual([
+      { ...agents[0], kind: 'agent', claudeArgs: ['--agent', '1-planner'] },
+      { ...agents[1], kind: 'agent', claudeArgs: ['--agent', 'developer-standalone'] },
+    ]);
+  });
+
+  it('returns exactly the session entry for an empty agent list', () => {
+    const entries = buildLaunchEntries([]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ kind: 'session', claudeArgs: ['--resume'] });
+  });
+});
+
+// ─── filterEntries() ────────────────────────────────────────────────────────────
+
+describe('filterEntries()', () => {
+  const entries = buildLaunchEntries([
+    { id: '1-planner', label: 'Planner', description: 'Plans and strategizes.' },
+    { id: 'developer-standalone', label: 'developer-standalone', description: 'Turns plans into working code.' },
+  ]);
+
   it('with an empty query returns the full list unchanged', () => {
-    expect(filterAgents(agents, '')).toEqual(agents);
-    expect(filterAgents(agents, '   ')).toEqual(agents);
+    expect(filterEntries(entries, '')).toEqual(entries);
+    expect(filterEntries(entries, '   ')).toEqual(entries);
   });
 
   it('matches case-insensitively against label, id, and description', () => {
-    expect(filterAgents(agents, 'STRATEGIZ').map((a) => a.id)).toEqual(['1-planner']);
-    expect(filterAgents(agents, 'developer-standalone').map((a) => a.id)).toEqual(['developer-standalone']);
-    expect(filterAgents(agents, 'working code').map((a) => a.id)).toEqual(['developer-standalone']);
+    expect(filterEntries(entries, 'STRATEGIZ').map((e) => e.id)).toEqual(['1-planner']);
+    expect(filterEntries(entries, 'developer-standalone').map((e) => e.id)).toEqual(['developer-standalone']);
+    expect(filterEntries(entries, 'working code').map((e) => e.id)).toEqual(['developer-standalone']);
   });
 
   it('with no matches returns an empty array', () => {
-    expect(filterAgents(agents, 'nonexistent-term-xyz')).toEqual([]);
+    expect(filterEntries(entries, 'nonexistent-term-xyz')).toEqual([]);
+  });
+
+  it('matches the session entry for the queries "resume" and "session", excluding it for a persona-specific query', () => {
+    expect(filterEntries(entries, 'resume').map((e) => e.id)).toEqual(['resume-session']);
+    expect(filterEntries(entries, 'session').map((e) => e.id)).toEqual(['resume-session']);
+    expect(filterEntries(entries, 'strategiz').map((e) => e.id)).not.toContain('resume-session');
+  });
+});
+
+// ─── firstAgentIndex() ──────────────────────────────────────────────────────────
+
+describe('firstAgentIndex()', () => {
+  it('returns 1 for a session-then-agents list', () => {
+    const entries = buildLaunchEntries([{ id: 'a', label: 'A', description: '' }]);
+    expect(firstAgentIndex(entries)).toBe(1);
+  });
+
+  it('returns 0 for an agents-only list', () => {
+    const entries = [{ id: 'a', label: 'A', kind: 'agent' }];
+    expect(firstAgentIndex(entries)).toBe(0);
+  });
+
+  it('returns 0 for a session-only list', () => {
+    const entries = buildLaunchEntries([]);
+    expect(firstAgentIndex(entries)).toBe(0);
+  });
+
+  it('returns 0 for an empty list', () => {
+    expect(firstAgentIndex([])).toBe(0);
   });
 });
 
@@ -169,42 +237,87 @@ describe('reducePickerInput()', () => {
 
   it('on escape and on Ctrl+C both yield { action: "cancel" }', () => {
     expect(reducePickerInput({ query: '', cursor: 0 }, { key: { name: 'escape' } }, 2).action).toBe('cancel');
-    expect(reducePickerInput({ query: '', cursor: 0 }, { str: '', key: { ctrl: true, name: 'c' } }, 2).action).toBe(
+    expect(reducePickerInput({ query: '', cursor: 0 }, { str: '', key: { ctrl: true, name: 'c' } }, 2).action).toBe(
       'cancel',
     );
+  });
+});
+
+// ─── renderPickerLines() ────────────────────────────────────────────────────────
+
+describe('renderPickerLines()', () => {
+  const mixed = buildLaunchEntries([
+    { id: 'a', label: 'Alpha', description: '' },
+    { id: 'b', label: 'Beta', description: '' },
+    { id: 'c', label: 'Gamma', description: '' },
+  ]);
+  const sessionOnly = buildLaunchEntries([]);
+  const agentsOnly = mixed.filter((e) => e.kind === 'agent');
+
+  it('renders a divider between the session block and the agent block when both are within budget', () => {
+    const lines = renderPickerLines({ query: '', cursor: 1 }, mixed, 10);
+
+    expect(lines.some((l) => l.includes('─────'))).toBe(true);
+    expect(lines.length).toBeLessThanOrEqual(10 + CHROME_ROWS);
+  });
+
+  it('renders no divider for a session-only filtered list', () => {
+    const lines = renderPickerLines({ query: '', cursor: 0 }, sessionOnly, 10);
+    expect(lines.some((l) => l.includes('─────'))).toBe(false);
+  });
+
+  it('renders no divider for an agents-only filtered list', () => {
+    const lines = renderPickerLines({ query: '', cursor: 0 }, agentsOnly, 10);
+    expect(lines.some((l) => l.includes('─────'))).toBe(false);
+  });
+
+  it('still renders the divider when maxVisibleRows is small enough that only the session row is visible', () => {
+    const lines = renderPickerLines({ query: '', cursor: 0 }, mixed, 1);
+
+    expect(lines.some((l) => l.includes('─────'))).toBe(true);
+    expect(lines.length).toBeLessThanOrEqual(1 + CHROME_ROWS);
   });
 });
 
 // ─── runNonInteractivePicker() ─────────────────────────────────────────────────
 
 describe('runNonInteractivePicker()', () => {
-  const agents = [
+  const entries = buildLaunchEntries([
     { id: '1-planner', label: 'Planner', description: 'Plans things.' },
     { id: 'developer-standalone', label: 'developer-standalone', description: 'Implements plans.' },
-  ];
+  ]);
 
-  it('selects the correct agent when the user answers with a valid list number', async () => {
-    const readlineFactory = makeStubReadlineFactory(['2']);
+  it('selects the correct entry object when the user answers with a valid list number', async () => {
+    const readlineFactory = makeStubReadlineFactory(['3']);
 
-    const result = await runNonInteractivePicker(agents, '', { readlineFactory });
+    const result = await runNonInteractivePicker(entries, '', { readlineFactory });
 
-    expect(result).toBe('developer-standalone');
+    expect(result.id).toBe('developer-standalone');
+    expect(result.claudeArgs).toEqual(['--agent', 'developer-standalone']);
   });
 
   it('re-filters and re-prompts (loop continues) when the user answers with free text instead of a number', async () => {
     // First answer narrows to "planner" (a single match), second answer selects it.
     const readlineFactory = makeStubReadlineFactory(['planner', '1']);
 
-    const result = await runNonInteractivePicker(agents, '', { readlineFactory });
+    const result = await runNonInteractivePicker(entries, '', { readlineFactory });
 
-    expect(result).toBe('1-planner');
+    expect(result.id).toBe('1-planner');
   });
 
   it('cancels (resolves null) when the user answers with empty input', async () => {
     const readlineFactory = makeStubReadlineFactory(['']);
 
-    const result = await runNonInteractivePicker(agents, '', { readlineFactory });
+    const result = await runNonInteractivePicker(entries, '', { readlineFactory });
 
     expect(result).toBeNull();
+  });
+
+  it('resolves with the session entry when initialQuery narrows to it and "1" is entered', async () => {
+    const readlineFactory = makeStubReadlineFactory(['1']);
+
+    const result = await runNonInteractivePicker(entries, 'resume', { readlineFactory });
+
+    expect(result).toMatchObject({ id: 'resume-session', kind: 'session', claudeArgs: ['--resume'] });
   });
 });
