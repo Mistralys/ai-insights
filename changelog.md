@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v2.14.1 - CLI Claude Resume
+
+- CLI: The Claude Code agent selector now links to the resume tool.
+
 ## v2.14.0 - Self-Advancing Pipeline Chains
 > mcp v2.10.1 · personas v3.37.0
 
