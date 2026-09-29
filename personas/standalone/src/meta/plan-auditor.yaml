@@ -5,6 +5,8 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.11.0 (2026-09-29): Local dependencies check — a multi-repository plan without a symlink switch or a
+    step that releases is Critical, a step switching the symlinks back is Major
   1.10.0 (2026-09-29): Audits now check unattended execution — a step, dependency or AC waiting on a
     person, or a Human Actions row timed inside the run, is a Critical Feasibility finding; Human Actions
     gained a row in the section table and the Completeness Assessment

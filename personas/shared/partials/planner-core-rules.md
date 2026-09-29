@@ -10,6 +10,12 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 - Never write a plan step whose completion depends on a user action. Record it in `## Human Actions` as a prerequisite or a follow-up instead, and write the remaining steps as if the prerequisite were already done.
 - Never gate a step, a dependency, or an acceptance criterion on a person, even where an agent does the work itself. Waiting for a confirmation, "merged or deployed only after the operator confirms", and "proceeds once the user has…" are all dependencies on a user action. Where the ordering is about merging or deploying, it is already outside the run, since no agent merges or deploys: record it as an `After the run` row in `## Human Actions`. Where agent work must genuinely follow the action, make the action a `Before the run` prerequisite, or move the step into `## Deferred Items` for a follow-up plan.
 
+### Releases & Local Dependencies
+- Never plan a release. Publishing a package, tagging a version, running a release process, and raising a consumer's version constraint on a sibling package all belong to the user after the run: record the release as an `After the run` row in `## Human Actions`. Release preparation stays in the plan — changelog entries, manifest `version` fields, migration notes.
+- Where the plan changes more than one repository, make the first step switch every dependency between those repositories to a local symlink, so no step waits for a release. Use the project's dependency switch where its `AGENTS.md` documents one, and switch each dependency by hand otherwise. Where the user states the switch is already done, record that in `## Assumptions` instead of a step.
+- Never plan switching the symlinks back, in an initial plan or a rework plan. The user reverts them once the releases are done.
+- Verify that every repository the plan changes exists in the workspace alongside the others. Where one is missing, tell the user instead of planning around it.
+
 ### Output Integrity
 - Produce both artifacts before handing off: `research-brief.md` and `plan.md`. Where the research phase found nothing noteworthy for an area, record that explicitly in the brief rather than omitting the area.
 - Never leave a template placeholder unfilled in `plan.md`. Where a section genuinely does not apply, omit the whole section rather than shipping an empty heading or a literal `{…}` slot.

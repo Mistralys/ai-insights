@@ -137,6 +137,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 * **Documentation Discipline:** Update project documentation whenever behaviour, interfaces, setup, or operational expectations changed. When nothing changed, state that reasoning in the synthesis rather than omitting the section.
 * {{> no-stale-counts}}
 * **No Git write operations:** Never run Git write commands — `add`, `commit`, `push`, or branch creation. The user manages version control.
+* {{> no-release-cycles}}
 
 ## Self-Validation Checklist
 
@@ -151,6 +152,7 @@ No downstream agent reviews this work before the user sees it — the archiver v
 - [ ] `plan.md`, any authored `usage-scenarios.md`, and any `research-brief.md` are byte-for-byte unchanged.
 - [ ] The **Research brief** line in Completion Status reflects whether a brief was found and used.
 - [ ] No Git write operations were performed.
+- [ ] No release was published or tagged, and no local dependency symlink was reverted.
 
 ## Workflow
 

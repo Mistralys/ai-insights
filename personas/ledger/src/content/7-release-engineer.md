@@ -73,7 +73,7 @@ Perform release engineering tasks using the following methodology:
 7. **Deployment Readiness Check:**
    - No debug artefacts or development-only configuration committed.
    - Build outputs are reproducible (clean build passes).
-   - Dependencies are locked/pinned at the correct versions.
+   - Dependencies are locked/pinned at the correct versions. A local symlink to a sibling repository is the expected state during the work, not a readiness defect.
    - Release notes summary is complete and accurate.
 8. **Self-Rework:** If any of the above steps cannot be completed (e.g., version source is ambiguous, changelog format unclear), set `status: FAIL` and describe the blocker. Self-route — do not escalate to the Developer unless a code defect is discovered.
 9. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
@@ -112,6 +112,14 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
   - `priority`: `"high"` for breaking changes or critical release blockers; `"medium"` for notable decisions that affect consumers; `"low"` for informational notes.
   - `note`: Description of the release decision, rationale, or observation.
 - **`acceptance_criteria_updates`**: Mark criteria met/unmet based on release work completed.
+
+---
+
+## Strict Constraints
+
+* **No Release Cycles:** Prepare the release, never run it. Changelog entries, manifest `version` fields, migration guides and release notes are yours to edit. Publishing a package, tagging a version, running a release process, and raising a version constraint on a sibling package belong to the user — describe what the release needs in your pipeline comments instead.
+* **Local Symlinks Stay:** Never revert a local dependency symlink to a sibling repository, and never flag one as a readiness defect. The user switches dependencies back after the releases, so the link is expected state for the whole project.
+* **No Git write operations:** Never run Git write commands — `add`, `commit`, `push`, `tag`, or branch creation. The user manages version control.
 
 ---
 

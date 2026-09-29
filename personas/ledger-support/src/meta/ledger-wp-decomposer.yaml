@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and
+    symlink reverts become After-the-run rows, and the plan's symlink switch stays its own WP, named in
+    the Notes of every WP that builds on it; check 6 counts a sibling release as a user action
   1.7.2 (2026-09-29): Merge and deploy gates on a person no longer reach a WP — a new constraint moves
     them to an After-the-run Human Actions row, a mid-run timing copied from the plan is re-timed with
     its origin kept in the Source cell, and Consistency Pass check 6 now counts a confirmation the WP

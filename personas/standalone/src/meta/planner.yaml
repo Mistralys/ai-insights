@@ -5,6 +5,11 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.6.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
+    group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
+    opens every multi-repository plan with a switch to local symlinks (the project's documented switch
+    where one exists), never plans switching them back, and checks every changed repository is in the
+    workspace; checklist item added
   2.5.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
     counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
     sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a

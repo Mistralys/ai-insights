@@ -1,6 +1,11 @@
 # Personas Changelog
 
-## v3.38.1 - **WIP, UNRELEASED**
+## v3.39.0 - **WIP, UNRELEASED**
+- Planner: Links sibling repositories locally first and never plans a release or a switch back.
+- Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.
+- Standalone: Plan Auditor flags release steps and a missing symlink switch as Critical.
+- Ledger: Release Engineer prepares releases without running them and leaves symlinks in place.
+- Developer: Both suites never publish or tag, and link an unlinked sibling instead of waiting.
 - Planner: Gates on a person count as dependencies; Human Actions timing is before or after the run.
 - Ledger-Support: WP Decomposer moves merge and deploy gates out of WPs and re-times mid-run rows.
 - Standalone: Plan Auditor flags any step or criterion waiting on a person as Critical.
