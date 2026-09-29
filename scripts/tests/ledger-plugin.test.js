@@ -28,7 +28,7 @@ const require = createRequire(import.meta.url);
 const { renderRoster }                       = require('../../personas/plugins/ledger/roster-renderer.js');
 const { renderMcpToolsTable }                = require('../../personas/plugins/ledger/mcp-tools-renderer.js');
 const { validateRole, validateNoteOnlyGuard } = require('../../personas/plugins/ledger/role-validator.js');
-const { ledgerPlugin }                       = require('../../personas/plugins/ledger/index.js');
+const { ledgerPlugin, loadLedgerDisplayPrefixes, applyLedgerDisplayNames } = require('../../personas/plugins/ledger/index.js');
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -738,5 +738,47 @@ describe('ledgerPlugin() model resolution', () => {
     // Should fall through to YAML model_slug
     expect(ctx['model_slug']).toBe('gemini-3-5-flash');
     expect(ctx['model']).toBe('Gemini 3.5 Flash');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ledger display names — {{agent_<slug>}} must match the ledger VS Code name
+// ---------------------------------------------------------------------------
+
+describe('ledger display names', () => {
+  function metaDir(files) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-meta-'));
+    for (const [name, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), text);
+    return dir;
+  }
+
+  it('maps numbered ledger YAML to "{number} - {role}", keyed by underscored slug', () => {
+    const dir = metaDir({
+      '1-planner.yaml':        'number: 1\nrole: Planner\n',
+      '2-project-manager.yaml': 'number: 2\nrole: Project Manager\n',
+      '_shared.yaml':          'number: 0\nrole: Shared\n',
+      'no-number.yaml':        'role: Nobody\n',
+    });
+    const prefixes = loadLedgerDisplayPrefixes(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect([...prefixes]).toEqual([['1_planner', '1 - Planner'], ['2_project_manager', '2 - Project Manager']]);
+  });
+
+  it('returns an empty map for a missing directory', () => {
+    expect(loadLedgerDisplayPrefixes(path.join(os.tmpdir(), 'does-not-exist-ledger-meta')).size).toBe(0);
+  });
+
+  it('rewrites the library value, keeping its version, and leaves other agents alone', () => {
+    const context = { agent_1_planner: '1-planner v2.10.0', agent_ctx_architect: 'CTX Architect v1.3.3' };
+    applyLedgerDisplayNames(context, new Map([['1_planner', '1 - Planner']]));
+    expect(context).toEqual({ agent_1_planner: '1 - Planner v2.10.0', agent_ctx_architect: 'CTX Architect v1.3.3' });
+  });
+
+  it('applies through onBuildContext for any suite', () => {
+    const dir = metaDir({ '1-planner.yaml': 'number: 1\nrole: Planner\n' });
+    const plugin = ledgerPlugin({ ledgerMetaDir: dir });
+    const out = plugin.onBuildContext({ agent_1_planner: '1-planner v2.10.0' }, {}, { personaMode: 'standalone' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    expect(out.agent_1_planner).toBe('1 - Planner v2.10.0');
   });
 });

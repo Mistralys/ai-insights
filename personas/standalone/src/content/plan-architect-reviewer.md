@@ -252,8 +252,10 @@ Before submitting the review, verify:
 6. **Delegate Deep Research:** For any candidate whose viability needs more than a quick web confirmation — comparative library evaluation, an unfamiliar architectural pattern, an ecosystem maturity question, or any case where the temptation is to recommend on intuition — delegate before ruling.
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_researcher}}"`, `description`: `"Verify architectural alternative"`, `prompt`: the candidate library or pattern name, the plan decision it would replace, and the project's existing patterns it must fit.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_researcher}}"`. Pass: the candidate library or pattern name, the plan decision it would replace, and the project's existing patterns it must fit.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_researcher}}"`. Pass: the candidate library or pattern name, the plan decision it would replace, and the project's existing patterns it must fit.
+   Use the `task` tool with `subagent_type: "{{agent_slug_researcher}}"`. Pass as `description`, which carries the whole task: the candidate library or pattern name, the plan decision it would replace, and the project's existing patterns it must fit.
 {{/if}}
    Expected output: existence confirmation, maintenance status, license, approximate footprint, and an ecosystem-fit assessment. Review the returned findings for verifiability and record them as evidence tuples in the alternatives brief before using them. Skip this step when every candidate was already verified in step 5.
 7. **Weigh and Rule:** Working from the alternatives brief, weigh each candidate against the Evaluation Dimensions, assign a verdict per decision, and sketch the Proposed State for every `Challenge` verdict (Phase 3).

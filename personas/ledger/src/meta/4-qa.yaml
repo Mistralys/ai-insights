@@ -5,6 +5,12 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.9.3 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged.
+    cc_tools gained `Task` — the 2026-09-14 override replaced `default_cc_tools`, so the Claude
+    Code auto-handoff could not start the next agent
   3.9.2 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -45,6 +51,7 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm

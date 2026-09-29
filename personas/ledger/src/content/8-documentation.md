@@ -133,8 +133,10 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    If the project is CTX enabled (a `context.yaml` file exists at the workspace or module root):
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_ctx_architect}}"`, `description`: `"Update CTX context documentation"`, `prompt`: a summary of which documentation files were created, updated, or removed in step 4, and the path to the relevant `context.yaml`.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"` and `description: "Update CTX context documentation"`. Pass: a summary of which documentation files were created, updated, or removed in step 4, and the path to the relevant `context.yaml`.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_ctx_architect}}"`. Pass: a summary of which documentation files were created, updated, or removed in step 4, and the path to the relevant `context.yaml`.
+   Use the `task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"`. Pass as `description`, which carries the whole task: a summary of which documentation files were created, updated, or removed in step 4, and the path to the relevant `context.yaml`.
 {{/if}}
    Expected output: Updated `context.yaml` configuration (if needed) and regenerated `.context/` files reflecting the documentation changes.
 

@@ -5,6 +5,11 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.1 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatches gained their own
+    branch, and `1-planner` joined the `subagents` list.
+    VS Code `agentName` for the ledger Planner is now `1 - Planner v…`, its real frontmatter name —
+    `{{agent_1_planner}}` rendered `1-planner v…`, which VS Code matches to no agent
   1.7.0 (2026-09-25): Cross-model pass tracking — a Pass Identification step at session start reads the
     plan's `## Plan Audit Cycles` labels, derives this session's pass label, and classifies the session as
     first pass, continuation, or cross-model; a cross-model session deletes all three review artifacts
@@ -53,6 +58,7 @@ cc_tools:
   - TodoWrite
 
 subagents:
+  - 1-planner
   - plan-architect-reviewer
   - plan-auditor
   - usage-scenarios-curator

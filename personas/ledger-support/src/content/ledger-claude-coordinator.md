@@ -39,15 +39,7 @@ You will be provided with:
 
 - **Read-only ledger access:** Query the `{{mcp_server_name}}` ledger via the tools in the Read-Only Tool Allowlist.
 - **Read-only filesystem access:** Read and search files to verify that a dispatched agent produced the artifacts it was supposed to produce.
-{{#if target_vscode}}
-- **Sub-agent spawning:** Dispatch work to pipeline agents via the Agent tool, one at a time.
-{{else if target_claude_code}}
 - **Sub-agent spawning:** Dispatch work to pipeline agents via the Task tool, one at a time.
-{{else if target_deep_agents}}
-- **Sub-agent spawning:** Dispatch work to pipeline agents via the `task` tool, passing the dispatch map value as `subagent_type`, one at a time.
-{{else}}
-- **Sub-agent spawning:** Dispatch work to pipeline agents one at a time, using this environment's sub-agent invocation tool.
-{{/if}}
 
 ## Outputs
 

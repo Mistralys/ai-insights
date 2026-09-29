@@ -125,8 +125,11 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_changelog_curator}}"`. Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
    Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_changelog_curator}}"`. Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
+   Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_changelog_curator}}"`. Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
+   Use the `task` tool with `subagent_type: "{{agent_slug_changelog_curator}}"`. Pass as `description`, which carries the whole task: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
    Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
 {{/if}}
    Review the returned changelog entry for accuracy and completeness before proceeding.
@@ -135,8 +138,11 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_ctx_architect}}"`. Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
    Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"`. Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
+   Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_ctx_architect}}"`. Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
+   Use the `task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"`. Pass as `description`, which carries the whole task: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
    Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents.
 {{/if}}
    Skip this step if no `context.yaml` exists in the project.

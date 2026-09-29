@@ -167,11 +167,11 @@ No downstream agent reviews this work before the user sees it — the archiver v
    - `description`: `"Archive completed standalone plan to ledger"`
    - `prompt`: Pass the absolute path to the plan folder (the directory containing `plan.md` and the newly written `synthesis.md`).
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: "{{agent_ledger_synthesis_maintainer}}"`. Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_synthesis_maintainer}}"`. Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_synthesis_maintainer}}"`
-   - `task`: Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
+   - `description`: Pass the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{else}}{{!-- fallback for future or unknown targets --}}
    Invoke the **{{agent_ledger_synthesis_maintainer}}** subagent with the absolute path to the plan folder (the directory containing `plan.md` and `synthesis.md`).
 {{/if}}

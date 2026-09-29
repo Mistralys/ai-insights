@@ -257,16 +257,20 @@ Before handing off, verify:
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_plan_architect_reviewer}}"`, `description`: `"Plan review"`, `prompt`: plan path, any user-provided concerns, and research brief path (if it exists).
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_plan_architect_reviewer}}"`. Pass the plan path, any user-provided concerns, and research brief path (if it exists).
 {{else}}
-   Use the `Task` tool with `description: "{{agent_plan_architect_reviewer}}"`. Pass the plan path, any user-provided concerns, and research brief path (if it exists).
+   Use the `task` tool with `subagent_type: "{{agent_slug_plan_architect_reviewer}}"`. Pass as `description`, which carries the whole task: the plan path, any user-provided concerns, and research brief path (if it exists).
 {{/if}}
 
 6. **Integrate Design Findings:** If the design review was performed, execute Phase 3 of the Refinement Cycle (see Operational Protocol above).
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate design findings into plan"`, `prompt`: plan path, review path, and research brief path (if it exists).
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass: plan path, review path, and research brief path (if it exists).
 {{else}}
-   Use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: plan path, review path, and research brief path (if it exists).
+   Use the `task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass as `description`, which carries the whole task: plan path, review path, and research brief path (if it exists).
 {{/if}}
 
 7. **Audit Loop:** Execute Phase 4 of the Refinement Cycle (see Operational Protocol above). Repeat until PASS, ceiling reached, or divergence detected. After reading each `audit.md`, compare its Major/Critical count against the previous cycle's count before deciding whether to continue — a higher count exits the loop as DIVERGING.
@@ -276,9 +280,12 @@ Before handing off, verify:
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_plan_auditor}}"`, `description`: `"Audit plan for defects"`, `prompt`: plan path, research brief path (if it exists), and differential summary (cycles 2+).
    For rework integration, invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate audit findings into plan"`, `prompt`: plan path, audit path, and research brief path (if it exists).
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_plan_auditor}}"`. Pass: plan path, research brief path (if it exists), and differential summary (cycles 2+).
+   For rework integration, use the `Task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass: plan path, audit path, and research brief path (if it exists).
 {{else}}
-   Use the `Task` tool with `description: "{{agent_plan_auditor}}"`. Pass: plan path, research brief path (if it exists), and differential summary (cycles 2+).
-   For rework integration, use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: plan path, audit path, and research brief path (if it exists).
+   Use the `task` tool with `subagent_type: "{{agent_slug_plan_auditor}}"`. Pass as `description`, which carries the whole task: plan path, research brief path (if it exists), and differential summary (cycles 2+).
+   For rework integration, use the `task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass as `description`, which carries the whole task: plan path, audit path, and research brief path (if it exists).
 {{/if}}
 
 8. **Evaluate Terminal Condition:** Apply Decision Logic: `CONVERGED` (proceed to step 9), `CEILING_REACHED` or `DIVERGING` (proceed to step 15).
@@ -291,8 +298,10 @@ Before handing off, verify:
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_usage_scenarios_curator}}"`, `description`: `"Verify usage scenario coverage"`, `prompt`: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+   Use the `task` tool with `subagent_type: "{{agent_slug_usage_scenarios_curator}}"`. Pass as `description`, which carries the whole task: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{/if}}
 
    Expected output: `scenario-coverage.md` alongside the plan, plus a verdict. Confirm the file was written and record the verdict. For `PASS` or `PASS WITH FINDINGS` with no Major findings, proceed to step 14; otherwise continue to step 12.
@@ -301,8 +310,10 @@ Before handing off, verify:
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_1_planner}}"`, `description`: `"Integrate scenario findings into plan"`, `prompt`: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
 {{else}}
-   Use the `Task` tool with `description: "{{agent_1_planner}}"`. Pass: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
+   Use the `task` tool with `subagent_type: "{{agent_slug_1_planner}}"`. Pass as `description`, which carries the whole task: plan path, `scenario-coverage.md` path, and research brief path (if it exists).
 {{/if}}
 
    Expected output: an updated `plan.md`. Verify it addresses the flagged findings and retains structural completeness.
@@ -311,8 +322,10 @@ Before handing off, verify:
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_usage_scenarios_curator}}"`, `description`: `"Re-verify usage scenario coverage"`, `prompt`: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{else}}
-   Use the `Task` tool with `description: "{{agent_usage_scenarios_curator}}"`. Pass: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
+   Use the `task` tool with `subagent_type: "{{agent_slug_usage_scenarios_curator}}"`. Pass as `description`, which carries the whole task: complete plan path, complete `usage-scenarios.md` path, and Verify mode.
 {{/if}}
 
 14. **Success — Compile Refinement Log:** Report using the Refinement Log Template: iterations completed, findings resolved per cycle, final technical verdict (`CONVERGED`), the scenario decision, and the final scenario verdict. List any remaining Minor findings for implementer awareness.

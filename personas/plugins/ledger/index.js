@@ -14,7 +14,10 @@
  *   - onBuildContext  — injects roster_rendered and mcp_tools_table into
  *                       the build context so templates can reference them.
  *                       Also applies model assignment overrides from the
- *                       model registry (assignments.json / local.json).
+ *                       model registry (assignments.json / local.json), and
+ *                       rewrites every ledger persona's `{{agent_<slug>}}`
+ *                       display name to its VS Code frontmatter name
+ *                       (`{number} - {role} v{version}`) in every suite.
  *   - onPostRender    — captures the rendered output per-persona so the
  *                       onValidate hook can run the note_only guard against
  *                       the real generated content.
@@ -35,6 +38,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const yaml = require('js-yaml');
 
 const { renderRoster }              = require('./roster-renderer');
 const { renderMcpToolsTable }       = require('./mcp-tools-renderer');
@@ -115,6 +119,70 @@ function loadModelRegistry(registryDir) {
   return { uuidToSlug, slugToEntry, assignments };
 }
 
+// ---------------------------------------------------------------------------
+// Ledger display names
+// ---------------------------------------------------------------------------
+
+/**
+ * Default location of the ledger suite's persona metadata.
+ * Resolved relative to this plugin file: personas/plugins/ledger/ → personas/ledger/src/meta/
+ */
+const LEDGER_META_DIR = path.join(__dirname, '..', '..', 'ledger', 'src', 'meta');
+
+/**
+ * Map each ledger persona to the prefix of its VS Code frontmatter name.
+ *
+ * The library builds `{{agent_<slug>}}` as `{name} v{version}` for every
+ * persona. Ledger personas have no `name` field, so the library falls back to
+ * the slug and produces `1-planner v2.10.0` — but the ledger VS Code
+ * frontmatter names the persona `{number} - {role} v{version}`
+ * (`FRONTMATTER_LEDGER_VSCODE`). VS Code's `runSubagent` matches `agentName`
+ * against that frontmatter name exactly, so a dispatch built from the library
+ * value selects nothing.
+ *
+ * Files that fail to parse are skipped silently, like the model registry: the
+ * rendered sub-agent reference check in scripts/build-personas.js is the
+ * backstop that reports a name that still does not match.
+ *
+ * @param {string} metaDir  Absolute path to the ledger suite's meta directory.
+ * @returns {Map<string, string>} underscored slug → `{number} - {role}`
+ */
+function loadLedgerDisplayPrefixes(metaDir) {
+  const prefixes = new Map();
+  if (!fs.existsSync(metaDir)) return prefixes;
+
+  for (const file of fs.readdirSync(metaDir)) {
+    if (!/^\d+-.*\.yaml$/.test(file)) continue;
+    try {
+      const meta = yaml.load(fs.readFileSync(path.join(metaDir, file), 'utf8'));
+      if (!meta || meta.number === undefined || typeof meta.role !== 'string') continue;
+      const slug = typeof meta.slug === 'string' ? meta.slug : path.basename(file, '.yaml');
+      prefixes.set(slug.replace(/-/g, '_'), `${meta.number} - ${meta.role}`);
+    } catch (_e) {
+      // Malformed YAML — the library build reports it; skip here.
+    }
+  }
+  return prefixes;
+}
+
+/**
+ * Rewrite the ledger personas' `agent_<slug>` values in a build context.
+ * The version is taken from the library's own value (`… v{version}`), so the
+ * changelog-derived version is resolved in one place only.
+ *
+ * @param {object}              context   Build context (mutated).
+ * @param {Map<string, string>} prefixes  From loadLedgerDisplayPrefixes().
+ */
+function applyLedgerDisplayNames(context, prefixes) {
+  for (const [underscored, prefix] of prefixes) {
+    const key = `agent_${underscored}`;
+    const current = context[key];
+    if (typeof current !== 'string') continue;
+    const m = current.match(/ v(\S+)$/);
+    if (m) context[key] = `${prefix} v${m[1]}`;
+  }
+}
+
 // Load registry once at module-load time (cached for the process lifetime).
 // Tests may inject an alternate registry via the `registryDir` option in ledgerPlugin().
 const _defaultRegistry = loadModelRegistry(MODEL_REGISTRY_DIR);
@@ -129,7 +197,7 @@ const _defaultRegistry = loadModelRegistry(MODEL_REGISTRY_DIR);
  * The returned object satisfies the PersonaBuildPlugin interface and can be
  * passed directly to the plugins array in a BuildConfig.
  *
- * @param {{ manifestRoles?: string[], warnOnUnknownRole?: boolean, registryDir?: string }} [options]
+ * @param {{ manifestRoles?: string[], warnOnUnknownRole?: boolean, registryDir?: string, ledgerMetaDir?: string }} [options]
  *   Configuration options for the plugin.
  *
  *   - manifestRoles     List of canonical role names from the workflow manifest.
@@ -139,11 +207,15 @@ const _defaultRegistry = loadModelRegistry(MODEL_REGISTRY_DIR);
  *   - registryDir       Absolute path to an alternate model-registry directory.
  *                       When provided, overrides the default registry loaded at
  *                       module-load time.  Intended for tests only.
+ *   - ledgerMetaDir     Absolute path to an alternate ledger meta directory for
+ *                       the display-name rewrite.  Intended for tests only.
  *
  * @returns {object} A fully configured PersonaBuildPlugin for the ledger suite
  */
 function ledgerPlugin(options) {
-  const { manifestRoles = [], warnOnUnknownRole = true, registryDir } = options || {};
+  const { manifestRoles = [], warnOnUnknownRole = true, registryDir, ledgerMetaDir } = options || {};
+
+  const _ledgerPrefixes = loadLedgerDisplayPrefixes(ledgerMetaDir || LEDGER_META_DIR);
 
   // Use the injected registry when provided (test overrides); otherwise use the
   // module-level cached registry loaded from MODEL_REGISTRY_DIR.
@@ -284,6 +356,10 @@ function ledgerPlugin(options) {
       updated['model_slug'] = resolved.model_slug;
       updated['cc_model']   = resolved.cc_model;
 
+      // --- ledger display names ---------------------------------------------
+      // Every suite can reference a ledger persona, so this runs for all of them.
+      applyLedgerDisplayNames(updated, _ledgerPrefixes);
+
       // --- roster_rendered ---------------------------------------------------
       // Roster lives in _shared.yaml → merged context (not per-persona YAML).
       const roster = updated['roster'];
@@ -386,4 +462,4 @@ function ledgerPlugin(options) {
   return plugin;
 }
 
-module.exports = { ledgerPlugin };
+module.exports = { ledgerPlugin, loadLedgerDisplayPrefixes, applyLedgerDisplayNames };

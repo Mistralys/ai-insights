@@ -5,6 +5,9 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.4 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
+    branch, and a `subagents` list declares `researcher`
   2.3.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task; Task kept, since the workflow
@@ -46,6 +49,9 @@ cc_tools:
   - WebSearch
   - TodoRead
   - TodoWrite
+
+subagents:
+  - researcher
 
 # research-brief-protocol partial
 brief_orientation: "Entries tagged `[arch]`, and untagged entries, are the ones this review draws on"

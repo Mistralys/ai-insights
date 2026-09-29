@@ -5,6 +5,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.15.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
+    Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.15.1 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.15.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Contextual Analysis starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.14.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; synthesis template renders both subsections, omitting whichever is empty

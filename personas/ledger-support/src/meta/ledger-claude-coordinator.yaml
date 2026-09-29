@@ -5,6 +5,9 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.0.1 (2026-09-29): Built for the Claude Code target only — the VS Code and deep-agents builds
+    dispatched by Claude Code slugs neither platform matches, and neither deploys this persona;
+    the per-target Sub-agent spawning variants collapsed to the Claude Code line
   3.0.0 (2026-09-24): Recast the coordinator from a stage-by-stage dispatcher into a monitor that
     reseeds a self-advancing chain, since ledger agents already follow `auto_handoff` to dispatch
     their own successors. A dispatch is now a seed; the Dispatch Protocol is the Monitoring
@@ -52,6 +55,11 @@ tools:
   - search
   - agent
   - mcp
+
+# Claude Code only: the coordinator dispatches by Claude Code agent name and
+# is never deployed to VS Code or run by the Deep Agents orchestrator.
+targets:
+  - claude-code
 
 cc_tools:
   - Task

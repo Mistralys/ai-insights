@@ -1,5 +1,25 @@
 # Personas Changelog
 
+## v3.38.1 - Claude Code Handoffs Reach the Right Agent
+
+**Claude Code auto-handoffs now start the named persona directly** instead of a generic agent
+that re-briefed the successor with a prompt of its own.
+
+- Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
+- Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
+  they start on Claude Code.
+- Standalone: Documentation, README and AGENTS.md Curators dispatch document owners by slug.
+- Release Engineer: Gained the Claude Code `Task` tool it needs to dispatch sub-agents and hand off.
+- Ledger: Developer, QA, Security Auditor and Reviewer can hand off under Claude Code again.
+- Deep Agents: Sub-agent dispatches pass the task in the tool's real `description` field.
+- Standalone: Plan Refiner, Plan Architect Reviewer, Manifest Curator, Developer, Web GUI
+  Specialist and Workspace Architect dispatch sub-agents by slug on Claude Code.
+- Build: Handoff personas without the Claude Code `Task` tool now fail the build.
+- Build: Rendered output is checked on every target for sub-agents selected by the wrong name.
+- Build: A persona can limit the targets it is built for; the Claude Coordinator is Claude Code only.
+- Standalone: Plan Refiner reaches the ledger Planner under VS Code by its real agent name.
+- Docs: Persona Design Guide v3.6 documents each platform's sub-agent dispatch arguments.
+
 ## v3.38.0 - Agent-Composed Outcome Summaries
 
 **The archiving agent now writes the project outcome summary** instead of the server parsing it

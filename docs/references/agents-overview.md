@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.10.0)
+### Stage 2 — Project Manager (v3.10.1)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.17.1)
+### Stage 3 — Developer (v3.17.2)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.9.2)
+### Stage 4 — QA (v3.9.3)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.10.1)
+### Stage 5 — Security Auditor (v3.10.2)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.11.1)
+### Stage 6 — Reviewer (v3.11.2)
 
 **Identity:** Principal Systems Architect
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.7.5)
+### Stage 7 — Release Engineer (v3.7.6)
 
 **Identity:** Release Engineer
 
@@ -136,10 +136,11 @@ Curate the release for this work package. Version the artifact, update the chang
 - **Inputs:** Approved code changes + project version history
 - **Outputs:** Updated changelog, bumped version numbers, validated package manifests
 - **Key Behavior:** Determines the correct SemVer bump, writes changelog entries in house style, syncs version across all project files
+- **Sub-agents:** Changelog Curator, CTX Architect
 
 ---
 
-### Stage 8 — Documentation (v3.10.3)
+### Stage 8 — Documentation (v3.10.4)
 
 **Identity:** Technical Writing Manager
 
@@ -152,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.12.0)
+### Stage 9 — Synthesis (v3.12.1)
 
 **Identity:** Head of Operations (OPS)
 
@@ -167,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.1.1)
+### AGENTS.md Curator (v2.1.2)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -233,7 +234,7 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.15.1)
+### Developer — Standalone (v1.15.2)
 
 **Identity:** Staff Software Engineer
 
@@ -245,7 +246,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.3.1)
+### Documentation — Standalone (v1.3.2)
 
 **Identity:** Technical Writing Manager
 
@@ -267,7 +268,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.6.1)
+### Manifest Curator (v1.6.2)
 
 **Identity:** Technical Knowledge Architect
 
@@ -275,6 +276,7 @@ Create, update, and audit project manifests — the source of truth for AI agent
 
 - **Modes:** Create, Update, Audit
 - **Use When:** Setting up a project for agent-assisted development, or keeping manifest docs in sync after codebase changes
+- **Sub-agents:** CTX Architect
 
 ---
 
@@ -299,13 +301,14 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.3.3)
+### Plan Architect Reviewer (v2.3.4)
 
 **Identity:** Principal Software Architect
 
 Decision-level architectural review of technical plans — weighs each design choice against named alternatives with Confirm/Challenge/Reconsider verdicts. Runs in parallel with the Plan Auditor; never blocks.
 
 - **Use When:** Reviewing a plan's architectural decisions before implementation begins
+- **Sub-agents:** Researcher
 - **Notes:** Runs in parallel with the Plan Auditor; never blocks it
 
 ---
@@ -321,14 +324,14 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.7.0)
+### Plan Refiner (v1.7.1)
 
 **Identity:** Plan Quality Director
 
 Orchestrate iterative plan refinement: architectural review, finding integration, and repeated auditing until audit-clean or ceiling reached.
 
 - **Use When:** You want a plan to go through multiple rounds of review and refinement automatically
-- **Sub-agents:** Plan Architect Reviewer, Plan Auditor, Usage Scenarios Curator
+- **Sub-agents:** 1-planner, Plan Architect Reviewer, Plan Auditor, Usage Scenarios Curator
 
 ---
 
@@ -343,7 +346,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.6.1)
+### README Curator (v1.6.2)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -396,7 +399,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.7.3)
+### Web GUI Specialist (v1.7.4)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -417,7 +420,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.2.1)
+### Workspace Architect (v1.2.2)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -442,7 +445,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v3.0.0)
+### Ledger Claude Coordinator (v3.0.1)
 
 **Identity:** Technical Workflow Director
 

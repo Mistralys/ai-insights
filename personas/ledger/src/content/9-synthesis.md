@@ -98,13 +98,13 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
      `cwd_path` for live MCP reads and `project_storage_path` to locate
      `synthesis.md` on disk.
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent
-   "{{agent_ledger_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
+   Use the `Task` tool with `subagent_type:
+   "{{agent_slug_ledger_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
    root) and `project_storage_path` (= `plan_path` from pre-flight).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_knowledge_archiver}}"`
-   - `task`: Pass `cwd_path` (workspace root) and `project_storage_path`
+   - `description`: Pass `cwd_path` (workspace root) and `project_storage_path`
      (= `plan_path` from pre-flight). The Knowledge Archiver uses
      `cwd_path` for live MCP reads and `project_storage_path` to locate
      `synthesis.md` on disk.

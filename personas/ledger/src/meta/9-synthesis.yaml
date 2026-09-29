@@ -6,6 +6,9 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.12.1 (2026-09-29): Claude Code Knowledge Archiver dispatch now passes `subagent_type` instead of
+    describing the agent in `description`, which started a persona-less general-purpose agent.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   3.12.0 (2026-09-28): synthesis.md now opens with an `### Outcome Summary` heading instead of a bold
     `Executive Summary` label, matching the heading every other suite writes and the one the archiving
     tools parse; the `outcome_summary` parameter rules moved into the shared crafting-guide partial
