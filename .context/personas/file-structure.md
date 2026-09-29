@@ -200,6 +200,7 @@ _SOURCE: Directory tree_
         │   └── knowledge-ownership.md
         │   └── mcp-insight-capture.md
         │   └── no-stale-counts.md
+        │   └── outcome-summary-crafting-guide.md
         │   └── planner-core-rules.md
         │   └── planner-operating-modes.md
         │   └── planner-output-template.md

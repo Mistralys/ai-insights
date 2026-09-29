@@ -818,6 +818,9 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.12.0 (2026-09-28): synthesis.md now opens with an `### Outcome Summary` heading instead of a bold
+    `Executive Summary` label, matching the heading every other suite writes and the one the archiving
+    tools parse; the `outcome_summary` parameter rules moved into the shared crafting-guide partial
   3.11.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
     but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
     `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
@@ -881,7 +884,7 @@ mcp_tools:
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
   - tool: ledger_complete_synthesis
-    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. Pass `outcome_summary` — a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. Write this summary before calling the tool."
+    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. Pass `outcome_summary` — the summary written for the report's `### Outcome Summary` section, composed before the call."
   - tool: ledger_get_handoff_status
     purpose: Compute the final AGENT/STATUS handoff block.
   - tool: ledger_help

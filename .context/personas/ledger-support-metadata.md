@@ -562,11 +562,21 @@ use_when: "Invoked by the Project Manager to determine which pipeline stages eac
 ```yaml
 slug: ledger-synthesis-maintainer
 name: "Ledger Synthesis Maintainer"
-description: "Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its synthesis.md was edited."
+description: "Archive a completed standalone plan folder into the project ledger, or apply requested edits to the synthesis.md of a completed project and refresh its ledger record."
 vs_file_name: ledger-synthesis-maintainer.agent.md
 id: ledger-support-synthesis-maintainer
 cc_file_name: ledger-synthesis-maintainer.md
 changelog: |
+  2.2.0 (2026-09-28): Archive mode now composes the project's `outcome_summary` from `synthesis.md` and
+    passes it to the tool, instead of leaving the server to parse it out of a section heading; Update
+    mode passes none and lets the stored summary stand, composing one only where the refresh comes back
+    with a null summary; adds a shared outcome-summary crafting guide partial and a constraint against
+    extrapolating beyond what the synthesis states
+  2.1.0 (2026-09-28): Update mode now applies the corrections the user asks for in `synthesis.md`
+    before refreshing the ledger, instead of declining every edit and sending the user to the file
+    by hand; the blanket "Stamp only" prohibition is replaced by a pair of constraints that forbid
+    unrequested edits and keep the archival stamp exclusive to Archive mode, and a new first
+    workflow step applies the edits before the refresh reads the file from disk
   2.0.0 (2026-09-23): BREAKING — renamed from Ledger Standalone Archiver to Ledger Synthesis Maintainer
     (slug `standalone-archiver` -> `ledger-synthesis-maintainer`, matching the suite's `ledger-` prefix;
     id and output filenames follow); Update mode
@@ -609,7 +619,7 @@ cc_tools:
 
 # overview metadata
 identity: "Ledger Archivist"
-use_when: "A completed standalone plan should be tracked in the project ledger, or an edited synthesis.md needs its ledger record refreshed"
+use_when: "A completed standalone plan should be tracked in the project ledger, or the synthesis.md of a completed project needs a correction and its ledger record refreshed"
 modes: |
   Archive
   Update

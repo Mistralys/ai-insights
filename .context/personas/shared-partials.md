@@ -26,6 +26,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── knowledge-ownership.md
             └── mcp-insight-capture.md
             └── no-stale-counts.md
+            └── outcome-summary-crafting-guide.md
             └── planner-core-rules.md
             └── planner-operating-modes.md
             └── planner-output-template.md
@@ -342,6 +343,18 @@ After each observable action defined by your operational protocol's capture step
 
 ```md
 **No Stale Counts:** Never embed specific counts in {{stale_counts_targets}} (e.g. "12 unit tests," "5 helper classes," "refactored 3 methods"). Counts go stale immediately and any reader — human or agent — can query current values on demand. Include a count only when it carries analytical value that inspection cannot supply.
+
+```
+###  Path: `/personas/shared/partials/outcome-summary-crafting-guide.md`
+
+```md
+- **Two to three sentences** — what was accomplished, the approach taken, and any notable result or limitation
+- **Plain text only** — no Markdown formatting (no bold, bullets, backticks, or headers)
+- **Written in the past tense** — the project is finished, and the summary records its outcome
+- **Focused on the result, not the route** — the file-by-file record lives in `synthesis.md`; this is the line a reader sees in a project list
+- **Honest about what did not land** — a deferred item or a known limitation belongs in the summary when it changes what the project delivered
+
+A project's outcome summary answers "what came of this", where its `project_summary` answers "what was this for". The two are written from different documents and are never the same text.
 
 ```
 ###  Path: `/personas/shared/partials/planner-core-rules.md`

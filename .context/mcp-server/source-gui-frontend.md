@@ -3091,6 +3091,18 @@ function pmHasChanges() {
   return false;
 }
 
+/**
+ * Return the persona keys in the working assignments that no longer match any
+ * known persona ID (e.g. after a persona rename). The server rejects a save
+ * containing such keys, so the UI offers to remove them.
+ */
+function pmStaleKeys() {
+  if (!pmAssignments || !pmAssignments.persona_models || !pmPersonas || pmPersonas.length === 0) return [];
+  var known = {};
+  pmPersonas.forEach(function (p) { known[p.id] = true; });
+  return Object.keys(pmAssignments.persona_models).filter(function (k) { return !known[k]; });
+}
+
 /** Resolve a model UUID to its display name. Returns null when not found. */
 function pmModelName(uuid) {
   if (!uuid || !pmModels) return null;
@@ -3173,6 +3185,19 @@ function pmBuildTabHtml() {
         '<button id="pm-banner-rebuild-btn" class="btn btn-sm btn-secondary"' + (pmIsBuilding ? ' disabled' : '') + '>' +
           (pmIsBuilding ? '<span class="spinner"></span> Rebuilding…' : 'Rebuild Personas') +
         '</button>' +
+      '</div>';
+  }
+
+  /* ── Obsolete assignments banner (prune option) ── */
+  var obsoleteBanner = '';
+  var obsoleteKeys = pmStaleKeys();
+  if (obsoleteKeys.length > 0) {
+    obsoleteBanner =
+      '<div class="stale-banner pm-stale-banner" id="pm-obsolete-banner">' +
+        '<span>' + obsoleteKeys.length + (obsoleteKeys.length === 1 ? ' assignment refers' : ' assignments refer') +
+        ' to personas that no longer exist and will block saving: <code>' +
+        obsoleteKeys.map(escapeHtml).join('</code>, <code>') + '</code></span>' +
+        '<button id="pm-prune-btn" class="btn btn-sm btn-secondary">Remove obsolete assignments</button>' +
       '</div>';
   }
 
@@ -3334,7 +3359,7 @@ function pmBuildTabHtml() {
       '<div id="pm-save-msg" style="display:inline-block;margin-left:12px;"></div>' +
     '</div>';
 
-  var inner = staleBanner + buildErrorArea + defaultSection + assignmentsSection + actionBar;
+  var inner = staleBanner + obsoleteBanner + buildErrorArea + defaultSection + assignmentsSection + actionBar;
   return UI.card('Persona Models', inner);
 }
 
@@ -3534,6 +3559,14 @@ function pmWireEvents() {
   }
 
   /* Save button */
+  var pruneBtn = document.getElementById('pm-prune-btn');
+  if (pruneBtn) {
+    pruneBtn.addEventListener('click', function () {
+      pmStaleKeys().forEach(function (k) { delete pmAssignments.persona_models[k]; });
+      pmRefreshTab(); /* working copy now differs from snapshot → Save is enabled */
+    });
+  }
+
   var saveBtn = document.getElementById('pm-save-btn');
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {

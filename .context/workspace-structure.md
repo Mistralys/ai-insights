@@ -22,6 +22,8 @@ _SOURCE: Top-level directory tree_
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
+    │   ├── insights/
+    │   │   ├── 2026-09-28-synthesis-parser-section-boundary-fix.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
     │   ├── projects/
@@ -590,6 +592,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── knowledge-ownership.md
     │   │   └── mcp-insight-capture.md
     │   │   └── no-stale-counts.md
+    │   │   └── outcome-summary-crafting-guide.md
     │   │   └── planner-core-rules.md
     │   │   └── planner-operating-modes.md
     │   │   └── planner-output-template.md

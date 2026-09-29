@@ -537,8 +537,8 @@ export async function handleMoveKnowledge(
  *     validation is batch-mode — all invalid UUIDs are collected before
  *     throwing a single error that reports the total count (e.g. "2 model
  *     UUIDs do not exist in the model registry"). Persona key validation
- *     is fail-fast (exits on the first invalid key) and is a distinct
- *     validation step that runs before UUID checks.
+ *     is also batch-mode: the error message names every unknown key. It is a
+ *     distinct step that runs before UUID checks.
  *   - `POST /api/model-assignments/replace`: rejects same-model swap and
  *     rejects when old_model_id is not currently referenced.
  *
@@ -870,17 +870,18 @@ export async function handleUpdateAssignments(
   );
 
   // 2. Validate all persona keys in persona_models are valid persona IDs.
-  //    Intentionally fail-fast (exits on the first invalid key): persona-key
-  //    errors are structural misconfiguration, not bulk data errors, so a
-  //    single diagnostic is sufficient. Contrast with step 3 below, which
-  //    collects all invalid UUIDs before throwing (batch validation).
-  for (const personaKey of Object.keys(data.persona_models)) {
-    if (!validPersonaIds.has(personaKey)) {
-      validationError(
-        `One or more persona keys in persona_models are not valid. ` +
-          `Found ${validPersonaIds.size} valid persona ${validPersonaIds.size === 1 ? 'ID' : 'IDs'} in name-mapping.json.`
-      );
-    }
+  //    Batch validation: every unknown key is collected and named in the error
+  //    so the user can act on it (the GUI offers to remove or re-map them).
+  const invalidPersonaKeys = Object.keys(data.persona_models).filter(
+    (key) => !validPersonaIds.has(key)
+  );
+  if (invalidPersonaKeys.length > 0) {
+    const n = invalidPersonaKeys.length;
+    validationError(
+      `${n} persona ${n === 1 ? 'key' : 'keys'} in persona_models ${n === 1 ? 'is' : 'are'} not valid ` +
+        `(not found in name-mapping.json): ${invalidPersonaKeys.map((k) => `"${k}"`).join(', ')}.`,
+      { invalid_persona_keys: invalidPersonaKeys }
+    );
   }
 
   // 3. Validate all model UUIDs exist in the registry
