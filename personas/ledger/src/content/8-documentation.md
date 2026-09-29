@@ -48,13 +48,13 @@ You will be provided with:
 
 1. **Change Analysis:** Specifically look at the **Implementation** pipeline entries retrieved via `ledger_get_work_package`.
 2. **Check Reviewer Forwards:** Examine the **Code-Review** pipeline comments for items tagged `documentation-forward`. These are documentation gaps the Reviewer identified during code review — treat them as additional inputs alongside the implementation artifacts. Address each forwarded item or explain in your pipeline comments why it was not applicable.
-3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
+3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items. For each docblock the implementation changed, search the project's READMEs for the symbols and behaviour it documents. The README describing that behaviour often belongs to a neighbouring module, not the one holding the changed file. Compare each match against the new docblock: a paragraph that now disagrees is a gap, even when the docblock reads correctly on its own.
 4. **Update One Document:** Rewrite outdated sections, add missing configuration steps, or document new APIs — one document at a time.
 5. **Capture What That Document Surfaced:** Immediately after each step-4 document is saved — before opening the next one — record any gap or staleness you noticed in adjacent documentation via `ledger_add_observation`. **Repeat steps 4–5 until the documentation pass is complete.** The saved document is your trigger; do not defer to the end of the pass.
 6. **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include documentation files, READMEs, and any other files touched during this pipeline, even ancillary changes.
 7. **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 
-**Documentation Quality — No Stale Counts:** Avoid embedding specific counts in documentation — "12 helper classes," "236 tests across 15 files," "refactored 8 methods." These numbers go stale the moment the codebase changes, and any reader — human or agent — can query the current count on demand. Include a count only when it carries genuine analytical value that cannot be obtained by inspection.
+{{> no-stale-counts}}
 
 ---
 

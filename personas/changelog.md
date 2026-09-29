@@ -18,6 +18,8 @@
 - Build: A persona can limit the targets it is built for; the Claude Coordinator is Claude Code only.
 - Standalone: Plan Refiner reaches the ledger Planner under VS Code by its real agent name.
 - Docs: Persona Design Guide v3.6 documents each platform's sub-agent dispatch arguments.
+- Ledger, Standalone: Documentation personas check changed docblocks against README prose in any
+  module that describes them.
 
 ## v3.38.0 - Agent-Composed Outcome Summaries
 

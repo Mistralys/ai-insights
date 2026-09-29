@@ -5,6 +5,10 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.3.3 (2026-09-29): Research Verify phase looks up each changed docblock across the project's
+    READMEs and compares every matching paragraph, with a matching Quality Checklist item — a
+    ledger synthesis found stale prose in an adjacent module's README after WPs updated only the
+    source docblocks
   1.3.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
     with the owner's slug — the shared ownership partial put the name in `description`, which
     starts a persona-less general-purpose agent.

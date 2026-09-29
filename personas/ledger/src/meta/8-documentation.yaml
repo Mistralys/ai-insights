@@ -5,6 +5,11 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.5 (2026-09-29): Gap Analysis searches the project's READMEs for each docblock the
+    implementation changed and compares every match — a synthesis found three stale paragraphs in
+    an adjacent module's README after WPs updated only the source docblocks, so the search is
+    not limited to the README beside the changed file. The inline no-stale-counts note is replaced by
+    the shared `no-stale-counts` partial the 3.7.1 entry already credited
   3.10.4 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
     general-purpose agent that re-briefed the successor with a composed prompt. The
@@ -58,6 +63,9 @@ cc_tools:
 
 subagents:
   - ctx-architect
+
+# no-stale-counts partial substitution
+stale_counts_targets: "documentation or pipeline comments"
 
 has_mcp: true
 has_detect_project: true
