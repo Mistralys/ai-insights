@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.7.2 (2026-09-29): Merge and deploy gates on a person no longer reach a WP — a new constraint moves
+    them to an After-the-run Human Actions row, a mid-run timing copied from the plan is re-timed with
+    its origin kept in the Source cell, and Consistency Pass check 6 now counts a confirmation the WP
+    only records as a dependency
   1.7.1 (2026-09-24): Mode arbitration no longer contradicts itself — the dispatched mode is
     authoritative, a Decompose dispatch overwrites an existing draft instead of halting on it, and only
     a Consistency Pass with no draft to read stops the session; the pass record states `7 of 7` rather

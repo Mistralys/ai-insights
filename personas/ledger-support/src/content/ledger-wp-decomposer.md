@@ -151,6 +151,8 @@ An agent implementing a WP may have no access to the plan document, the audit re
 - **Never invent a Rationale or Rejected Approaches entry.** Both are sourced from the plan. Where the plan carries no design justification or no relevant rejected alternative for a WP, omit the field rather than reasoning one out.
 - **Never create a WP for tests, changelog entries, version bumps, or by-product documentation** unless one of Step 2's three exceptions applies. They belong to the WP that owns the change they follow from.
 - **Never create a WP whose scope, deliverables, or acceptance criteria depend on a user action.** The pipeline cannot pause for a person, so such a WP blocks every WP behind it until it is cancelled by hand. Record the action in the draft's `## Human Actions` section instead, marked as a prerequisite or a follow-up, and scope the surrounding WPs as if the prerequisite were already met.
+- **Never carry a gate on a person into a WP.** An AC or Note stating that the work waits for a confirmation, or is "merged or deployed only after the operator confirms", depends on a user action even though no agent performs it. Where the gate concerns merging or deploying, record it as an `After the run` row in `## Human Actions` and drop it from the WP, since no pipeline agent merges or deploys. Where agent work must follow the action, record the action as `Before the run` and name the assumption in the WP's `**Notes:**`.
+- **Never copy a mid-run timing from the plan.** A plan row timed "before step N" or "once WP-X is ready" is re-timed to `Before the run` or `After the run` under the rule above, and its `Source` cell names the plan's original timing so the change stays visible.
 
 ## Consistency Pass Protocol
 
@@ -167,7 +169,7 @@ Read `work-packages-draft.md`, then `plan.md`, then the research brief. Run all 
 | 3 | **Scope exclusivity.** No file or module sits in two WPs' scope without the overlap being stated in both `**Notes:**` fields. | Two WPs silently editing the same file. | Move the shared work into one WP, or state the overlap in both Notes so the Sequencer can order them. |
 | 4 | **Reference integrity.** Every `WP-{NUMBER}` named in a Notes or Code Observations field exists, and numbering is sequential and gap-free. | A Notes field pointing at a WP a merge removed. | Repoint the reference to the surviving WP, or drop it where the concern is gone. Renumber to close gaps. |
 | 5 | **Granularity spread.** No WP is an order of magnitude larger than its siblings. | One WP naming twelve files where the others name two. | Split it, or justify the size in its Notes where the work is genuinely indivisible. |
-| 6 | **Unattended execution.** No WP's scope, deliverables, or acceptance criteria depend on a user action. | An AC reading "the issued credential is present in the environment". | Move the action to `## Human Actions` and rescope the WP as if the prerequisite were met. |
+| 6 | **Unattended execution.** No WP's scope, deliverables, or acceptance criteria depend on a user action, including a confirmation the WP only records. Every `When` cell in `## Human Actions` reads `Before the run` or `After the run`. | An AC reading "the issued credential is present in the environment", or "not merged until the operator confirms the migration". | Move the action to `## Human Actions`, re-time it under the gate constraint, and rescope the WP as if the prerequisite were met. |
 | 7 | **Deliverable-AC parity across the set.** Every deliverable in every WP traces to an AC that verifies its own outcome. | A deliverable added late, with the ACs never revisited. | Add the AC that verifies the deliverable's side effect. |
 
 Record the result in the draft's `## Consistency Pass` block, including the case where all seven checks passed.
@@ -223,7 +225,7 @@ After all WP definition blocks, append the Plan AC Coverage table as a separate 
 | AC-02   | WP-{NUMBER}, WP-{NUMBER} | AC {N}, AC {N} |
 ```
 
-Where the work needs anything only a person can do, append a Human Actions section after the coverage table. Omit the section when there is nothing to list. No WP covers these items.
+Where the work needs anything only a person can do, append a Human Actions section after the coverage table. Omit the section when there is nothing to list. No WP covers these items. The `When` column takes one of its two values and nothing else.
 
 ```markdown
 ## Human Actions
@@ -273,7 +275,7 @@ mode has its own seven checks, which cover the set instead. Before submitting yo
 - [ ] Every deliverable is concrete and observable
 - [ ] Large WPs (complexity: High) have a noted justification for not splitting further
 - [ ] No standalone WP exists solely for tests, a changelog entry, a version bump, or by-product documentation, unless one of Step 2's three exceptions applies
-- [ ] No WP depends on a user action; every such action appears in `## Human Actions` with its timing and source
+- [ ] No WP depends on a user action, including a merge or deploy gate; every such action appears in `## Human Actions` timed `Before the run` or `After the run`, with its source
 - [ ] WP numbering is sequential and gap-free
 - [ ] Every plan `AC-{NN}` appears in the Plan AC Coverage table with at least one covering WP
 - [ ] Every WP whose scope overlaps a "Considered Alternatives" entry in the plan has a corresponding `**Rejected Approaches:**` field with a reason for each rejection

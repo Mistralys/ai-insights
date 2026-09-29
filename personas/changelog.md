@@ -1,10 +1,9 @@
 # Personas Changelog
 
-## v3.38.1 - Claude Code Handoffs Reach the Right Agent
-
-**Claude Code auto-handoffs now start the named persona directly** instead of a generic agent
-that re-briefed the successor with a prompt of its own.
-
+## v3.38.1 - **WIP, UNRELEASED**
+- Planner: Gates on a person count as dependencies; Human Actions timing is before or after the run.
+- Ledger-Support: WP Decomposer moves merge and deploy gates out of WPs and re-times mid-run rows.
+- Standalone: Plan Auditor flags any step or criterion waiting on a person as Critical.
 - Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
 - Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
   they start on Claude Code.

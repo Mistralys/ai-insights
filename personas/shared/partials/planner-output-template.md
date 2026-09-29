@@ -78,7 +78,7 @@
 
 | # | Action | When | Why an agent cannot do it |
 |---|--------|------|---------------------------|
-| 1 | {What the user does} | Before the run \| After the run | {The access, credential, or decision the agent does not hold} |
+| 1 | {What the user does} | {Exactly `Before the run` or `After the run` — a timing such as "before step N merges" places the action inside the run} | {The access, credential, or decision the agent does not hold} |
 
 ## Acceptance Criteria
 

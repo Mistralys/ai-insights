@@ -82,6 +82,7 @@ Verify the plan contains all required sections with substantive content:
 | Assumptions | Stated explicitly, not left implicit |
 | Constraints | Present and realistic |
 | Out of Scope | Defined — prevents scope creep |
+| Human Actions | Optional. Where present, every `When` cell reads `Before the run` or `After the run` |
 | Acceptance Criteria | Testable and specific |
 | Testing Strategy | Present and covers the proposed changes |
 | Test Plan | New or modified tests are enumerated as concrete steps with file paths or test names — not just a strategy paragraph. Every new code path the plan introduces has a corresponding test obligation. |
@@ -92,6 +93,7 @@ Also verify the plan is internally consistent:
 
 - **Dependency sequencing:** Are the detailed steps in a feasible order? Are there implicit dependencies between steps that are not documented?
 - **Scope alignment:** Do the steps actually achieve the acceptance criteria? Are there acceptance criteria that no step addresses?
+- **Unattended execution:** Does any step, dependency, or acceptance criterion wait on a person? Agents run the plan without anyone watching, so a step that waits for a confirmation stalls there until someone cancels it. A step an agent performs still waits when its merge does: "merged or deployed only after the operator confirms" is a wait. The same applies to a `Human Actions` row timed "before step N". Each one is a Critical finding under Feasibility. The Recommendation names the fix that fits: a merge or deploy ordering becomes an `After the run` row, since no agent merges or deploys; agent work that must follow the action gets a `Before the run` prerequisite, or moves to a follow-up plan.
 - **Project-mandated documentation updates:** If the project's `AGENTS.md` (or equivalent contributor guide) defines maintenance rules tying specific code changes to specific documentation updates — for example, manifest tables that map "add a new public method" to "update `api-surface.md`" — verify the plan lists the corresponding doc updates as steps. Missing project-mandated doc updates are a Major finding under the Documentation Coverage category; entirely missing the Documentation Updates section when such rules exist is Critical.
 
 ### Phase 2: Grounding Verification
@@ -143,7 +145,7 @@ Architectural soundness, simplification, and ecosystem fit are not dimensions of
 
 | Severity | Meaning | Examples |
 |----------|---------|----------|
-| **Critical** | Blocks implementation or causes incorrect work | Hallucinated file/method, wrong API signature, impossible dependency order |
+| **Critical** | Blocks implementation or causes incorrect work | Hallucinated file/method, wrong API signature, impossible dependency order, a step or AC waiting on a person inside the run |
 | **Major** | Causes ambiguity or likely rework | Vague acceptance criteria, missing step, overlooked existing pattern, loose structure where the repo has a durable precedent |
 | **Minor** | Reduced quality but does not block | Missing risk entry, incomplete rationale, cosmetic section gap |
 
@@ -230,6 +232,7 @@ Example: `{src/storage/ledger-store.ts, L42–L58, "plan claims this method is a
 | Assumptions | {STATUS} | {NOTES} |
 | Constraints | {STATUS} | {NOTES} |
 | Out of Scope | {STATUS} | {NOTES} |
+| Human Actions | {OK / Gap / Omitted} | {Every row timed before or after the run, or the mid-run gate found} |
 | Acceptance Criteria | {STATUS} | {NOTES} |
 | Testing Strategy | {STATUS} | {NOTES} |
 | Test Plan | {STATUS} | {Tests enumerated, or the gap} |

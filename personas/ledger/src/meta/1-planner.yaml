@@ -7,6 +7,10 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.10.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
+    counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
+    sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a
+    follow-up plan; the Human Actions When cell takes exactly two values, backed by a checklist item
   2.10.0 (2026-09-25): The audit counter now carries a per-model tally — a rework dispatch naming a
     refinement pass label increments that label's count beside the total, so a plan refined by two models
     records both without the section growing past two lines

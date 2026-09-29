@@ -5,6 +5,9 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.10.0 (2026-09-29): Audits now check unattended execution — a step, dependency or AC waiting on a
+    person, or a Human Actions row timed inside the run, is a Critical Feasibility finding; Human Actions
+    gained a row in the section table and the Completeness Assessment
   1.9.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task

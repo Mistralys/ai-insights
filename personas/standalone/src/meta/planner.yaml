@@ -5,6 +5,10 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.5.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
+    counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
+    sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a
+    follow-up plan; the Human Actions When cell takes exactly two values, backed by a checklist item
   2.5.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
     **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
     Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
