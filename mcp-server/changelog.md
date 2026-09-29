@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.11.0 - Agent-Supplied Outcome Summaries
+
+**Agents can now supply the project outcome summary themselves.** The server only parses one out
+of the synthesis document when none is supplied, so existing callers and batch imports keep
+working. A synthesis refresh no longer wipes a good summary it cannot re-derive.
+
+- Tools: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
+- Tools: A supplied summary wins over the parsed one; omitting it behaves as before.
+- Fixed: Synthesis refresh no longer clears a stored summary it cannot replace.
+- GUI: Saving persona model assignments now names every unknown persona.
+- GUI: Obsolete persona assignments show a banner with an option to remove them.
+- Docs: Tool help and manifest describe the new summary handling.
+
 ## v2.10.1 - Synthesis Updates for Every Runner
 
 `ledger_update_synthesis` no longer requires the `standalone` runner — any COMPLETE project

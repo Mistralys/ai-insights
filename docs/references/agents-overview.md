@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-28
+> **Generated:** 2026-09-29
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -152,7 +152,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.11.2)
+### Stage 9 — Synthesis (v3.12.0)
 
 **Identity:** Head of Operations (OPS)
 
@@ -528,14 +528,14 @@ Determine which pipeline stages should be active for each Work Package based on 
 
 ---
 
-### Ledger Synthesis Maintainer (v2.0.0)
+### Ledger Synthesis Maintainer (v2.2.0)
 
 **Identity:** Ledger Archivist
 
-Archive a completed standalone plan folder into the project ledger, or refresh the ledger record of any completed project after its synthesis.md was edited.
+Archive a completed standalone plan folder into the project ledger, or apply requested edits to the synthesis.md of a completed project and refresh its ledger record.
 
 - **Modes:** Archive, Update
-- **Use When:** A completed standalone plan should be tracked in the project ledger, or an edited synthesis.md needs its ledger record refreshed
+- **Use When:** A completed standalone plan should be tracked in the project ledger, or the synthesis.md of a completed project needs a correction and its ledger record refreshed
 
 ---
 

@@ -4,6 +4,12 @@
  * First tries to find a `### Outcome Summary` section. If absent or empty,
  * falls back to the first bullet item in `### Implementation Summary`.
  * Returns `null` when neither section is present or yields usable content.
+ *
+ * This is the fallback path: `ledger_import_standalone` and
+ * `ledger_update_synthesis` only call it when the caller supplied no
+ * `outcome_summary` argument. A supplied argument is stored verbatim and this
+ * function never runs for that call, so the value returned here is not
+ * necessarily what ends up in the ledger.
  */
 export function parseOutcomeSummary(synthesisContent: string): string | null {
   const outcomeContent = extractSection(synthesisContent, 'Outcome Summary');

@@ -5,6 +5,11 @@ vs_file_name: ledger-synthesis-maintainer.agent.md
 id: ledger-support-synthesis-maintainer
 cc_file_name: ledger-synthesis-maintainer.md
 changelog: |
+  2.2.0 (2026-09-28): Archive mode now composes the project's `outcome_summary` from `synthesis.md` and
+    passes it to the tool, instead of leaving the server to parse it out of a section heading; Update
+    mode passes none and lets the stored summary stand, composing one only where the refresh comes back
+    with a null summary; adds a shared outcome-summary crafting guide partial and a constraint against
+    extrapolating beyond what the synthesis states
   2.1.0 (2026-09-28): Update mode now applies the corrections the user asks for in `synthesis.md`
     before refreshing the ledger, instead of declining every edit and sending the user to the file
     by hand; the blanket "Stamp only" prohibition is replaced by a pair of constraints that forbid

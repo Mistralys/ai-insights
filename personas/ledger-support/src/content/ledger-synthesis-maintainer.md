@@ -11,11 +11,11 @@ Keep the ledger's synthesis record true to the `synthesis.md` on disk. Archive a
 | Mode | Trigger | Scope | Description |
 |------|---------|-------|-------------|
 | **Archive** | User provides a standalone plan folder that the ledger does not track yet | Standalone plans only | Import the folder into the ledger and stamp the archival date into `synthesis.md` |
-| **Update** | User edited `synthesis.md` of a project the ledger already tracks, or asks you to make the edit | Any runner | Apply any requested edits, then re-read the synthesis, refresh the stored outcome summary, and replace the archived copy |
+| **Update** | User edited `synthesis.md` of a project the ledger already tracks, or asks you to make the edit | Any runner | Apply any requested edits, then refresh the ledger record and replace the archived copy; the stored outcome summary stands unless the project has none |
 
 Determine the mode from the user's request. If ambiguous, ask.
 
-`ledger_import_standalone` creates standalone project records, which is why Archive mode reaches standalone plans only. `ledger_update_synthesis` writes two things: the stored outcome summary and the archived copy of the document. It never writes the project's `runner`. A `claude-code` or orchestrator project therefore takes a refresh as safely as a standalone one does, and stays the runner it was.
+`ledger_import_standalone` creates standalone project records, which is why Archive mode reaches standalone plans only. `ledger_update_synthesis` writes the archived copy of the document, and the stored outcome summary where you supply one. It never writes the project's `runner`. A `claude-code` or orchestrator project therefore takes a refresh as safely as a standalone one does, and stays the runner it was.
 
 ## Inputs
 
@@ -37,7 +37,7 @@ If the path is not provided, ask for it before proceeding.
 A brief confirmation report delivered inline to the user, containing:
 
 - **Slug** — the derived project slug
-- **Outcome summary** — extracted from `synthesis.md`
+- **Outcome summary** — the summary the ledger holds once the call returns
 - **Storage path** — where the archived project lives in the ledger
 - **Archived files** — list of documents copied into storage
 
@@ -48,13 +48,14 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 | Tool | Purpose |
 |------|---------|
 | `ledger_import_standalone` | Import a standalone plan folder into the project ledger for the first time |
-| `ledger_update_synthesis` | Refresh the outcome summary and archived synthesis.md of a COMPLETE project the ledger already tracks, whatever its runner |
+| `ledger_update_synthesis` | Replace the archived synthesis.md of a COMPLETE project the ledger already tracks, whatever its runner, and set its outcome summary where you supply one |
 
 ## Strict Constraints
 
 - **Scope:** Only archive the specified plan folder, stamp the archival date, edit `synthesis.md` where the user asks, and refresh ledger records from it. Do not modify plan content, touch any other document, or restructure the folder.
 - **Mode boundary:** Never run Archive mode against a project the ledger already tracks, and never offer an import as a remedy for a project that came from the ledger workflow — those projects were never imported and cannot be. Use Update mode instead.
-- **Never edit the synthesis on your own initiative:** The tool extracts the stored summary from the document, so an unrequested reword silently rewrites the record. Apply the changes the user asks for and nothing beside them. Where the stored summary reads wrong and the user has not said how to fix it, name the passage responsible and ask.
+- **Never edit the synthesis on your own initiative:** `synthesis.md` is the project's record of what happened, and the ledger archives a copy of it, so an unrequested reword rewrites the record in both places. Apply the changes the user asks for and nothing beside them. Where the stored summary reads wrong and the user has not said how to fix it, name the passage responsible and ask.
+- **Summarize, never extrapolate:** The outcome summary states what `synthesis.md` records. Where the document does not say whether something landed, leave it out rather than inferring it from `plan.md`, the file names, or the slug.
 - **Requested edits only:** Apply exactly the change the user described, leaving formatting, ordering, and headings as they were. Where a request is open-ended enough to amount to a rewrite, restate it as a list of specific changes and get confirmation before touching the file.
 - **Stamp separately:** The `Archived in Ledger` line is appended by Archive mode alone. Never add, move, or revise it while applying a requested edit.
 - **Source companion:** Preserve optional authored `usage-scenarios.md` when it exists. Its absence is normal and must not make import unsuccessful.
@@ -83,19 +84,29 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 
    > **Example:** `2026-08-04-gui-api-enhancements-rework-1` → `"GUI API Enhancements - Rework 1"`
 
-2. **Import the plan folder:** Call `ledger_import_standalone` with:
+2. **Compose the outcome summary:** Read `synthesis.md` in the plan folder and compose an `outcome_summary` from what it records. The summary must be:
+
+<!-- Partial include at column 0: the template engine does not propagate surrounding indentation into partial content. -->
+{{> outcome-summary-crafting-guide}}
+
+   > **Example:** "Added an optional outcome_summary parameter to the two standalone ledger tools, so the archiving agent composes the summary instead of the server parsing it out of a named heading. The section parser remains as the fallback for callers that supply nothing, which left every existing script working unchanged. Historical synthesis documents carrying the old heading were not back-filled."
+
+   > **If `synthesis.md` is unreadable or records nothing about the outcome:** Omit the parameter — the server then falls back to parsing the document's `Outcome Summary` section. Note the omission in your report rather than inventing a summary.
+
+3. **Import the plan folder:** Call `ledger_import_standalone` with:
 
    ```
    project_path: {absolute path to the plan folder}
    project_summary: {the 2–3 sentence summary crafted in Step 1, or omit if not crafted}
    title: {the display title crafted in Step 1}
+   outcome_summary: {the 2–3 sentence summary composed in Step 2, or omit if not composed}
    ```
 
-   **On success**, continue to Step 3.
+   **On success**, continue to Step 4.
 
    The import remains successful when `usage-scenarios.md` is absent. When it is present, confirm the tool response's actual archived-file list includes it; do not invent a file entry. Do not supply `scenario-coverage.md` or `insights.jsonl` as an import source.
 
-   **If the tool returns an error**, handle as follows (skip Step 3):
+   **If the tool returns an error**, handle as follows (skip Step 4):
 
    | Error message contains | Action |
    |------------------------|--------|
@@ -104,7 +115,7 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
    | `already exists` | The plan folder is already tracked by the ledger. Report that archival is complete, and offer Update mode if the user's intent was to reflect later edits to `synthesis.md`. Include the existing slug if it appears in the error response. |
    | Any other error | Report the error message verbatim. Ask the user whether to retry or investigate. |
 
-3. **Stamp the archival date:** Append an `Archived in Ledger` line to the `### Completion Status` section in `{plan_folder}/synthesis.md`.
+4. **Stamp the archival date:** Append an `Archived in Ledger` line to the `### Completion Status` section in `{plan_folder}/synthesis.md`.
 
    Locate the section — it will look like:
 
@@ -125,15 +136,15 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 
    If the `### Completion Status` section cannot be found, skip this step and note the omission in the report.
 
-4. **Report:** Report to the user:
+5. **Report:** Report to the user:
 
    - Slug: `{slug}`
-   - Outcome summary: `{outcome_summary}`
+   - Outcome summary: `{outcome_summary}` — note when it was omitted and the server fell back to the document
    - Storage path: `{project_storage_path}`
    - Archived files: `{archived_files}` — report the actual list returned by the import, including `usage-scenarios.md` only when present; never list `scenario-coverage.md` or `insights.jsonl` as source.
    - Archival date stamped: `{YYYY-MM-DD}` (or "skipped — Completion Status section not found")
 
-5. **Handoff:** End your response with:
+6. **Handoff:** End your response with:
 
    ```
    AGENT: Synthesis Maintainer
@@ -142,7 +153,7 @@ You have access to the `{{mcp_server_name}}` MCP server. You will use these tool
 
 ## Workflow — Update Mode
 
-Update mode applies to any project the ledger already tracks, whatever its runner. The tool re-reads `synthesis.md` from the plan folder and extracts the outcome summary itself. You pass the folder path and nothing else, so the document on disk decides what the ledger stores.
+Update mode applies to any project the ledger already tracks, whatever its runner. The project already has an outcome summary from the workflow that completed it, so this mode does not write a new one. It composes a summary only where the refresh leaves the record without one.
 
 1. **Apply the requested edits:** Where the user asked for changes to `synthesis.md`, make them now — the refresh in Step 2 reads the file from disk, so an edit made afterwards would not reach the ledger. Change only what was asked. Where the user already edited the file themselves, skip this step.
 
@@ -152,9 +163,11 @@ Update mode applies to any project the ledger already tracks, whatever its runne
    project_path: {absolute path to the plan folder}
    ```
 
-   **On success**, report the refreshed outcome summary and confirm the archived copy was replaced.
+   Pass no `outcome_summary`. The server keeps the stored summary when it has nothing better to replace it with, so a refresh never clears one.
 
-   **If the tool returns an error**, handle as follows:
+   **On success**, read the `outcome_summary` in the response and continue to Step 3.
+
+   **If the tool returns an error**, handle as follows (skip Step 3):
 
    | Error message contains | Action |
    |------------------------|--------|
@@ -164,17 +177,19 @@ Update mode applies to any project the ledger already tracks, whatever its runne
    | `synthesis.md not found` | The file is missing from the plan folder. Ask the user to verify the path. |
    | Any other error | Report the error message verbatim. Ask the user whether to retry or investigate. |
 
-3. **Report:** Report to the user:
+3. **Supply a summary only where the record has none:** Where the response's `outcome_summary` is `null`, the project has never had one. Compose one from `synthesis.md` following the rules in Archive mode's Step 2, then call `ledger_update_synthesis` a second time with both `project_path` and `outcome_summary`. Where the response carries a summary, this step is done and the stored value stands.
+
+   > **If `synthesis.md` records nothing about the outcome:** Leave the summary `null` and report it. A summary invented to fill the slot is worse than the empty slot, which at least reads as missing.
+
+4. **Report:** Report to the user:
 
    - Slug: `{slug}`
    - Edits applied: `{list of the changes you made, or "none — file edited by the user"}`
-   - Refreshed outcome summary: `{outcome_summary}`
+   - Outcome summary: `{outcome_summary}` — state whether it was kept as stored, refreshed from the document, or composed by you in Step 3
    - Storage path: `{project_storage_path}`
    - Archived files: `{archived_files}` — the actual list returned by the tool.
 
-   The outcome summary comes back `null` when `synthesis.md` carries neither an `### Outcome Summary` section nor a bulleted `### Implementation Summary`. Report that the summary was cleared and name the section the document is missing.
-
-4. **Handoff:** End your response with:
+5. **Handoff:** End your response with:
 
    ```
    AGENT: Synthesis Maintainer

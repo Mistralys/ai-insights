@@ -1134,6 +1134,17 @@ the changes back into the ledger.
 ${PROJECT_PATH_PARAM}
 ${CWD_PATH_PARAM}
 
+## Optional Parameters
+
+**\`outcome_summary\`** (string, minimum 10 characters after trimming) — A curated 2–3 sentence
+plain-text summary of what was accomplished, the approach taken, and any notable results or
+limitations. Stored verbatim as \`outcome_summary\` in the root index and \`.meta.json\`, and
+echoed back in the response. When omitted, the server falls back to parsing the
+\`Outcome Summary\` section of \`synthesis.md\`, and then to the summary already stored on the
+project — a refresh never clears a summary it cannot replace, though a supplied or parsed value
+always wins over the stored one. The 10-character floor matches
+\`ledger_complete_synthesis\`, which writes the same stored field.
+
 ## Guards (evaluated in order)
 1. **Path required** — rejects calls that supply neither \`project_path\` nor \`cwd_path\`.
 2. **Plan folder naming** — the folder basename must match the \`{YYYY-MM-DD}-{name}\` convention.
@@ -1151,6 +1162,11 @@ ${CWD_PATH_PARAM}
   "project_storage_path": "/absolute/path/to/storage/repo/2026-06-30-my-feature"
 }
 \`\`\`
+
+\`outcome_summary\` resolves in this order: the \`outcome_summary\` argument, then the
+\`Outcome Summary\` section of the re-read \`synthesis.md\` (falling back to the first
+\`Implementation Summary\` bullet), then the summary already stored on the project. It is
+\`null\` only when the project had none to begin with.
 
 ## Examples
 \`\`\`json
@@ -1179,6 +1195,13 @@ Both \`project_path\` and \`cwd_path\` point to the **plan folder** here, not th
 If both are provided, \`project_path\` takes precedence.
 
 ## Optional Parameters
+
+**\`outcome_summary\`** (string, minimum 10 characters after trimming) — A curated 2–3 sentence
+plain-text summary of what was accomplished, the approach taken, and any notable results or
+limitations. Stored verbatim as \`outcome_summary\` in the root index and \`.meta.json\`, and
+echoed back in the response. When omitted, the server falls back to parsing the
+\`Outcome Summary\` section of \`synthesis.md\`. The 10-character floor matches
+\`ledger_complete_synthesis\`, which writes the same stored field.
 
 **\`project_summary\`** (string, min 1 char after trimming) — A curated 2–3 sentence plain-text summary of the
 project. When provided, stored as \`project_summary\` in the root index and \`.meta.json\`, and
@@ -1209,9 +1232,10 @@ character is rejected.
   "project_storage_path": "/absolute/path/to/storage/repo/2026-06-30-my-feature"
 }
 \`\`\`
-\`outcome_summary\` is extracted from the \`Outcome Summary\` section of \`synthesis.md\`
-(written as either \`##\` or \`###\`), falling back to the first bullet of an
-\`Implementation Summary\` section. Returns \`null\` when neither section is found.
+\`outcome_summary\` is the value passed in the \`outcome_summary\` parameter, stored verbatim.
+When the parameter is omitted, it is parsed from the \`Outcome Summary\` section of
+\`synthesis.md\` (written as either \`##\` or \`###\`), falling back to the first bullet of an
+\`Implementation Summary\` section, and is \`null\` when neither section is found.
 
 ## Examples
 \`\`\`json

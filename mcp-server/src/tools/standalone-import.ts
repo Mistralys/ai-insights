@@ -53,6 +53,17 @@ export const ImportStandaloneSchema = z.object({
       'stored as project_summary in the root index and .meta.json, powering the GUI synopsis. ' +
       'Read the plan\'s ## Summary section and craft a concise summary before calling this tool.'
     ),
+  outcome_summary: z
+    .string()
+    .trim()
+    .min(10)
+    .optional()
+    .describe(
+      'Optional curated 2–3 sentence plain-text summary of what was accomplished, the ' +
+      'approach taken, and any notable results or limitations. Stored as outcome_summary in ' +
+      'the root index and .meta.json. When omitted, the server falls back to parsing the ' +
+      'Outcome Summary section of synthesis.md.'
+    ),
   title: z
     .string()
     .trim()
@@ -81,6 +92,18 @@ const UpdateSynthesisSchema = z.object({
       'Absolute path to the plan folder. Used as a fallback when ' +
       'project_path is not provided. Must point to the plan folder itself (not a ' +
       'parent directory).'
+    ),
+  outcome_summary: z
+    .string()
+    .trim()
+    .min(10)
+    .optional()
+    .describe(
+      'Optional curated 2–3 sentence plain-text summary of what was accomplished, the ' +
+      'approach taken, and any notable results or limitations. Stored as outcome_summary in ' +
+      'the root index and .meta.json. When omitted, the server falls back to parsing the ' +
+      'Outcome Summary section of synthesis.md, and then to the summary already stored — ' +
+      'a refresh never clears a summary it cannot replace.'
     ),
 });
 
@@ -252,7 +275,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
-  // Read synthesis.md and parse outcome summary.
+  // Read synthesis.md; the outcome summary is parsed from it unless the caller supplied one.
   let synthesisContent: string;
   try {
     synthesisContent = await readFile(synthesisFilePath, 'utf-8');
@@ -268,7 +291,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
-  const outcomeSummary = parseOutcomeSummary(synthesisContent);
+  const outcomeSummary = args.outcome_summary ?? parseOutcomeSummary(synthesisContent);
 
   // Derive dateCreated from plan.md's filesystem birthtime/mtime — more accurate
   // than the midnight-UTC slug date because it reflects when the Standalone Developer
@@ -445,7 +468,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     };
   }
 
-  const outcomeSummary = parseOutcomeSummary(synthesisContent);
+  const suppliedOrParsedSummary = args.outcome_summary ?? parseOutcomeSummary(synthesisContent);
 
   // Read-modify-write under lock (TOCTOU safety).
   let result:
@@ -456,6 +479,13 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     await withLock(store.storageDir, async () => {
       // Re-read inside lock for TOCTOU safety.
       const rootIndex = await store.readRootIndex();
+
+      // Resolution order: supplied argument, then a parseable section, then the value
+      // already stored. The third term exists so a refresh never clears a summary it
+      // cannot replace — a synthesis document written with a heading this parser does
+      // not recognise used to overwrite a good summary with null. It is the last
+      // resort, never a veto: a supplied or parsed value always wins over it.
+      const outcomeSummary = suppliedOrParsedSummary ?? rootIndex.outcome_summary ?? null;
 
       rootIndex.outcome_summary = outcomeSummary;
       rootIndex.last_updated = now();
@@ -514,7 +544,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
 /**
  * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
  */
-export const _internal = { importStandalone, updateSynthesis };
+export const _internal = { importStandalone, updateSynthesis, UpdateSynthesisSchema };
 
 // ─── Registration ─────────────────────────────────────────────────────────
 
@@ -525,7 +555,8 @@ export function register(server: McpServer): void {
       description:
         'Imports a completed standalone developer plan execution into the project ledger. ' +
         'Validates that plan.md and synthesis.md exist in the plan folder, rejects duplicate slugs, ' +
-        'extracts the outcome summary from synthesis.md, and creates a COMPLETE project record ' +
+        'takes the outcome summary from the outcome_summary parameter (falling back to the ' +
+        'Outcome Summary section of synthesis.md when omitted), and creates a COMPLETE project record ' +
         '(status: COMPLETE, synthesis_generated: true, runner: standalone). ' +
         'REQUIRED: either project_path or cwd_path (plan folder path). ' +
         'The folder must follow the {YYYY-MM-DD}-{name} naming convention.',
@@ -540,7 +571,9 @@ export function register(server: McpServer): void {
       description:
         'Updates the outcome summary and archived synthesis.md for a COMPLETE project tracked by the ledger, ' +
         'regardless of runner (standalone, claude-code, or orchestrator). ' +
-        'Re-reads synthesis.md from the original plan folder, re-extracts the outcome summary, ' +
+        'Re-reads synthesis.md from the original plan folder, takes the outcome summary from the ' +
+        'outcome_summary parameter (falling back to parsing the document, then to the stored ' +
+        'value — a refresh never clears a summary it cannot replace), ' +
         'overwrites the archived copy in storage, and syncs outcome_summary in the root index and .meta.json. ' +
         'Use this when synthesis.md has been edited after archival (e.g. marking deferred items as done). ' +
         'Guards: project must exist in ledger, status must be COMPLETE, ' +

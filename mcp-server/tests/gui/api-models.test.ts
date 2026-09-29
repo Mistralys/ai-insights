@@ -442,6 +442,26 @@ describe('api-models.ts — Model Registry API Handlers', () => {
       });
     });
 
+    it('AC-9: names every invalid persona key in the error message', async () => {
+      await seedNameMapping([
+        { id: 'ledger-1-planner', role: 'Planner', suite: 'ledger' },
+      ]);
+
+      const body = {
+        persona_models: {
+          'ledger-1-planner': UUID_1,
+          'stale-one': UUID_1,
+          'stale-two': UUID_1,
+        },
+      };
+
+      await expect(handleUpdateAssignments(body)).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        message: expect.stringMatching(/"stale-one".*"stale-two"/),
+        details: { invalid_persona_keys: ['stale-one', 'stale-two'] },
+      });
+    });
+
     it('AC-9: returns 400 for non-existent model UUID', async () => {
       await seedNameMapping([
         { id: 'ledger-1-planner', role: 'Planner', suite: 'ledger' },

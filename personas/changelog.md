@@ -1,5 +1,16 @@
 # Personas Changelog
 
+## v3.38.0 - Agent-Composed Outcome Summaries
+
+**The archiving agent now writes the project outcome summary** instead of the server parsing it
+from a heading. One shared guide governs its length and content across both suites. The
+Synthesis Maintainer can also apply requested edits to a completed project's synthesis.
+
+- Synthesis: Writes an Outcome Summary section in place of the unparseable Executive Summary.
+- Ledger-Support: Synthesis Maintainer composes the summary on archival and keeps it on refresh.
+- Ledger-Support: Synthesis Maintainer applies the edits you request before refreshing the ledger.
+- Shared: Added an outcome-summary crafting guide covering both suites.
+
 ## v3.37.0 - Self-Advancing Chains and Unattended Runs
 
 **The Ledger Claude Coordinator no longer dispatches every stage by hand — it seeds a run and
