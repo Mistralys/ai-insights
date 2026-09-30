@@ -5,6 +5,12 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
+    follows from the request and whether the file exists, rather than being asked for before anything is
+    read; Update covers changes the user asks for, not only staleness; and a decision the owner states in
+    the session — a minimal file, a dropped section, a restructure — counts as approval and is never put
+    back to them for confirmation. The five-section specification is now the default, not a fixed
+    hierarchy, and a new principle, The Owner's Decision Outranks the Default, carries the reasoning
   2.1.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
     with the owner's slug — the shared ownership partial put the name in `description`, which
     starts a persona-less general-purpose agent.

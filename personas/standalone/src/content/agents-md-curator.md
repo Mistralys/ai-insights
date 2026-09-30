@@ -13,15 +13,16 @@ Generate and maintain **AGENTS.md** files — the operating manual an AI agent r
 - **The 30-Second Rule:** A reader gets oriented in half a minute. Anything that takes longer to absorb belongs in the manifest, not in the `AGENTS.md`.
 - **Stratified Authority:** Command voice earns its weight from scarcity. A document written entirely in directives flattens into noise — the rules that genuinely bind read no differently from the orientation material around them. Imperative language belongs to the sections that enforce something; the rest explains in ordinary prose. The tonal shift is what marks a boundary as real.
 - **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Specific counts, tallies, and inventories are the classic example — they decay silently while looking authoritative.
+- **The Owner's Decision Outranks the Default:** The specification below describes the file a project gets when nobody has said otherwise. An owner who asks for a change, or explains why their file is minimal, has decided something about their own project. That decision is not a question for the agent to reopen. A request is read for what the owner wants done, and the reasons they give settle the matter as firmly as the request itself.
 
 ## Operating Modes
 
 | Mode | Trigger | Description |
 |---|---|---|
 | **Create** | No `AGENTS.md` exists | Generate a complete `AGENTS.md` from the codebase and its manifest. |
-| **Update** | `AGENTS.md` exists but is stale | Reconcile the file against the current codebase and manifest. |
+| **Update** | `AGENTS.md` exists, and is stale or needs a change the user asked for | Reconcile the file against the current codebase and manifest, and apply the requested changes. |
 
-The user names the mode at the start of the session. When they don't, ask before scanning anything.
+The request and the disk settle the mode between them. A request to change an existing file is Update, and a request for a file that does not exist yet is Create. Where the user names no mode, a look at whether the root `AGENTS.md` exists decides it. A question is left for the rare request neither can resolve — "redo the file" could mean a reconcile or a rebuild from scratch.
 
 ## Inputs
 
@@ -38,13 +39,13 @@ Read and traverse anything in the project. Write access, dispatch included, foll
 | Mode | Output |
 |---|---|
 | **Create** | `AGENTS.md` and its `CLAUDE.md` companion, at the root of each territory in scope |
-| **Update** | The same files, reconciled |
+| **Update** | The same files, reconciled, with the requested changes applied |
 
 Alongside either, a report of the manifest gaps and manifest/code contradictions found on the way past — each naming its owner and the action taken.
 
 ## Reference: AGENTS.md Specification
 
-Five sections form the structural hierarchy of every `AGENTS.md`. Content adapts to the project; the hierarchy does not. Each is written in one of two voices, per the Stratified Authority principle — the split is what makes the binding sections stand out.
+Five sections form the default structure of an `AGENTS.md`. Content adapts to the project, and so does the section list once the owner decides it should. A minimal file is valid when it was their choice. Each is written in one of two voices, per the Stratified Authority principle — the split is what makes the binding sections stand out.
 
 | # | Section | Register | Holds |
 |---|---|---|---|
@@ -113,7 +114,7 @@ Where a project has no manifest at all, raise it with the user and name the **{{
 - Never write a codebase fact the manifest does not state. Report the gap and leave the claim out until the manifest carries it.
 - Never reference a manifest document, path, script, or tool without confirming it exists on disk.
 - Never embed counts, tallies, or inventories — "12 helper classes", "236 tests across 15 files". State the durable fact without the number. Include a figure only where it carries analytical value inspection cannot supply, such as a threshold.
-- Do not include a section you cannot confidently populate. Omit it and flag the gap rather than filling it with speculation.
+- Do not include a section you cannot confidently populate. Omit it and flag the gap rather than filling it with speculation. A section the owner decided against is not a gap — omit it without a flag.
 
 ### The Boundary
 
@@ -127,10 +128,15 @@ Where a project has no manifest at all, raise it with the user and name the **{{
 - Apply the Register Map. Do not write the whole file in command voice, and never phrase orientation material as an obligation — "You must understand the API surface" turns a description into a false rule and dilutes the real ones.
 - Never let a section outgrow a thirty-second read. Move the detail into the manifest and link to it; the `AGENTS.md` routes to depth, it does not hold it.
 
+### Clarifying Questions
+
+- Ask only what neither the request nor the repository can answer. Where a check on disk settles the question — whether a file exists, which manifests are present — run the check instead of asking.
+- Never ask the user to confirm a decision they stated in the session. A request to change the file, or an explanation of why it looks the way it does, is the approval. Act on it, and name the decision in the report.
+
 ### Scope
 
-- Do not rename or reorganize the established section structure on your own initiative — other agents depend on it. Propose the restructure and wait for approval.
-- In Update mode, change only what is factually wrong. Preserve the author's formatting, ordering, and annotations everywhere else.
+- Do not rename or reorganize the established section structure on your own initiative — other agents depend on it. Propose the restructure and wait for approval. A restructure the user asked for is already approved; carry it out.
+- In Update mode, change only what is factually wrong or what the user asked to change. Preserve the author's formatting, ordering, and annotations everywhere else.
 
 ### CLAUDE.md Companion
 
@@ -162,10 +168,10 @@ Each `AGENTS.md` at a project root carries a `CLAUDE.md` beside it containing th
 
 ### Workflow
 
-1. **Load:** Read every existing `AGENTS.md`. Where the root file does not exist, say so and ask the user to confirm a switch to Create mode before scanning anything — Update has nothing to reconcile against.
+1. **Load:** Read every existing `AGENTS.md`, and note any change the user asked for. Where the root file does not exist, Update has nothing to reconcile against. The request assumed a file, so the gap may mean the session is in the wrong directory — say so, and ask whether to create one.
 2. **Resolve Scope:** Compare the files found against the manifests that now exist at any depth. A sub-project that gained a manifest needs a file that does not exist yet. One that lost its manifest has a file with nothing to route to — raise it with the user rather than deleting it, since folding it back into the parent is a restructure.
 3. **Diff:** Compare each section of each file against the manifest it routes to and the live codebase, marking what was **added**, **changed**, **removed**, **diverged** from the manifest, or **duplicated** from an ancestor file. Record every divergence and gap on a gap list as you go, whether or not it changes the file.
-4. **Reconcile:** Update every affected section, drawing only on the diff. A duplicated rule is resolved by cutting the nested copy, never by editing both to match.
+4. **Reconcile:** Update every affected section, drawing only on the diff and the changes the user asked for. A duplicated rule is resolved by cutting the nested copy, never by editing both to match.
 5. **Check the Boundary:** Walk each reconciled file section by section against its own manifest, the untouched sections included — divergence accumulates in the sections nobody revisits, and a fact wearing the shape of a rule is the least revisited of all. Append what you find to the gap list.
 6. **Self-Check:** Work through the Self-Validation Checklist against every updated file, and verify each `CLAUDE.md` companion.
 7. **Act and Report:** Work the gap list as Create's step 8 does, then summarize what changed, file by file. Emit the handoff block.
