@@ -25,14 +25,14 @@
     "number": 2,
     "id": "ledger-2-pm",
     "role": "Project Manager",
-    "version": "3.10.1",
+    "version": "3.10.2",
     "suite": "ledger",
     "model": "Claude Sonnet 5 (Copilot)",
     "model_slug": "Claude Sonnet 5 (copilot)",
     "cc_model": "claude-sonnet-5",
     "vscode": {
       "file_name": "2-pm.agent.md",
-      "agent_name": "2 - Project Manager v3.10.1"
+      "agent_name": "2 - Project Manager v3.10.2"
     },
     "claude_code": {
       "file_name": "2-project-manager.md",
@@ -377,7 +377,7 @@
     "number": null,
     "id": "standalone-ledger-pipeline-configurator",
     "role": "Ledger Pipeline Configurator",
-    "version": "1.2.1",
+    "version": "1.2.3",
     "suite": "ledger-support",
     "model": "Claude Sonnet 5 (Copilot)",
     "model_slug": "Claude Sonnet 5 (copilot)",
@@ -421,7 +421,7 @@
     "number": null,
     "id": "standalone-ledger-wp-decomposer",
     "role": "Ledger WP Decomposer",
-    "version": "1.8.0",
+    "version": "1.8.1",
     "suite": "ledger-support",
     "model": "Claude Sonnet 5 (Copilot)",
     "model_slug": "Claude Sonnet 5 (copilot)",

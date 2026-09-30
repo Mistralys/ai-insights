@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.10.1)
+### Stage 2 — Project Manager (v3.10.2)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -521,7 +521,7 @@ Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run 
 
 ---
 
-### Ledger Pipeline Configurator (v1.2.1)
+### Ledger Pipeline Configurator (v1.2.3)
 
 **Identity:** Technical Program Manager — Pipeline Stage Analyst
 
@@ -542,7 +542,7 @@ Archive a completed standalone plan folder into the project ledger, or apply req
 
 ---
 
-### Ledger WP Decomposer (v1.8.0)
+### Ledger WP Decomposer (v1.8.1)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 

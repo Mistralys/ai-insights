@@ -26,6 +26,8 @@
 - Docs: Persona Design Guide v3.6 documents each platform's sub-agent dispatch arguments.
 - Ledger, Standalone: Documentation personas check changed docblocks against README prose in any
   module that describes them.
+- Ledger, Ledger-Support: Pipeline Configurator and PM give every authored deliverable a stage
+  that writes it; changelog entries belong to the release-engineering stage.
 
 ## v3.38.0 - Agent-Composed Outcome Summaries
 
