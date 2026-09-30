@@ -443,7 +443,7 @@
     "number": null,
     "id": "standalone-agents-md-curator",
     "role": "AGENTS.md Curator",
-    "version": "2.1.2",
+    "version": "2.2.0",
     "suite": "standalone",
     "model": "Inherit / Auto",
     "model_slug": "inherit",

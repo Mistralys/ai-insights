@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-09-29
+> **Generated:** 2026-09-30
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -54,7 +54,7 @@ These agents manage the ledger workflow infrastructure: initializing projects, d
 ---
 ## Ledger Pipeline Personas (9-Stage Workflow)
 
-### Stage 1 — Planner (v2.10.0)
+### Stage 1 — Planner (v2.11.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.17.2)
+### Stage 3 — Developer (v3.18.0)
 
 **Identity:** Staff Software Engineer
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.7.6)
+### Stage 7 — Release Engineer (v3.8.0)
 
 **Identity:** Release Engineer
 
@@ -140,7 +140,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.10.4)
+### Stage 8 — Documentation (v3.10.5)
 
 **Identity:** Technical Writing Manager
 
@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.1.2)
+### AGENTS.md Curator (v2.2.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -234,7 +234,7 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.15.2)
+### Developer — Standalone (v1.16.0)
 
 **Identity:** Staff Software Engineer
 
@@ -246,7 +246,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.3.2)
+### Documentation — Standalone (v1.3.3)
 
 **Identity:** Technical Writing Manager
 
@@ -313,7 +313,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.9.3)
+### Plan Auditor (v1.11.0)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -335,7 +335,7 @@ Orchestrate iterative plan refinement: architectural review, finding integration
 
 ---
 
-### Planner — Standalone (v2.5.0)
+### Planner — Standalone (v2.6.0)
 
 **Identity:** Chief Product Officer (CPO)
 
@@ -542,7 +542,7 @@ Archive a completed standalone plan folder into the project ledger, or apply req
 
 ---
 
-### Ledger WP Decomposer (v1.7.1)
+### Ledger WP Decomposer (v1.8.0)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 
