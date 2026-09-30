@@ -29,8 +29,10 @@ Dispatch works like this:
 
 {{#if target_vscode}}
 Invoke `runSubagent` with `agentName` set to the owning agent's name, a short `description`, and a `prompt` naming the file, the finding, and the evidence behind it.
+{{else if target_claude_code}}
+Use the `Task` tool with `subagent_type` set to the owning agent's slug, a short `description`, and a `prompt` naming the file, the finding, and the evidence behind it. The owners' slugs are `{{agent_slug_agents_md_curator}}`, `{{agent_slug_documentation_curator}}`, `{{agent_slug_readme_curator}}`, `{{agent_slug_changelog_curator}}`, `{{agent_slug_manifest_curator}}` and `{{agent_slug_ctx_architect}}`.
 {{else}}
-Use the `Task` tool with `description` set to the owning agent's name, passing the file, the finding, and the evidence behind it.
+Use the `task` tool with `subagent_type` set to the owning agent's slug, passing as `description` the file, the finding, and the evidence behind it. The owners' slugs are `{{agent_slug_agents_md_curator}}`, `{{agent_slug_documentation_curator}}`, `{{agent_slug_readme_curator}}`, `{{agent_slug_changelog_curator}}`, `{{agent_slug_manifest_curator}}` and `{{agent_slug_ctx_architect}}`.
 {{/if}}
 
 Read what the agent returns before you continue. A delegation is reviewed, never passed through.

@@ -5,10 +5,9 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
-  1.7.0 (2026-09-17): A declared project's `.ledger/settings.json` with the strategic-vision
-    output enabled now gets a routing line in `README.md`'s index pointing at the generated
-    mirror's configured path; the ownership table gained a row marking everything under
-    `.ledger/**` as generated and read-only
+  1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
+    branch, and a `subagents` list declares `ctx-architect`
   1.6.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -51,6 +50,9 @@ cc_tools:
   - WebSearch
   - TodoRead
   - TodoWrite
+
+subagents:
+  - ctx-architect
 
 # overview metadata
 identity: "Technical Knowledge Architect"

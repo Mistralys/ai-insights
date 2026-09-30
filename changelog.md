@@ -1,5 +1,37 @@
 # AI Insights Changelog
 
+## v2.15.0 - Agent-Composed Outcome Summaries
+> mcp v2.11.0 · personas v3.38.0
+
+**Project outcome summaries are now written by the archiving agent, not parsed from a heading.**
+Refreshing a synthesis no longer wipes a stored summary. The Synthesis Maintainer can also apply
+requested edits, and the persona model settings flag obsolete assignments.
+
+- MCP: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
+- MCP: Fixed synthesis refresh clearing a stored summary it could not replace.
+- Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
+- GUI: Persona model settings flag obsolete assignments and offer to remove them.
+
+## v2.14.1 - CLI Claude Resume
+
+- CLI: The Claude Code agent selector now links to the resume tool.
+
+## v2.14.0 - Self-Advancing Pipeline Chains
+> mcp v2.10.1 · personas v3.37.0
+
+**The Ledger Claude Coordinator now monitors and restarts a self-advancing chain instead of
+dispatching every stage by hand.** Plans can no longer trap work behind a step only a person can
+do, and the WP Decomposer validates its own draft in a second consistency-check pass.
+
+- Personas: Ledger Claude Coordinator now monitors and restarts a stalled chain instead of
+  dispatching every stage itself.
+- Personas: Plans can no longer trap work behind a step that only a person can complete.
+- Personas: WP Decomposer now validates its finished draft in a second consistency-check pass.
+- Personas: Standalone Archiver renamed to Ledger Synthesis Maintainer; Update mode now serves
+  any completed project.
+- MCP: `ledger_update_synthesis` can now refresh any completed project's summary, not just
+  standalone imports.
+
 ## v2.13.0 - Active Duration Tracking & Numeric Input Tolerance
 > mcp v2.10.0
 

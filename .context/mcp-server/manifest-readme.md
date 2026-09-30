@@ -20,8 +20,6 @@ Includes the GUI sub-manifest hub — changes under mcp-server/gui/ are document
 ```md
 # Project Manifest: Project Ledger MCP Server
 
-**Version:** 1.1.0  
-**Last Updated:** 2026-05-30  
 **Purpose:** MCP server for Project Ledger workflow coordination
 
 ---
@@ -44,6 +42,7 @@ The server manages two types of JSON files:
 | [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | MCP tools, classes, types, and public methods |
 | [Key Data Flows](data-flows.md) | Main interaction paths through the system |
+| [Curation Log](curation-log.md) | Standing decisions about this manifest's shape, and the dated trail of verification passes |
 
 ### Constraints
 

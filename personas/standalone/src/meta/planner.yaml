@@ -5,10 +5,19 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
-  2.5.0 (2026-09-17): Added a Research Brief step that reads a declared project's generated
-    strategic-vision mirror (`.ledger/settings.json` + `.ledger/strategic-vision.md`) into a new
-    `## Strategic Context` section, citing its `generated-at` timestamp; the mirror is read-only,
-    so suspected staleness is noted in the plan rather than corrected
+  2.6.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
+    group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
+    opens every multi-repository plan with a switch to local symlinks (the project's documented switch
+    where one exists), never plans switching them back, and checks every changed repository is in the
+    workspace; checklist item added
+  2.5.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
+    counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
+    sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a
+    follow-up plan; the Human Actions When cell takes exactly two values, backed by a checklist item
+  2.5.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
+    **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
+    Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
+    completed before the run or follow-ups after it; checklist item added
   2.4.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task

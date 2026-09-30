@@ -21,6 +21,14 @@
  * unconditionally at the bottom with no run-guard, matching every other
  * standalone script under scripts/.
  *
+ * The picker's unit is a *launch entry* (see buildLaunchEntries() in
+ * scripts/lib/launch-agent-core.js), not a bare agent id: alongside every
+ * discovered persona, the list carries a pinned "Resume a previous
+ * session" entry that launches `claude --resume` instead of
+ * `claude --agent <id>`. Each entry carries its own `claudeArgs`, so the
+ * spawn() call below reads argv straight off the selection rather than
+ * switching on what kind of entry it is.
+ *
  * Usage:
  *   node scripts/launch-agent.js
  *   node scripts/launch-agent.js --filter <term>
@@ -31,7 +39,7 @@ import { spawn } from 'child_process';
 import { isRawModeSupported } from '@mistralys/cli-menu';
 import { getClaudeCodeAgentsDir } from './publish-locations.js';
 import { isClaudeCliAvailable } from './lib/claude-cli.js';
-import { discoverAgents, runInteractivePicker, runNonInteractivePicker } from './lib/launch-agent-core.js';
+import { discoverAgents, buildLaunchEntries, runInteractivePicker, runNonInteractivePicker } from './lib/launch-agent-core.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 
 function parseArgs(argv) {
@@ -68,6 +76,8 @@ async function main() {
     return;
   }
 
+  const entries = buildLaunchEntries(agents);
+
   // First pass honors --filter (if given); the picker is re-shown with no
   // pre-filter on every subsequent loop iteration.
   let pickerFilter = filter;
@@ -77,25 +87,25 @@ async function main() {
     // first draw (the AI Insights main menu on first entry, or the previous
     // claude session's output on a loop-back), so the picker always opens
     // against a clean screen.
-    const selectedId = isRawModeSupported()
-      ? await runInteractivePicker(agents)
-      : await runNonInteractivePicker(agents, pickerFilter);
+    const selected = isRawModeSupported()
+      ? await runInteractivePicker(entries, pickerFilter)
+      : await runNonInteractivePicker(entries, pickerFilter);
     pickerFilter = '';
 
-    if (!selectedId) {
+    if (!selected) {
       console.log('Cancelled.');
       process.exit(0);
       return;
     }
 
     await new Promise((resolve) => {
-      const child = spawn('claude', ['--agent', selectedId, ...passthroughArgs], {
+      const child = spawn('claude', [...selected.claudeArgs, ...passthroughArgs], {
         stdio: 'inherit',
         cwd: getOriginalCwd(),
       });
 
       child.on('error', (err) => {
-        console.error(`Failed to launch "claude --agent ${selectedId}": ${err.message}`);
+        console.error(`Failed to launch "${selected.label}": ${err.message}`);
         resolve(1);
       });
 

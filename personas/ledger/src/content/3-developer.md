@@ -129,6 +129,7 @@ The **Code Insights** section is mandatory on every implementation pipeline; it 
 * **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include ancillary or out-of-scope improvements you made while working, not just the primary WP deliverables.
 * {{> no-stale-counts}}
 * **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
+* {{> no-release-cycles}}
 * **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase, abbreviate, or reformat — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 * **Environment Incident Logging:** {{> incident-logging}}
 

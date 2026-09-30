@@ -12,6 +12,7 @@
  *   - Rejection when slug already exists (duplicate import)
  *   - Response structure (slug, outcome_summary, archived_files, project_storage_path)
  *   - outcome_summary extraction via synthesis-parser
+ *   - outcome_summary parameter precedence over the parsed document value
  *   - Neither project_path nor cwd_path provided
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -21,7 +22,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
 import { _internal, ImportStandaloneSchema } from '../../src/tools/standalone-import.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 
-const { importStandalone, updateSynthesis } = _internal;
+const { importStandalone, updateSynthesis, UpdateSynthesisSchema } = _internal;
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -315,6 +316,31 @@ describe('ledger_import_standalone — validation errors', () => {
       await rm(badPlanDir, { recursive: true, force: true });
     }
   });
+
+  it('rejects a plan folder with an uppercase segment before any files are written (MS01 regression)', async () => {
+    // Regression coverage: a folder like "2026-09-22-MS01-my-feature" passed the
+    // old date-prefix-only check and got imported, then failed every GUI detail-page
+    // load with "Invalid repo or slug parameter." (assertSafeSlug() rejects the
+    // uppercase segment). validateSlugSafety() must now catch this at import time.
+    const uppercasePlanDir = join(tmpdir(), '2026-09-22-MS01-my-feature');
+    await mkdir(uppercasePlanDir, { recursive: true });
+    await writeFile(join(uppercasePlanDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(uppercasePlanDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+
+    try {
+      const result = await importStandalone({ project_path: uppercasePlanDir });
+      const { isError, text } = parseResult(result);
+
+      expect(isError).toBe(true);
+      expect(text).toContain('all-lowercase');
+
+      // Nothing should have been written to the ledger for the rejected slug.
+      const store = new LedgerStore(uppercasePlanDir, tempLedgerRoot);
+      await expect(store.readRootIndex()).rejects.toThrow();
+    } finally {
+      await rm(uppercasePlanDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── Uses deriveRepoName (AC6) ─────────────────────────────────────────────
@@ -483,6 +509,18 @@ Updated outcome summary after post-import edits. All deferred improvements addre
 - Addressed deferred improvements
 `;
 
+const SYNTHESIS_UNPARSEABLE = `
+# Synthesis
+
+### Completion Status
+
+Complete.
+
+### Executive Summary
+
+A heading the parser does not recognise, with no Implementation Summary bullets to fall back on.
+`;
+
 describe('ledger_update_synthesis — successful update', () => {
   beforeEach(async () => {
     // Import the project first so it exists in the ledger.
@@ -596,22 +634,29 @@ describe('ledger_update_synthesis — guard errors', () => {
     expect(text).toContain('status is "IN_PROGRESS"');
   });
 
-  it('rejects when runner is not standalone (AC-05)', async () => {
-    // Import the project, then manually set runner to something else.
+  it('updates synthesis for a non-standalone runner and leaves runner unchanged (AC-05)', async () => {
+    // Import the project, then manually set runner to a non-standalone value, as would be the
+    // case for a project completed through the full claude-code ledger workflow.
     await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
     await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
     await importStandalone({ project_path: planDir });
 
     const store = new LedgerStore(planDir, tempLedgerRoot);
     const root = await store.readRootIndex();
-    root.runner = 'orchestrator';
+    root.runner = 'claude-code';
     await store.writeRootIndex(root);
 
-    const result = await updateSynthesis({ project_path: planDir });
-    const { isError, text } = parseResult(result);
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
 
-    expect(isError).toBe(true);
-    expect(text).toContain('runner is "orchestrator"');
+    const result = await updateSynthesis({ project_path: planDir });
+    const { isError, parsed } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.outcome_summary).toContain('Updated outcome summary after post-import edits');
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.outcome_summary).toContain('Updated outcome summary after post-import edits');
+    expect(updatedRoot.runner).toBe('claude-code');
   });
 
   it('rejects when project is older than 90 days (AC-06)', async () => {
@@ -647,5 +692,197 @@ describe('ledger_update_synthesis — guard errors', () => {
 
     expect(isError).toBe(true);
     expect(text).toContain('synthesis.md not found');
+  });
+});
+
+// ─── outcome_summary parameter ────────────────────────────────────────────
+
+const SUPPLIED_OUTCOME_SUMMARY =
+  'Supplied by the calling agent rather than parsed from the document. ' +
+  'Takes precedence over the Outcome Summary section.';
+
+describe('ledger_import_standalone — outcome_summary parameter', () => {
+  beforeEach(async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+  });
+
+  it('stores a supplied outcome_summary verbatim, overriding the parsed section', async () => {
+    const result = await importStandalone({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+    expect(root.outcome_summary).not.toContain('Implemented the standalone feature end-to-end');
+  });
+
+  it('syncs a supplied outcome_summary to .meta.json', async () => {
+    await importStandalone({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const metaRaw = await readFile(join(store.storageDir, '.meta.json'), 'utf-8');
+    expect(JSON.parse(metaRaw).outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+  });
+
+  it('derives pipeline_summary from a supplied outcome_summary', async () => {
+    await importStandalone({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0]!.summary).toEqual([SUPPLIED_OUTCOME_SUMMARY]);
+  });
+
+  it('parses from the document when outcome_summary is omitted (backward compatibility)', async () => {
+    const result = await importStandalone({ project_path: planDir });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.outcome_summary).toContain('Implemented the standalone feature end-to-end');
+  });
+
+  it('rejects an outcome_summary shorter than 10 characters (schema validation)', () => {
+    const tooShort = ImportStandaloneSchema.safeParse({ outcome_summary: 'too short' });
+    expect(tooShort.success).toBe(false);
+    expect(JSON.stringify(tooShort.error?.issues)).toContain('outcome_summary');
+
+    expect(
+      ImportStandaloneSchema.safeParse({ outcome_summary: SUPPLIED_OUTCOME_SUMMARY }).success
+    ).toBe(true);
+    expect(ImportStandaloneSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('rejects a whitespace-padded outcome_summary that is too short after trimming', () => {
+    expect(
+      ImportStandaloneSchema.safeParse({ outcome_summary: '   short    ' }).success
+    ).toBe(false);
+  });
+});
+
+describe('ledger_update_synthesis — outcome_summary parameter', () => {
+  beforeEach(async () => {
+    await writeFile(join(planDir, 'plan.md'), PLAN_CONTENT, 'utf-8');
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_WITH_OUTCOME, 'utf-8');
+    await importStandalone({ project_path: planDir });
+  });
+
+  it('stores a supplied outcome_summary verbatim, overriding the parsed section', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+    expect(root.outcome_summary).not.toContain('Updated outcome summary after post-import edits');
+  });
+
+  it('syncs a supplied outcome_summary to .meta.json', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    await updateSynthesis({ project_path: planDir, outcome_summary: SUPPLIED_OUTCOME_SUMMARY });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const metaRaw = await readFile(join(store.storageDir, '.meta.json'), 'utf-8');
+    expect(JSON.parse(metaRaw).outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+  });
+
+  it('still re-archives synthesis.md when outcome_summary is supplied', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.archived_files).toContain('synthesis.md');
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const archivedContent = await readFile(join(store.storageDir, 'synthesis.md'), 'utf-8');
+    expect(archivedContent).toContain('Updated outcome summary after post-import edits');
+  });
+
+  it('parses from the document when outcome_summary is omitted (backward compatibility)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.outcome_summary).toContain('Updated outcome summary after post-import edits');
+  });
+
+
+  it('keeps the stored summary when nothing is supplied and nothing parses (AC 2a)', async () => {
+    // The parser recognises neither heading here, so it yields null. Before the
+    // stored-value fallback this refresh wiped the summary the import had stored.
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UNPARSEABLE, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed, isError } = parseResult(result);
+
+    expect(isError).toBe(false);
+    expect(parsed.outcome_summary).toContain('Implemented the standalone feature end-to-end');
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.outcome_summary).toContain('Implemented the standalone feature end-to-end');
+  });
+
+  it('prefers a parseable section over the stored summary (stored value is a last resort, not a veto)', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UPDATED, 'utf-8');
+
+    const result = await updateSynthesis({ project_path: planDir });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.outcome_summary).toContain('Updated outcome summary after post-import edits');
+    expect(parsed.outcome_summary).not.toContain('Implemented the standalone feature end-to-end');
+  });
+
+  it('prefers a supplied summary over both the parseable section and the stored value', async () => {
+    await writeFile(join(planDir, 'synthesis.md'), SYNTHESIS_UNPARSEABLE, 'utf-8');
+
+    const result = await updateSynthesis({
+      project_path: planDir,
+      outcome_summary: SUPPLIED_OUTCOME_SUMMARY,
+    });
+    const { parsed } = parseResult(result);
+
+    expect(parsed.outcome_summary).toBe(SUPPLIED_OUTCOME_SUMMARY);
+  });
+
+  it('rejects an outcome_summary shorter than 10 characters (schema validation)', () => {
+    const tooShort = UpdateSynthesisSchema.safeParse({ outcome_summary: 'too short' });
+    expect(tooShort.success).toBe(false);
+    expect(JSON.stringify(tooShort.error?.issues)).toContain('outcome_summary');
+
+    expect(
+      UpdateSynthesisSchema.safeParse({ outcome_summary: SUPPLIED_OUTCOME_SUMMARY }).success
+    ).toBe(true);
+    expect(UpdateSynthesisSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('rejects a whitespace-padded outcome_summary that is too short after trimming', () => {
+    expect(
+      UpdateSynthesisSchema.safeParse({ outcome_summary: '   short    ' }).success
+    ).toBe(false);
   });
 });

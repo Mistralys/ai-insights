@@ -5,6 +5,8 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
+    Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.2.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.2.0 (2026-08-27): Design Guide v3.3 audit fixes — the Delegation Protocol table no longer collapses into a paragraph in rendered output, a deep-agents branch replaced the wrong Claude Code invocation shape on that target, the duplicate Onboarding Stages table merged into a single Stage Table, Upgrade mode's "stale" classification gained criteria, two Strict Constraints duplicating sub-section constraint blocks were removed, and "Minimal Footprint" was renamed to the canonical "Every Artefact Earns Its Place" per the C5c principle registry
   1.1.1 (2026-08-26): Rewrote two Operating Philosophy principles into indicative mood per design guide v3.0; "Delegate, Don't Duplicate" retitled "Delegation Over Duplication"

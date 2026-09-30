@@ -25,6 +25,7 @@ _SOURCE: MCP server source directory tree_
         │       ├── constraints-testing.md
         │       ├── constraints-workflow.md
         │       ├── constraints.md
+        │       ├── curation-log.md
         │       ├── data-flows.md
         │       ├── file-tree.md
         │       ├── tech-stack.md

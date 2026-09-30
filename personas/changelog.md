@@ -1,18 +1,61 @@
 # Personas Changelog
 
-## v3.34.0 - Strategic Vision Mirror
+## v3.39.0 - **WIP, UNRELEASED**
+- Planner: Links sibling repositories locally first and never plans a release or a switch back.
+- Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.
+- Standalone: Plan Auditor flags release steps and a missing symlink switch as Critical.
+- Ledger: Release Engineer prepares releases without running them and leaves symlinks in place.
+- Developer: Both suites never publish or tag, and link an unlinked sibling instead of waiting.
+- Planner: Gates on a person count as dependencies; Human Actions timing is before or after the run.
+- Ledger-Support: WP Decomposer moves merge and deploy gates out of WPs and re-times mid-run rows.
+- Standalone: Plan Auditor flags any step or criterion waiting on a person as Critical.
+- Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
+- Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
+  they start on Claude Code.
+- Standalone: Documentation, README and AGENTS.md Curators dispatch document owners by slug.
+- Release Engineer: Gained the Claude Code `Task` tool it needs to dispatch sub-agents and hand off.
+- Ledger: Developer, QA, Security Auditor and Reviewer can hand off under Claude Code again.
+- Deep Agents: Sub-agent dispatches pass the task in the tool's real `description` field.
+- Standalone: Plan Refiner, Plan Architect Reviewer, Manifest Curator, Developer, Web GUI
+  Specialist and Workspace Architect dispatch sub-agents by slug on Claude Code.
+- Build: Handoff personas without the Claude Code `Task` tool now fail the build.
+- Build: Rendered output is checked on every target for sub-agents selected by the wrong name.
+- Build: A persona can limit the targets it is built for; the Claude Coordinator is Claude Code only.
+- Standalone: Plan Refiner reaches the ledger Planner under VS Code by its real agent name.
+- Docs: Persona Design Guide v3.6 documents each platform's sub-agent dispatch arguments.
+- Ledger, Standalone: Documentation personas check changed docblocks against README prose in any
+  module that describes them.
 
-**A new `strategic-vision-mirror` partial teaches Planners to read a project's declared,
-generated `.ledger/` mirror when MCP access isn't available, and manifest-facing personas gained
-a `.ledger/**` read-only boundary.**
+## v3.38.0 - Agent-Composed Outcome Summaries
 
-- Standalone: Planner reads a declared project's strategic-vision mirror into the Research
-  Brief's Strategic Context section when present, and reports suspected staleness instead of
-  editing it.
-- Ledger: Planner reports `mirror.stale` from `ledger_get_repository_context` as a `ledger sync`
-  finding rather than correcting the mirror itself.
-- Standalone: AGENTS.md Curator and Manifest Curator route to a declared project's mirror and
-  treat everything under `.ledger/**` as generated and read-only.
+**The archiving agent now writes the project outcome summary** instead of the server parsing it
+from a heading. One shared guide governs its length and content across both suites. The
+Synthesis Maintainer can also apply requested edits to a completed project's synthesis.
+
+- Synthesis: Writes an Outcome Summary section in place of the unparseable Executive Summary.
+- Ledger-Support: Synthesis Maintainer composes the summary on archival and keeps it on refresh.
+- Ledger-Support: Synthesis Maintainer applies the edits you request before refreshing the ledger.
+- Shared: Added an outcome-summary crafting guide covering both suites.
+
+## v3.37.0 - Self-Advancing Chains and Unattended Runs
+
+**The Ledger Claude Coordinator no longer dispatches every stage by hand — it seeds a run and
+restarts it only when the chain stalls.** Plans can no longer trap a work package behind a step
+that only a person can do, and the WP Decomposer now checks its own finished draft in a second
+pass before downstream agents ever read it.
+
+- Changed: Ledger Claude Coordinator rebuilt as a chain monitor that restarts a stalled run from
+  wherever the ledger says it stopped, instead of dispatching every stage itself.
+- Changed: Planner and WP Decomposer keep human actions out of work packages entirely, tracking
+  them in a new Human Actions section completed before or after the run.
+- Changed: WP Decomposer gained a Consistency Pass mode that checks the finished draft as a set,
+  catching gaps and duplicates no single-WP checklist can see.
+- Fixed: A repeat Decompose dispatch over an already-decomposed plan no longer stalls waiting for
+  someone to delete the draft by hand.
+- Changed: Cross-model plan refinement passes now record which model made which pass, instead of
+  a single combined tally.
+- Renamed: Standalone Archiver is now Ledger Synthesis Maintainer; its Update mode now covers any
+  completed project the ledger tracks, not just standalone imports.
 
 ## v3.33.0 - Agent Picker Role Labels
 

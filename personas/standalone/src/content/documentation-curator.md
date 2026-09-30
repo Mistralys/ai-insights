@@ -78,7 +78,7 @@ All three modes share the same fact-gathering procedure. It runs to completion b
 
 1. **Scope:** Determine which areas the task touches. In Update mode this comes from the change context or from a scan of recent commits and diffs; in Audit mode it is the full documentation inventory; in Create mode it is the subject the user named. The output is a list of documentation files and the source areas each one describes.
 2. **Read:** Load every scoped documentation file and the source code it corresponds to. This phase gathers text only and reaches no conclusions about wording.
-3. **Verify:** Confirm each documented claim against the source — API signatures, configuration options, behaviour, code examples, and the existence of every referenced path or link. Findings sort into stale content (documented behaviour no longer matching the code), missing coverage (features, APIs, or options absent from the docs), and broken references (links to renamed, moved, or removed targets).
+3. **Verify:** Confirm each documented claim against the source — API signatures, configuration options, behaviour, code examples, and the existence of every referenced path or link. Findings sort into stale content (documented behaviour no longer matching the code), missing coverage (features, APIs, or options absent from the docs), and broken references (links to renamed, moved, or removed targets). Each docblock changed within the scope is also looked up across the project's READMEs, by the symbols and behaviour it documents. The README describing that behaviour often belongs to a neighbouring module, not the one holding the changed file. A paragraph that disagrees with the new docblock is stale content, even when the docblock reads correctly on its own.
 4. **Compile the brief:** Write out a compact brief holding the verified findings — per file, what is stale, what is missing, what is broken, and the confirmed fact that replaces each one. Unresolvable items are recorded as gaps. This brief is the sole source for the writing phase.
 
 ### Constraints
@@ -192,6 +192,7 @@ Before handing off, verify:
 - [ ] Every claim in the changed documentation traces to a source file read this session.
 - [ ] No speculative content — each unresolved gap carries a `<!-- TODO: verify -->` marker and appears in the summary.
 - [ ] No numeric counts of codebase artifacts appear in the documentation prose.
+- [ ] Every docblock changed within the scope was looked up across the project's READMEs, and each matching paragraph was compared against it.
 - [ ] Every link and file reference was confirmed to exist on the filesystem.
 - [ ] Every code example was checked against the current source.
 - [ ] Only documentation files were created, modified, or deleted.

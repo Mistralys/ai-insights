@@ -97,9 +97,9 @@ Every artefact is produced by its owning sub-agent, and each stage maps to exact
 {{#if target_vscode}}
 Invoke `runSubagent` with `agentName` set to the sub-agent's name, a short `description` naming the stage, and a `prompt` carrying the inputs listed in the Stage Table.
 {{else if target_deep_agents}}
-Use the `task` tool with `subagent_type` set to the sub-agent's slug and `task` carrying the inputs listed in the Stage Table. The slugs, by stage: 1 `{{agent_slug_manifest_curator}}`, 2 `{{agent_slug_agents_md_curator}}`, 3 `{{agent_slug_composer_curator}}`, 4 `{{agent_slug_ctx_architect}}`, 5 `{{agent_slug_readme_curator}}`, 6 `{{agent_slug_changelog_curator}}`.
+Use the `task` tool with `subagent_type` set to the sub-agent's slug and `description` carrying the inputs listed in the Stage Table. The slugs, by stage: 1 `{{agent_slug_manifest_curator}}`, 2 `{{agent_slug_agents_md_curator}}`, 3 `{{agent_slug_composer_curator}}`, 4 `{{agent_slug_ctx_architect}}`, 5 `{{agent_slug_readme_curator}}`, 6 `{{agent_slug_changelog_curator}}`.
 {{else}}
-Use the `Task` tool with `description` set to the sub-agent's name, passing the inputs listed in the Stage Table.
+Use the `Task` tool with `subagent_type` set to the sub-agent's slug, a short `description` naming the stage, and a `prompt` carrying the inputs listed in the Stage Table. The slugs, by stage: 1 `{{agent_slug_manifest_curator}}`, 2 `{{agent_slug_agents_md_curator}}`, 3 `{{agent_slug_composer_curator}}`, 4 `{{agent_slug_ctx_architect}}`, 5 `{{agent_slug_readme_curator}}`, 6 `{{agent_slug_changelog_curator}}`.
 {{/if}}
 
 ### Stage Table

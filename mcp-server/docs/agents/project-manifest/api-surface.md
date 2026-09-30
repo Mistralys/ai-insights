@@ -132,6 +132,7 @@ All tools (except `ledger_initialize_project`) now accept `cwd_path` directly �
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
   project_summary?: string; // Optional. Curated 2–3 sentence plain-text description. trim().min(1) — whitespace-only strings are rejected after trimming.
+  outcome_summary?: string; // Optional. Curated 2–3 sentence plain-text outcome summary. trim().min(10) — same floor as ledger_complete_synthesis. Stored verbatim; when omitted the server parses synthesis.md instead.
   title?: string;           // Optional. trim().min(1), max(200). Curated human-readable display title (e.g. "API: Split GetTenants"). Stored in the root index, auto-synced to .meta.json by writeRootIndex(). Takes precedence over slug-derived title-casing in the GUI.
 }) => Promise<MCPResult>
 ```
@@ -149,12 +150,12 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 **Date derivation:** `dateCreated` is extracted from the `YYYY-MM-DD` prefix in the plan folder name (e.g. `2026-06-30-my-feature` → `2026-06-30T00:00:00Z`). Falls back to `now()` for atypically named folders.
 
-**Outcome summary extraction:** `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`. Falls back to the first bullet of `### Implementation Summary` when the section is absent. Returns `null` when neither section is found.
+**Outcome summary resolution:** The `outcome_summary` argument wins when supplied and is stored verbatim — the document is not consulted for it. When the argument is omitted, `parseOutcomeSummary()` (WP-003) reads the `### Outcome Summary` section from `synthesis.md`, falls back to the first bullet of `### Implementation Summary` when the section is absent, and yields `null` when neither section is found. The resolved value also drives `pipelineSummary` (`['Standalone plan executed.']` when it is `null`).
 
 **Storage writes:** All writes are delegated to `LedgerStore.importStandaloneProject()` (WP-005), which acquires a write lock, writes `project-ledger.json` and `WP-001.json` atomically, archives `plan.md` and `synthesis.md` plus authored `usage-scenarios.md` when present, and auto-syncs `.meta.json`. Derived `scenario-coverage.md` is never archived. Tool code calls no `@internal` storage primitives directly (see "`writeWorkPackage` and `writeRootIndex` Are Internal" in constraints.md).
 
 **Produced project record:**
-- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated, `project_summary` and `title` included when provided (omitted when not supplied — key-presence semantics).
+- `project-ledger.json`: `status: 'COMPLETE'`, `total_work_packages: 1`, `pending_work_packages: 0`, `synthesis_generated: true`, `runner: 'standalone'`, `outcome_summary` populated from the argument or the parsed document, `project_summary` and `title` included when provided (omitted when not supplied — key-presence semantics).
 - `WP-001.json`: `status: 'COMPLETE'`, `assigned_to: 'Developer'`, `active_pipeline_stages: ['implementation']`, single `implementation` pipeline at `PASS`.
 - `.meta.json`: auto-synced by `writeRootIndex()` inside the lock, including `title` when provided — the root index is the single write path for `title` in standalone import; there is no separate `updateTitle()` call.
 - `plan.md` and `synthesis.md`, plus optional `usage-scenarios.md`, archived to `{ledgerRoot}/{repoName}/{slug}/`. Derived `scenario-coverage.md` is excluded.
@@ -164,7 +165,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 ```typescript
 {
   slug: string;                // Plan folder basename (e.g. "2026-06-30-my-feature")
-  outcome_summary: string | null; // Extracted from synthesis.md; null when not found
+  outcome_summary: string | null; // The supplied argument, else extracted from synthesis.md; null when neither
   archived_files: string[];    // Required files plus usage-scenarios.md when successfully copied
   project_storage_path: string; // Absolute path to the project storage directory
 }
@@ -178,33 +179,33 @@ Imports a completed standalone developer plan execution into the project ledger.
 
 ```typescript
 (args: {
-  project_path?: string;  // Absolute path to the standalone plan folder. Takes precedence over cwd_path.
+  project_path?: string;  // Absolute path to the plan folder. Takes precedence over cwd_path.
   cwd_path?: string;      // Alternative plan folder path. Used when project_path is not provided.
   // At least one of project_path or cwd_path is required.
+  outcome_summary?: string; // Optional. Curated 2–3 sentence plain-text outcome summary. trim().min(10) — same floor as ledger_complete_synthesis. Stored verbatim; when omitted the server parses synthesis.md instead.
 }) => Promise<MCPResult>
 ```
 
-Updates the `outcome_summary` and archived `synthesis.md` for an already-imported standalone project. Use this when `synthesis.md` has been edited after archival (e.g. marking deferred improvements as done) to propagate the changes back into the ledger.
+Updates the `outcome_summary` and archived `synthesis.md` for a project the ledger already tracks, regardless of its `runner`. Use this when `synthesis.md` has been edited after the project reached `COMPLETE` (e.g. marking deferred improvements as done) to propagate the changes back into the ledger.
 
 **Guards (evaluated in order):**
 1. **Path required** — rejects calls that supply neither `project_path` nor `cwd_path`.
 2. **Plan folder naming** — the folder basename must match the `{YYYY-MM-DD}-{name}` convention.
 3. **Project must exist** — `store.ledgerDirExists()` must return `true`; the project must already be imported.
 4. **Status must be COMPLETE** — rejects with `"status is "…""` when the project is not in `COMPLETE` state.
-5. **Runner must be standalone** — rejects with `"runner is "…""` when `runner !== 'standalone'`.
-6. **Staleness guard** — compares `synthesis_generated_at` (falling back to `date_created`) against the current clock; rejects when the project is more than `MAX_SYNTHESIS_UPDATE_AGE_DAYS` (90) days old.
-7. **`synthesis.md` must exist** — rejects when the file is absent from the plan folder.
+5. **Staleness guard** — compares `synthesis_generated_at` (falling back to `date_created`) against the current clock; rejects when the project is more than `MAX_SYNTHESIS_UPDATE_AGE_DAYS` (90) days old.
+6. **`synthesis.md` must exist** — rejects when the file is absent from the plan folder.
 
-**Outcome summary extraction:** Re-reads `synthesis.md` from the plan folder and calls `parseOutcomeSummary()`. The extracted summary replaces the existing `outcome_summary` in the root index.
+**Outcome summary resolution:** Three terms, evaluated in order — `args.outcome_summary ?? parseOutcomeSummary(synthesisContent) ?? rootIndex.outcome_summary ?? null`. A supplied argument wins and is stored verbatim; otherwise the re-read `synthesis.md` is parsed; otherwise the summary already on the root index survives. The third term is resolved inside the lock, where the root index is available, and exists so a refresh **never clears a summary it cannot replace** — a synthesis document written with an unrecognised heading used to overwrite a good summary with `null`. It is a last resort, never a veto: a supplied or parsed value always wins over it. `synthesis.md` is read and re-archived regardless, since the archived copy must stay in step with the plan folder.
 
-**Storage writes:** Inside a `withLock(store.storageDir)` scope — reads root index (TOCTOU safety), mutates `outcome_summary` and `last_updated`, calls `store.writeRootIndex()` (auto-syncs `.meta.json`), then calls `store.archiveDocuments(['synthesis.md'])` to overwrite the archived copy.
+**Storage writes:** Inside a `withLock(store.storageDir)` scope — reads root index (TOCTOU safety), mutates `outcome_summary` and `last_updated`, calls `store.writeRootIndex()` (auto-syncs `.meta.json`), then calls `store.archiveDocuments(['synthesis.md'])` to overwrite the archived copy. `runner` is never written, so the record keeps the runner its original import or workflow run assigned.
 
 **Response shape (on success):**
 
 ```typescript
 {
   slug: string;                // Plan folder basename
-  outcome_summary: string | null; // Re-extracted from synthesis.md; null when not found
+  outcome_summary: string | null; // Supplied argument, else re-extracted from synthesis.md, else the stored value; null only when the project had none
   archived_files: string[];    // Filenames successfully copied to storage dir
   project_storage_path: string; // Absolute path to the project storage directory
 }
@@ -3651,6 +3652,17 @@ function assertSafeSegment(segment: string): boolean;
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
 function planFolderBasename(projectPath: string): string;
 
+// Validates a plan-folder basename against assertSafeSegment() / SAFE_SLUG_REGEX (all-lowercase
+// alphanumeric + hyphens) — the same rule the GUI enforces on every /api/projects/:repo/:slug
+// route. planFolderBasename()/validatePlanPath() only check the YYYY-MM-DD- date prefix and
+// accept any casing after it; a slug that fails this check loads in the GUI project list but
+// fails "Invalid repo or slug parameter." the moment it's opened. Call ONLY at project
+// creation/import boundaries (initializeProject(), importStandalone()) — never at read/update
+// call sites, since existing on-disk projects created before this check existed must remain
+// readable. Non-throwing; error string suggests the corrected lowercase form.
+// Exported from src/utils/path-validator.ts.
+function validateSlugSafety(folderName: string): { isValid: boolean; error?: string };
+
 // Resolves the project path from either an explicit project_path or a cwd_path.
 // Resolution order:
 //   0. If BOTH project_path and cwd_path are provided: throws Error(MUTUAL_EXCLUSIVITY_PATH_MSG).
@@ -4099,16 +4111,23 @@ Used by WP-006 (ledger_complete_synthesis enrichment) to populate `outcome_summa
 // Exported from src/utils/synthesis-parser.ts.
 //
 // Behaviour:
-//   1. Looks for a `### Outcome Summary` section (case-insensitive heading match).
+//   1. Looks for an `Outcome Summary` section, written as either `##` or `###`
+//      (case-insensitive heading match).
 //      Returns trimmed body text when the section is present and non-empty.
-//   2. Falls back to the first `- …` or `* …` bullet in `### Implementation Summary`
-//      when Outcome Summary is absent or its body is whitespace-only.
+//   2. Falls back to the first `- …` or `* …` bullet in an `Implementation Summary`
+//      section (again `##` or `###`) when Outcome Summary is absent or its body
+//      is whitespace-only.
 //   3. Returns null when neither section yields usable content.
 //
 // Private helpers (unexported):
-//   extractSection(content, heading)  — returns body between `### <heading>` and
-//     the next `###` heading (or EOF); null when heading is absent. Uses a
-//     case-insensitive regex; `####` sub-headings do NOT match the `^###\s` boundary.
+//   extractSection(content, heading)  — returns body between a `##`/`###
+//     <heading>` line and the next `##` or `###` heading anywhere in the
+//     document (or EOF); null when heading is absent. Uses a case-insensitive
+//     regex (`^#{2,3}\s+<heading>\s*$`); `####` sub-headings do NOT match the
+//     `^#{2,3}\s` boundary, so they stay inside the extracted body. Matching
+//     both levels on the way out is what prevents an unrelated `##` section
+//     (e.g. `## Metrics`, `## Rework Log`) placed after the target section
+//     from being swallowed into the extracted text.
 //   extractFirstBullet(sectionContent) — returns the text of the first `- …` or
 //     `* …` bullet; null when none is found.
 function parseOutcomeSummary(synthesisContent: string): string | null;

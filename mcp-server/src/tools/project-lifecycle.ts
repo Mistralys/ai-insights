@@ -10,7 +10,7 @@ import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
-import { validatePlanPath } from '../utils/path-validator.js';
+import { validatePlanPath, validateSlugSafety, planFolderBasename } from '../utils/path-validator.js';
 import { resolveProjectPath, formatCandidateList } from '../utils/project-resolver.js';
 import { withLock } from '../storage/file-lock.js';
 import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
@@ -531,7 +531,7 @@ async function getProjectStatus(
  * Rejects if ledger already exists.
  */
 export const InitializeProjectSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature"). The folder name after the YYYY-MM-DD- date prefix must be all-lowercase (letters, digits, hyphens only) — an uppercase segment (e.g. "MS01") is rejected, since the GUI can list but never open such a slug.'),
   plan_file: z
     .string()
     .refine((v) => v === PLAN_ARCHIVE_FILENAME, {
@@ -565,6 +565,13 @@ async function initializeProject(
   const pathValidation = validatePlanPath(args.project_path);
   if (!pathValidation.isValid) {
     return { content: [{ type: 'text' as const, text: pathValidation.error }], isError: true };
+  }
+
+  // Reject slugs the GUI can list but never open (see validateSlugSafety() JSDoc).
+  // Creation-time-only check — never applied to reads/updates of existing projects.
+  const slugSafety = validateSlugSafety(planFolderBasename(args.project_path));
+  if (!slugSafety.isValid) {
+    return { content: [{ type: 'text' as const, text: slugSafety.error }], isError: true };
   }
 
   // Multi-store routing: when in multi-store mode, derive the repository name

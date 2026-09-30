@@ -133,4 +133,34 @@ describe('parseOutcomeSummary', () => {
       );
     });
   });
+
+  // ── Scenario 5: mixed heading levels (## and ###) ────────────────────────
+
+  describe('when the document mixes ## and ### headings', () => {
+    it('stops at a ## heading that follows a ### Outcome Summary section', () => {
+      // Regression test: a document whose only other top-level marker between
+      // the summary and the end of the file is a `##` heading (e.g. a
+      // trailing `## Rework Log`) used to have its `## Metrics` section (and
+      // everything after it, including the Rework Log) swallowed into the
+      // extracted body, because the old boundary regex only recognized `###`.
+      const md = doc(
+        '### Outcome Summary\n\nAll goals achieved.\n\n## Metrics\n\nSome metrics here.\n\n## Rework Log\n\n### 2026-09-28 — Follow-up\nDetails.\n',
+      );
+      expect(parseOutcomeSummary(md)).toBe('All goals achieved.');
+    });
+
+    it('recognizes a ## Outcome Summary heading (not just ###)', () => {
+      const md = doc(
+        '## Outcome Summary\n\nAchieved via a level-2 heading.\n\n## Next Steps\nDone.\n',
+      );
+      expect(parseOutcomeSummary(md)).toBe('Achieved via a level-2 heading.');
+    });
+
+    it('falls back to Implementation Summary when it is a ## heading', () => {
+      const md = doc(
+        '## Implementation Summary\n\n- First bullet\n\n## Notes\nDone.\n',
+      );
+      expect(parseOutcomeSummary(md)).toBe('First bullet');
+    });
+  });
 });

@@ -12,6 +12,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-09-23 · Update · Curator v1.4.1
+
+**Scope:** Narrow verification only — every document in this manifest was searched for references to the `standalone-archiver` persona (renamed to `ledger-synthesis-maintainer`, "Ledger Synthesis Maintainer", v2.0.0, id `ledger-support-synthesis-maintainer`) and to the standalone-only framing of `ledger_update_synthesis`. No other content in any document was verified.
+**Commit:** d5a1062a
+**Changes:** None — no drift found. `api-surface.md`'s two partial-consumer rows (`summary-crafting-guide.md`, `title-crafting-guide.md`) had already been reconciled to "Synthesis Maintainer" by hand before this pass; nothing else in the manifest names the persona or its files.
+**Notes:** The working tree held uncommitted changes when scanned — the commit above is the last one, and the rename was among the uncommitted work. The reverted-decision search and changed-code intersection were not run; the pass was scoped to one rename by the requesting agent. Outside this manifest and therefore not corrected here: `personas/ledger-support/README.md` lists the persona's display name as "Synthesis Maintainer" where its `meta` YAML and every sibling row give the full `name` (`Ledger Synthesis Maintainer`) — routed to Documentation (Standalone).
+
 ### 2026-09-02 · Update · Curator v1.4.1
 
 **Scope:** All 14 discrepancies from the 2026-09-02 audit — `README.md`, `tech-stack.md`, `api-surface.md`, `file-tree.md`, `constraints-build-system.md`, `variables.md`. `data-flows.md`, `constraints.md`, and `constraints-cross-system.md` needed no changes (audit found none).

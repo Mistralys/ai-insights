@@ -257,8 +257,10 @@ CTX-enabled projects keep their context documentation in sync through the **{{ag
 
 {{#if target_vscode}}
 Invoke `runSubagent` with `agentName`: `"{{agent_ctx_architect}}"`, `description`: `"Update CTX context documentation"`, `prompt`: the path to the `context.yaml` and a summary of which manifest sections were created or updated.
+{{else if target_claude_code}}
+Use the `Task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"`. Pass: the path to the `context.yaml` and a summary of which manifest sections were created or updated.
 {{else}}
-Use the `Task` tool with `description: "{{agent_ctx_architect}}"`. Pass: the path to the `context.yaml` and a summary of which manifest sections were created or updated.
+Use the `task` tool with `subagent_type: "{{agent_slug_ctx_architect}}"`. Pass as `description`, which carries the whole task: the path to the `context.yaml` and a summary of which manifest sections were created or updated.
 {{/if}}
 
 Expected output: an updated CTX configuration and regenerated context documents reflecting the manifest changes. Review the returned artefacts for completeness before proceeding.

@@ -64,15 +64,18 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
 ## Output Format
 
-1. **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) summarizing:
-    * **Executive Summary:** What was built.
+1. **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) covering the sections below. Write each one as a `###` heading with the exact wording given, so every project's synthesis carries the same sections:
+    * **Outcome Summary:** What was built. This is the document's own copy of the summary you pass to `ledger_complete_synthesis` below.
     * **Metrics:** Tests passed, coverage, clean code scores.
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
     * **Code Insights:** Observations recorded via `ledger_add_observation` during each pipeline, grouped by agent. Omit this section if no observations were recorded.
     * **Deferred & Follow-Up Items:** Items explicitly deferred, marked out-of-scope, or flagged for follow-up during the project. For each item list: source (WP ID or project-level), originating agent, description, and priority/rationale if stated. Mark items clearly as either **deferred** (intentionally postponed) or **out-of-scope** (beyond this plan's boundaries). The Planner uses this section to seed the next cycle's plan.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
-2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call. You must supply the **`outcome_summary`** parameter — a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. This value is persisted to both `project-ledger.json` and the `.meta.json` enrichment cache, and is echoed back in the response for confirmation.
+2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call. You must supply the **`outcome_summary`** parameter. This value is persisted to both `project-ledger.json` and the `.meta.json` enrichment cache, and is echoed back in the response for confirmation. It must be:
+
+<!-- Partial include at column 0: the template engine does not propagate surrounding indentation into partial content. -->
+{{> outcome-summary-crafting-guide}}
 
 ---
 
@@ -95,13 +98,13 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
      `cwd_path` for live MCP reads and `project_storage_path` to locate
      `synthesis.md` on disk.
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent
-   "{{agent_ledger_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
+   Use the `Task` tool with `subagent_type:
+   "{{agent_slug_ledger_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
    root) and `project_storage_path` (= `plan_path` from pre-flight).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_knowledge_archiver}}"`
-   - `task`: Pass `cwd_path` (workspace root) and `project_storage_path`
+   - `description`: Pass `cwd_path` (workspace root) and `project_storage_path`
      (= `plan_path` from pre-flight). The Knowledge Archiver uses
      `cwd_path` for live MCP reads and `project_storage_path` to locate
      `synthesis.md` on disk.
@@ -116,7 +119,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
    Expected output: An extraction report summarizing insights committed to the
    knowledge base. Review it before proceeding to Step 9.
-9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and `outcome_summary` set to a 2–3 sentence summary of what was accomplished, the approach taken, and any notable results or limitations. This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
+9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and the `outcome_summary` you wrote for the report's `### Outcome Summary` section (see **Output Format**). This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
 10. **AX Feedback:** Before handing off, reflect on your session experience.
 
 {{> ax-feedback}}

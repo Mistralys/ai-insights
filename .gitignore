@@ -13,6 +13,7 @@
 /docs/agents/insights/
 /docs/agents/**/insights.jsonl
 
+/docs/training/
 /mcp-server/dist/
 /personas/node_modules/
 /build/

@@ -1,8 +1,11 @@
 /**
  * scripts/lib/cc-tools-validation.js
  *
- * Validates that any persona declaring a `subagents` list also includes
- * `Task` in its effective Claude Code tool list.
+ * Validates that any persona that dispatches under Claude Code also includes
+ * `Task` in its effective Claude Code tool list. A persona dispatches when it
+ * declares a `subagents` list, or when its content file includes the
+ * `handoff-block-claude-code` partial (the ledger auto-handoff, which invokes
+ * `Task` to start the successor agent).
  *
  * Rationale: Claude Code dispatches sub-agents via the `Task` tool. A persona
  * whose YAML lists subagents but lacks `Task` in `cc_tools` (or in `tools`
@@ -18,11 +21,19 @@
  * shared default itself lacks Task. In practice every suite's _shared.yaml
  * already includes Task, so an error is only raised when a persona-level
  * explicit list (cc_tools or tools) overrides that default and omits Task.
+ *
+ * The handoff-partial trigger matters because a per-persona `cc_tools`
+ * override replaces `default_cc_tools` entirely: an override added for an
+ * unrelated grant silently drops `Task`, and the persona's auto-handoffs then
+ * cannot fire under Claude Code.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { extractYamlSequence } from './yaml-utils.js';
+
+/** Matches an include of the Claude Code auto-handoff partial. */
+const HANDOFF_PARTIAL_RE = /\{\{>\s*handoff-block-claude-code\s*\}\}/;
 
 /**
  * Validate a single persona YAML for the cc_tools / subagents invariant.
@@ -31,11 +42,20 @@ import { extractYamlSequence } from './yaml-utils.js';
  * @param {string} filename        - filename for error messages
  * @param {string[]} sharedDefault - default_cc_tools from the suite's _shared.yaml
  *                                   (pass [] when absent)
+ * @param {string} [contentText]   - raw content Markdown of the persona, used to
+ *                                   detect the Claude Code handoff partial
+ *                                   (pass '' or omit when unavailable)
  * @returns {string[]} array of error strings (empty = valid)
  */
-export function validateCcTools(yamlText, filename, sharedDefault = []) {
-  const subagents = extractYamlSequence(yamlText, 'subagents');
-  if (!subagents || subagents.length === 0) return [];
+export function validateCcTools(yamlText, filename, sharedDefault = [], contentText = '') {
+  const subagents  = extractYamlSequence(yamlText, 'subagents') ?? [];
+  const hasHandoff = HANDOFF_PARTIAL_RE.test(contentText);
+  if (subagents.length === 0 && !hasHandoff) return [];
+
+  const reasons = [];
+  if (subagents.length > 0) reasons.push(`declares ${subagents.length} subagent(s)`);
+  if (hasHandoff) reasons.push('includes the handoff-block-claude-code partial');
+  const why = reasons.join(' and ');
 
   // Determine the effective CC tool list.
   const ccTools = extractYamlSequence(yamlText, 'cc_tools');
@@ -63,21 +83,23 @@ export function validateCcTools(yamlText, filename, sharedDefault = []) {
   // since that is a suite-level misconfiguration rather than a per-persona one.
   if (!ccTools && !vsTools) {
     return [
-      `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from the ` +
+      `${filename}: ${why} but "Task" is missing from the ` +
       `suite's default_cc_tools in _shared.yaml. Add "Task" to default_cc_tools.`,
     ];
   }
 
   return [
-    `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from ${source}. ` +
-    `Add "Task" to the cc_tools list (create cc_tools if absent) so Claude Code can dispatch sub-agents.`,
+    `${filename}: ${why} but "Task" is missing from ${source}. ` +
+    `Add "Task" to the cc_tools list (create cc_tools if absent) so Claude Code can dispatch sub-agents and run the auto-handoff.`,
   ];
 }
 
 /**
  * Validate cc_tools / subagents consistency across all persona YAML files in
  * the given meta directories. Reads each suite's _shared.yaml to determine the
- * default_cc_tools fallback before evaluating individual personas.
+ * default_cc_tools fallback before evaluating individual personas. Each
+ * persona's content file is read from the sibling `content/` directory
+ * (same basename, `.md`) when it exists.
  *
  * @param {string[]} metaDirs - absolute paths to suite meta directories
  * @returns {string[]} array of error strings (empty = all valid)
@@ -99,8 +121,10 @@ export function validateCcToolsInDirs(metaDirs) {
     );
 
     for (const yamlFile of yamlFiles) {
-      const text = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
-      errors.push(...validateCcTools(text, yamlFile, sharedDefault));
+      const text        = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
+      const contentPath = path.join(metaDir, '..', 'content', yamlFile.replace(/\.yaml$/, '.md'));
+      const content     = fs.existsSync(contentPath) ? fs.readFileSync(contentPath, 'utf8') : '';
+      errors.push(...validateCcTools(text, yamlFile, sharedDefault, content));
     }
   }
 

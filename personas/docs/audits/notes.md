@@ -144,7 +144,9 @@ Configurator narrows stage chains per WP, so most carry fewer, and a pipeline th
 not a gap. **A coverage table listing what *can* exist reads as a checklist of what *must*
 exist unless it says otherwise.**
 
-### Ledger Standalone Archiver — First Audit (2026-08-28)
+### Ledger Synthesis Maintainer — First Audit (2026-08-28)
+
+> Audited under its former name, Ledger Standalone Archiver (slug `standalone-archiver`); renamed 2026-09-23.
 
 Sixteen findings, eight Major, none Critical. The fifth support persona audited in a day, and the
 first whose defects cluster in **Outputs** rather than in inputs or judgment.

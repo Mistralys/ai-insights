@@ -10,7 +10,7 @@ import { StoreNotRegisteredError } from '../storage/store-router.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
 import { inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { parseOutcomeSummary } from '../utils/synthesis-parser.js';
-import { planFolderBasename } from '../utils/path-validator.js';
+import { planFolderBasename, validateSlugSafety } from '../utils/path-validator.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 
@@ -30,7 +30,9 @@ export const ImportStandaloneSchema = z.object({
       'Absolute path to the standalone plan folder to import (e.g. ' +
       '"/repo/docs/agents/plans/2026-06-30-my-feature"). ' +
       'The folder must follow the {YYYY-MM-DD}-{name} naming convention and contain ' +
-      'plan.md and synthesis.md. Takes precedence over cwd_path when both are supplied.'
+      'plan.md and synthesis.md. The {name} portion must be all-lowercase (letters, digits, ' +
+      'hyphens only) — an uppercase segment (e.g. "MS01") is rejected, since the GUI can list ' +
+      'but never open such a slug. Takes precedence over cwd_path when both are supplied.'
     ),
   cwd_path: z
     .string()
@@ -38,7 +40,8 @@ export const ImportStandaloneSchema = z.object({
     .describe(
       'Absolute path to the standalone plan folder. Used as a fallback when ' +
       'project_path is not provided. Must point to the plan folder itself (not a ' +
-      'parent directory) and must satisfy the {YYYY-MM-DD}-{name} naming convention.'
+      'parent directory) and must satisfy the {YYYY-MM-DD}-{name} naming convention, with an ' +
+      'all-lowercase {name} portion.'
     ),
   project_summary: z
     .string()
@@ -49,6 +52,17 @@ export const ImportStandaloneSchema = z.object({
       'Optional curated 2–3 sentence plain-text summary of the project. When provided, ' +
       'stored as project_summary in the root index and .meta.json, powering the GUI synopsis. ' +
       'Read the plan\'s ## Summary section and craft a concise summary before calling this tool.'
+    ),
+  outcome_summary: z
+    .string()
+    .trim()
+    .min(10)
+    .optional()
+    .describe(
+      'Optional curated 2–3 sentence plain-text summary of what was accomplished, the ' +
+      'approach taken, and any notable results or limitations. Stored as outcome_summary in ' +
+      'the root index and .meta.json. When omitted, the server falls back to parsing the ' +
+      'Outcome Summary section of synthesis.md.'
     ),
   title: z
     .string()
@@ -67,7 +81,7 @@ const UpdateSynthesisSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Absolute path to the standalone plan folder whose synthesis should be updated ' +
+      'Absolute path to the plan folder whose synthesis should be updated ' +
       '(e.g. "/repo/docs/agents/plans/2026-06-30-my-feature"). ' +
       'The project must already exist in the ledger. Takes precedence over cwd_path when both are supplied.'
     ),
@@ -75,9 +89,21 @@ const UpdateSynthesisSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Absolute path to the standalone plan folder. Used as a fallback when ' +
+      'Absolute path to the plan folder. Used as a fallback when ' +
       'project_path is not provided. Must point to the plan folder itself (not a ' +
       'parent directory).'
+    ),
+  outcome_summary: z
+    .string()
+    .trim()
+    .min(10)
+    .optional()
+    .describe(
+      'Optional curated 2–3 sentence plain-text summary of what was accomplished, the ' +
+      'approach taken, and any notable results or limitations. Stored as outcome_summary in ' +
+      'the root index and .meta.json. When omitted, the server falls back to parsing the ' +
+      'Outcome Summary section of synthesis.md, and then to the summary already stored — ' +
+      'a refresh never clears a summary it cannot replace.'
     ),
 });
 
@@ -146,6 +172,13 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
       content: [{ type: 'text' as const, text: `Error: ${(error as Error).message}` }],
       isError: true,
     };
+  }
+
+  // Reject slugs the GUI can list but never open (see validateSlugSafety() JSDoc).
+  // Creation-time-only check — this handler only runs for first-time imports.
+  const slugSafety = validateSlugSafety(slug);
+  if (!slugSafety.isValid) {
+    return { content: [{ type: 'text' as const, text: slugSafety.error }], isError: true };
   }
 
   // Check plan.md exists.
@@ -242,7 +275,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
-  // Read synthesis.md and parse outcome summary.
+  // Read synthesis.md; the outcome summary is parsed from it unless the caller supplied one.
   let synthesisContent: string;
   try {
     synthesisContent = await readFile(synthesisFilePath, 'utf-8');
@@ -258,7 +291,7 @@ async function importStandalone(args: z.infer<typeof ImportStandaloneSchema>) {
     };
   }
 
-  const outcomeSummary = parseOutcomeSummary(synthesisContent);
+  const outcomeSummary = args.outcome_summary ?? parseOutcomeSummary(synthesisContent);
 
   // Derive dateCreated from plan.md's filesystem birthtime/mtime — more accurate
   // than the midnight-UTC slug date because it reflects when the Standalone Developer
@@ -352,7 +385,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     };
   }
 
-  // Read root index for pre-lock guard checks (status, runner, staleness).
+  // Read root index for pre-lock guard checks (status, staleness).
   // This is intentionally read twice: once here for cheap fast-fail rejection without holding
   // the lock, and again inside the withLock scope for TOCTOU safety. This mirrors the
   // completeSynthesis pattern in project-lifecycle.ts.
@@ -378,19 +411,6 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
         {
           type: 'text' as const,
           text: `Update failed: project "${slug}" status is "${rootIndexPreLock.status}" — only COMPLETE projects can have their synthesis updated.`,
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  // Guard: project must be a standalone runner.
-  if (rootIndexPreLock.runner !== 'standalone') {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `Update failed: project "${slug}" runner is "${rootIndexPreLock.runner ?? 'unknown'}" — only standalone projects support this tool.`,
         },
       ],
       isError: true,
@@ -448,7 +468,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     };
   }
 
-  const outcomeSummary = parseOutcomeSummary(synthesisContent);
+  const suppliedOrParsedSummary = args.outcome_summary ?? parseOutcomeSummary(synthesisContent);
 
   // Read-modify-write under lock (TOCTOU safety).
   let result:
@@ -459,6 +479,13 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
     await withLock(store.storageDir, async () => {
       // Re-read inside lock for TOCTOU safety.
       const rootIndex = await store.readRootIndex();
+
+      // Resolution order: supplied argument, then a parseable section, then the value
+      // already stored. The third term exists so a refresh never clears a summary it
+      // cannot replace — a synthesis document written with a heading this parser does
+      // not recognise used to overwrite a good summary with null. It is the last
+      // resort, never a veto: a supplied or parsed value always wins over it.
+      const outcomeSummary = suppliedOrParsedSummary ?? rootIndex.outcome_summary ?? null;
 
       rootIndex.outcome_summary = outcomeSummary;
       rootIndex.last_updated = now();
@@ -517,7 +544,7 @@ async function updateSynthesis(args: z.infer<typeof UpdateSynthesisSchema>) {
 /**
  * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
  */
-export const _internal = { importStandalone, updateSynthesis };
+export const _internal = { importStandalone, updateSynthesis, UpdateSynthesisSchema };
 
 // ─── Registration ─────────────────────────────────────────────────────────
 
@@ -528,7 +555,8 @@ export function register(server: McpServer): void {
       description:
         'Imports a completed standalone developer plan execution into the project ledger. ' +
         'Validates that plan.md and synthesis.md exist in the plan folder, rejects duplicate slugs, ' +
-        'extracts the outcome summary from synthesis.md, and creates a COMPLETE project record ' +
+        'takes the outcome summary from the outcome_summary parameter (falling back to the ' +
+        'Outcome Summary section of synthesis.md when omitted), and creates a COMPLETE project record ' +
         '(status: COMPLETE, synthesis_generated: true, runner: standalone). ' +
         'REQUIRED: either project_path or cwd_path (plan folder path). ' +
         'The folder must follow the {YYYY-MM-DD}-{name} naming convention.',
@@ -541,11 +569,14 @@ export function register(server: McpServer): void {
     'ledger_update_synthesis',
     {
       description:
-        'Updates the outcome summary and archived synthesis.md for an already-imported standalone project. ' +
-        'Re-reads synthesis.md from the original plan folder, re-extracts the outcome summary, ' +
+        'Updates the outcome summary and archived synthesis.md for a COMPLETE project tracked by the ledger, ' +
+        'regardless of runner (standalone, claude-code, or orchestrator). ' +
+        'Re-reads synthesis.md from the original plan folder, takes the outcome summary from the ' +
+        'outcome_summary parameter (falling back to parsing the document, then to the stored ' +
+        'value — a refresh never clears a summary it cannot replace), ' +
         'overwrites the archived copy in storage, and syncs outcome_summary in the root index and .meta.json. ' +
         'Use this when synthesis.md has been edited after archival (e.g. marking deferred items as done). ' +
-        'Guards: project must exist in ledger, status must be COMPLETE, runner must be standalone, ' +
+        'Guards: project must exist in ledger, status must be COMPLETE, ' +
         'and the project must have been imported within the last 90 days. ' +
         'REQUIRED: either project_path or cwd_path (plan folder path).',
       inputSchema: UpdateSynthesisSchema,

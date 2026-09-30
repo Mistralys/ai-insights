@@ -1,5 +1,32 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.11.0 - Agent-Supplied Outcome Summaries
+
+**Agents can now supply the project outcome summary themselves.** The server only parses one out
+of the synthesis document when none is supplied, so existing callers and batch imports keep
+working. A synthesis refresh no longer wipes a good summary it cannot re-derive.
+
+- Tools: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
+- Tools: A supplied summary wins over the parsed one; omitting it behaves as before.
+- Fixed: Synthesis refresh no longer clears a stored summary it cannot replace.
+- GUI: Saving persona model assignments now names every unknown persona.
+- GUI: Obsolete persona assignments show a banner with an option to remove them.
+- Docs: Tool help and manifest describe the new summary handling.
+
+## v2.10.1 - Synthesis Updates for Every Runner
+
+`ledger_update_synthesis` no longer requires the `standalone` runner — any COMPLETE project
+tracked by the ledger (standalone, claude-code, or orchestrator) can now have its outcome
+summary and archived synthesis.md refreshed after synthesis.md is edited post-archival. The
+90-day staleness guard and all other guards are unchanged, and the update path still never
+writes the project's `runner` field.
+
+- Tools: Removed the standalone-only runner guard from `ledger_update_synthesis`.
+- Docs: Updated the tool description and help text to describe the runner-agnostic behavior.
+- Docs: `ledger_update_synthesis` parameter descriptions no longer call the target a standalone plan folder — these are the hints an agent sees at call time. `ledger_import_standalone`'s own descriptions still say standalone, which remains correct.
+- Tests: Replaced the runner-rejection test with coverage proving a non-standalone project
+  updates successfully and its `runner` value is left untouched.
+
 ## v2.10.0 - Active Duration Tracking & Numeric Input Tolerance
 
 Project duration now reflects actual active work instead of wall-clock time, and several

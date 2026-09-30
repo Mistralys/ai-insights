@@ -14,6 +14,7 @@ import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { validateCcToolsInDirs } from './lib/cc-tools-validation.js';
+import { validateSubagentReferences, resolvePersonaTargets } from './lib/subagent-reference-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
 import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
 
@@ -488,7 +489,43 @@ if (!CHECK) {
   const errors = validateCcToolsInDirs(suiteMetas);
 
   if (errors.length > 0) {
-    console.error('\n[ERROR] cc_tools / subagents validation failed:\n');
+    console.error('\n[ERROR] cc_tools / dispatch validation failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+
+// Always: per-persona targets and rendered sub-agent references.
+// Renders every persona in memory through the library's own build() (check
+// mode, no writes) — the only reliable view of the output: generated files are
+// gitignored and the CLI's --check does not compare against disk.
+//   1. Real builds only: a persona whose YAML lists `targets` gets the output
+//      for every other target deleted, so it is never deployed there.
+//   2. Always: validates that each rendered dispatch names every declared
+//      sub-agent by the identifier its target platform matches, and selects
+//      no undeclared agent. Fails hard: a wrong identifier makes the platform
+//      start a different agent, or none, without an error.
+{
+  const { build } = _require(path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'index.cjs'));
+  const config    = _require(CONFIG);
+  const summary   = await build({ ...config, check: true });
+
+  if (!CHECK) {
+    for (const r of summary.results) {
+      const { targets } = resolvePersonaTargets(fs.readFileSync(r.personaYamlPath, 'utf8'));
+      if (!targets.includes(r.target) && fs.existsSync(r.outputPath)) {
+        fs.unlinkSync(r.outputPath);
+        console.log(`Pruned ${path.relative(ROOT, r.outputPath)} (target "${r.target}" not in the persona's \`targets\`).`);
+      }
+    }
+  }
+
+  const errors = validateSubagentReferences(summary.results);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] rendered sub-agent reference validation failed:\n');
     for (const err of errors) {
       console.error('  ' + err);
     }

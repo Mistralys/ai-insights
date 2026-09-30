@@ -9,6 +9,11 @@
  * - `planFolderBasename()` — validates the `{YYYY-MM-DD}-{name}` plan-folder
  *   naming convention and returns the folder basename; throws on mismatch.
  * - `validatePlanPath()` — non-throwing wrapper around `planFolderBasename()`.
+ * - `validateSlugSafety()` — non-throwing check that a plan-folder basename also
+ *   satisfies `SAFE_SLUG_REGEX` (all-lowercase). Call at project **creation/import**
+ *   boundaries only (`ledger_initialize_project`, `ledger_import_standalone`) —
+ *   never at read/update call sites, since existing on-disk projects created
+ *   before this check existed may not satisfy it and must remain readable.
  *
  * Project-path resolution (`resolveProjectPath`, `formatCandidateList`) lives in
  * `project-resolver.ts`, which owns the `LedgerStore` dependency.
@@ -88,5 +93,42 @@ export function validatePlanPath(projectPath: string): { isValid: boolean; error
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Validates that a plan-folder basename satisfies {@link SAFE_SLUG_REGEX} — the
+ * same all-lowercase, alphanumeric-and-hyphens rule the GUI enforces on every
+ * `/api/projects/:repo/:slug` route via `assertSafeSlug()`.
+ *
+ * `planFolderBasename()` / `validatePlanPath()` only check the `{YYYY-MM-DD}-`
+ * date prefix — a folder like `2026-09-22-MS01-my-feature` passes that check
+ * and gets written into the ledger, then fails every GUI detail-page load with
+ * "Invalid repo or slug parameter." (`assertSafeSlug()` rejects the uppercase
+ * segment). This check closes that gap at the door, before the mismatched slug
+ * is ever persisted.
+ *
+ * Call this **only** at project creation/import boundaries (`ledger_initialize_project`,
+ * `ledger_import_standalone`) — see the module-level note on `validateSlugSafety`
+ * for why read/update call sites must not adopt it.
+ *
+ * @param folderName - The plan-folder basename (typically the return value of
+ *   {@link planFolderBasename}).
+ */
+export function validateSlugSafety(folderName: string): { isValid: boolean; error?: string } {
+  if (assertSafeSegment(folderName)) {
+    return { isValid: true };
+  }
+  return {
+    isValid: false,
+    error:
+      `Invalid plan folder name: "${folderName}".\n\n` +
+      `Ledger storage requires an all-lowercase slug — letters, digits, and hyphens only, ` +
+      `starting with a letter or digit (at most ${MAX_SEGMENT_LENGTH} characters). This is the ` +
+      `same rule the GUI enforces on every project URL; a slug that fails it loads fine in the ` +
+      `project list but fails with "Invalid repo or slug parameter." the moment it's opened.\n\n` +
+      `Rename the plan folder to an all-lowercase equivalent, e.g.:\n` +
+      `  "${folderName}" -> "${folderName.toLowerCase()}"\n\n` +
+      `Then retry with the corrected path.`,
+  };
 }
 

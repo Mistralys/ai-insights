@@ -7,6 +7,7 @@
 ## Plan Audit Cycles
 - Audits: none — {{agent_plan_auditor}}
 - Architectural Reviews: none — {{agent_plan_architect_reviewer}}
+{Initialize both counters to `none`. Once passes have run, each line reads `{TOTAL} ({LABEL} ×{N}, …)` — e.g. `4 (Sonnet 4.6 ×2, GPT-5.6 ×2)`. Never more than these two lines.}
 {{/if}}
 {{#if has_mcp}}
 
@@ -71,6 +72,13 @@
 
 ## Out of Scope
 - {What this plan intentionally ignores}
+
+## Human Actions
+{Optional — omit the section entirely when the plan needs none. Every action only a person can perform: an account created, a credential issued, a service enabled, an approval given. Each one is a prerequisite the user completes before the run starts or a follow-up after it ends — never an entry in Detailed Steps, which agents execute unattended.}
+
+| # | Action | When | Why an agent cannot do it |
+|---|--------|------|---------------------------|
+| 1 | {What the user does} | {Exactly `Before the run` or `After the run` — a timing such as "before step N merges" places the action inside the run} | {The access, credential, or decision the agent does not hold} |
 
 ## Acceptance Criteria
 

@@ -11,14 +11,15 @@
 
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.5
-**Last Updated:** 2026-09-08
+**Version:** 3.6
+**Last Updated:** 2026-09-29
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.6 - 2026-09-29: Added "Platform Dispatch Arguments" to Pattern 9. Each platform's dispatch tool selects the sub-agent through a different argument, `description` is a label on some platforms and the whole task on another, and Claude Code silently starts a generic agent when the selector is missing. The delegation templates now name the selector instead of assuming one platform. Added two design rules (name the selector; pass inputs, never an identity), a checklist item and the "Dispatch by label" pitfall.
 - v3.5 - 2026-09-08: Added "The Reduction Pass" — an audit's unit is the individual statement and its remedy is almost always an addition, so auditing is monotonic and cannot find bloat, which is a property of the set rather than of any member; the pass asks what each statement buys given a competent reader, cuts multipliers before content, and treats the enforcement triple as a budget. Added the related checklist item and pitfall.
 - v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet.
 - v3.3 - 2026-08-27: Added "Verifying Rendered Output" — where a build system assembles the persona, the rendered document is read end to end after every change, since partials and variables hide duplication, wrong substitutions and tone breaks that only the assembled document reveals; added the related checklist item and pitfall.
@@ -69,6 +70,7 @@ Read the gloss column when you arrive with the wrong word. Someone asking "how l
 | **Phase Homogeneity** | One cognitive job per workflow phase. | [Pattern 14](#pattern-14-task-separation) |
 | **Philosophy vs. Constraint Litmus Test** | Which of the two sections a given principle belongs in. | [2. Operating Philosophy](#2-operating-philosophy) |
 | **Placeholder Syntax** | `{SCREAMING_SNAKE}` for slots, `{Sentence case}` for instructions, never `<angle brackets>`. | [Placeholder Syntax](#placeholder-syntax) |
+| **Platform Dispatch Arguments** | Which argument selects the sub-agent on each platform, and what happens without it. | [Pattern 9](#platform-dispatch-arguments) |
 | **Professional Metaphor** | The senior professional role that frames every persona. | [Pattern 1](#pattern-1-the-professional-metaphor) |
 | **Prose Density** | Overloaded explanatory prose, and the pass that removes it. | [Prose Density](#prose-density) |
 | **Pseudo Action Gate** | A duty gated on an agent-judged boundary instead of something observable. | [Pattern 15](#pattern-15-trigger-anchoring) |
@@ -708,11 +710,13 @@ When a persona needs to invoke specialized sub-agents to complete part of its wo
 
 ```markdown
 5. **Delegate {TASK_NAME}:**
-   Use `runSubagent` with the `@{SUB_AGENT_NAME}` agent.
+   Use `{DISPATCH_TOOL}` with `{AGENT_SELECTOR}`: `"{SUB_AGENT_IDENTIFIER}"`.
    Pass: {exact inputs to provide}.
    Expected output: {what the sub-agent should return}.
    Review the returned output for accuracy and completeness before proceeding.
 ```
+
+The tool, the selector argument and the identifier format differ by platform. See [Platform Dispatch Arguments](#platform-dispatch-arguments) for the values.
 
 **Design Rules:**
 
@@ -721,8 +725,30 @@ When a persona needs to invoke specialized sub-agents to complete part of its wo
 - **Include a validation step.** The orchestrating persona always reviews sub-agent output before using it.
 - **One sub-agent per step.** Each delegation is its own numbered workflow step, not a sub-bullet.
 - **Guard with a condition when optional.** "If the project has a `context.yaml`… skip this step if not."
+- **Name the agent-selector argument.** Write the argument that picks the agent, with its value. "Dispatch the Changelog Writer" or a name placed in a label field leaves the choice to the model, and on some platforms the call still succeeds with the wrong agent.
+- **Pass inputs, never an identity.** A sub-agent with its own persona already knows its role. A prompt opening "You are the {ROLE} agent…" restates that persona in one sentence and competes with it. The prompt carries the data the sub-agent cannot find by itself, and nothing else.
 
 This pattern preserves single-responsibility: the orchestrating persona manages coordination, not execution.
+
+#### Platform Dispatch Arguments
+
+Each agent platform exposes its own dispatch tool. The table records how each one selects the sub-agent, where the task goes, and what happens when the selector is missing.
+
+| Platform | Dispatch tool | Selects the agent | Value it matches | Carries the task | Short label | Selector omitted |
+|---|---|---|---|---|---|---|
+| **VS Code (GitHub Copilot)** | `runSubagent`, from the `agent` tool set | `agentName` | The sub-agent's frontmatter `name`, exact and case-sensitive | `prompt` | `description` | Not documented. Do not rely on a default |
+| **Claude Code** | `Agent`. `Task` is still accepted as an alias | `subagent_type` | The sub-agent's frontmatter `name`. Plugin agents use `{PLUGIN}:{NAME}` | `prompt` | `description` | **Silently starts `general-purpose`**, a generic agent with none of the sub-agent's persona |
+| **LangChain Deep Agents** | `task` | `subagent_type`, required | The `name` of a sub-agent registered with the parent agent | `description` | None | The call is rejected. An unknown name returns an error listing the allowed types |
+
+Three differences cause most dispatch defects:
+
+- **`description` means opposite things.** In VS Code and Claude Code it is a label of a few words. In Deep Agents it is the whole task. A persona built for several platforms therefore writes its argument list once per platform. A single shared sentence sends the task to the label field on one platform, or the label to the task field on another.
+- **Claude Code fails without an error.** A call without `subagent_type` succeeds whenever the built-in `general-purpose` agent is available, which it is by default. The generic agent it starts has no persona, so it often rebuilds the missing instructions itself and briefs a successor with an over-long prompt. The defect therefore shows up one step later, as a role preamble and a restated workflow in a prompt nobody wrote on purpose.
+- **Permission to dispatch is declared separately.** In VS Code, the parent's `agents` frontmatter lists which agents it may call; `['*']` allows all and `[]` allows none. In Claude Code, the dispatching agent needs `Agent` (or `Task`) in its `tools` list, and sub-agents can nest up to three layers below the main conversation by default. In Deep Agents, the sub-agents are the ones registered when the parent agent is built. A persona that describes a dispatch but lacks this permission cannot perform it.
+
+A persona deployed as a plain system prompt, with no dispatch tool, names the sub-agent in prose and states the inputs to hand over.
+
+These platform details were checked against each platform's documentation and source in September 2026. Platforms rename tools: Claude Code renamed `Task` to `Agent` in v2.1.63. Re-check the table when a platform releases a new major version.
 
 ### Pattern 10: Named Evaluation Criteria
 
@@ -927,6 +953,7 @@ Before shipping a new persona, verify:
 - [ ] **Worked example is provided** if the output involves non-obvious data transformation.
 - [ ] **Self-validation checklist is included** if the persona's output has no downstream agent to catch errors.
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
+- [ ] **Every dispatch names its platform's agent-selector argument,** one argument list per platform where the persona builds for several. No dispatch places the agent's name in a label field, and no dispatch prompt tells the sub-agent who it is. (See Platform Dispatch Arguments.)
 - [ ] **Workflow respects task separation.** Research/gathering steps are separate from production/writing steps. No step combines fact-finding with deliverable production. (See Pattern 14.)
 - [ ] **Every duty is trigger-anchored.** Each duty is foreground, action-gated, or checkpoint-slotted. Any continuous side-channel duty has *both* a forcing function and an incremental capture sink. (See Patterns 6 and 15.)
 - [ ] **Every gate names an observable action.** No duty is gated on an agent-defined boundary ("after each chunk", "when you have enough"). Each names something that visibly happens: a file edited, a test run, a document saved. (See Pattern 15.)
@@ -1109,7 +1136,7 @@ Before submitting, verify:
 
 1. **{STEP}:** {Action.}
 2. **{STEP}:** {Action.}
-3. **Delegate {TASK}:** Use `runSubagent` with `@{AGENT}`. Pass: {inputs}. Expected: {output}.
+3. **Delegate {TASK}:** Use `{DISPATCH_TOOL}` with `{AGENT_SELECTOR}`: `"{AGENT}"`. Pass: {inputs}. Expected: {output}.
 4. **{STEP}:** {Action.}
 5. **Handoff:** End the response with:
    ```
@@ -1352,4 +1379,5 @@ design_notes: |
 | **Redundant `---` separators** | Horizontal rules between headed sections add no structural value | Remove `---` separators; headings are sufficient section boundaries |
 | **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
 | **Overloaded prose** | Sections read as authoritative but a maintainer cannot scan them, and abstractly-phrased duties never fire because no sentence names anything the agent is about to do | Run a dedicated density pass after drafting: one idea per sentence, a named actor in the subject slot, no back-references, plain words over register words (see Prose Density) |
+| **Dispatch by label** | A sub-agent runs as a generic agent, or its prompt grows a role preamble ("You are the {ROLE} agent…") and a restated workflow that no persona asked for | Name the platform's agent-selector argument in every dispatch, with one argument list per platform (see Platform Dispatch Arguments) |
 | **Audit-driven accretion** | Every rule is individually defensible, no audit reports a defect, and the owner can no longer review the persona. Successive versions added and removed nothing | Run a reduction pass, which asks what each statement buys rather than whether it is correct. Cut modes before features, features before rules, rules before wording (see The Reduction Pass) |
