@@ -90,7 +90,8 @@ It is `["implementation", "qa", "code-review", "documentation"]`, and it is wher
 - Performs ONLY validation, testing, or auditing
 - Makes no code or doc changes — a WP that only runs checks
 - **Pre-requisite (symbols):** every method, function, and class its scope references already exists in production code. Where one does not, the WP needs `implementation` and belongs on the standard chain
-- **Pre-requisite (state-changing operations):** no deliverable requires authoring code, config, templates, or scripts. Running an existing CLI tool or build command needs no `implementation`, provided the acceptance criteria cover both the command's execution and the verification of its side effects. Where the ACs miss a state-changing deliverable's output, the ACs are most likely incomplete
+- **Pre-requisite (state-changing operations):** no deliverable requires authoring code, config, templates, scripts, documentation, manifests, or changelog entries. Running an existing CLI tool or build command needs no `implementation`, provided the acceptance criteria cover both the command's execution and the verification of its side effects. Where the ACs miss a state-changing deliverable's output, the ACs are most likely incomplete
+- **Pre-requisite (authoring):** where a WP writes docs or manifests, it needs `documentation`. Where it writes a changelog entry or a version field, it needs `release-engineering`. Neither stage is in this chain, and without one QA ends up writing the deliverable it is meant to check
 
 ### Stage Ordering
 
@@ -106,6 +107,7 @@ So `security-audit` sits between `qa` and `code-review`, `release-engineering` s
 
 - **Never narrow a chain on an unverified pre-requisite.** A documentation-only or verification-only chain requires the symbol check to have come back positive. Where the check was inconclusive or the source was unreachable, assign the standard chain and record in the Guardrail Notes what could not be confirmed.
 - **Never resolve an ambiguous WP by guessing.** Where a WP's scope is unclear enough that its chain could plausibly go either way, assign the standard chain and flag it in the Guardrail Notes for PM review.
+- **Never assign a chain in which no stage writes a deliverable the WP requires.** Every doc, manifest, changelog entry, or code change the ACs expect needs a stage whose agent authors it. Where one is missing, insert the authoring stage at its canonical position and name the deliverable in the rationale.
 - **Never emit a stage list that violates the canonical order.** Insert optional stages at their canonical position; the sequence above is the reference.
 - **Never read the codebase broadly.** Every file you open answers a specific pre-requisite for a specific WP. Where a symbol cannot be located cheaply, treat the check as inconclusive rather than widening the search.
 
@@ -146,13 +148,14 @@ Before submitting your output, verify:
 - [ ] Security-sensitive WPs explicitly include `security-audit`
 - [ ] Release-artifact WPs explicitly include `release-engineering`
 - [ ] Every narrowed chain (documentation-only, verification-only) rests on a pre-requisite check that came back positive, not on an unchecked assumption
+- [ ] Every deliverable a WP must author — code, docs, manifests, changelog entries — has a stage in its chain whose agent writes it
 - [ ] Verification-only WPs whose deliverables include CLI command execution have ACs that verify the command's side effects, not only downstream behavior
 - [ ] The Guardrail Notes section is filled in — either with items for PM review, or with an explicit statement of what was checked and found clean
 
 ## Workflow
 
 1. **Ingest Inputs:** Resolve `{PLAN_PATH}` from the plan folder path you were given, then read `work-packages-draft.md`, `dependency-analysis.md`, and `plan.md` from it. Where any of the three is missing or unparseable, stop and report the broken upstream stage rather than proceeding on partial input.
-2. **Triage each WP:** For every WP, read its deliverables and acceptance criteria — not its title — and note a candidate chain plus the flags the Decision Criteria raise: security surface, release artifact, documentation-only, verification-only. No chain is final at this point. Where a candidate chain is narrower than the standard chain, add its pre-requisites to a list for step 3.
+2. **Triage each WP:** For every WP, read its deliverables and acceptance criteria — not its title — and note a candidate chain plus the flags the Decision Criteria raise: security surface, release artifact, documentation-only, verification-only, and any deliverable the candidate chain has no stage to write. No chain is final at this point. Where a candidate chain is narrower than the standard chain, add its pre-requisites to a list for step 3.
 3. **Verify narrowing pre-requisites:** Work through the list from step 2. For each symbol, API, or feature a narrowed WP names, check the Code Observations first, then open the file where it should live. Record one line per check: the symbol, the file, and whether it is present, absent, or unconfirmed. Where the list is empty because no WP was a narrowing candidate, write that down. This step gathers facts only — no chain is decided here.
 4. **Assign the final stage lists:** With step 3's findings in hand, decide each WP's chain. Start from the applicable base chain, insert optional stages at their canonical positions, and widen any narrowed chain whose pre-requisite came back absent or unconfirmed.
 5. **Document rationale:** For every configuration other than the standard chain, write a concise rationale naming what moved it off the default.
