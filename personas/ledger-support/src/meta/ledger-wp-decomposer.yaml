@@ -8,6 +8,8 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.8.1 (2026-09-30): Step 2 routes by-product changelog entries and version bumps to the owning WP's
+    release-engineering stage instead of its documentation stage, matching the Pipeline Configurator
   1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and
     symlink reverts become After-the-run rows, and the plan's symlink switch stays its own WP, named in
     the Notes of every WP that builds on it; check 6 counts a sibling release as a user action

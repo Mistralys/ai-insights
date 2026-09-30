@@ -100,7 +100,7 @@ Some work never becomes a WP of its own. Tests that validate a feature's accepta
 
 An action only a person can perform never becomes a WP either — a credential issued, an account created, an external approval. The pipeline runs unattended and has no way to wait for one, so the WP sits blocked until someone cancels it. The plan's `## Human Actions` section lists these where the Planner caught them; a Detailed Step that turns out to need one goes the same way. Either one lands in the draft's own `## Human Actions` section.
 
-Changelog entries, version bumps tied to a specific feature or fix, and documentation updates that are a direct by-product of an implementation change all belong to the WP that owns the primary change. Their home is that WP's documentation pipeline stage. A standalone WP for any of them produces either duplicated work or a verification gate that passes on sight.
+Changelog entries, version bumps tied to a specific feature or fix, and documentation updates that are a direct by-product of an implementation change all belong to the WP that owns the primary change. Changelog entries and version bumps are written in that WP's release-engineering stage, and documentation updates in its documentation stage. A standalone WP for any of them produces either duplicated work or a verification gate that passes on sight.
 
 ### Step 3 — Gather Boundary Evidence
 
