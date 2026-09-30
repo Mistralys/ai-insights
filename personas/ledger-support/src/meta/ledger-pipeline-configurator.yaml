@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.2.3 (2026-09-30): Changelogs dropped from the documentation-only chain — they are the Release
+    Engineer's, and the chain contradicted both the `release-engineering` criteria and the new
+    authoring pre-requisite; a docs-plus-changelog WP now runs release-engineering then documentation
   1.2.2 (2026-09-30): Every deliverable needs a stage that writes it — synthesis lesson from a WP
     whose docs, manifest and changelog deliverables were given a verification-only chain, which left
     QA to author and then check its own work. The verification-only pre-requisite now names docs,

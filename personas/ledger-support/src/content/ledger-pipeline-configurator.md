@@ -82,7 +82,8 @@ It is `["implementation", "qa", "code-review", "documentation"]`, and it is wher
 - Is a final-stage deliverable that triggers a release
 
 ### The documentation-only chain `["documentation"]` fits a WP that:
-- Makes ONLY documentation changes (README, manifests, API docs, changelogs)
+- Makes ONLY documentation changes (README, manifests, API docs)
+- Writes no changelog entry or version field. Those belong to `release-engineering`, so a WP that adds one alongside its docs runs `["release-engineering", "documentation"]`
 - Does not touch code, templates, or config files
 - **Pre-requisite:** every symbol, API, or feature it documents already exists in production code. Where one does not, the WP needs `implementation` and belongs on the standard chain
 
