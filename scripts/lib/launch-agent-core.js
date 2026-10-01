@@ -25,7 +25,7 @@ const MAX_VISIBLE_ROWS = 15;
 
 // Non-list overhead rendered by renderPickerLines(): the query line, the
 // instructions line, one blank line, the pinned-block divider (drawn
-// whenever both a session entry and at least one agent entry are present),
+// whenever both a pinned (session/toggle) entry and an agent entry are present),
 // and the trailing "…and N more" line that appears whenever the list is
 // truncated. Reserving room for all five up front (rather than only when
 // actually rendered) keeps the row budget stable across redraws, which
@@ -89,19 +89,52 @@ export function discoverAgents(agentsDir) {
 }
 
 /**
+ * Splits CLI args into `ai-insights agent` own args and passthrough args for
+ * `claude` (everything after a bare `--`), and extracts `--filter <term>`.
+ *
+ * @param {string[]} argv
+ * @returns {{filter: string, ownArgs: string[], passthroughArgs: string[]}}
+ */
+export function parseLaunchArgs(argv) {
+  const separatorIndex = argv.indexOf('--');
+  const ownArgs = separatorIndex !== -1 ? argv.slice(0, separatorIndex) : argv;
+  const passthroughArgs = separatorIndex !== -1 ? argv.slice(separatorIndex + 1) : [];
+
+  let filter = '';
+  const filterIndex = ownArgs.indexOf('--filter');
+  if (filterIndex !== -1 && ownArgs[filterIndex + 1] !== undefined) {
+    filter = ownArgs[filterIndex + 1];
+  }
+
+  return { filter, ownArgs, passthroughArgs };
+}
+
+/**
  * Composes the discovered agents into the launch-entry list the picker
  * actually renders: the pinned {@link SESSION_LAUNCH_ENTRIES} first, then
- * every discovered agent (in the order given) widened with `kind: 'agent'`
+ * one pinned toggle row per toggle definition, then every discovered agent (in the order given) widened with `kind: 'agent'`
  * and `claudeArgs: ['--agent', id]`. Each entry carries the argv it wants
  * handed to `claude`, so the spawn site in scripts/launch-agent.js reads
  * `claudeArgs` off the selection instead of switching on `kind`.
  *
+ * Toggle rows carry `claudeArgs: []`; their effect on argv is produced by the
+ * `LaunchToggles` model, not by the entry.
+ *
  * @param {Array<{id: string, label: string, description: string, file: string}>} agents
- * @returns {Array<{id: string, label: string, description: string, kind: ('session'|'agent'), claudeArgs: string[], file?: string}>}
+ * @param {ReadonlyArray<{id: string, label: string, description: string}>} [toggleDefs]
+ * @returns {Array<{id: string, label: string, description: string, kind: ('session'|'toggle'|'agent'), claudeArgs: string[], toggleId?: string, file?: string}>}
  */
-export function buildLaunchEntries(agents) {
+export function buildLaunchEntries(agents, toggleDefs = []) {
   return [
     ...SESSION_LAUNCH_ENTRIES,
+    ...toggleDefs.map((def) => ({
+      id: `toggle:${def.id}`,
+      label: def.label,
+      description: def.description,
+      kind: 'toggle',
+      toggleId: def.id,
+      claudeArgs: [],
+    })),
     ...agents.map((agent) => ({ ...agent, kind: 'agent', claudeArgs: ['--agent', agent.id] })),
   ];
 }
@@ -222,9 +255,9 @@ function exitAltScreen() {
 
 /**
  * Renders the picker's full frame as an array of lines: the filter/query
- * row, the instructions row, a blank line, the pinned session row(s), a dim
- * divider (only when both kinds are present in the full `filtered` list),
- * the agent rows, and — when the list is truncated — a trailing
+ * row, the instructions row, a blank line, the pinned rows (session and
+ * toggle), a dim divider (only when both pinned and agent rows are present in
+ * the full `filtered` list), the agent rows, and — when the list is truncated — a trailing
  * "…and N more" row. Pure: no raw-mode or `process.stdout` I/O of its own.
  *
  * Whether the divider renders is decided from the full `filtered` array,
@@ -238,16 +271,24 @@ function exitAltScreen() {
  * @param {{query: string, cursor: number}} state
  * @param {Array<{kind?: string, label: string}>} filtered
  * @param {number} [maxVisibleRows]
+ * @param {import('./launch-toggles.js').LaunchToggles|null} [toggles] - Supplies
+ *   toggle ON/OFF state and the instructions-line warning; `null` renders
+ *   every toggle row as OFF with no warning.
  * @returns {string[]}
  */
-export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS) {
+export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS, toggles = null) {
   const lines = [];
   lines.push(C.bold('  Filter agents:') + ' ' + state.query);
-  lines.push(C.dim('  Type to filter · ↑/↓ navigate · Enter launch · Esc/Ctrl+C cancel'));
+  let instructions = C.dim('  Type to filter · ↑/↓ navigate · Enter launch/toggle · Esc/Ctrl+C cancel');
+  const warnings = toggles ? toggles.activeWarnings() : [];
+  if (warnings.length > 0) {
+    instructions += C.yellow(' · ⚠ ' + warnings.join(', ') + ' ON');
+  }
+  lines.push(instructions);
   lines.push('');
 
-  const hasBothKinds =
-    filtered.some((entry) => entry.kind === 'session') && filtered.some((entry) => entry.kind === 'agent');
+  const isPinned = (entry) => entry.kind !== 'agent';
+  const hasPinnedAndAgents = filtered.some(isPinned) && filtered.some((entry) => !isPinned(entry));
   const visible = filtered.slice(0, maxVisibleRows);
 
   if (visible.length === 0) {
@@ -255,17 +296,22 @@ export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_
   } else {
     let dividerDrawn = false;
     visible.forEach((entry, i) => {
-      if (hasBothKinds && !dividerDrawn && entry.kind === 'agent') {
+      if (hasPinnedAndAgents && !dividerDrawn && !isPinned(entry)) {
         lines.push(C.dim('  ─────────────'));
         dividerDrawn = true;
       }
       const isActive = i === state.cursor;
       const pointer = isActive ? C.cyan('▶') : ' ';
-      const label = isActive ? C.bold(entry.label) : entry.label;
+      let text = entry.label;
+      if (entry.kind === 'toggle') {
+        const on = toggles ? toggles.isOn(entry.toggleId) : false;
+        text += on ? ': ' + C.yellow('ON') : ': ' + C.dim('OFF');
+      }
+      const label = isActive ? C.bold(text) : text;
       lines.push(`  ${pointer} ${label}`);
     });
-    if (hasBothKinds && !dividerDrawn && visible.some((entry) => entry.kind === 'session')) {
-      // Every visible row is a session row (a very short terminal folded
+    if (hasPinnedAndAgents && !dividerDrawn && visible.some(isPinned)) {
+      // Every visible row is a pinned row (a very short terminal folded
       // every agent row into "… and N more") — the divider still belongs
       // above that trailing line so the pinned block stays visually set
       // apart even though no agent row made it into the slice.
@@ -291,10 +337,15 @@ export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_
  * of its pure `cursor: 0` result whenever the query changed.
  *
  * @param {Array<{id: string, label: string, description: string, kind: string, claudeArgs: string[]}>} entries
+ * Enter on a `kind: 'toggle'` row flips that toggle on `toggles` and redraws
+ * without resolving (query and cursor are kept); with no `toggles` model it is
+ * a no-op redraw.
+ *
  * @param {string} [initialQuery]
+ * @param {import('./launch-toggles.js').LaunchToggles|null} [toggles]
  * @returns {Promise<object|null>}
  */
-export function runInteractivePicker(entries, initialQuery = '') {
+export function runInteractivePicker(entries, initialQuery = '', toggles = null) {
   return new Promise((resolve) => {
     let state = { query: initialQuery, cursor: firstAgentIndex(filterEntries(entries, initialQuery)) };
     let filtered = filterEntries(entries, state.query);
@@ -307,7 +358,7 @@ export function runInteractivePicker(entries, initialQuery = '') {
     // below; see its docstring for why clearScreen() alone wasn't enough.
     const draw = () => {
       clearScreen();
-      const lines = renderPickerLines(state, filtered, getVisibleRowBudget());
+      const lines = renderPickerLines(state, filtered, getVisibleRowBudget(), toggles);
       process.stdout.write(lines.join('\n') + '\n');
     };
 
@@ -343,7 +394,13 @@ export function runInteractivePicker(entries, initialQuery = '') {
       }
 
       if (action === 'select') {
-        cleanup(filtered[state.cursor] || null);
+        const selected = filtered[state.cursor] || null;
+        if (selected && selected.kind === 'toggle') {
+          toggles?.toggle(selected.toggleId);
+          draw();
+          return;
+        }
+        cleanup(selected);
         return;
       }
       if (action === 'cancel') {
@@ -366,13 +423,17 @@ export function runInteractivePicker(entries, initialQuery = '') {
  *
  * @param {Array<{id: string, label: string, description: string}>} entries
  * @param {string} [initialQuery]
- * @param {{readlineFactory?: Function}} [opts] - `readlineFactory` defaults
- *   to `readline.createInterface`; overridable for tests with a stub
- *   `{ question(prompt, cb), close() }`-shaped object.
+ * Selecting a toggle row's number flips the toggle and re-prompts instead of
+ * resolving.
+ *
+ * @param {{readlineFactory?: Function, toggles?: import('./launch-toggles.js').LaunchToggles|null}} [opts]
+ *   `readlineFactory` defaults to `readline.createInterface`; overridable for
+ *   tests with a stub `{ question(prompt, cb), close() }`-shaped object.
+ *   `toggles` is the shared toggle model (optional).
  * @returns {Promise<object|null>}
  */
 export async function runNonInteractivePicker(entries, initialQuery = '', opts = {}) {
-  const { readlineFactory = readline.createInterface } = opts;
+  const { readlineFactory = readline.createInterface, toggles = null } = opts;
   let query = initialQuery || '';
   let filtered = filterEntries(entries, query);
 
@@ -387,8 +448,13 @@ export async function runNonInteractivePicker(entries, initialQuery = '', opts =
         console.log('  No matching agents.');
       } else {
         filtered.forEach((entry, i) => {
-          console.log(`  [${i + 1}] ${entry.label}`);
+          const stateText = entry.kind === 'toggle' ? `: ${toggles?.isOn(entry.toggleId) ? 'ON' : 'OFF'}` : '';
+          console.log(`  [${i + 1}] ${entry.label}${stateText}`);
         });
+      }
+      const warnings = toggles ? toggles.activeWarnings() : [];
+      if (warnings.length > 0) {
+        console.log(`  ⚠ ${warnings.join(', ')} ON`);
       }
 
       const rl = readlineFactory({ input: process.stdin, output: process.stdout });
@@ -400,7 +466,12 @@ export async function runNonInteractivePicker(entries, initialQuery = '', opts =
 
       const num = Number(trimmed);
       if (Number.isInteger(num) && num >= 1 && num <= filtered.length) {
-        return filtered[num - 1];
+        const picked = filtered[num - 1];
+        if (picked.kind === 'toggle') {
+          toggles?.toggle(picked.toggleId);
+          continue;
+        }
+        return picked;
       }
 
       query = trimmed;

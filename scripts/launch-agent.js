@@ -25,13 +25,16 @@
  * scripts/lib/launch-agent-core.js), not a bare agent id: alongside every
  * discovered persona, the list carries a pinned "Resume a previous
  * session" entry that launches `claude --resume` instead of
- * `claude --agent <id>`. Each entry carries its own `claudeArgs`, so the
- * spawn() call below reads argv straight off the selection rather than
- * switching on what kind of entry it is.
+ * `claude --agent <id>`, and pinned toggle rows (see
+ * scripts/lib/launch-toggles.js) that flip in place on Enter instead of
+ * launching. Each entry carries its own `claudeArgs`, and toggle state
+ * contributes its flags via toggles.toClaudeArgs(), so the spawn() call
+ * below never switches on what kind of entry it is.
  *
  * Usage:
  *   node scripts/launch-agent.js
  *   node scripts/launch-agent.js --filter <term>
+ *   node scripts/launch-agent.js --skip-permissions
  *   node scripts/launch-agent.js -- --some-claude-flag
  */
 
@@ -39,25 +42,22 @@ import { spawn } from 'child_process';
 import { isRawModeSupported } from '@mistralys/cli-menu';
 import { getClaudeCodeAgentsDir } from './publish-locations.js';
 import { isClaudeCliAvailable } from './lib/claude-cli.js';
-import { discoverAgents, buildLaunchEntries, runInteractivePicker, runNonInteractivePicker } from './lib/launch-agent-core.js';
+import {
+  discoverAgents,
+  buildLaunchEntries,
+  parseLaunchArgs,
+  runInteractivePicker,
+  runNonInteractivePicker,
+} from './lib/launch-agent-core.js';
+import { LaunchToggles, LAUNCH_TOGGLES } from './lib/launch-toggles.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 
-function parseArgs(argv) {
-  const separatorIndex = argv.indexOf('--');
-  const ownArgs = separatorIndex !== -1 ? argv.slice(0, separatorIndex) : argv;
-  const passthroughArgs = separatorIndex !== -1 ? argv.slice(separatorIndex + 1) : [];
-
-  let filter = '';
-  const filterIndex = ownArgs.indexOf('--filter');
-  if (filterIndex !== -1 && ownArgs[filterIndex + 1] !== undefined) {
-    filter = ownArgs[filterIndex + 1];
-  }
-
-  return { filter, passthroughArgs };
-}
-
 async function main() {
-  const { filter, passthroughArgs } = parseArgs(process.argv.slice(2));
+  const { filter, ownArgs, passthroughArgs: rawPassthrough } = parseLaunchArgs(process.argv.slice(2));
+  // Single owner of toggle state for this invocation; the pickers mutate it
+  // in place, so it persists across loop-backs. Absorbs a passthrough
+  // --dangerously-skip-permissions so the flag is never emitted twice.
+  const { toggles, passthroughArgs } = LaunchToggles.fromArgs(ownArgs, rawPassthrough);
 
   const agentsDir = getClaudeCodeAgentsDir();
   const agents = discoverAgents(agentsDir);
@@ -76,7 +76,7 @@ async function main() {
     return;
   }
 
-  const entries = buildLaunchEntries(agents);
+  const entries = buildLaunchEntries(agents, LAUNCH_TOGGLES);
 
   // First pass honors --filter (if given); the picker is re-shown with no
   // pre-filter on every subsequent loop iteration.
@@ -88,8 +88,8 @@ async function main() {
     // claude session's output on a loop-back), so the picker always opens
     // against a clean screen.
     const selected = isRawModeSupported()
-      ? await runInteractivePicker(entries, pickerFilter)
-      : await runNonInteractivePicker(entries, pickerFilter);
+      ? await runInteractivePicker(entries, pickerFilter, toggles)
+      : await runNonInteractivePicker(entries, pickerFilter, { toggles });
     pickerFilter = '';
 
     if (!selected) {
@@ -99,7 +99,7 @@ async function main() {
     }
 
     await new Promise((resolve) => {
-      const child = spawn('claude', [...selected.claudeArgs, ...passthroughArgs], {
+      const child = spawn('claude', [...selected.claudeArgs, ...toggles.toClaudeArgs(), ...passthroughArgs], {
         stdio: 'inherit',
         cwd: getOriginalCwd(),
       });
