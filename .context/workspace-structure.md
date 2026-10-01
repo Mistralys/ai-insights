@@ -505,7 +505,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-wp-decomposer.md
     │   ├── deep-agents/
     │   │   ├── ledger-bootstrapper.md
-    │   │   ├── ledger-claude-coordinator.md
     │   │   ├── ledger-dependency-sequencer.md
     │   │   ├── ledger-doctor.md
     │   │   ├── ledger-knowledge-archiver.md
@@ -517,7 +516,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ledger-wp-decomposer.md
     │   ├── vs-code/
     │   │   └── ledger-bootstrapper.agent.md
-    │   │   └── ledger-claude-coordinator.agent.md
     │   │   └── ledger-dependency-sequencer.agent.md
     │   │   └── ledger-doctor.agent.md
     │   │   └── ledger-knowledge-archiver.agent.md
@@ -591,6 +589,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── insight-scope-and-types.md
     │   │   └── knowledge-ownership.md
     │   │   └── mcp-insight-capture.md
+    │   │   └── no-release-cycles.md
     │   │   └── no-stale-counts.md
     │   │   └── outcome-summary-crafting-guide.md
     │   │   └── planner-core-rules.md
@@ -707,12 +706,14 @@ _SOURCE: Top-level directory tree_
     │   ├── health-checks.js
     │   ├── insight-validation.js
     │   ├── launch-agent-core.js
+    │   ├── launch-toggles.js
     │   ├── ledger-dirs.js
     │   ├── npm-link.js
     │   ├── original-cwd.js
     │   ├── persona-model-resolution.js
     │   ├── philosophy-tone.js
     │   ├── store-commands.js
+    │   ├── subagent-reference-validation.js
     │   ├── yaml-utils.js
     ├── migrate-knowledge-uuids.js
     ├── normalize-ctx-paths.js
@@ -733,6 +734,7 @@ _SOURCE: Top-level directory tree_
     │   ├── README.md
     │   ├── backfill-duration.test.js
     │   ├── build-personas-model-resolution.test.js
+    │   ├── cc-tools-validation.test.js
     │   ├── changelog-size-check.test.js
     │   ├── claude-cli.test.js
     │   ├── cli-cmd-agent.test.js
@@ -743,12 +745,14 @@ _SOURCE: Top-level directory tree_
     │   ├── insight-validation.test.js
     │   ├── install-mcp.test.js
     │   ├── launch-agent.test.js
+    │   ├── launch-toggles.test.js
     │   ├── ledger-plugin.test.js
     │   ├── npm-link.test.js
     │   ├── original-cwd.test.js
     │   ├── philosophy-tone.test.js
     │   ├── publish-skills.test.js
     │   ├── store-commands.test.js
+    │   ├── subagent-reference-validation.test.js
     │   ├── yaml-utils.test.js
     ├── validate-workflow-manifest.js
 └── shared/

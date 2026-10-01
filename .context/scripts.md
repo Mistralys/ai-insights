@@ -34,12 +34,14 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
         ├── health-checks.js
         ├── insight-validation.js
         ├── launch-agent-core.js
+        ├── launch-toggles.js
         ├── ledger-dirs.js
         ├── npm-link.js
         ├── original-cwd.js
         ├── persona-model-resolution.js
         ├── philosophy-tone.js
         ├── store-commands.js
+        ├── subagent-reference-validation.js
         ├── yaml-utils.js
     └── migrate-knowledge-uuids.js
     └── normalize-ctx-paths.js
@@ -350,6 +352,7 @@ import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.
 import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { validateCcToolsInDirs } from './lib/cc-tools-validation.js';
+import { validateSubagentReferences, resolvePersonaTargets } from './lib/subagent-reference-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
 import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
 
@@ -824,7 +827,43 @@ if (!CHECK) {
   const errors = validateCcToolsInDirs(suiteMetas);
 
   if (errors.length > 0) {
-    console.error('\n[ERROR] cc_tools / subagents validation failed:\n');
+    console.error('\n[ERROR] cc_tools / dispatch validation failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+
+// Always: per-persona targets and rendered sub-agent references.
+// Renders every persona in memory through the library's own build() (check
+// mode, no writes) — the only reliable view of the output: generated files are
+// gitignored and the CLI's --check does not compare against disk.
+//   1. Real builds only: a persona whose YAML lists `targets` gets the output
+//      for every other target deleted, so it is never deployed there.
+//   2. Always: validates that each rendered dispatch names every declared
+//      sub-agent by the identifier its target platform matches, and selects
+//      no undeclared agent. Fails hard: a wrong identifier makes the platform
+//      start a different agent, or none, without an error.
+{
+  const { build } = _require(path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'index.cjs'));
+  const config    = _require(CONFIG);
+  const summary   = await build({ ...config, check: true });
+
+  if (!CHECK) {
+    for (const r of summary.results) {
+      const { targets } = resolvePersonaTargets(fs.readFileSync(r.personaYamlPath, 'utf8'));
+      if (!targets.includes(r.target) && fs.existsSync(r.outputPath)) {
+        fs.unlinkSync(r.outputPath);
+        console.log(`Pruned ${path.relative(ROOT, r.outputPath)} (target "${r.target}" not in the persona's \`targets\`).`);
+      }
+    }
+  }
+
+  const errors = validateSubagentReferences(summary.results);
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] rendered sub-agent reference validation failed:\n');
     for (const err of errors) {
       console.error('  ' + err);
     }
@@ -2410,9 +2449,10 @@ const COMMANDS = [
     key:          'a',
     label:        'Launch an agent',
     category:     'Personas',
-    description:  'Launch a persona with Claude Code, or resume a session',
+    description:  'Launch a persona with Claude Code, or resume a session (permission toggle)',
     helpVariants: [
       ['agent --filter <term>', 'Pre-fill the filter query'],
+      ['agent --skip-permissions', 'Start with permission prompts skipped'],
     ],
     run:          cmdAgent,
   },
@@ -5164,13 +5204,16 @@ main().catch((err) => {
  * scripts/lib/launch-agent-core.js), not a bare agent id: alongside every
  * discovered persona, the list carries a pinned "Resume a previous
  * session" entry that launches `claude --resume` instead of
- * `claude --agent <id>`. Each entry carries its own `claudeArgs`, so the
- * spawn() call below reads argv straight off the selection rather than
- * switching on what kind of entry it is.
+ * `claude --agent <id>`, and pinned toggle rows (see
+ * scripts/lib/launch-toggles.js) that flip in place on Enter instead of
+ * launching. Each entry carries its own `claudeArgs`, and toggle state
+ * contributes its flags via toggles.toClaudeArgs(), so the spawn() call
+ * below never switches on what kind of entry it is.
  *
  * Usage:
  *   node scripts/launch-agent.js
  *   node scripts/launch-agent.js --filter <term>
+ *   node scripts/launch-agent.js --skip-permissions
  *   node scripts/launch-agent.js -- --some-claude-flag
  */
 
@@ -5178,25 +5221,22 @@ import { spawn } from 'child_process';
 import { isRawModeSupported } from '@mistralys/cli-menu';
 import { getClaudeCodeAgentsDir } from './publish-locations.js';
 import { isClaudeCliAvailable } from './lib/claude-cli.js';
-import { discoverAgents, buildLaunchEntries, runInteractivePicker, runNonInteractivePicker } from './lib/launch-agent-core.js';
+import {
+  discoverAgents,
+  buildLaunchEntries,
+  parseLaunchArgs,
+  runInteractivePicker,
+  runNonInteractivePicker,
+} from './lib/launch-agent-core.js';
+import { LaunchToggles, LAUNCH_TOGGLES } from './lib/launch-toggles.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 
-function parseArgs(argv) {
-  const separatorIndex = argv.indexOf('--');
-  const ownArgs = separatorIndex !== -1 ? argv.slice(0, separatorIndex) : argv;
-  const passthroughArgs = separatorIndex !== -1 ? argv.slice(separatorIndex + 1) : [];
-
-  let filter = '';
-  const filterIndex = ownArgs.indexOf('--filter');
-  if (filterIndex !== -1 && ownArgs[filterIndex + 1] !== undefined) {
-    filter = ownArgs[filterIndex + 1];
-  }
-
-  return { filter, passthroughArgs };
-}
-
 async function main() {
-  const { filter, passthroughArgs } = parseArgs(process.argv.slice(2));
+  const { filter, ownArgs, passthroughArgs: rawPassthrough } = parseLaunchArgs(process.argv.slice(2));
+  // Single owner of toggle state for this invocation; the pickers mutate it
+  // in place, so it persists across loop-backs. Absorbs a passthrough
+  // --dangerously-skip-permissions so the flag is never emitted twice.
+  const { toggles, passthroughArgs } = LaunchToggles.fromArgs(ownArgs, rawPassthrough);
 
   const agentsDir = getClaudeCodeAgentsDir();
   const agents = discoverAgents(agentsDir);
@@ -5215,7 +5255,7 @@ async function main() {
     return;
   }
 
-  const entries = buildLaunchEntries(agents);
+  const entries = buildLaunchEntries(agents, LAUNCH_TOGGLES);
 
   // First pass honors --filter (if given); the picker is re-shown with no
   // pre-filter on every subsequent loop iteration.
@@ -5227,8 +5267,8 @@ async function main() {
     // claude session's output on a loop-back), so the picker always opens
     // against a clean screen.
     const selected = isRawModeSupported()
-      ? await runInteractivePicker(entries, pickerFilter)
-      : await runNonInteractivePicker(entries, pickerFilter);
+      ? await runInteractivePicker(entries, pickerFilter, toggles)
+      : await runNonInteractivePicker(entries, pickerFilter, { toggles });
     pickerFilter = '';
 
     if (!selected) {
@@ -5238,7 +5278,7 @@ async function main() {
     }
 
     await new Promise((resolve) => {
-      const child = spawn('claude', [...selected.claudeArgs, ...passthroughArgs], {
+      const child = spawn('claude', [...selected.claudeArgs, ...toggles.toClaudeArgs(), ...passthroughArgs], {
         stdio: 'inherit',
         cwd: getOriginalCwd(),
       });
@@ -5264,8 +5304,11 @@ main();
 /**
  * scripts/lib/cc-tools-validation.js
  *
- * Validates that any persona declaring a `subagents` list also includes
- * `Task` in its effective Claude Code tool list.
+ * Validates that any persona that dispatches under Claude Code also includes
+ * `Task` in its effective Claude Code tool list. A persona dispatches when it
+ * declares a `subagents` list, or when its content file includes the
+ * `handoff-block-claude-code` partial (the ledger auto-handoff, which invokes
+ * `Task` to start the successor agent).
  *
  * Rationale: Claude Code dispatches sub-agents via the `Task` tool. A persona
  * whose YAML lists subagents but lacks `Task` in `cc_tools` (or in `tools`
@@ -5281,11 +5324,19 @@ main();
  * shared default itself lacks Task. In practice every suite's _shared.yaml
  * already includes Task, so an error is only raised when a persona-level
  * explicit list (cc_tools or tools) overrides that default and omits Task.
+ *
+ * The handoff-partial trigger matters because a per-persona `cc_tools`
+ * override replaces `default_cc_tools` entirely: an override added for an
+ * unrelated grant silently drops `Task`, and the persona's auto-handoffs then
+ * cannot fire under Claude Code.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { extractYamlSequence } from './yaml-utils.js';
+
+/** Matches an include of the Claude Code auto-handoff partial. */
+const HANDOFF_PARTIAL_RE = /\{\{>\s*handoff-block-claude-code\s*\}\}/;
 
 /**
  * Validate a single persona YAML for the cc_tools / subagents invariant.
@@ -5294,11 +5345,20 @@ import { extractYamlSequence } from './yaml-utils.js';
  * @param {string} filename        - filename for error messages
  * @param {string[]} sharedDefault - default_cc_tools from the suite's _shared.yaml
  *                                   (pass [] when absent)
+ * @param {string} [contentText]   - raw content Markdown of the persona, used to
+ *                                   detect the Claude Code handoff partial
+ *                                   (pass '' or omit when unavailable)
  * @returns {string[]} array of error strings (empty = valid)
  */
-export function validateCcTools(yamlText, filename, sharedDefault = []) {
-  const subagents = extractYamlSequence(yamlText, 'subagents');
-  if (!subagents || subagents.length === 0) return [];
+export function validateCcTools(yamlText, filename, sharedDefault = [], contentText = '') {
+  const subagents  = extractYamlSequence(yamlText, 'subagents') ?? [];
+  const hasHandoff = HANDOFF_PARTIAL_RE.test(contentText);
+  if (subagents.length === 0 && !hasHandoff) return [];
+
+  const reasons = [];
+  if (subagents.length > 0) reasons.push(`declares ${subagents.length} subagent(s)`);
+  if (hasHandoff) reasons.push('includes the handoff-block-claude-code partial');
+  const why = reasons.join(' and ');
 
   // Determine the effective CC tool list.
   const ccTools = extractYamlSequence(yamlText, 'cc_tools');
@@ -5326,21 +5386,23 @@ export function validateCcTools(yamlText, filename, sharedDefault = []) {
   // since that is a suite-level misconfiguration rather than a per-persona one.
   if (!ccTools && !vsTools) {
     return [
-      `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from the ` +
+      `${filename}: ${why} but "Task" is missing from the ` +
       `suite's default_cc_tools in _shared.yaml. Add "Task" to default_cc_tools.`,
     ];
   }
 
   return [
-    `${filename}: declares ${subagents.length} subagent(s) but "Task" is missing from ${source}. ` +
-    `Add "Task" to the cc_tools list (create cc_tools if absent) so Claude Code can dispatch sub-agents.`,
+    `${filename}: ${why} but "Task" is missing from ${source}. ` +
+    `Add "Task" to the cc_tools list (create cc_tools if absent) so Claude Code can dispatch sub-agents and run the auto-handoff.`,
   ];
 }
 
 /**
  * Validate cc_tools / subagents consistency across all persona YAML files in
  * the given meta directories. Reads each suite's _shared.yaml to determine the
- * default_cc_tools fallback before evaluating individual personas.
+ * default_cc_tools fallback before evaluating individual personas. Each
+ * persona's content file is read from the sibling `content/` directory
+ * (same basename, `.md`) when it exists.
  *
  * @param {string[]} metaDirs - absolute paths to suite meta directories
  * @returns {string[]} array of error strings (empty = all valid)
@@ -5362,8 +5424,10 @@ export function validateCcToolsInDirs(metaDirs) {
     );
 
     for (const yamlFile of yamlFiles) {
-      const text = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
-      errors.push(...validateCcTools(text, yamlFile, sharedDefault));
+      const text        = fs.readFileSync(path.join(metaDir, yamlFile), 'utf8');
+      const contentPath = path.join(metaDir, '..', 'content', yamlFile.replace(/\.yaml$/, '.md'));
+      const content     = fs.existsSync(contentPath) ? fs.readFileSync(contentPath, 'utf8') : '';
+      errors.push(...validateCcTools(text, yamlFile, sharedDefault, content));
     }
   }
 
@@ -6083,7 +6147,7 @@ const MAX_VISIBLE_ROWS = 15;
 
 // Non-list overhead rendered by renderPickerLines(): the query line, the
 // instructions line, one blank line, the pinned-block divider (drawn
-// whenever both a session entry and at least one agent entry are present),
+// whenever both a pinned (session/toggle) entry and an agent entry are present),
 // and the trailing "…and N more" line that appears whenever the list is
 // truncated. Reserving room for all five up front (rather than only when
 // actually rendered) keeps the row budget stable across redraws, which
@@ -6147,19 +6211,52 @@ export function discoverAgents(agentsDir) {
 }
 
 /**
+ * Splits CLI args into `ai-insights agent` own args and passthrough args for
+ * `claude` (everything after a bare `--`), and extracts `--filter <term>`.
+ *
+ * @param {string[]} argv
+ * @returns {{filter: string, ownArgs: string[], passthroughArgs: string[]}}
+ */
+export function parseLaunchArgs(argv) {
+  const separatorIndex = argv.indexOf('--');
+  const ownArgs = separatorIndex !== -1 ? argv.slice(0, separatorIndex) : argv;
+  const passthroughArgs = separatorIndex !== -1 ? argv.slice(separatorIndex + 1) : [];
+
+  let filter = '';
+  const filterIndex = ownArgs.indexOf('--filter');
+  if (filterIndex !== -1 && ownArgs[filterIndex + 1] !== undefined) {
+    filter = ownArgs[filterIndex + 1];
+  }
+
+  return { filter, ownArgs, passthroughArgs };
+}
+
+/**
  * Composes the discovered agents into the launch-entry list the picker
  * actually renders: the pinned {@link SESSION_LAUNCH_ENTRIES} first, then
- * every discovered agent (in the order given) widened with `kind: 'agent'`
+ * one pinned toggle row per toggle definition, then every discovered agent (in the order given) widened with `kind: 'agent'`
  * and `claudeArgs: ['--agent', id]`. Each entry carries the argv it wants
  * handed to `claude`, so the spawn site in scripts/launch-agent.js reads
  * `claudeArgs` off the selection instead of switching on `kind`.
  *
+ * Toggle rows carry `claudeArgs: []`; their effect on argv is produced by the
+ * `LaunchToggles` model, not by the entry.
+ *
  * @param {Array<{id: string, label: string, description: string, file: string}>} agents
- * @returns {Array<{id: string, label: string, description: string, kind: ('session'|'agent'), claudeArgs: string[], file?: string}>}
+ * @param {ReadonlyArray<{id: string, label: string, description: string}>} [toggleDefs]
+ * @returns {Array<{id: string, label: string, description: string, kind: ('session'|'toggle'|'agent'), claudeArgs: string[], toggleId?: string, file?: string}>}
  */
-export function buildLaunchEntries(agents) {
+export function buildLaunchEntries(agents, toggleDefs = []) {
   return [
     ...SESSION_LAUNCH_ENTRIES,
+    ...toggleDefs.map((def) => ({
+      id: `toggle:${def.id}`,
+      label: def.label,
+      description: def.description,
+      kind: 'toggle',
+      toggleId: def.id,
+      claudeArgs: [],
+    })),
     ...agents.map((agent) => ({ ...agent, kind: 'agent', claudeArgs: ['--agent', agent.id] })),
   ];
 }
@@ -6280,9 +6377,9 @@ function exitAltScreen() {
 
 /**
  * Renders the picker's full frame as an array of lines: the filter/query
- * row, the instructions row, a blank line, the pinned session row(s), a dim
- * divider (only when both kinds are present in the full `filtered` list),
- * the agent rows, and — when the list is truncated — a trailing
+ * row, the instructions row, a blank line, the pinned rows (session and
+ * toggle), a dim divider (only when both pinned and agent rows are present in
+ * the full `filtered` list), the agent rows, and — when the list is truncated — a trailing
  * "…and N more" row. Pure: no raw-mode or `process.stdout` I/O of its own.
  *
  * Whether the divider renders is decided from the full `filtered` array,
@@ -6296,16 +6393,24 @@ function exitAltScreen() {
  * @param {{query: string, cursor: number}} state
  * @param {Array<{kind?: string, label: string}>} filtered
  * @param {number} [maxVisibleRows]
+ * @param {import('./launch-toggles.js').LaunchToggles|null} [toggles] - Supplies
+ *   toggle ON/OFF state and the instructions-line warning; `null` renders
+ *   every toggle row as OFF with no warning.
  * @returns {string[]}
  */
-export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS) {
+export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_ROWS, toggles = null) {
   const lines = [];
   lines.push(C.bold('  Filter agents:') + ' ' + state.query);
-  lines.push(C.dim('  Type to filter · ↑/↓ navigate · Enter launch · Esc/Ctrl+C cancel'));
+  let instructions = C.dim('  Type to filter · ↑/↓ navigate · Enter launch/toggle · Esc/Ctrl+C cancel');
+  const warnings = toggles ? toggles.activeWarnings() : [];
+  if (warnings.length > 0) {
+    instructions += C.yellow(' · ⚠ ' + warnings.join(', ') + ' ON');
+  }
+  lines.push(instructions);
   lines.push('');
 
-  const hasBothKinds =
-    filtered.some((entry) => entry.kind === 'session') && filtered.some((entry) => entry.kind === 'agent');
+  const isPinned = (entry) => entry.kind !== 'agent';
+  const hasPinnedAndAgents = filtered.some(isPinned) && filtered.some((entry) => !isPinned(entry));
   const visible = filtered.slice(0, maxVisibleRows);
 
   if (visible.length === 0) {
@@ -6313,17 +6418,22 @@ export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_
   } else {
     let dividerDrawn = false;
     visible.forEach((entry, i) => {
-      if (hasBothKinds && !dividerDrawn && entry.kind === 'agent') {
+      if (hasPinnedAndAgents && !dividerDrawn && !isPinned(entry)) {
         lines.push(C.dim('  ─────────────'));
         dividerDrawn = true;
       }
       const isActive = i === state.cursor;
       const pointer = isActive ? C.cyan('▶') : ' ';
-      const label = isActive ? C.bold(entry.label) : entry.label;
+      let text = entry.label;
+      if (entry.kind === 'toggle') {
+        const on = toggles ? toggles.isOn(entry.toggleId) : false;
+        text += on ? ': ' + C.yellow('ON') : ': ' + C.dim('OFF');
+      }
+      const label = isActive ? C.bold(text) : text;
       lines.push(`  ${pointer} ${label}`);
     });
-    if (hasBothKinds && !dividerDrawn && visible.some((entry) => entry.kind === 'session')) {
-      // Every visible row is a session row (a very short terminal folded
+    if (hasPinnedAndAgents && !dividerDrawn && visible.some(isPinned)) {
+      // Every visible row is a pinned row (a very short terminal folded
       // every agent row into "… and N more") — the divider still belongs
       // above that trailing line so the pinned block stays visually set
       // apart even though no agent row made it into the slice.
@@ -6349,10 +6459,15 @@ export function renderPickerLines(state, filtered, maxVisibleRows = MAX_VISIBLE_
  * of its pure `cursor: 0` result whenever the query changed.
  *
  * @param {Array<{id: string, label: string, description: string, kind: string, claudeArgs: string[]}>} entries
+ * Enter on a `kind: 'toggle'` row flips that toggle on `toggles` and redraws
+ * without resolving (query and cursor are kept); with no `toggles` model it is
+ * a no-op redraw.
+ *
  * @param {string} [initialQuery]
+ * @param {import('./launch-toggles.js').LaunchToggles|null} [toggles]
  * @returns {Promise<object|null>}
  */
-export function runInteractivePicker(entries, initialQuery = '') {
+export function runInteractivePicker(entries, initialQuery = '', toggles = null) {
   return new Promise((resolve) => {
     let state = { query: initialQuery, cursor: firstAgentIndex(filterEntries(entries, initialQuery)) };
     let filtered = filterEntries(entries, state.query);
@@ -6365,7 +6480,7 @@ export function runInteractivePicker(entries, initialQuery = '') {
     // below; see its docstring for why clearScreen() alone wasn't enough.
     const draw = () => {
       clearScreen();
-      const lines = renderPickerLines(state, filtered, getVisibleRowBudget());
+      const lines = renderPickerLines(state, filtered, getVisibleRowBudget(), toggles);
       process.stdout.write(lines.join('\n') + '\n');
     };
 
@@ -6401,7 +6516,13 @@ export function runInteractivePicker(entries, initialQuery = '') {
       }
 
       if (action === 'select') {
-        cleanup(filtered[state.cursor] || null);
+        const selected = filtered[state.cursor] || null;
+        if (selected && selected.kind === 'toggle') {
+          toggles?.toggle(selected.toggleId);
+          draw();
+          return;
+        }
+        cleanup(selected);
         return;
       }
       if (action === 'cancel') {
@@ -6424,13 +6545,17 @@ export function runInteractivePicker(entries, initialQuery = '') {
  *
  * @param {Array<{id: string, label: string, description: string}>} entries
  * @param {string} [initialQuery]
- * @param {{readlineFactory?: Function}} [opts] - `readlineFactory` defaults
- *   to `readline.createInterface`; overridable for tests with a stub
- *   `{ question(prompt, cb), close() }`-shaped object.
+ * Selecting a toggle row's number flips the toggle and re-prompts instead of
+ * resolving.
+ *
+ * @param {{readlineFactory?: Function, toggles?: import('./launch-toggles.js').LaunchToggles|null}} [opts]
+ *   `readlineFactory` defaults to `readline.createInterface`; overridable for
+ *   tests with a stub `{ question(prompt, cb), close() }`-shaped object.
+ *   `toggles` is the shared toggle model (optional).
  * @returns {Promise<object|null>}
  */
 export async function runNonInteractivePicker(entries, initialQuery = '', opts = {}) {
-  const { readlineFactory = readline.createInterface } = opts;
+  const { readlineFactory = readline.createInterface, toggles = null } = opts;
   let query = initialQuery || '';
   let filtered = filterEntries(entries, query);
 
@@ -6445,8 +6570,13 @@ export async function runNonInteractivePicker(entries, initialQuery = '', opts =
         console.log('  No matching agents.');
       } else {
         filtered.forEach((entry, i) => {
-          console.log(`  [${i + 1}] ${entry.label}`);
+          const stateText = entry.kind === 'toggle' ? `: ${toggles?.isOn(entry.toggleId) ? 'ON' : 'OFF'}` : '';
+          console.log(`  [${i + 1}] ${entry.label}${stateText}`);
         });
+      }
+      const warnings = toggles ? toggles.activeWarnings() : [];
+      if (warnings.length > 0) {
+        console.log(`  ⚠ ${warnings.join(', ')} ON`);
       }
 
       const rl = readlineFactory({ input: process.stdin, output: process.stdout });
@@ -6458,7 +6588,12 @@ export async function runNonInteractivePicker(entries, initialQuery = '', opts =
 
       const num = Number(trimmed);
       if (Number.isInteger(num) && num >= 1 && num <= filtered.length) {
-        return filtered[num - 1];
+        const picked = filtered[num - 1];
+        if (picked.kind === 'toggle') {
+          toggles?.toggle(picked.toggleId);
+          continue;
+        }
+        return picked;
       }
 
       query = trimmed;
@@ -6466,6 +6601,149 @@ export async function runNonInteractivePicker(entries, initialQuery = '', opts =
     }
   } finally {
     exitAltScreen();
+  }
+}
+
+```
+###  Path: `/scripts/lib/launch-toggles.js`
+
+```js
+/**
+ * scripts/lib/launch-toggles.js
+ *
+ * Registry and state model for the `ai-insights agent` picker's session-scoped
+ * toggles. A toggle is a pinned picker row that flips a `claude` CLI flag on or
+ * off for every launch made from the picker. Deliberately has no `main()` —
+ * matching the scripts/lib/*.js shape.
+ *
+ * Growth path: a new toggle (e.g. `--verbose` to diagnose MCP failures) is one
+ * more object in {@link LAUNCH_TOGGLES}. Rendering, seeding from CLI args, and
+ * argv emission are already driven by the registry.
+ *
+ * {@link LaunchToggles} is the single owner of toggle state for one picker run:
+ * created once by scripts/launch-agent.js and mutated in place by the pickers.
+ * State is never persisted — every `ai-insights agent` invocation starts off.
+ */
+
+/**
+ * @typedef {object} ToggleDefinition
+ * @property {string} id - Stable identifier (also used in the launch-entry id)
+ * @property {string} label - Row label shown in the picker
+ * @property {string} description - Filterable description
+ * @property {string} claudeFlag - Flag appended to the `claude` argv while on
+ * @property {string} seedFlag - Own-flag of `ai-insights agent` that seeds the toggle on
+ * @property {boolean} warning - Show a persistent warning while on
+ */
+
+/** @type {ReadonlyArray<Readonly<ToggleDefinition>>} */
+export const LAUNCH_TOGGLES = Object.freeze([
+  Object.freeze({
+    id: 'skip-permissions',
+    label: 'Skip permission prompts',
+    description:
+      'Launch every session from this picker with --dangerously-skip-permissions (applies until toggled off)',
+    claudeFlag: '--dangerously-skip-permissions',
+    seedFlag: '--skip-permissions',
+    warning: true,
+  }),
+]);
+
+export class LaunchToggles {
+  /**
+   * @param {ReadonlyArray<ToggleDefinition>} [defs]
+   * @param {string[]} [enabledIds] - Toggle ids that start enabled
+   * @throws {Error} When an enabled id is not in `defs`
+   */
+  constructor(defs = LAUNCH_TOGGLES, enabledIds = []) {
+    this._defs = defs;
+    this._enabled = new Set();
+    for (const id of enabledIds) {
+      this._requireDef(id);
+      this._enabled.add(id);
+    }
+  }
+
+  /** @returns {ReadonlyArray<ToggleDefinition>} */
+  get definitions() {
+    return this._defs;
+  }
+
+  /** @param {string} id */
+  _requireDef(id) {
+    const def = this._defs.find((d) => d.id === id);
+    if (!def) {
+      throw new Error(`Unknown launch toggle: "${id}"`);
+    }
+    return def;
+  }
+
+  /**
+   * @param {string} id
+   * @returns {boolean}
+   */
+  isOn(id) {
+    return this._enabled.has(id);
+  }
+
+  /**
+   * Flips a toggle in place.
+   *
+   * @param {string} id
+   * @returns {boolean} The new state
+   * @throws {Error} On an unknown id
+   */
+  toggle(id) {
+    this._requireDef(id);
+    if (this._enabled.has(id)) {
+      this._enabled.delete(id);
+      return false;
+    }
+    this._enabled.add(id);
+    return true;
+  }
+
+  /**
+   * Flags of every enabled toggle, in registry order.
+   *
+   * @returns {string[]}
+   */
+  toClaudeArgs() {
+    return this._defs.filter((d) => this._enabled.has(d.id)).map((d) => d.claudeFlag);
+  }
+
+  /**
+   * Labels of enabled toggles that request a persistent warning.
+   *
+   * @returns {string[]}
+   */
+  activeWarnings() {
+    return this._defs.filter((d) => d.warning && this._enabled.has(d.id)).map((d) => d.label);
+  }
+
+  /**
+   * Builds toggle state from CLI args. A toggle is seeded on when its
+   * `seedFlag` appears in `ownArgs` or its `claudeFlag` appears in
+   * `passthroughArgs`. Seeded `claudeFlag`s are stripped from the returned
+   * passthrough list so the flag is emitted exactly once and stays switchable.
+   * Inputs are never mutated.
+   *
+   * @param {string[]} ownArgs
+   * @param {string[]} passthroughArgs
+   * @param {ReadonlyArray<ToggleDefinition>} [defs]
+   * @returns {{toggles: LaunchToggles, passthroughArgs: string[]}}
+   */
+  static fromArgs(ownArgs, passthroughArgs, defs = LAUNCH_TOGGLES) {
+    const own = ownArgs || [];
+    const pass = passthroughArgs || [];
+    const seeded = defs.filter((d) => own.includes(d.seedFlag) || pass.includes(d.claudeFlag));
+    const absorbed = new Set(seeded.map((d) => d.claudeFlag));
+    return {
+      toggles: new LaunchToggles(
+        defs,
+        seeded.map((d) => d.id),
+      ),
+      passthroughArgs: pass.filter((arg) => !absorbed.has(arg)),
+    };
   }
 }
 
@@ -7760,6 +8038,233 @@ export function storeRepoList({ configPath } = {}) {
   }
 
   return { ok: true, repos };
+}
+
+```
+###  Path: `/scripts/lib/subagent-reference-validation.js`
+
+```js
+/**
+ * scripts/lib/subagent-reference-validation.js
+ *
+ * Validates sub-agent references in the *rendered* persona output, one output
+ * target at a time. Source-level checks (the `{{agent_slug_*}}` cross-reference
+ * in build-personas.js, the library's `subagents` slug check) prove that a
+ * template variable resolves; they cannot prove that the rendered dispatch uses
+ * the argument and the identifier the target platform actually matches.
+ *
+ * What each target matches when selecting a sub-agent:
+ *   - vscode       `runSubagent` → `agentName` = the sub-agent's rendered VS Code
+ *                  frontmatter `name` (display name with version).
+ *   - claude-code  `Task`/`Agent` → `subagent_type` = the sub-agent's rendered
+ *                  Claude Code frontmatter `name` (the `cc_file_name` stem).
+ *   - deep-agents  `task` → `subagent_type` = the sub-agent's slug, which is the
+ *                  name the orchestrator registers (`load_subagents()`); the
+ *                  deep-agents frontmatter `name` is the persona `id` and is
+ *                  NOT what the orchestrator matches.
+ *
+ * Checks, per persona and target:
+ *   1. Declared but unreferenced — every slug in `subagents` appears in the
+ *      rendered output as that target's identifier, quoted ("x"), in
+ *      backticks (`x`) or bold (**x**).
+ *   2. Wrong or undeclared selector — every literal selector value
+ *      (`agentName` on vscode, `subagent_type` elsewhere) equals the identifier
+ *      of a declared sub-agent for that target.
+ *   3. Label-only dispatch — a Claude Code `Task` call whose agent sits in
+ *      `description`, or a deep-agents call passing a `task` parameter the
+ *      tool does not have.
+ *
+ * Runs against the library's in-memory render (`build({ ...config, check: true })`),
+ * never the files on disk: generated output is gitignored, and `--check` does
+ * not compare against disk, so on-disk files may be stale or absent.
+ *
+ * Per-persona `targets` (optional YAML list) limits the targets a persona is
+ * built for. Excluded targets are skipped here and pruned from disk by
+ * build-personas.js; dispatching an excluded persona on that target is an error.
+ */
+
+import fs from 'fs';
+import path from 'path';
+import { parseYamlScalars, extractYamlSequence } from './yaml-utils.js';
+
+export const TARGETS = ['vscode', 'claude-code', 'deep-agents'];
+
+/** Literal selector patterns per target. Group 1 is the selected identifier. */
+const SELECTOR_RE = {
+  vscode:        /`agentName`\s*:?\s*`?\s*"([^"]+)"/g,
+  'claude-code': /`?subagent_type`?\s*:?\s*`?\s*"([^"]+)"/g,
+  'deep-agents': /`?subagent_type`?\s*:?\s*`?\s*"([^"]+)"/g,
+};
+
+/** Label-only dispatch patterns per target. */
+const LABEL_ONLY_RE = {
+  'claude-code': [
+    { re: /`(?:Task|Agent)` tool with `description:/g,
+      why: 'names the agent in `description`, which Claude Code treats as a label — add `subagent_type`' },
+  ],
+  'deep-agents': [
+    { re: /as `task`|^\s*- `task`:/gm,
+      why: 'passes a `task` parameter the deep-agents `task` tool does not have — use `description`' },
+  ],
+};
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Read the frontmatter `name` of a rendered persona file, unquoted. */
+export function readRenderedName(text) {
+  const fm = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return null;
+  const m = fm[1].match(/^name:\s*(.+)$/m);
+  if (!m) return null;
+  return m[1].trim().replace(/^(['"])(.*)\1$/, '$2');
+}
+
+/** 1-based line number of a string offset, for error messages. */
+function lineOf(text, index) {
+  return text.slice(0, index).split('\n').length;
+}
+
+/**
+ * Check one rendered persona file for one target.
+ *
+ * @param {object}   args
+ * @param {string}   args.persona    - persona label for messages (e.g. "standalone/plan-refiner")
+ * @param {string}   args.target     - one of TARGETS
+ * @param {string}   args.text       - rendered file content
+ * @param {string[]} args.subagents  - slugs declared in the persona's `subagents`
+ * @param {Map<string, Record<string, string>>} args.index
+ *                                   - slug → { vscode, 'claude-code', 'deep-agents' } identifiers
+ * @returns {string[]} error strings (empty = valid)
+ */
+export function checkRenderedReferences({ persona, target, text, subagents, index }) {
+  const errors = [];
+  const where  = `${persona} [${target}]`;
+
+  const expected = new Map(); // identifier → slug
+  for (const slug of subagents) {
+    const ids = index.get(slug);
+    if (!ids) {
+      errors.push(`${where}: declares sub-agent "${slug}", but no persona with that slug exists.`);
+      continue;
+    }
+    if (ids[target] === undefined) {
+      errors.push(`${where}: declares sub-agent "${slug}", which is not built for ${target} (see its \`targets\`).`);
+      continue;
+    }
+    expected.set(ids[target], slug);
+  }
+
+  // 1. Declared but unreferenced.
+  for (const [ident, slug] of expected) {
+    const e  = escapeRe(ident);
+    const re = new RegExp(`"${e}"|\`${e}\`|\\*\\*${e}\\*\\*`);
+    if (!re.test(text)) {
+      errors.push(
+        `${where}: declares sub-agent "${slug}", but the rendered output never references it as ` +
+        `"${ident}" — the identifier ${target} matches. Reference it in this target's dispatch, ` +
+        `or remove it from \`subagents\`.`,
+      );
+    }
+  }
+
+  // 2. Wrong or undeclared selector values.
+  for (const m of text.matchAll(SELECTOR_RE[target])) {
+    const ident = m[1];
+    if (expected.has(ident)) continue;
+    const owner = [...index].find(([, ids]) => ids[target] === ident)?.[0];
+    const hint  = owner
+      ? `it is "${owner}"'s ${target} identifier, but "${owner}" is not in \`subagents\``
+      : `no persona has that ${target} identifier`;
+    errors.push(`${where}:${lineOf(text, m.index)}: selects sub-agent "${ident}" — ${hint}.`);
+  }
+
+  // 3. Label-only dispatch.
+  for (const { re, why } of LABEL_ONLY_RE[target] ?? []) {
+    for (const m of text.matchAll(re)) {
+      errors.push(`${where}:${lineOf(text, m.index)}: dispatch ${why}.`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Resolve the targets a persona is built for from its YAML. Absent `targets`
+ * means every target.
+ *
+ * @param {string} yamlText
+ * @returns {{ targets: string[], errors: string[] }}
+ */
+export function resolvePersonaTargets(yamlText) {
+  const declared = extractYamlSequence(yamlText, 'targets');
+  if (!declared || declared.length === 0) return { targets: [...TARGETS], errors: [] };
+  const unknown = declared.filter(t => !TARGETS.includes(t));
+  return {
+    targets: declared.filter(t => TARGETS.includes(t)),
+    errors:  unknown.map(t => `unknown target "${t}" in \`targets\` (known: ${TARGETS.join(', ')})`),
+  };
+}
+
+/**
+ * Read persona metadata for every rendered result, keyed by YAML path.
+ *
+ * @param {Array<{suite: string, personaYamlPath: string}>} results
+ */
+export function collectPersonas(results) {
+  const personas = new Map();
+  for (const r of results) {
+    if (personas.has(r.personaYamlPath)) continue;
+    const yaml = fs.readFileSync(r.personaYamlPath, 'utf8');
+    const base = path.basename(r.personaYamlPath, '.yaml');
+    const { slug } = parseYamlScalars(yaml, ['slug']);
+    const { targets, errors } = resolvePersonaTargets(yaml);
+    personas.set(r.personaYamlPath, {
+      label:     `${r.suite}/${base}`,
+      slug:      slug ?? base,
+      subagents: extractYamlSequence(yaml, 'subagents') ?? [],
+      targets,
+      errors,
+    });
+  }
+  return personas;
+}
+
+/**
+ * Validate sub-agent references in the rendered output of every persona.
+ *
+ * @param {Array<{suite: string, target: string, personaYamlPath: string, content: string}>} results
+ *   The `results` array returned by the persona-builder library's `build()`.
+ * @returns {string[]} error strings (empty = all valid)
+ */
+export function validateSubagentReferences(results) {
+  const personas = collectPersonas(results);
+  const errors   = [];
+  for (const p of personas.values()) {
+    for (const e of p.errors) errors.push(`${p.label}: ${e}.`);
+  }
+
+  // Identifier index: what each target matches for each persona, built only
+  // for the targets the persona is actually built for.
+  const index = new Map();
+  for (const p of personas.values()) index.set(p.slug, {});
+  for (const r of results) {
+    const p = personas.get(r.personaYamlPath);
+    if (!p.targets.includes(r.target)) continue;
+    index.get(p.slug)[r.target] = r.target === 'deep-agents'
+      ? p.slug
+      : (readRenderedName(r.content) ?? p.slug);
+  }
+
+  for (const r of results) {
+    const p = personas.get(r.personaYamlPath);
+    if (!p.targets.includes(r.target)) continue;
+    errors.push(...checkRenderedReferences({
+      persona: p.label, target: r.target, text: r.content, subagents: p.subagents, index,
+    }));
+  }
+  return errors;
 }
 
 ```

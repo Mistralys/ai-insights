@@ -113,6 +113,9 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.0.1 (2026-09-29): Built for the Claude Code target only — the VS Code and deep-agents builds
+    dispatched by Claude Code slugs neither platform matches, and neither deploys this persona;
+    the per-target Sub-agent spawning variants collapsed to the Claude Code line
   3.0.0 (2026-09-24): Recast the coordinator from a stage-by-stage dispatcher into a monitor that
     reseeds a self-advancing chain, since ledger agents already follow `auto_handoff` to dispatch
     their own successors. A dispatch is now a seed; the Dispatch Protocol is the Monitoring
@@ -160,6 +163,11 @@ tools:
   - search
   - agent
   - mcp
+
+# Claude Code only: the coordinator dispatches by Claude Code agent name and
+# is never deployed to VS Code or run by the Deep Agents orchestrator.
+targets:
+  - claude-code
 
 cc_tools:
   - Task
@@ -526,6 +534,14 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.2.3 (2026-09-30): Changelogs dropped from the documentation-only chain — they are the Release
+    Engineer's, and the chain contradicted both the `release-engineering` criteria and the new
+    authoring pre-requisite; a docs-plus-changelog WP now runs release-engineering then documentation
+  1.2.2 (2026-09-30): Every deliverable needs a stage that writes it — synthesis lesson from a WP
+    whose docs, manifest and changelog deliverables were given a verification-only chain, which left
+    QA to author and then check its own work. The verification-only pre-requisite now names docs,
+    manifests and changelog entries alongside code; a new authoring pre-requisite maps them to
+    `documentation` and `release-engineering`; plus a matching constraint, triage flag and checklist item
   1.2.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
@@ -638,6 +654,15 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.8.1 (2026-09-30): Step 2 routes by-product changelog entries and version bumps to the owning WP's
+    release-engineering stage instead of its documentation stage, matching the Pipeline Configurator
+  1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and
+    symlink reverts become After-the-run rows, and the plan's symlink switch stays its own WP, named in
+    the Notes of every WP that builds on it; check 6 counts a sibling release as a user action
+  1.7.2 (2026-09-29): Merge and deploy gates on a person no longer reach a WP — a new constraint moves
+    them to an After-the-run Human Actions row, a mid-run timing copied from the plan is re-timed with
+    its origin kept in the Source cell, and Consistency Pass check 6 now counts a confirmation the WP
+    only records as a dependency
   1.7.1 (2026-09-24): Mode arbitration no longer contradicts itself — the dispatched mode is
     authoritative, a Decompose dispatch overwrites an existing draft instead of halting on it, and only
     a Consistency Pass with no draft to read stops the session; the pass record states `7 of 7` rather
