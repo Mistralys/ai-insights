@@ -19,6 +19,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
+
 import {
   storeInit,
   storeAdd,
@@ -505,4 +507,4 @@ describe('store-commands', () => {
       expect(shadowed.is_shadowed).toBe(true);
     });
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);

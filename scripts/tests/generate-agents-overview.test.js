@@ -15,6 +15,8 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT      = path.resolve(__dirname, '..', '..');
 const SCRIPT    = path.join(ROOT, 'scripts', 'generate-agents-overview.js');
@@ -128,7 +130,7 @@ describe('generate-agents-overview.js', () => {
   it('preserves the companion link to workflow-and-ledger.md', () => {
     expect(content).toContain('[workflow-and-ledger.md](workflow-and-ledger.md)');
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── AC-06: --check flag behavior ────────────────────────────────────────────
 
@@ -164,4 +166,4 @@ describe('--check flag', () => {
       run();
     }
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);

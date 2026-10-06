@@ -21,6 +21,8 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
+
 const __dirname    = path.dirname(fileURLToPath(import.meta.url));
 const ROOT         = path.resolve(__dirname, '..', '..');
 const SCRIPT       = path.join(ROOT, 'scripts', 'publish-skills.js');
@@ -141,7 +143,7 @@ describe('publish-skills.js --dry-run', () => {
     const deployedPath = path.join(GH_SKILLS, TEST_STEM, 'SKILL.md');
     expect(fs.existsSync(deployedPath)).toBe(false);
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── exit code when no built files exist ─────────────────────────────────────
 
@@ -181,4 +183,4 @@ describe('publish-skills.js with no built dist files', () => {
     const { stderr } = runPublishSkills();
     expect(stderr).toContain('[publish-skills]');
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);

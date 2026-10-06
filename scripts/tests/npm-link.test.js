@@ -17,6 +17,7 @@ import os   from 'os';
 import path from 'path';
 
 import { getPackageName, isCliLinked, linkCli } from '../lib/npm-link.js';
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ describe('isCliLinked()', () => {
       rmDir(tmpDir);
     }
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── linkCli() ────────────────────────────────────────────────────────────────
 
@@ -118,4 +119,4 @@ describe('linkCli()', () => {
       rmDir(tmpDir);
     }
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);
