@@ -5,10 +5,11 @@
  *
  * Pre-flight dist freshness guard + orchestrate launcher.
  *
- * Checks whether mcp-server/dist/ is up to date relative to mcp-server/src/.
- * Rebuilds via `npm run build` when any source file is newer than the compiled
- * output sentinel (dist/index.js), or when dist/ does not yet exist, then
- * delegates to the `orchestrate` CLI with all supplied arguments.
+ * Checks whether mcp-server/dist/ is up to date relative to mcp-server/src/,
+ * via the shared `scripts/lib/mcp-dist-freshness.js` module. Rebuilds via
+ * `npm run build` when any source file is newer than the compiled output
+ * sentinel (dist/index.js), or when dist/ does not yet exist, then delegates
+ * to the `orchestrate` CLI with all supplied arguments.
  *
  * Usage (from workspace root):
  *   node scripts/run-orchestrator.js [orchestrate options…]
@@ -19,71 +20,33 @@
  */
 
 import path from 'path';
-import fs from 'fs';
 import { spawnSync } from 'child_process';
+import { ensureMcpDistFresh } from './lib/mcp-dist-freshness.js';
 
 // ---------------------------------------------------------------------------
 // 1. Resolve paths
 // ---------------------------------------------------------------------------
 const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
-const MCP_SRC       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const MCP_SERVER_DIR = path.join(WORKSPACE_ROOT, 'mcp-server');
 
 // ---------------------------------------------------------------------------
-// 2. Determine whether a rebuild is needed
-//    Walk mcp-server/src/ recursively; compare each file's mtime against the
-//    sentinel's mtime.  Any src file newer than the sentinel → stale build.
+// 2. Ensure mcp-server/dist/ is fresh, rebuilding it when stale. A build
+//    failure exits silently with the build's own status, matching the
+//    pre-migration behaviour — no error message here, since the failed
+//    `npm run build` subprocess already printed its own output via
+//    `stdio: 'inherit'`.
 // ---------------------------------------------------------------------------
 
-/**
- * Recursively collect mtimeMs of every file under `dir`.
- * Returns the largest mtime found (i.e. the most recently modified file's
- * timestamp), or -Infinity when the directory is empty.
- *
- * @param {string} dir
- * @returns {number}
- */
-function latestMtime(dir) {
-  let latest = -Infinity;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      latest = Math.max(latest, latestMtime(full));
-    } else if (entry.isFile()) {
-      latest = Math.max(latest, fs.statSync(full).mtimeMs);
-    }
-  }
-  return latest;
-}
+const freshnessResult = ensureMcpDistFresh({
+  mcpServerDir: MCP_SERVER_DIR,
+  onBuildStart: () => {
+    console.log('[run-orchestrator.js] mcp-server/dist is stale or missing — building MCP server...');
+  },
+});
 
-let needBuild = false;
-
-if (!fs.existsSync(MCP_DIST_SENTINEL)) {
-  needBuild = true;
-} else {
-  const sentinelMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
-  if (latestMtime(MCP_SRC) > sentinelMtime) {
-    needBuild = true;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 3. Rebuild when necessary
-// ---------------------------------------------------------------------------
-const isWindows = process.platform === 'win32';
-const npmCmd    = isWindows ? 'npm.cmd' : 'npm';
-
-if (needBuild) {
-  console.log('[run-orchestrator.js] mcp-server/dist is stale or missing — building MCP server...');
-  const build = spawnSync(npmCmd, ['run', 'build'], {
-    cwd:   path.join(WORKSPACE_ROOT, 'mcp-server'),
-    stdio: 'inherit',
-    shell: isWindows, // npm.cmd requires shell:true on Windows/Node22+ to avoid EINVAL
-  });
-  if (build.status !== 0) {
-    process.exit(build.status ?? 1);
-  }
-} else {
+if (!freshnessResult.ok && freshnessResult.reason === 'build-failed') {
+  process.exit(freshnessResult.status ?? 1);
+} else if (!freshnessResult.rebuilt) {
   console.log('[run-orchestrator.js] mcp-server/dist is up to date — skipping build.');
 }
 
@@ -101,7 +64,7 @@ console.log('  Read logs  →  node scripts/read-log.js <path/to/log.jsonl>');
 console.log('               (alias: node scripts/cli.js read-log <path/to/log.jsonl>)');
 console.log('  Kill stale →  node scripts/kill-orchestrator.js');
 console.log('               (alias: node scripts/cli.js kill-orchestrator)');
-  console.log('  TIP: Prefer using read-log.js over native command line tools to read logs —');
+console.log('  TIP: Prefer using read-log.js over native command line tools to read logs —');
 console.log('       it understands the JSONL format.');
 console.log('');
 

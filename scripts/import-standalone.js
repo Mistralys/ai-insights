@@ -25,17 +25,16 @@
 import path from 'path';
 import fs from 'fs';
 import readline from 'readline';
-import { spawnSync } from 'child_process';
 import { pathToFileURL } from 'url';
 import { listAllProjectDirs } from './lib/ledger-dirs.js';
+import { ensureMcpDistFresh } from './lib/mcp-dist-freshness.js';
 
 // ---------------------------------------------------------------------------
 // 1. Resolve paths
 // ---------------------------------------------------------------------------
 const WORKSPACE_ROOT    = path.resolve(import.meta.dirname, '..');
-const MCP_SRC           = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
-const MCP_DIST_TOOL     = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'tools', 'standalone-import.js');
+const MCP_SERVER_DIR    = path.join(WORKSPACE_ROOT, 'mcp-server');
+const MCP_DIST_TOOL     = path.join(MCP_SERVER_DIR, 'dist', 'tools', 'standalone-import.js');
 const LEDGER_ROOT       = path.join(WORKSPACE_ROOT, 'mcp-server', 'storage', 'ledger');
 const DEFAULT_SCAN_ROOT = path.join(WORKSPACE_ROOT, 'docs', 'agents');
 
@@ -43,56 +42,26 @@ const DEFAULT_SCAN_ROOT = path.join(WORKSPACE_ROOT, 'docs', 'agents');
 const PLAN_SLUG_RE = /^\d{4}-\d{2}-\d{2}-.+$/;
 
 // ---------------------------------------------------------------------------
-// 2. Dist-freshness check (same pattern as run-orchestrator.js)
+// 2. Dist-freshness check, via the shared scripts/lib/mcp-dist-freshness.js
+//    module (same pattern as run-orchestrator.js)
 // ---------------------------------------------------------------------------
 
-/**
- * Recursively returns the largest mtime (ms) of any file under `dir`.
- * @param {string} dir
- * @returns {number}
- */
-function latestMtime(dir) {
-  let latest = -Infinity;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      latest = Math.max(latest, latestMtime(full));
-    } else if (entry.isFile()) {
-      latest = Math.max(latest, fs.statSync(full).mtimeMs);
-    }
-  }
-  return latest;
-}
-
 function ensureDistFresh() {
-  let needBuild = false;
+  const result = ensureMcpDistFresh({
+    mcpServerDir: MCP_SERVER_DIR,
+    requiredFile: MCP_DIST_TOOL,
+    onBuildStart: () => {
+      console.log('[import-standalone.js] mcp-server/dist is stale or missing — building MCP server...');
+    },
+  });
 
-  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
-    needBuild = true;
-  } else {
-    const sentinelMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
-    if (latestMtime(MCP_SRC) > sentinelMtime) {
-      needBuild = true;
-    }
+  if (!result.ok && result.reason === 'build-failed') {
+    console.error('[import-standalone.js] MCP server build failed.');
+    process.exit(result.status ?? 1);
   }
 
-  if (needBuild) {
-    console.log('[import-standalone.js] mcp-server/dist is stale or missing — building MCP server...');
-    const isWindows = process.platform === 'win32';
-    const npmCmd = isWindows ? 'npm.cmd' : 'npm';
-    const build = spawnSync(npmCmd, ['run', 'build'], {
-      cwd: path.join(WORKSPACE_ROOT, 'mcp-server'),
-      stdio: 'inherit',
-      shell: isWindows,
-    });
-    if (build.status !== 0) {
-      console.error('[import-standalone.js] MCP server build failed.');
-      process.exit(build.status ?? 1);
-    }
-  }
-
-  if (!fs.existsSync(MCP_DIST_TOOL)) {
-    console.error(`Error: compiled tool not found at ${MCP_DIST_TOOL}`);
+  if (!result.ok && result.reason === 'missing-module') {
+    console.error(`Error: compiled tool not found at ${result.file}`);
     console.error('Try running: cd mcp-server && npm run build');
     process.exit(1);
   }
