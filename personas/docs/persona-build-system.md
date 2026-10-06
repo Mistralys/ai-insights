@@ -93,6 +93,7 @@ For each suite × target × persona, the build engine:
 3. **Selects frontmatter template** — per target and suite (ledger vs. standalone).
 4. **Reads the content template** — `src/content/N-name.md` or `src/content/slug.md`.
 5. **Runs the template engine** in strict order:
+   - `stripComments()` — remove `{{!-- … --}}` / `{{! … }}` comment tags (and anything inside them)
    - `resolvePartials()` — embed shared fragments
    - `resolveConditionals()` — evaluate `{{#if}}` / `{{else}}` / `{{else if}}` blocks
    - `resolveVariables()` — interpolate `{{variable}}` references
@@ -100,7 +101,7 @@ For each suite × target × persona, the build engine:
 6. **Assembles the output** — frontmatter + auto-generated header + rendered body.
 7. **Writes the output file** to the target directory.
 
-Post-build (real builds only): the wrapper script generates `personas/name-mapping.json` and syncs `personas/package.json` version from the changelog.
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper script generates `personas/name-mapping.json` and syncs `personas/package.json` version from the changelog. These steps run unconditionally once the library CLI call returns, even when that call itself failed — `scripts/build-personas.js` captures the library CLI's exit status rather than exiting immediately on it, so a failing build no longer skips them (or any of the checks below). The script calls `process.exit()` exactly once, at the very end, combining the library's own status with the aggregated check results via `resolveExitCode()`.
 
 ### Validation Steps
 
@@ -108,9 +109,11 @@ Post-build (real builds only): the wrapper script generates `personas/name-mappi
 |-------|------|--------------|
 | Role validation (ledger plugin) | Every build | Warning (default) or error |
 | `note_only` guard | Every build | Error — `note_only` tools must not appear in rendered output |
-| `{{agent_slug_*}}` cross-reference | Every build + `--check` | Error — see [Subagent Declarations](#subagent-declarations) |
+| `{{agent_slug_*}}` cross-reference | Every build + `--check` | Error — comment-aware (a reference inside `{{!-- … --}}` is ignored); see [Subagent Declarations](#subagent-declarations) |
 | Staleness check | `--check` flag | Error — generated file differs from disk |
 | Unresolved markers | `--strict` flag | Error — `{{…}}` markers remain in output |
+
+All wrapper-side checks above run through a single check-runner descriptor list (`scripts/lib/build-checks.js`'s `runBuildChecks()`/`resolveExitCode()`) — every check always runs, even when an earlier one reports an error or throws, and the script's one `process.exit()` call happens only after all of them have finished.
 
 ---
 
@@ -183,6 +186,34 @@ Fallback content.
 ```
 
 First truthy branch wins. No `{{#each}}` loops are supported.
+
+**Whitespace:** a conditional tag written on its own line (only whitespace before/after it on
+that line) is a **standalone tag** — its entire line, including the trailing newline, is
+removed from the output. A tag written inline with surrounding text removes only the tag
+itself, leaving the rest of the line untouched. When a block resolves to nothing between two
+lines of content, the surrounding blank-line run merges down to a single paragraph break;
+blank lines inside a **kept** branch are emitted exactly as written.
+
+### Comments
+
+```
+{{!-- comment --}}
+{{! comment }}
+```
+
+Removed before partials, conditionals, or variables are resolved (`stripComments()` runs
+first — see [What Happens During a Build](#what-happens-during-a-build)). A commented-out
+`{{> partial}}` never expands or warns, and a commented-out `{{variable}}` never triggers an
+unresolved-variable warning — anything written inside a comment is fully inert. `{{!-- … --}}`
+may span lines and contain a literal `}}`; `{{! … }}` may also span lines but cannot contain a
+literal `}}`. Shares the standalone/inline whitespace rule above with conditional tags. No
+escape form exists for a literal `{{!` in rendered output.
+
+**Example:**
+
+```markdown
+{{!-- TODO: revisit this section once the v2 API ships --}}
+```
 
 ---
 
@@ -322,6 +353,8 @@ Same shape as ledger but **without** `mcp_server_name`, `roster`, `default_model
 | `tools` | `string[]` | yes | Tool permission slugs for the IDE |
 | `cc_tools` | `string[]` | no | Claude Code tool names — overrides `default_cc_tools` |
 | `subagents` | `string[]` | no | Standalone persona slugs this persona may delegate to |
+| `targets` | `string[]` | no | Output targets this persona is built for (`vscode`, `claude-code`, `deep-agents`). Absent means all three. Library-enforced: the library skips rendering an excluded target itself, and the rendered sub-agent reference check skips it too. |
+| `tool_parity_exceptions` | `string[]` | no | Capability names exempted from the library's cross-target tool-capability parity check. Library-enforced: `build()` fails when a persona has a capability on one target but no equivalent tool for it on another, unless the capability is listed here. |
 | `has_mcp` | `bool` | yes | Feature flag: inject MCP pre-flight check and tools table |
 | `has_detect_project` | `bool` | yes | Feature flag: inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Feature flag: inject self-documenting tools note |
@@ -382,6 +415,8 @@ mcp_tools:
 | `tools` | `string[]` | yes | Tool permission slugs |
 | `cc_tools` | `string[]` | no | Claude Code tool overrides |
 | `mcp_server_name` | `string` | no | Opt-in MCP support (e.g. `"central_pm"`) |
+| `targets` | `string[]` | no | Output targets this persona is built for (`vscode`, `claude-code`, `deep-agents`). Absent means all three. Library-enforced: the library skips rendering an excluded target itself, and the rendered sub-agent reference check skips it too. |
+| `tool_parity_exceptions` | `string[]` | no | Capability names exempted from the library's cross-target tool-capability parity check (e.g. `web-gui-specialist` exempts `web`). Library-enforced: `build()` fails when a persona has a capability on one target but no equivalent tool for it on another, unless the capability is listed here. |
 
 **Example (Researcher):**
 
@@ -509,18 +544,18 @@ When a persona delegates work to sub-agents, it must declare those sub-agents in
    - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
    ```
 
-3. At build time, the build script scans every ledger content file for `{{agent_slug_*}}` references and verifies each one has a matching entry in the persona's `subagents` list.
+3. At build time, `scripts/lib/agent-slug-validation.js`'s `validateAgentSlugReferences()` scans every ledger content file for `{{agent_slug_*}}` references and verifies each one has a matching entry in the persona's `subagents` list. A reference written inside a template comment (`{{!-- … --}}` / `{{! … }}`) is ignored — the wrapper passes the persona-builder library's `stripComments()` to strip comments from the content before scanning it.
 
 ### Validation Rules
 
 - The variable suffix uses underscores: `{{agent_slug_ledger_wp_decomposer}}`
 - The expected slug uses hyphens: `ledger-wp-decomposer`
 - The conversion is: replace underscores with hyphens
-- This check runs **unconditionally** — on both real builds and `--check` runs
+- This check runs **unconditionally** — on both real builds and `--check` runs, as one of the five descriptors passed through `scripts/build-personas.js`'s `runBuildChecks()` check runner (`scripts/lib/build-checks.js`)
 
 ### What Happens on Validation Failure
 
-If a `{{agent_slug_*}}` reference exists in content but the corresponding slug is not in the `subagents` list, the build fails:
+If a `{{agent_slug_*}}` reference exists in content but the corresponding slug is not in the `subagents` list, an `[ERROR]` block is printed identifying the persona, the reference, and the expected slug:
 
 ```
 [ERROR] agent_slug cross-reference check failed:
@@ -529,6 +564,8 @@ If a `{{agent_slug_*}}` reference exists in content but the corresponding slug i
   which is not declared in the subagents list.
   Add "foo-bar" to the subagents field in 2-project-manager.yaml.
 ```
+
+This is recorded as an error-severity result by the check runner; `scripts/build-personas.js` runs every other check and both post-build steps regardless, then exits non-zero once everything has finished — not immediately, as the check did before it was extracted into its own module.
 
 ### How to Fix
 
@@ -778,6 +815,7 @@ The build config lives in `personas/persona-build.config.js` (CommonJS). It conf
 | `frontmatter` | Config-level frontmatter templates (used as defaults) |
 | `suites` | Suite definitions with source and output paths |
 | `plugins` | Plugin instances — currently `[ledgerPlugin({...})]` |
+| `toolRequirements` | Optional. Declares extra cross-target dispatch-tool requirements, checked by the library's `build()` validator alongside its built-in subagent-dispatch check. Each entry: `{ id, when: { partial }, targets }` — fails the build if a persona renders the named partial for a listed target without that target's dispatch tool. Currently covers the `handoff-block-claude-code` / `handoff-block-vscode` partials so any persona whose content merely includes a handoff block (without declaring `subagents`) is still checked. |
 
 ### Ledger Plugin
 

@@ -3,9 +3,15 @@
  *
  * Validates sub-agent references in the *rendered* persona output, one output
  * target at a time. Source-level checks (the `{{agent_slug_*}}` cross-reference
- * in build-personas.js, the library's `subagents` slug check) prove that a
- * template variable resolves; they cannot prove that the rendered dispatch uses
- * the argument and the identifier the target platform actually matches.
+ * in build-personas.js, the library's `subagents` slug check, and the
+ * library's target-aware sub-agent validator — see `@mistralys/persona-builder`
+ * `validateSubagentRefs()`) prove that a template variable resolves and that a
+ * declared sub-agent is built for the target that dispatches it; they cannot
+ * prove that the rendered dispatch uses the argument and the identifier the
+ * target platform actually matches. That is this file's job, and only this
+ * file's job — per-persona `targets` resolution and the "declared sub-agent
+ * not built for this target" error are the library's responsibility now (see
+ * `PersonaMetadata.targets` / `resolvePersonaTargets()` in the library).
  *
  * What each target matches when selecting a sub-agent:
  *   - vscode       `runSubagent` → `agentName` = the sub-agent's rendered VS Code
@@ -32,16 +38,16 @@
  * never the files on disk: generated output is gitignored, and `--check` does
  * not compare against disk, so on-disk files may be stale or absent.
  *
- * Per-persona `targets` (optional YAML list) limits the targets a persona is
- * built for. Excluded targets are skipped here and pruned from disk by
- * build-personas.js; dispatching an excluded persona on that target is an error.
+ * Each persona's built targets are derived from which `target` values its
+ * `build()` results actually carry — the library already skips rendering a
+ * persona for a target its `targets` YAML field excludes (see
+ * `BuildSummary.skipped`), so an excluded target simply produces no result
+ * here and needs no separate resolution or pruning step.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { parseYamlScalars, extractYamlSequence } from './yaml-utils.js';
-
-export const TARGETS = ['vscode', 'claude-code', 'deep-agents'];
 
 /** Literal selector patterns per target. Group 1 is the selected identifier. */
 const SELECTOR_RE = {
@@ -85,7 +91,7 @@ function lineOf(text, index) {
  *
  * @param {object}   args
  * @param {string}   args.persona    - persona label for messages (e.g. "standalone/plan-refiner")
- * @param {string}   args.target     - one of TARGETS
+ * @param {string}   args.target     - one of 'vscode', 'claude-code', 'deep-agents'
  * @param {string}   args.text       - rendered file content
  * @param {string[]} args.subagents  - slugs declared in the persona's `subagents`
  * @param {Map<string, Record<string, string>>} args.index
@@ -104,7 +110,9 @@ export function checkRenderedReferences({ persona, target, text, subagents, inde
       continue;
     }
     if (ids[target] === undefined) {
-      errors.push(`${where}: declares sub-agent "${slug}", which is not built for ${target} (see its \`targets\`).`);
+      // Declared sub-agent isn't built for this target — the library's own
+      // target-aware validateSubagentRefs() owns this case now; skip it here
+      // rather than duplicate the error.
       continue;
     }
     expected.set(ids[target], slug);
@@ -145,26 +153,14 @@ export function checkRenderedReferences({ persona, target, text, subagents, inde
 }
 
 /**
- * Resolve the targets a persona is built for from its YAML. Absent `targets`
- * means every target.
- *
- * @param {string} yamlText
- * @returns {{ targets: string[], errors: string[] }}
- */
-export function resolvePersonaTargets(yamlText) {
-  const declared = extractYamlSequence(yamlText, 'targets');
-  if (!declared || declared.length === 0) return { targets: [...TARGETS], errors: [] };
-  const unknown = declared.filter(t => !TARGETS.includes(t));
-  return {
-    targets: declared.filter(t => TARGETS.includes(t)),
-    errors:  unknown.map(t => `unknown target "${t}" in \`targets\` (known: ${TARGETS.join(', ')})`),
-  };
-}
-
-/**
  * Read persona metadata for every rendered result, keyed by YAML path.
  *
- * @param {Array<{suite: string, personaYamlPath: string}>} results
+ * Each persona's `targets` is derived from which `target` values its own
+ * results actually carry — the library has already skipped rendering it for
+ * any target its `targets` YAML field excludes, so the set of `r.target`
+ * values seen here is, by construction, exactly the targets it was built for.
+ *
+ * @param {Array<{suite: string, target: string, personaYamlPath: string}>} results
  */
 export function collectPersonas(results) {
   const personas = new Map();
@@ -173,15 +169,19 @@ export function collectPersonas(results) {
     const yaml = fs.readFileSync(r.personaYamlPath, 'utf8');
     const base = path.basename(r.personaYamlPath, '.yaml');
     const { slug } = parseYamlScalars(yaml, ['slug']);
-    const { targets, errors } = resolvePersonaTargets(yaml);
     personas.set(r.personaYamlPath, {
       label:     `${r.suite}/${base}`,
       slug:      slug ?? base,
       subagents: extractYamlSequence(yaml, 'subagents') ?? [],
-      targets,
-      errors,
+      targets:   [],
     });
   }
+
+  for (const r of results) {
+    const p = personas.get(r.personaYamlPath);
+    if (!p.targets.includes(r.target)) p.targets.push(r.target);
+  }
+
   return personas;
 }
 
@@ -195,17 +195,14 @@ export function collectPersonas(results) {
 export function validateSubagentReferences(results) {
   const personas = collectPersonas(results);
   const errors   = [];
-  for (const p of personas.values()) {
-    for (const e of p.errors) errors.push(`${p.label}: ${e}.`);
-  }
 
-  // Identifier index: what each target matches for each persona, built only
-  // for the targets the persona is actually built for.
+  // Identifier index: what each target matches for each persona. `results`
+  // already contains exactly the personas × targets the library built (see
+  // collectPersonas() above), so no further target filtering is needed here.
   const index = new Map();
   for (const p of personas.values()) index.set(p.slug, {});
   for (const r of results) {
     const p = personas.get(r.personaYamlPath);
-    if (!p.targets.includes(r.target)) continue;
     index.get(p.slug)[r.target] = r.target === 'deep-agents'
       ? p.slug
       : (readRenderedName(r.content) ?? p.slug);
@@ -213,7 +210,6 @@ export function validateSubagentReferences(results) {
 
   for (const r of results) {
     const p = personas.get(r.personaYamlPath);
-    if (!p.targets.includes(r.target)) continue;
     errors.push(...checkRenderedReferences({
       persona: p.label, target: r.target, text: r.content, subagents: p.subagents, index,
     }));

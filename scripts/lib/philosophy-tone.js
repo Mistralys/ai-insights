@@ -207,30 +207,60 @@ export function extractPhilosophyPrinciples(markdown) {
 
 /**
  * Check one persona's philosophy section for imperative phrasing.
+ *
+ * `stripComments` is applied to each extracted principle's `title` and
+ * `body` individually — not to the whole file before extraction — so that
+ * stripping a comment never shifts the raw-file line numbers reported in a
+ * warning. A principle whose title is entirely a comment (empty after
+ * stripping) is skipped outright.
+ *
+ * Known edge: a principle bullet that sits *inside* a multi-line comment is
+ * still extracted and checked, because `extractPhilosophyPrinciples()` scans
+ * raw lines one at a time and the comment's opening and closing tags sit on
+ * other lines — the bullet's own line carries no comment markers for
+ * `stripComments` to find. Fixing this would require stripping comments
+ * across the whole file before extraction, which the `stripComments`-per-line
+ * design deliberately avoids because it would shift every line number after
+ * a multi-line comment (see the WP's Rejected Approaches). This edge is
+ * pinned by a characterization test, not engineered around.
+ *
  * @param {string} markdown - persona content file text
  * @param {string} filename - filename for message context
+ * @param {object} [options]
+ * @param {(text: string) => string} [options.stripComments] - strips template
+ *   comments from each principle's title/body before tone-checking it, so
+ *   imperative prose written inside a comment is never flagged. Defaults to
+ *   the identity function when omitted — this covers a stale `dist/` build
+ *   of @mistralys/persona-builder predating the `stripComments` export, or
+ *   one that failed to load; the check still runs, just without comment
+ *   awareness, matching the seam `agent-slug-validation.js` uses.
  * @returns {string[]} warning strings (empty = no drift detected)
  */
-export function checkPhilosophyTone(markdown, filename) {
+export function checkPhilosophyTone(markdown, filename, { stripComments = (t) => t } = {}) {
   const warnings = [];
 
   for (const { title, body, line } of extractPhilosophyPrinciples(markdown)) {
-    if (isImperative(title)) {
+    const strippedTitle = stripComments(title).trim();
+    const strippedBody = stripComments(body).trim();
+
+    if (!strippedTitle) continue; // comment-only title — nothing left to check
+
+    if (isImperative(strippedTitle)) {
       warnings.push(
-        `${filename}:${line}: philosophy title "${title}" is verb-initial. ` +
+        `${filename}:${line}: philosophy title "${strippedTitle}" is verb-initial. ` +
         `Titles are noun phrases, comparisons, or statements — never commands.`,
       );
     }
 
     // Every sentence, not just the opener — drift hides in trailing sentences
     // where a principle slides from claim into instruction.
-    const bodySentences = sentences(body);
+    const bodySentences = sentences(strippedBody);
     for (let i = 0; i < bodySentences.length; i++) {
       if (!isImperative(bodySentences[i])) continue;
 
       const position = i === 0 ? 'opens in the imperative' : `sentence ${i + 1} is imperative`;
       warnings.push(
-        `${filename}:${line}: philosophy body under "${title}" ${position} ` +
+        `${filename}:${line}: philosophy body under "${strippedTitle}" ${position} ` +
         `("${tokens(bodySentences[i])[0]}…"). State the principle as a claim ` +
         `about the domain, not an instruction to the agent.`,
       );
@@ -243,9 +273,12 @@ export function checkPhilosophyTone(markdown, filename) {
 /**
  * Check every persona content file in the given suite content directories.
  * @param {string[]} contentDirs - absolute paths to suite content directories
+ * @param {object} [options]
+ * @param {(text: string) => string} [options.stripComments] - forwarded to
+ *   `checkPhilosophyTone()` for every file.
  * @returns {string[]} warning strings (empty = no drift detected)
  */
-export function checkPhilosophyToneInDirs(contentDirs) {
+export function checkPhilosophyToneInDirs(contentDirs, { stripComments } = {}) {
   const warnings = [];
 
   for (const contentDir of contentDirs) {
@@ -254,7 +287,7 @@ export function checkPhilosophyToneInDirs(contentDirs) {
     const files = fs.readdirSync(contentDir).filter(f => f.endsWith('.md'));
     for (const file of files) {
       const text = fs.readFileSync(path.join(contentDir, file), 'utf8');
-      warnings.push(...checkPhilosophyTone(text, file));
+      warnings.push(...checkPhilosophyTone(text, file, { stripComments }));
     }
   }
 

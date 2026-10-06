@@ -81,6 +81,20 @@ module.exports = {
 
   targets: ['vscode', 'claude-code', 'deep-agents'],
 
+  // Both handoff partials dispatch the successor agent in the ledger
+  // workflow — a persona whose rendered content includes one of these
+  // partials must grant the target's dispatch tool (`agent` on VS Code,
+  // `Task`/`Agent` on Claude Code), or the handoff instruction it renders
+  // would be unactionable on that target. The built-in
+  // SUBAGENT_DISPATCH_REQUIREMENT (keyed on a declared `subagents` field)
+  // already covers ledger personas; these two entries extend the same
+  // dispatch-grant check to any persona whose content merely *includes* a
+  // handoff block without declaring `subagents` itself.
+  toolRequirements: [
+    { id: 'ledger-handoff-claude-code', when: { partial: 'handoff-block-claude-code' }, targets: ['claude-code'] },
+    { id: 'ledger-handoff-vscode',      when: { partial: 'handoff-block-vscode' },      targets: ['vscode'] },
+  ],
+
   frontmatter: {
     vscode: FRONTMATTER_STANDALONE_VSCODE,
     'claude-code': FRONTMATTER_STANDALONE_CC,

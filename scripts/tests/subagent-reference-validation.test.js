@@ -12,7 +12,7 @@ import path from 'path';
 import {
   checkRenderedReferences,
   readRenderedName,
-  resolvePersonaTargets,
+  collectPersonas,
   validateSubagentReferences,
 } from '../lib/subagent-reference-validation.js';
 
@@ -101,15 +101,36 @@ describe('checkRenderedReferences', () => {
   });
 });
 
-describe('resolvePersonaTargets', () => {
-  it('defaults to every target', () => {
-    expect(resolvePersonaTargets('slug: x').targets).toEqual(['vscode', 'claude-code', 'deep-agents']);
+describe('collectPersonas — targets derived from results', () => {
+  it('derives a persona\'s targets from exactly the target values its own results carry', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-refs-'));
+    const yamlPath = path.join(root, 'worker.yaml');
+    fs.writeFileSync(yamlPath, 'slug: worker\n');
+
+    const results = [
+      { suite: 'suite', target: 'claude-code', personaYamlPath: yamlPath, content: '' },
+      { suite: 'suite', target: 'vscode', personaYamlPath: yamlPath, content: '' },
+    ];
+
+    const personas = collectPersonas(results);
+    fs.rmSync(root, { recursive: true, force: true });
+
+    expect(personas.get(yamlPath).targets.sort()).toEqual(['claude-code', 'vscode']);
   });
 
-  it('limits to the declared targets and reports unknown ones', () => {
-    const { targets, errors } = resolvePersonaTargets('targets:\n  - claude-code\n  - vs-code\n');
-    expect(targets).toEqual(['claude-code']);
-    expect(errors[0]).toContain('unknown target "vs-code"');
+  it('a persona with no results for a target simply has no entry for it — no YAML is consulted', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'subagent-refs-'));
+    const yamlPath = path.join(root, 'worker.yaml');
+    // Note: this YAML has no `targets` field at all — collectPersonas() no
+    // longer reads one; the results array is the sole source of truth.
+    fs.writeFileSync(yamlPath, 'slug: worker\n');
+
+    const results = [{ suite: 'suite', target: 'claude-code', personaYamlPath: yamlPath, content: '' }];
+
+    const personas = collectPersonas(results);
+    fs.rmSync(root, { recursive: true, force: true });
+
+    expect(personas.get(yamlPath).targets).toEqual(['claude-code']);
   });
 });
 
@@ -155,15 +176,17 @@ describe('validateSubagentReferences', () => {
     expect(errors.filter(e => e.includes('[vscode]') || e.includes('[deep-agents]'))).toEqual([]);
   });
 
-  it('skips targets a persona is not built for', () => {
+  it('a persona built for only some targets (no results supplied for the rest) is only checked on those targets', () => {
+    // "boss" is only built for claude-code here — represented by supplying no
+    // vscode/deep-agents entries in `rendered`, exactly as the library itself
+    // would produce (it skips rendering an excluded target entirely, so no
+    // result exists for it — there is no YAML `targets` field to read anymore).
     const { results, cleanup } = fixture(
-      { worker: 'slug: worker\n', boss: 'slug: boss\ntargets:\n  - claude-code\nsubagents:\n  - worker\n' },
+      { worker: 'slug: worker\n', boss: 'slug: boss\nsubagents:\n  - worker\n' },
       {
         worker: workerRendered,
         boss: {
-          vscode:        '---\nname: Boss\n---\n`agentName`: `"worker"`',
           'claude-code': '---\nname: boss\n---\n`subagent_type: "worker-cc"`',
-          'deep-agents': '---\nname: x\n---\nnothing',
         },
       },
     );
@@ -172,11 +195,16 @@ describe('validateSubagentReferences', () => {
     expect(errors).toEqual([]);
   });
 
-  it('fails a dispatch to a persona not built for that target', () => {
+  it('a sub-agent not built for a target produces no rendered-reference error — the library owns that case now', () => {
+    // "worker" is only built for claude-code (no vscode/deep-agents entries);
+    // "boss" is built for all three and declares `worker` as a sub-agent.
+    // Dispatching worker on vscode/deep-agents is exactly the "declared
+    // sub-agent not built for this target" case checkRenderedReferences()
+    // no longer reports (see WP-014) — it is silently skipped here.
     const { results, cleanup } = fixture(
-      { worker: 'slug: worker\ntargets:\n  - claude-code\n', boss: 'slug: boss\nsubagents:\n  - worker\n' },
+      { worker: 'slug: worker\n', boss: 'slug: boss\nsubagents:\n  - worker\n' },
       {
-        worker: workerRendered,
+        worker: { 'claude-code': workerRendered['claude-code'] },
         boss: {
           vscode:        '---\nname: Boss\n---\n',
           'claude-code': '---\nname: boss\n---\n`subagent_type: "worker-cc"`',
@@ -186,7 +214,6 @@ describe('validateSubagentReferences', () => {
     );
     const errors = validateSubagentReferences(results);
     cleanup();
-    expect(errors).toHaveLength(2);
-    expect(errors.every(e => e.includes('which is not built for'))).toBe(true);
+    expect(errors).toEqual([]);
   });
 });

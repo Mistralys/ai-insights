@@ -5,8 +5,21 @@
  * scripts/lib/philosophy-tone.js (Persona Design Guide v3.0 mood rule).
  */
 
-import { describe, it, expect } from 'vitest';
-import { checkPhilosophyTone, extractPhilosophyPrinciples } from '../lib/philosophy-tone.js';
+import { describe, it, expect, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import {
+  checkPhilosophyTone,
+  checkPhilosophyToneInDirs,
+  extractPhilosophyPrinciples,
+} from '../lib/philosophy-tone.js';
+
+// Minimal real stripComments stand-in: removes {{!-- ... --}} and {{! ... }}
+// spans, mirroring @mistralys/persona-builder's stripComments() contract —
+// same pattern used by scripts/tests/agent-slug-validation.test.js.
+const stripComments = (text) =>
+  text.replace(/\{\{!--[\s\S]*?--\}\}/g, '').replace(/\{\{!(?!--)[\s\S]*?\}\}/g, '');
 
 function persona(philosophyBody) {
   return [
@@ -199,5 +212,122 @@ describe('checkPhilosophyTone', () => {
       'p.md',
     );
     expect(warnings).toEqual([]);
+  });
+
+  it('ignores imperative prose inside a comment in the body, given a real stripComments', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Evidence Over Availability:** {{!-- Reserve judgement until data arrives. --}} A claim needs support.'),
+      'p.md',
+      { stripComments },
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('flags the same imperative-in-comment body when stripComments is the identity default', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **Evidence Over Availability:** {{!-- Reserve judgement until data arrives. --}} A claim needs support.'),
+      'p.md',
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('opens in the imperative');
+  });
+
+  it('skips a principle whose title is entirely a comment, given a real stripComments', () => {
+    const warnings = checkPhilosophyTone(
+      persona('- **{{!-- Fix the Pipeline --}}:** A claim about the domain.'),
+      'p.md',
+      { stripComments },
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('preserves the raw-file line number across a preceding multi-line comment', () => {
+    const md = [
+      '# Test Persona',
+      '',
+      '## Operating Philosophy',
+      '',
+      '{{!--',
+      'A multi-line note that spans several lines before the bullet.',
+      '--}}',
+      '',
+      '- **Fix the Pipeline:** Ship the change now.',
+      '',
+      '## Inputs',
+    ].join('\n');
+    const warnings = checkPhilosophyTone(md, 'p.md', { stripComments });
+    expect(warnings).toHaveLength(1);
+    // Line 9 (1-indexed) is the bullet's own line — unaffected by the
+    // six-line comment above it, since stripComments is applied only to the
+    // extracted title/body text, never to the whole file.
+    expect(warnings[0]).toContain('p.md:9:');
+  });
+
+  it('characterizes the known edge: a bullet sitting inside a multi-line comment is still extracted and checked', () => {
+    // The comment's opening "{{!--" is two lines above the bullet and its
+    // closing "--}}" is two lines below; the bullet's own raw line carries
+    // no comment markers, so stripComments() applied to just that line finds
+    // nothing to remove. This is documented in checkPhilosophyTone()'s JSDoc
+    // as a known edge, not engineered around.
+    const md = [
+      '# Test Persona',
+      '',
+      '## Operating Philosophy',
+      '',
+      '{{!--',
+      '- **Fix the Pipeline:** Ship the change now.',
+      '--}}',
+      '',
+      '## Inputs',
+    ].join('\n');
+    const warnings = checkPhilosophyTone(md, 'p.md', { stripComments });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('philosophy title "Fix the Pipeline" is verb-initial');
+  });
+});
+
+describe('checkPhilosophyToneInDirs', () => {
+  let tmpDirs = [];
+
+  afterEach(() => {
+    for (const dir of tmpDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tmpDirs = [];
+  });
+
+  function makeContentDir(filename, markdown) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'philosophy-tone-test-'));
+    tmpDirs.push(dir);
+    fs.writeFileSync(path.join(dir, filename), markdown, 'utf8');
+    return dir;
+  }
+
+  it('forwards stripComments to every file it checks', () => {
+    const dir = makeContentDir(
+      'p.md',
+      persona('- **Evidence Over Availability:** {{!-- Reserve judgement until data arrives. --}} A claim needs support.'),
+    );
+
+    expect(checkPhilosophyToneInDirs([dir], { stripComments })).toEqual([]);
+    expect(checkPhilosophyToneInDirs([dir])).toHaveLength(1);
+  });
+
+  it('skips a directory that does not exist', () => {
+    const missing = path.join(os.tmpdir(), 'does-not-exist-' + Date.now());
+    expect(checkPhilosophyToneInDirs([missing], { stripComments })).toEqual([]);
+  });
+});
+
+describe('build-personas.js — philosophy-tone descriptor wiring', () => {
+  it('passes { stripComments: stripCommentsFn } to checkPhilosophyToneInDirs', () => {
+    const source = fs.readFileSync(
+      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'build-personas.js'),
+      'utf8',
+    );
+    const descriptorMatch = source.match(
+      /checkPhilosophyToneInDirs\(\[[\s\S]*?\],\s*\{\s*stripComments:\s*stripCommentsFn\s*\}\)/,
+    );
+    expect(descriptorMatch).not.toBeNull();
   });
 });
