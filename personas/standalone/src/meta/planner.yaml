@@ -5,6 +5,9 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.7.0 (2026-10-01): Added an Acceptance Oracles rule and a matching checklist item — a before/after
+    diff oracle now gets its own early, dependency-free capture step, ordered before any step that
+    mutates what it snapshots, with its storage location recorded in the plan; no path is prescribed
   2.6.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
     group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
     opens every multi-repository plan with a switch to local symlinks (the project's documented switch

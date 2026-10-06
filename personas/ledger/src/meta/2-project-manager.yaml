@@ -7,6 +7,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.10.3 (2026-10-01): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.2 (2026-09-30): Step 10 also confirms that every WP without `implementation` has a stage to
     author its docs, manifest or changelog deliverables, and recreates the WP with the missing stage —
     a safety net behind the Pipeline Configurator's new authoring pre-requisite
@@ -62,6 +63,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:

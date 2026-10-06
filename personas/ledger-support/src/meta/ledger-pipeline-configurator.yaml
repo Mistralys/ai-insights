@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.3.0 (2026-10-01): Added a Baseline-Capture Chain — a WP whose deliverable is an early diff-oracle
+    snapshot always gets ["implementation", "qa"], never verification-only, cross-referenced from the
+    verification-only chain's state-changing-operations pre-requisite as an exception
   1.2.3 (2026-09-30): Changelogs dropped from the documentation-only chain — they are the Release
     Engineer's, and the chain contradicted both the `release-engineering` criteria and the new
     authoring pre-requisite; a docs-plus-changelog WP now runs release-engineering then documentation

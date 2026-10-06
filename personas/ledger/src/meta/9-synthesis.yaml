@@ -6,6 +6,7 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.12.2 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.12.1 (2026-09-29): Claude Code Knowledge Archiver dispatch now passes `subagent_type` instead of
     describing the agent in `description`, which started a persona-less general-purpose agent.
     Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
@@ -53,6 +54,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:

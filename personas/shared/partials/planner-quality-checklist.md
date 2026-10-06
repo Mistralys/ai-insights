@@ -16,6 +16,7 @@ Before handing off, verify:
 - [ ] Where the plan changes more than one repository, the first step switches each dependency between them to a local symlink, or `Assumptions` records that the user already did. No step publishes, tags, releases, or reverts the symlinks.
 - [ ] No section contains an unfilled `{…}` placeholder; inapplicable sections are omitted entirely.
 - [ ] In Synthesis Rework mode: every deferred item was either promoted into a step or recorded in the `Deferred Items` table.
+- [ ] Every before/after diff oracle in Acceptance Criteria has its own early, dependency-free capture step, ordered before any step that mutates what it snapshots, with its recorded storage location named in the plan.
 {{#if has_mcp}}
 - [ ] Every cited insight that shipping this plan would leave making a claim the codebase no longer supports appears in `Knowledge Base Reconciliation`, with the {{agent_ledger_knowledge_curator}} named as executor.
 {{/if}}

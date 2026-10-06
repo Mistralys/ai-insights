@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.9.0 (2026-10-01): No WP outruns its own baseline — a new constraint keeps a before/after diff
+    oracle's early capture step as its own WP, named in the Notes of every WP that mutates the files the
+    snapshot covers, so the Dependency Sequencer orders the capture first
   1.8.1 (2026-09-30): Step 2 routes by-product changelog entries and version bumps to the owning WP's
     release-engineering stage instead of its documentation stage, matching the Pipeline Configurator
   1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and

@@ -18,23 +18,27 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate full build to `@mistralys/persona-builder` for all suites and targets in the config |
-| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--check` | Forward `--check` to the library CLI — compare generated output against existing files |
 | `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
-| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
+| `--strict` | Forward `--strict` to the library CLI — unresolved `{{variable}}` or `{{> partial}}` markers remaining in output count as an error-severity result |
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
+**Exit code:** the wrapper captures the library CLI's own exit status (`libraryStatus`) instead of exiting immediately on failure, runs every wrapper-side check (below) and both post-build steps regardless of that status, then calls `process.exit()` exactly once via `resolveExitCode(libraryStatus, { errorCount })` (`scripts/lib/build-checks.js`): the library's own non-zero status wins if present, else `1` when any check reported an error-severity result, else `0`. A failing library CLI call no longer skips the post-build steps or any of the five checks — see **Unconditional** below.
 
-**Unconditional (both real builds and `--check`):** These validation steps run after every build. Steps 1–4 fail the build; step 5 only warns:
+Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally regardless of the library CLI's exit status. The wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
 
-1. **Subagent cross-reference:** Scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML. Errors accumulate across all personas before a single `[ERROR]` block is printed and `process.exit(1)` is called. Personas with no `{{agent_slug_*}}` references pass silently. The internal helper `extractSubagentsList(text, key)` parses flat dash-prefixed YAML block lists (strips inline comments and surrounding quotes); it is local to the validation block and is not exported.
+**Unconditional (both real builds and `--check`):** These validation steps run after every build. Steps 1–5 fail the build; step 6 only warns:
+
+1. **Subagent cross-reference:** Implemented in `scripts/lib/agent-slug-validation.js` (`validateAgentSlugReferences(metaDir, contentDir, { stripComments })`, plus the exported helper `extractSubagentsList(text, key)`, which parses flat dash-prefixed YAML block lists and strips inline comments and surrounding quotes). Scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML; a reference inside a template comment is ignored when the caller passes the library's real `stripComments()` (the wrapper falls back to the identity function for a stale `dist/` predating that export). Errors accumulate across all personas and are surfaced as a single check result to `scripts/build-personas.js`'s `runBuildChecks()` descriptor runner (`scripts/lib/build-checks.js`), which prints a `[ERROR]` block and drives the script's single `process.exit()` call once every check has run. Personas with no `{{agent_slug_*}}` references pass silently.
 
 2. **`insight_agent` field validation:** Implemented in `scripts/lib/insight-validation.js`. Fails the build when: (a) a persona defines both `role` and `insight_agent` with differing values; (b) a persona defines exactly one of `insight_agent` / `insight_report_target`. Standalone personas without `role` are exempt from rule (a).
 
-3. **`cc_tools` / dispatch consistency:** Implemented in `scripts/lib/cc-tools-validation.js`. Fails the build when a persona declares `subagents` or includes the `handoff-block-claude-code` partial, but its effective Claude Code tool list lacks `Task`.
+3. **`cc_tools` / dispatch consistency:** Implemented by `@mistralys/persona-builder`'s `validateToolRequirements()`, configured via the `toolRequirements` build option passed in `scripts/build-personas.js` (this project's own `scripts/lib/cc-tools-validation.js` implementation was retired in favor of the library's version). Fails the build when a persona declares `subagents` or includes the `handoff-block-claude-code` partial, but its effective Claude Code tool list lacks `Task`.
 
-4. **Rendered sub-agent references:** Implemented in `scripts/lib/subagent-reference-validation.js` (`validateSubagentReferences(suites)`, plus the pure `checkRenderedReferences()` and `readRenderedName()`). Renders every persona in all three suites in memory through the library's exported `build({ ...config, check: true })` — never the files on disk, which are gitignored and which the CLI's `--check` does not compare against — and fails the build when: (a) a slug in `subagents` is never referenced in that target's output by the identifier the target matches; (b) a literal selector (`agentName` on `vscode`, `subagent_type` on `claude-code` and `deep-agents`) names an agent that is not declared, or uses an identifier no persona has; (c) a Claude Code dispatch names its agent only in `description`, or a deep-agents dispatch passes a `task` parameter. The identifiers are read from the rendered output, not the YAML: `vscode` matches the sub-agent's VS Code frontmatter `name` (display name with version), `claude-code` its Claude Code frontmatter `name` (the `cc_file_name` stem, which can differ from the slug — e.g. `developer-standalone`), and `deep-agents` its slug, which is what the orchestrator's `load_subagents()` registers. The same in-memory render drives the per-persona `targets` pruning on real builds. See constraints.md 15a.
+4. **Rendered sub-agent references:** Implemented in `scripts/lib/subagent-reference-validation.js` (`validateSubagentReferences(suites)`, plus the pure `checkRenderedReferences()` and `readRenderedName()`). Renders every persona in all three suites in memory through the library's exported `build({ ...config, check: true })` — never the files on disk, which are gitignored and which the CLI's `--check` does not compare against — and fails the build when: (a) a slug in `subagents` is never referenced in that target's output by the identifier the target matches; (b) a literal selector (`agentName` on `vscode`, `subagent_type` on `claude-code` and `deep-agents`) names an agent that is not declared, or uses an identifier no persona has; (c) a Claude Code dispatch names its agent only in `description`, or a deep-agents dispatch passes a `task` parameter. The identifiers are read from the rendered output, not the YAML: `vscode` matches the sub-agent's VS Code frontmatter `name` (display name with version), `claude-code` its Claude Code frontmatter `name` (the `cc_file_name` stem, which can differ from the slug — e.g. `developer-standalone`), and `deep-agents` its slug, which is what the orchestrator's `load_subagents()` registers. Each persona's per-target results are derived from which `target` values its own `build()` results carry — the library already skips rendering a persona for an excluded target, so there is no separate `targets` resolution or pruning step here. See constraints.md 15a.
 
-5. **Warnings:** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size (`scripts/lib/changelog-size-check.js`).
+5. **Cross-target tool-capability parity:** Implemented by `@mistralys/persona-builder`'s `validateToolParity()`, run as a `build()` post-pass once every suite × target has finished rendering. Compares each persona's granted capabilities across all of its built targets and fails the build for any capability a persona has on one target but lacks the equivalent tool for on another — naming the granting target(s)/tool(s) and the lacking target's own missing tool name. A persona's YAML `tool_parity_exceptions` list (capability names, or `mcp:`-prefixed forms) is excluded from the comparison; declaring a name that isn't a capability recognised by any registered target's tool-capability map is flagged as a build warning. This is a distinct check from the `cc_tools` / dispatch consistency check (step 3), which only verifies Claude Code's `Task` grant — parity compares every capability across every target pair.
+
+6. **Warnings:** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size (`scripts/lib/changelog-size-check.js`).
 
 ### `personas/persona-build.config.js` — Config Interface
 
@@ -47,6 +51,7 @@ The config file is loaded by the library CLI. It exports an object with the foll
 | `frontmatter` | `Object.<string, string>` | Config-level frontmatter template map keyed by target name. Used as the default for suites or targets the ledger plugin does not override. The ledger plugin overrides `vscode` and `claude-code` for the ledger suite via its `onSuiteInit` hook; the `deep-agents` template applies to both suites unchanged. |
 | `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`, `ledger-support`) |
 | `plugins` | `Array` | Plugin instances — currently `[ledgerPlugin({...})]` for role validation |
+| `toolRequirements` | `ToolRequirement[]` | Optional. Declares extra cross-target tool-dispatch requirements consumed by the library's `build()` tool-requirements validator (a peer of the library's built-in `SUBAGENT_DISPATCH_REQUIREMENT`, which is keyed on a declared `subagents` field). Each entry: `{ id: string, when: { partial: string }, targets: string[] }` — fails the build when a persona's rendered output includes the named partial for one of the listed targets but lacks that target's dispatch tool. Currently declares `ledger-handoff-claude-code` (`when.partial: 'handoff-block-claude-code'`, `targets: ['claude-code']`) and `ledger-handoff-vscode` (`when.partial: 'handoff-block-vscode'`, `targets: ['vscode']`) — extending dispatch-grant coverage to any persona whose content merely *includes* a handoff partial without declaring `subagents` itself. Complements the `cc_tools` / dispatch consistency check (Unconditional step 3 above), which only fires for personas that declare `subagents`. |
 
 **Suite Configuration**
 
@@ -74,11 +79,14 @@ Each suite entry (`suites.ledger`, `suites.standalone`, `suites['ledger-support'
 Phases execute in strict order inside the library — each phase sees the output of the previous phase:
 
 ```
-1. resolvePartials()       →  embed shared fragments
-2. resolveConditionals()   →  strip/keep feature-flagged blocks
-3. resolveVariables()      →  interpolate metadata values
-4. collapseBlankLines()    →  normalize whitespace
+1. stripComments()         →  remove {{!-- … --}} / {{! … }} comment tags (and anything inside them)
+2. resolvePartials()       →  embed shared fragments
+3. resolveConditionals()   →  strip/keep feature-flagged blocks
+4. resolveVariables()      →  interpolate metadata values
+5. collapseBlankLines()    →  normalize whitespace
 ```
+
+`stripComments()` runs first because a commented-out `{{> partial}}` or `{{variable}}` must never expand, warn, or be counted by a build-time reference scan — see the persona-builder's own `docs/template-syntax.md` for the full syntax contract, including the standalone/inline whitespace rules shared by comments and conditional tags.
 
 ---
 
@@ -131,10 +139,34 @@ enabling per-target content differentiation across all three targets:
 {{/if}}
 ```
 
-The engine resolves nested blocks innermost-first and produces clean output with no stray
+The engine resolves nested blocks correctly at any depth (a single-pass, bracket-matched
+resolver — not a multi-pass innermost-first rewrite) and produces clean output with no stray
 `{{/if}}` markers. This pattern is used in the PM persona for sub-agent invocation steps.
 
+**Whitespace:** a conditional tag written on its own line (only whitespace before/after it on
+that line) is a **standalone tag** — its entire line, including the trailing newline, is
+removed. A tag written inline with surrounding text removes only the tag itself, leaving the
+rest of the line untouched. When a conditional block resolves to nothing between two lines of
+content, the surrounding blank-line run merges down to a single paragraph break; blank lines
+that are part of a **kept** branch are emitted exactly as written. See the persona-builder's
+`docs/template-syntax.md` for the full contract (malformed/unterminated tags, `{{else if}}`
+chains, etc.).
+
 No `{{#each}}` support.
+
+### Comments
+
+```
+{{!-- comment --}}
+{{! comment }}
+```
+
+Removed by the engine's `stripComments()` before partials, conditionals, or variables are
+resolved — a commented-out `{{> partial}}` never expands or warns, and a commented-out
+`{{variable}}` never triggers an unresolved-variable warning. `{{!-- … --}}` may span lines and
+contain a literal `}}`; `{{! … }}` may also span lines but cannot contain a literal `}}`. Share
+the same standalone/inline whitespace contract as conditional tags (above). No escape form
+exists for a literal `{{!` in rendered output.
 
 ### Variables
 
@@ -218,8 +250,9 @@ Use these flags in content templates to write platform-conditional blocks:
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
-| `subagents` | `string[]` | no | Flat dash-prefixed list of persona slugs this ledger persona may delegate to as sub-agents. Carried by the Project Manager (the four `ledger-*` planning sub-agents), Documentation (`ctx-architect`), Release Engineer (`changelog-curator`, `ctx-architect`) and Synthesis (`ledger-knowledge-archiver`). Three consumers: (1) `scripts/build-personas.js` fails the build when a content file references `{{agent_slug_<slug>}}` for a slug missing from this list; (2) `scripts/lib/cc-tools-validation.js` fails the build when the list is non-empty (or the content includes the `handoff-block-claude-code` partial) but the effective Claude Code tool list lacks `Task`; (3) the orchestrator's `load_subagents()` resolves each slug against `personas/ledger-support/src/meta/{slug}.yaml` first, then `personas/standalone/src/meta/{slug}.yaml`, at pipeline startup. The field renders nothing into generated output. See constraints.md 15a for the per-target dispatch arguments. |
-| `targets` | `string[]` | no | Output targets this persona is built for — any of `vscode`, `claude-code`, `deep-agents`. Absent means all three. The library renders every target regardless; `scripts/build-personas.js` then deletes the output for each excluded target on real builds, so `sync-personas.js` never deploys it, and the rendered sub-agent reference check skips it. An unknown value fails the build, as does a dispatch to this persona on a target it is not built for. Used by the Ledger Claude Coordinator (`[claude-code]`). |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of persona slugs this ledger persona may delegate to as sub-agents. Carried by the Project Manager (the four `ledger-*` planning sub-agents), Documentation (`ctx-architect`), Release Engineer (`changelog-curator`, `ctx-architect`) and Synthesis (`ledger-knowledge-archiver`). Three consumers: (1) `scripts/build-personas.js` fails the build when a content file references `{{agent_slug_<slug>}}` for a slug missing from this list; (2) `@mistralys/persona-builder`'s `validateToolRequirements()` (configured via the `toolRequirements` build option) fails the build when the list is non-empty (or the content includes the `handoff-block-claude-code` partial) but the effective Claude Code tool list lacks `Task`; (3) the orchestrator's `load_subagents()` resolves each slug against `personas/ledger-support/src/meta/{slug}.yaml` first, then `personas/standalone/src/meta/{slug}.yaml`, at pipeline startup. The field renders nothing into generated output. See constraints.md 15a for the per-target dispatch arguments. |
+| `targets` | `string[]` | no | Output targets this persona is built for — any of `vscode`, `claude-code`, `deep-agents`. Absent means all three. The library itself skips rendering an excluded target — there is no separate deletion step on real builds — so `sync-personas.js` never sees output for it to deploy, and the rendered sub-agent reference check skips it too. An unknown value fails the build, as does a dispatch to this persona on a target it is not built for. Used by the Ledger Claude Coordinator (`[claude-code]`). |
+| `tool_parity_exceptions` | `string[]` | no | Capability names (or `mcp:`-prefixed forms) exempted from the cross-target tool-capability parity check (`validateToolParity()`, Unconditional step 5 above). Use when a persona legitimately needs a capability on only one target. An unrecognised name is a build warning, not an error. |
 | `has_mcp` | `bool` | yes | Inject MCP pre-flight check and tools table |
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
@@ -456,10 +489,11 @@ The `ledger-support` suite (`personas/ledger-support/src/`) uses the same slug-b
 | `version` | `string` | yes | Per-persona version string |
 | `last_updated` | `string` | no | Per-persona last-updated date |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
-| `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
+| `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `usage-scenarios-curator` omits `Task`, `WebFetch`, `WebSearch`) |
 | `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
 | `subagents` | `string[]` | no | Flat dash-prefixed list of ledger-support (or standalone) persona slugs this persona may invoke as sub-agents. When declared, the builder resolves `{{agent_{slug}}}` (display name) and `{{agent_slug_{slug}}}` (kebab slug) template variables for use in target-conditional dispatch blocks. Each slug must resolve to a YAML file in `personas/ledger-support/src/meta/` (first) or `personas/standalone/src/meta/` (fallback). |
-| `targets` | `string[]` | no | Output targets this persona is built for — any of `vscode`, `claude-code`, `deep-agents`. Absent means all three. The library renders every target regardless; `scripts/build-personas.js` then deletes the output for each excluded target on real builds, so `sync-personas.js` never deploys it, and the rendered sub-agent reference check skips it. An unknown value fails the build, as does a dispatch to this persona on a target it is not built for. Used by the Ledger Claude Coordinator (`[claude-code]`). |
+| `targets` | `string[]` | no | Output targets this persona is built for — any of `vscode`, `claude-code`, `deep-agents`. Absent means all three. The library itself skips rendering an excluded target — there is no separate deletion step on real builds — so `sync-personas.js` never sees output for it to deploy, and the rendered sub-agent reference check skips it too. An unknown value fails the build, as does a dispatch to this persona on a target it is not built for. Used by the Ledger Claude Coordinator (`[claude-code]`). |
+| `tool_parity_exceptions` | `string[]` | no | Capability names (or `mcp:`-prefixed forms) exempted from the cross-target tool-capability parity check (`validateToolParity()`, Unconditional step 5 above). Use when a persona legitimately needs a capability on only one target — e.g. `web-gui-specialist` exempts `web` (VS Code's `browser` vs. Claude Code's `WebFetch`/`WebSearch`, which share no common counterpart). An unrecognised name is a build warning, not an error. |
 | `identity` | `string` | yes | Short role title matching the `**Identity: {{identity}}.**` mission header. Required in all personas. Used by `scripts/generate-agents-overview.js` for the overview document. |
 | `use_when` | `string` | no | One-line description of when to invoke this persona. Used by `generate-agents-overview.js`. Applies to standalone and ledger-support personas. |
 | `key_behavior` | block scalar | no | Newline-delimited behavior summary. First line used in the overview. Applies to all suites. |

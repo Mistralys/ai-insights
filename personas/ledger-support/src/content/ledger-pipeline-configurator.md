@@ -93,6 +93,11 @@ It is `["implementation", "qa", "code-review", "documentation"]`, and it is wher
 - **Pre-requisite (symbols):** every method, function, and class its scope references already exists in production code. Where one does not, the WP needs `implementation` and belongs on the standard chain
 - **Pre-requisite (state-changing operations):** no deliverable requires authoring code, config, templates, scripts, documentation, manifests, or changelog entries. Running an existing CLI tool or build command needs no `implementation`, provided the acceptance criteria cover both the command's execution and the verification of its side effects. Where the ACs miss a state-changing deliverable's output, the ACs are most likely incomplete
 - **Pre-requisite (authoring):** where a WP writes docs or manifests, it needs `documentation`. Where it writes a changelog entry or a version field, it needs `release-engineering`. Neither stage is in this chain, and without one QA ends up writing the deliverable it is meant to check
+- **Baseline-capture exception:** a WP whose deliverable is an early snapshot that a later diff oracle consumes is never verification-only, even though running the capture itself looks like "an existing CLI tool or build command". The snapshot is a deliverable later WPs depend on, not a check — assign it `["implementation", "qa"]` instead. See the baseline-capture rule below.
+
+### Baseline-Capture Chain
+
+A WP whose sole deliverable is an early capture step for a before/after diff oracle — the snapshot the state-changing-operations pre-requisite above calls out as an exception — always gets the chain `["implementation", "qa"]`. The capture is `implementation` because it produces an artifact (the snapshot) that other WPs consume as a dependency; QA verifies the snapshot's completeness. It never gets `documentation` on its own, since documenting the capture's own existence is not a separate deliverable, and it never gets `release-engineering`, since a snapshot is not a publishable artifact.
 
 ### Stage Ordering
 

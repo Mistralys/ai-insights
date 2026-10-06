@@ -5,6 +5,9 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.9.2 (2026-09-29): Removed `Bash`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from `cc_tools`
+    — the content has no shell-command, web-fetch, or todo instruction, so the Claude Code grant
+    exceeded the VS Code list (`read`, `edit`, `search` only) without cause
   1.9.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -45,16 +48,11 @@ tools:
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
 cc_tools:
-  - Bash
   - Read
   - Edit
   - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata

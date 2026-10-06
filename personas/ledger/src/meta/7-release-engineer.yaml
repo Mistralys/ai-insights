@@ -5,6 +5,7 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.8.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.8.0 (2026-09-29): Gained a Strict Constraints section — the release is prepared, never run
     (publishing, tagging and constraint bumps belong to the user), local dependency symlinks are expected
     state rather than a readiness defect, and Git writes including tags are ruled out
@@ -50,6 +51,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:

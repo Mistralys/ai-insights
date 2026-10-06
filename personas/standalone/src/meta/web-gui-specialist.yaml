@@ -5,6 +5,10 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.7.5 (2026-09-29): Added `tool_parity_exceptions: [web]` — VS Code's `browser` and Claude Code's
+    `WebFetch`/`WebSearch` are genuinely different capabilities with no shared counterpart, so the
+    cross-target parity check now needs an explicit, documented exception rather than treating the
+    difference as a mismatch
   1.7.4 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.7.3 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
@@ -30,6 +34,14 @@ tools:
   - browser
   - agent
   - todo
+
+# VS Code web access comes from `browser` (live page rendering/interaction),
+# which has no Claude Code counterpart — Claude Code's web grant is
+# `WebFetch`/`WebSearch` instead. The two are genuinely different
+# capabilities, not a narrowing candidate, so `web` is an intentional,
+# documented parity exception rather than an oversight.
+tool_parity_exceptions:
+  - web
 
 insight_agent: Web GUI Specialist
 insight_report_target: "the **Interface Insights** section of `synthesis.md`"

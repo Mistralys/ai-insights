@@ -7,6 +7,9 @@ cc_file_name: ledger-bootstrapper.md
 audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 changelog: |
+  1.4.2 (2026-09-29): Removed `Edit`, `Write`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from
+    `cc_tools` — the content explicitly writes nothing to disk and declares no web or todo instruction,
+    so the Claude Code grant exceeded the VS Code list (`execute`, `read`, `search` only) without cause
   1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -31,14 +34,8 @@ tools:
 cc_tools:
   - Bash
   - Read
-  - Edit
-  - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata

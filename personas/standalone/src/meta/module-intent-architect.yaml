@@ -5,6 +5,7 @@ vs_file_name: module-intent-architect.agent.md
 id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 changelog: |
+  1.1.2 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   1.1.1 (2026-08-26): Tightened the 30-Second Rule principle - replaced weak "should" phrasing and added the consequence clause that makes the budget actionable
   1.1.0 (2026-08-25): Redesigned for Design Guide v2.8 compliance
   1.0.4 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
@@ -22,7 +23,6 @@ tools:
   - agent
   - todo
 
-# cc_tools differs from default: module-intent-architect has no TodoRead/TodoWrite
 cc_tools:
   - Bash
   - Read
@@ -33,6 +33,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"

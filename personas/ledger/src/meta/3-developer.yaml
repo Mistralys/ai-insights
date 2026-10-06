@@ -5,6 +5,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.18.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
     no-release-cycles partial)
@@ -69,6 +70,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
