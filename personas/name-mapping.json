@@ -179,14 +179,14 @@
     "number": 9,
     "id": "ledger-9-synthesis",
     "role": "Synthesis",
-    "version": "3.12.1",
+    "version": "3.13.0",
     "suite": "ledger",
     "model": "Claude Sonnet 5 (Copilot)",
     "model_slug": "Claude Sonnet 5 (copilot)",
     "cc_model": "claude-sonnet-5",
     "vscode": {
       "file_name": "9-synthesis.agent.md",
-      "agent_name": "9 - Synthesis v3.12.1"
+      "agent_name": "9 - Synthesis v3.13.0"
     },
     "claude_code": {
       "file_name": "9-synthesis.md",

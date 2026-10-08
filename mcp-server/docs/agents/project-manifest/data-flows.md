@@ -165,9 +165,13 @@ Pre-lock validation (outside lock scope):
           - entries not in PIPELINE_TYPES
           - duplicate entries
           - entries not a subsequence of CANONICAL_PIPELINE_ORDERING
+          - fail-route coverage (v2.6.0): a stage's FAIL target owns no active stage at or
+            before it — findFailRoutingGaps() — rejects, e.g., ['qa','code-review'] without
+            'implementation'
         Soft guardrails (warning appended to success response — creation NOT aborted):
           - 'implementation' present without 'qa'
           - single-stage chain
+          - non-default custom composition
       Default when omitted: DEFAULT_PIPELINE_STAGES (['implementation', 'qa', 'code-review', 'documentation'])
   ↓
 LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation

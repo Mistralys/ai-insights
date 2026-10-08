@@ -483,6 +483,7 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 - Pipeline agents filter their recommendation and handoff logic to only consider WPs where their owned stage is in `active_pipeline_stages`. WPs without their stage are invisible to these agents
 - **No mid-flight stage addition:** `active_pipeline_stages` is set at WP creation and cannot be modified thereafter. If the PM discovers mid-project that a WP needs additional stages, the PM must cancel and recreate the WP with the correct stages (losing pipeline history), or manually route work via project comments and PM overrides. This limitation is consistent with the immutable-dependencies design (§15.2) and keeps the pipeline routing deterministic throughout a WP's lifecycle
 - **Mixed-stage projects:** A single project may contain WPs with different `active_pipeline_stages` configurations. For example, security-critical WPs may include all 6 stages while documentation-only WPs use `["documentation"]`. Each WP's routing is independent — the pipeline ordering is per-WP, not per-project
+- **Legacy chains (pre-v2.6.0):** Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects any new chain whose verifier stage lacks an active fix stage at or before it. WPs created before v2.6.0 that already hold such a chain are not migrated and are not re-validated on read — they keep routing exactly as described in §21.63/§21.66/§21.67. See [§21.72](#2172-unfixable-verifier-chain-rejection)
 
 ### 21.56 Release Engineering FAIL Self-Referential Handoff
 
@@ -525,10 +526,10 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
   - The single stage's owning agent is the terminal agent — only that agent can mark the WP as COMPLETE (§6.2.1)
   - The COMPLETE freshness check passes vacuously because `firstActiveStage == lastActiveStage` — there is no upstream reference point to compare against
   - Pipeline ordering has no predecessor or successor — `resolvePrerequisite` returns `null` and `resolveNextAgent` returns `"Synthesis"`
-  - FAIL routing uses the standard `FAIL_ROUTING_MAP` target if that target's stage is active, otherwise falls back to the single stage's agent (self-rework) via `resolveFailAgent` (§9.3.1)
+  - FAIL routing uses the standard `FAIL_ROUTING_MAP` target if that target's stage is active, otherwise falls back to the single stage's agent (self-rework) via `resolveFailAgent` (§9.3.1) — for new WPs, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) only accepts a single-stage chain when the lone stage's FAIL target owns that same stage (self-routing), so the fallback and the standard map agree; a single-stage chain whose FAIL target owns a different, inactive stage is rejected at creation
   - The rework and circuit breaker mechanisms (§16) function normally — the `MAX_REWORK_COUNT` applies to the single stage
   - The recommendation engine (§14) emits the appropriate action for the single stage's agent (e.g., `WRITE_DOCS` for documentation-only, `IMPLEMENT` for implementation-only)
-- **Validation:** Single-stage WPs trigger the "single-stage chain" soft guardrail warning (§9b.2 rule 6) but are not rejected
+- **Validation:** Single-stage WPs trigger the "single-stage chain" soft guardrail warning (§9b.2 rule 6) but are not rejected, provided they pass Rule 5. A single-stage chain whose stage is not self-routing (e.g., a hypothetical `["qa"]`) is rejected by Rule 5 because its FAIL target (Developer, owning `implementation`) owns no active stage at or before `qa`
 
 ### 21.61 Documentation-Only Work Package
 
@@ -548,7 +549,9 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 - FAIL routing for `qa` → Developer, `code-review` → Developer (standard map applies because Developer's `implementation` stage is active)
 - **Use case:** Spike/prototype WPs, experimental implementations, or tasks where documentation will be handled separately
 
-### 21.63 FAIL Routing Fallback Semantics
+### 21.63 FAIL Routing Fallback Semantics (legacy chains only — see §21.72)
+
+> Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects every chain that would trigger this fallback at creation time. The fallback described below is reachable only by WPs created before v2.6.0.
 
 - When a pipeline FAILs and the standard `FAIL_ROUTING_MAP` target's owned stage is **not active** in the WP, `resolveFailAgent` (§9.3.1) falls back to the agent owning the WP's first active stage
 - **Example:** A WP with `["qa", "code-review"]` — a `qa` FAIL normally routes to Developer, but `implementation` is not active. The fallback routes to QA (owning `qa`, the first active stage), producing a self-rework handoff note
@@ -566,14 +569,17 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 
 ### 21.65 Test-Only WP Production Method Prerequisite
 
-- When a WP's `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), all methods, functions, and classes referenced in the WP's scope must already exist in production code
+- Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects any new chain containing `qa`, `security-audit` or `code-review` without an active `implementation` stage at or before it. The only chains that still exclude `implementation` for new WPs are chains of self-fixing stages — stages whose own FAIL target owns themselves (e.g., `["documentation"]`, `["release-engineering", "documentation"]`). When such a WP's scope references methods, functions, or classes, all of them must already exist in production code
 - This is a **planning discipline rule** enforced by the Project Manager during WP decomposition (after ledger bootstrapping) and by the Pipeline Configurator sub-agent during stage assignment — it is not enforced by the MCP server at the schema level
 - If a required symbol does not exist, the WP must be reclassified to include the `implementation` stage. Failing to do so constitutes invisible scope expansion: the Developer will be forced to add production code inside a WP that was scoped as non-implementation, creating a plan-vs-reality mismatch
 - **Validation method:** A grep or codebase search for the referenced symbols is sufficient. The PM or Pipeline Configurator does not need to run the code — only verify that the symbols exist in the source tree
-- **Example:** A WP scoped as `["qa", "code-review"]` that references `setItemsPerPageURLTemplate()` in its acceptance criteria must verify that this method already exists. If it does not, the WP should use `["implementation", "qa", "code-review"]` (or the full default chain) instead
+- **Example:** A WP scoped as `["release-engineering", "documentation"]` that references `setItemsPerPageURLTemplate()` in its acceptance criteria must verify that this method already exists. If it does not, the WP should use `["implementation", "qa", "code-review"]` (or the full default chain) instead
 - This rule does not apply to WPs that include `implementation` in their `active_pipeline_stages`, since the Developer is expected to create any missing symbols during that stage
+- **Legacy exception:** A pre-v2.6.0 WP already holding a verifier-without-implementation chain (e.g., `["qa", "code-review"]`) is not migrated and this rule still applies to it as written above — the chain predates Rule 5 and is not re-validated on read
 
-### 21.66 First-Active-Stage Re-engagement Loop
+### 21.66 First-Active-Stage Re-engagement Loop (legacy chains only — see §21.72)
+
+> Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects every new chain where a verifier stage is first and lacks an active fix stage, so this scenario is reachable only by WPs created before v2.6.0. The fix remains required so those legacy chains keep behaving correctly.
 
 **Affected agent functions:** QA P4, Reviewer P4, Security Auditor P4, Release Engineer P5  
 **Immune agent functions:** Documentation P4, Release Engineer P4
@@ -624,7 +630,9 @@ Any `active_pipeline_stages` composition where a non-`implementation` stage is *
 
 **Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions), [§21.67](#2167-first-active-stage-self-rework-deadlock) (WAIT_FOR_REWORK deadlock when FAIL routes to self)
 
-### 21.67 First-Active-Stage Self-Rework Deadlock
+### 21.67 First-Active-Stage Self-Rework Deadlock (legacy chains only — see §21.72)
+
+> Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects every new chain capable of reaching this deadlock, so it is reachable only by WPs created before v2.6.0. The P4b fix remains required so those legacy chains do not deadlock.
 
 **Affected agents:** QA, Reviewer, Security Auditor  
 **Prerequisite:** §21.66 (null-prerequisite guard correctly returns `false`), §21.63 (FAIL routing falls back to self-rework), §9.3.1 (`resolveFailAgent` fallback)
@@ -765,3 +773,37 @@ When the helper returns a non-null dispatch, the handoff function returns that d
 Cross-WP dispatch is a **best-effort optimization for IDE runners**. The orchestrator's supervisor polling loop already re-dispatches READY WPs without relying on this mechanism. Implementations that omit `findNextReadyDispatch()` remain correct in orchestrator mode; the fix only prevents stalls in IDE mode. No invariants of the core state machine are affected — READY WPs and pipeline ownership rules are unchanged.
 
 **Related sections:** [§13.5](handoff.md#135-findnextreadydispatch-algorithm) (`findNextReadyDispatch` algorithm), [§13.1](handoff.md#131-per-agent-handoff-functions) (per-agent handoff functions — QA, Security Auditor, Reviewer, Release Engineer, Documentation each call `findNextReadyDispatch()` before final WAIT), [§21.70](#2170-pm-pipeline-routing-for-in_progress-wps) (PM equivalent for IN_PROGRESS WP routing)
+
+### 21.72 Unfixable Verifier Chain Rejection
+
+**Introduced:** spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) (fail-route coverage)
+
+#### The defect
+
+A work package whose pipeline chain contains a verifier stage (`qa`, `security-audit`, `code-review`) but no stage able to act on that verifier's FAIL result is a decomposition defect. Before v2.6.0, the ledger accepted such a chain unconditionally. The canonical example is `["qa", "code-review"]`: a `qa` FAIL normally routes to Developer (`FAIL_ROUTING_MAP["qa"] == "Developer"`), but `implementation` — the stage Developer owns — is not active. `resolveFailAgent` (§9.3.1) then falls back to the first active stage's agent, routing the FAIL to QA itself. The result is a **self-loop**: QA ↔ QA, bounded only by `MAX_REWORK_COUNT` (§16.2) rather than by any stage that can actually fix the underlying problem. §21.63, §21.66 and §21.67 describe the mechanics of this self-loop and the fixes (`null → false` re-engagement guard, P4b self-rework fallback) that keep it from deadlocking — those fixes remain necessary for chains that predate this rule, but they treat a symptom; this rule removes the cause for every new WP.
+
+#### The rule
+
+[§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation): for every active stage `S`, let `R = FAIL_ROUTING_MAP[S]`. If `R` owns an active pipeline stage `F` (via `AGENT_PIPELINE_MAP`), then `F` must be active and must appear at or before `S` in `CANONICAL_PIPELINE_ORDERING`. The rule is expressed entirely over manifest-derived maps — no stage or role name is hard-coded — so it re-evaluates correctly if `FAIL_ROUTING_MAP`, `AGENT_PIPELINE_MAP`, or the canonical ordering ever changes.
+
+**Self-routing stages pass trivially.** A stage whose own FAIL target owns that same stage (`implementation` → Developer → `implementation`; `release-engineering` → Release Engineer → `release-engineering`; `documentation` → Documentation → `documentation`, under the current manifest) always satisfies the rule, because `F == S` is trivially at or before `S`. A stage whose FAIL target owns no stage at all is also exempt — `resolveFailAgent` never needs the fallback for such a target, so there is nothing for Rule 5 to guard against. Under the current manifest, the rule rejects exactly the chains that contain `qa`, `security-audit`, or `code-review` without an active `implementation` stage at or before them.
+
+#### The error message
+
+Rule 5 groups rejected stages by their missing fix stage and names the failing stage(s), the FAIL target role, the stage that role owns, the manifest key, and the remedy:
+
+```
+Pipeline chain [qa → code-review] cannot fix its own FAIL results: FAILs in qa, code-review route
+to Developer (pipelines.fail_routing), but Developer's stage "implementation" is not active at or
+before them. Add "implementation" ahead of qa, or remove the verifier stage(s) from the chain.
+```
+
+#### Legacy-WP treatment
+
+Rule 5 is enforced only at the moment `active_pipeline_stages` is set. Stored chains are **never re-validated on read**, and there is **no migration** of existing WPs. A WP created before v2.6.0 that already holds a chain like `["qa", "code-review"]` keeps routing exactly as it did before this rule existed — through the `resolveFailAgent` fallback (§9.3.1, now documented as legacy-only), the `null → false` re-engagement guard (§21.66, now marked legacy-only), and the P4b self-rework fallback (§21.67, now marked legacy-only). None of those mechanisms are removed or altered by this rule; they remain load-bearing for every pre-v2.6.0 WP that has not been recreated with a valid chain.
+
+#### Scope of enforcement
+
+Rule 5 applies to **every operation that sets `active_pipeline_stages`**, not only WP creation. Any present or future write path (for example, a future `ledger_update_pipeline_stages` tool) must route through `validateActiveStages` so the rule is enforced uniformly, rather than being re-implemented or bypassed at a new call site. See the write-path note in [§9b.2](operations.md#9b2-active-pipeline-stages-validation).
+
+**Related sections:** [§9b.2](operations.md#9b2-active-pipeline-stages-validation) (Rule 5 definition and pseudocode), [§9.3.1](pipeline-routing.md#931-fail-routing-fallback) (fallback, now legacy-only), [§21.55](#2155-pipeline-stage-backward-compatibility) (legacy-chains bullet), [§21.60](#2160-single-stage-work-package-semantics) (single-stage self-routing interaction), [§21.63](#2163-fail-routing-fallback-semantics-legacy-chains-only--see-2172) (fallback semantics, legacy chains only), [§21.65](#2165-test-only-wp-production-method-prerequisite) (self-fixing-only chains for new test-only WPs), [§21.66](#2166-first-active-stage-re-engagement-loop-legacy-chains-only--see-2172) (re-engagement loop, legacy chains only), [§21.67](#2167-first-active-stage-self-rework-deadlock-legacy-chains-only--see-2172) (self-rework deadlock, legacy chains only)

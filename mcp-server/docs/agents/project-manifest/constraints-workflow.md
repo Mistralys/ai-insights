@@ -375,7 +375,7 @@ Cannot start pipeline 'implementation' for work package WP-019: this pipeline ty
 
 ### All Six Pipeline Stages Are PM-Composable
 
-**Rule:** All six pipeline stages (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) are equally composable by the Project Manager. There is no inherent "mandatory" or "optional" designation for any stage. The PM selects any valid subsequence of `CANONICAL_PIPELINE_ORDERING` per work package via the `active_pipeline_stages` field.
+**Rule:** All six pipeline stages (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) are equally composable by the Project Manager. There is no inherent "mandatory" or "optional" designation for any stage. The PM selects any valid subsequence of `CANONICAL_PIPELINE_ORDERING` per work package via the `active_pipeline_stages` field, subject to the fail-route coverage guardrail below (v2.6.0) — a chain containing a verifier stage must also own an active stage able to fix that verifier's FAIL.
 
 **Default:** When `active_pipeline_stages` is omitted, `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) is used for backward compatibility.
 
@@ -396,6 +396,7 @@ Cannot start pipeline 'implementation' for work package WP-019: this pipeline ty
 - Entries that are not valid `PIPELINE_TYPES` values
 - Duplicate entries
 - Entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING` (relative ordering must be preserved; gaps are allowed)
+- **Fail-route coverage (v2.6.0):** a stage's FAIL target (`FAIL_ROUTING_MAP` / `AGENT_PIPELINE_MAP`) must own an active stage at or before it in `CANONICAL_PIPELINE_ORDERING`. Under the current manifest this rejects any chain containing `qa`, `security-audit`, or `code-review` without an active `implementation` stage upstream — see `findFailRoutingGaps()` below.
 
 **Soft guardrails (warning appended to the success response — creation is NOT aborted):**
 - `implementation` present without `qa` (unusual composition)
@@ -412,20 +413,20 @@ Cannot start pipeline 'implementation' for work package WP-019: this pipeline ty
 
 ### A Chain With a Verifier Stage Must Include `implementation`
 
-This convention binds whoever composes a chain — the planning personas (WP Decomposer, Pipeline Configurator, Project Manager) and anyone calling `ledger_create_work_package` by hand. A chain such as `["qa", "code-review"]` passes every validation guardrail, but it has no stage that can fix what its verifiers flag.
+This convention binds whoever composes a chain — the planning personas (WP Decomposer, Pipeline Configurator, Project Manager) and anyone calling `ledger_create_work_package` by hand. A chain such as `["qa", "code-review"]` has no stage that can fix what its verifiers flag.
 
 **Rule:** Never create a WP whose `active_pipeline_stages` contains a verifier stage (`qa`, `security-audit`, `code-review`) but not `implementation`. Treat such a chain as a decomposition defect, not as a composition choice:
 - Put verification in the WP that produces what it verifies.
 - Express a milestone exit gate as acceptance criteria on the final authoring WP, not as a separate verifier-only WP. State a "green suite" criterion as *no new failures against a recorded baseline*, so a pre-existing failure the plan did not cause does not fail the gate.
 - Do not give QA acceptance criteria about documentation written in the same WP: `qa` runs before `documentation` in canonical order, so the documentation does not exist yet when QA runs.
 
-**Why the chain cannot recover:**
+**Why the chain cannot recover (legacy chains only — see Enforcement below):** this describes the self-loop that a chain like `["qa", "code-review"]` produced before v2.6.0, and still describes the routing of any pre-v2.6.0 WP that already holds such a chain:
 - In `CANONICAL_PIPELINE_ORDERING`, `implementation` is the only stage upstream of the verifiers, and `pipelines.fail_routing` in `shared/workflow-manifest.json` sends every verifier FAIL to the Developer.
 - When `implementation` is absent, `resolveFailAgent()` falls back to the owner of the first active stage. On `["qa", "code-review"]` that is QA itself, so a QA FAIL routes back to QA (the handoff note reads `from_agent: "QA"`, `to_agent: "QA"`).
 - The recommendation engine turns that into a self-rework: `getQaAction` P4b (and the matching Reviewer and Security Auditor P4b branches) emits `RUN_QA` when `resolveFailAgent('qa', activeStages) === 'QA'`. `getDeveloperAction` skips every WP whose chain lacks `implementation`, so no agent ever changes anything between runs.
 - The verifier re-runs against unchanged code and fails identically until its `rework_counts` entry reaches `MAX_REWORK_COUNT`.
 
-**Enforcement:** None in the server. `validateActiveStages()` accepts the chain; `["qa", "code-review"]` draws only the custom-composition soft warning. A creation-time rejection is planned but not implemented — update this entry when it lands.
+**Enforcement (v2.6.0):** `validateActiveStages()` now rejects this chain at creation time via the fail-route coverage hard guardrail documented above (`findFailRoutingGaps()` in `src/utils/pipeline-maps.ts`). `ledger_create_work_package` with `active_pipeline_stages: ["qa", "code-review"]` returns an error result and writes no WP. The rule is enforced only at creation — `active_pipeline_stages` is never re-validated on read, so a WP created before v2.6.0 that already holds such a chain is not migrated and keeps routing through the `resolveFailAgent()` fallback described above.
 
 **Unfixable failures:** A failure the WP cannot fix in scope — such as a pre-existing test failure unrelated to the plan — is left to the existing rework-limit path (`BLOCK_FOR_REWORK_LIMIT`, then PM review). There is no "accept as out of scope" verdict, by decision.
 

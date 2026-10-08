@@ -179,7 +179,7 @@ Inactive stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Create WP | Dependency not found | Referenced WP ID does not exist |
 | Create WP | Dependency cycle | Adding these dependencies would create a circular dependency |
 | Create WP | Empty criteria | At least one acceptance criterion required |
-| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
+| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, violates canonical ordering, or a stage's FAIL target owns no active stage at or before it (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
 | Claim WP | Wrong status | WP must be READY |
 | Claim WP | Dependencies not met | All deps must be terminal |
 | Claim WP | Assigned to other | Override required (PM or assignee only) |

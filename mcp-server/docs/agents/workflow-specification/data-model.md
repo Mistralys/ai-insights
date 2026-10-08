@@ -81,7 +81,7 @@ WorkPackageDetail {
 }
 ```
 
-> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction. See §9b.2 for validation rules including soft guardrails.
+> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction, subject to the fail-route coverage requirement (§9b.2 Rule 5). See §9b.2 for validation rules including soft guardrails.
 ```
 
 **WorkPackageStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED` | `CANCELLED`
@@ -231,7 +231,7 @@ CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-r
 
 `DEFAULT_PIPELINE_STAGES` is the backward-compatible default applied when `active_pipeline_stages` is absent or `null`. It corresponds to the 4-stage chain used by all ledgers created before composable stages were introduced.
 
-> **Removed constants:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. All six stages are now PM-composable — the PM selects any valid subsequence of the canonical ordering. The validation function ([§9b.2](operations.md#9b2-active-pipeline-stages-validation)) enforces structural correctness (valid types, no duplicates, canonical order) and emits soft guardrail warnings for unusual compositions, but does not reject any particular subset.
+> **Removed constants:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. All six stages are now PM-composable — the PM selects any valid subsequence of the canonical ordering. The validation function ([§9b.2](operations.md#9b2-active-pipeline-stages-validation)) enforces structural correctness (valid types, no duplicates, canonical order), enforces fail-route coverage (Rule 5), and emits soft guardrail warnings for unusual compositions, but does not reject any particular subset beyond what those rules require.
 
 **Common composition patterns:**
 
@@ -243,3 +243,5 @@ CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-r
 | Verification-only | `["implementation", "qa", "code-review"]` | Spike/prototype; no docs needed |
 | Security-focused | `["implementation", "qa", "security-audit", "code-review", "documentation"]` | Security audit without release engineering |
 | Quick fix | `["implementation", "qa", "documentation"]` | Fast-track fix; skip code review |
+
+A chain that omits a verifier's fix stage is invalid under [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) — for example, `["qa", "code-review"]` is rejected because neither verifier has an active `implementation` stage at or before it to route a FAIL to.

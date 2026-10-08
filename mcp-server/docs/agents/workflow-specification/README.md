@@ -2,12 +2,24 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.5.1
-**Date:** 2026-05-30
+**Version:** 2.6.0
+**Date:** 2026-10-06
 
 ---
 
 ## Changelog
+
+### v2.6.0 - Fail-Route Coverage Validation
+
+- **New Hard Reject 5 — Fail-route coverage (§9b.2):** `validateActiveStages` now rejects any chain where an active stage's FAIL target (`FAIL_ROUTING_MAP`) owns a pipeline stage (`AGENT_PIPELINE_MAP`) that is not active at or before that stage in `CANONICAL_PIPELINE_ORDERING`. Expressed entirely over manifest-derived maps, with no hard-coded stage or role names. A work package whose chain contains a verifier stage but no stage able to fix what that verifier flags is now rejected at creation time instead of silently accepted. The rule applies to every operation that sets `active_pipeline_stages`, and stored chains are never re-validated on read (§9b.2).
+- **`resolveFailAgent` fallback re-labelled legacy-only (§9.3.1):** Since Rule 5 rejects every new chain that would trigger the fallback, it is now reachable only by WPs created before v2.6.0. The pseudocode and behavior are unchanged; only the documentation is updated.
+- **§8 qualified (pipeline-routing.md):** "Any valid subsequence" now reads "...that passes §9b.2."
+- **§3.3 and §4.2 updated (data-model.md):** Both notes now reference Rule 5, and a new sentence after the composition-patterns table states that a chain lacking its verifiers' fix stage is invalid (e.g. `["qa", "code-review"]`).
+- **New edge case §21.72 (Unfixable Verifier Chain Rejection):** Documents the defect, the pre-existing `["qa", "code-review"]` self-loop (QA ↔ QA, bounded by `MAX_REWORK_COUNT`), the rule, the error message shape, the self-routing stages that pass trivially, and legacy-WP treatment.
+- **Legacy-chain edge cases re-labelled:** §21.55 gains a legacy-chains bullet. §21.60's FAIL and Validation bullets updated for Rule 5 interaction. §21.63, §21.66, and §21.67 are now marked "legacy chains only — see §21.72," since Rule 5 prevents every new WP from reaching the scenarios they describe; the fixes they document remain required for WPs created before v2.6.0.
+- **§21.65 narrowed:** The opening bullet and example now cover only chains of self-fixing stages (e.g. `["documentation"]`, `["release-engineering", "documentation"]`) — the set of chains that can still exclude `implementation` for new WPs under Rule 5.
+- **Appendix C updated (walkthrough.md):** The "Invalid active stages" row now names the fail-route-coverage condition as a rejection cause.
+- **Overview sentence amended (§1):** Notes that composing a subsequence is subject to the fail-route coverage requirement.
 
 ### v2.5.1 - Mixed-Routing Forward Progress
 
@@ -137,7 +149,7 @@ The core progression is:
 Planner → Project Manager → [ Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation ] → Synthesis
 ```
 
-All six pipeline stages are **PM-composable** — the Project Manager selects which stages are active for each work package at creation time via the `active_pipeline_stages` field. The default set (`DEFAULT_PIPELINE_STAGES`) is `["implementation", "qa", "code-review", "documentation"]`, providing backward compatibility. The PM may compose any valid subsequence of the canonical ordering, from a single stage (e.g., documentation-only) to all six stages.
+All six pipeline stages are **PM-composable** — the Project Manager selects which stages are active for each work package at creation time via the `active_pipeline_stages` field. The default set (`DEFAULT_PIPELINE_STAGES`) is `["implementation", "qa", "code-review", "documentation"]`, providing backward compatibility. The PM may compose any valid subsequence of the canonical ordering, from a single stage (e.g., documentation-only) to all six stages, provided every verifier stage in the chain has an active stage at or before it able to fix what that verifier flags (§9b.2 Rule 5, v2.6.0).
 
 Work is organized into **work packages** (WPs), each of which progresses through a configurable sequence of **pipelines**:
 

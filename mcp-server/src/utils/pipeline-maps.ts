@@ -256,6 +256,13 @@ export function resolveNextAgent(
  * Fallback: when the standard fail-target agent's stage is not present in
  * activeStages, routes to the agent that owns the first active stage.
  *
+ * **Legacy-only since spec v2.6.0:** `validateActiveStages`'s fail-route
+ * coverage rule (Hard Reject 5, §9b.2) rejects at creation time every chain
+ * that would reach this fallback. For any chain accepted by
+ * `validateActiveStages`, the fallback branch is unreachable — the function
+ * body is unchanged, but it is now exercised only by WPs created before
+ * v2.6.0 whose chain predates the rule (see spec §9.3.1, §21.72).
+ *
  * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
  */
 export function resolveFailAgent(
@@ -350,12 +357,63 @@ export function lastActiveStage(stages?: readonly PipelineType[] | null): Pipeli
 }
 
 /**
+ * A single stage whose FAIL result cannot be fixed within the active chain:
+ * `stage`'s FAIL routes to `failAgent`, who owns `fixStage`, but `fixStage`
+ * is not active at or before `stage` in canonical order.
+ */
+export interface FailRoutingGap {
+  stage: PipelineType;
+  failAgent: string;
+  fixStage: PipelineType;
+}
+
+/**
+ * Finds every active stage whose FAIL target cannot act on the failure —
+ * the manifest-derived basis for §9b.2 Hard Reject 5 (fail-route coverage).
+ *
+ * For each active stage `S` (in canonical order), resolves `FAIL_AGENT_MAP[S]`
+ * to find the agent that would fix a FAIL, then `AGENT_PIPELINE_MAP[failAgent]`
+ * to find the stage that agent owns. A stage whose FAIL target owns no stage
+ * at all is exempt — `resolveFailAgent` never needs its fallback for such a
+ * target. Otherwise, the owned stage (`fixStage`) must appear in the active
+ * prefix ending at and including `S`; if it does not (absent, or present but
+ * ordered after `S`), `S` is reported as a gap. A stage whose FAIL target owns
+ * the stage itself always satisfies this trivially (`fixStage === S`).
+ *
+ * Reads only module-level manifest-derived maps — no stage or role literals,
+ * and no injectable parameters, matching the sibling helpers
+ * (`getOrderedActiveStages`, `firstActiveStage`, `lastActiveStage`).
+ */
+export function findFailRoutingGaps(stages: readonly PipelineType[]): FailRoutingGap[] {
+  const ordered = getOrderedActiveStages(stages);
+  const gaps: FailRoutingGap[] = [];
+
+  for (let i = 0; i < ordered.length; i++) {
+    const stage = ordered[i]!;
+    const failAgent = FAIL_AGENT_MAP[stage];
+    const fixStage = AGENT_PIPELINE_MAP[failAgent];
+
+    if (fixStage === undefined) continue; // FAIL target owns no stage — exempt
+
+    const activePrefix = ordered.slice(0, i + 1);
+    if (!activePrefix.includes(fixStage)) {
+      gaps.push({ stage, failAgent, fixStage });
+    }
+  }
+
+  return gaps;
+}
+
+/**
  * Validates a proposed active_pipeline_stages array against all hard and soft rules.
  * Returns { errors, warnings } instead of throwing — the caller is responsible
  * for acting on errors (typically by throwing errors[0]).
  *
- * Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
- * Soft warnings: implementation without qa, single-stage chain.
+ * Hard errors (§9b.2): (1) empty array; (2) unknown stage names; (3) duplicates;
+ * (4) out-of-canonical-order; (5) fail-route coverage — a stage's FAIL target
+ * owns no active stage at or before it (see `findFailRoutingGaps`).
+ * Soft warnings: implementation without qa, single-stage chain, non-default
+ * custom composition.
  */
 export function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
@@ -407,6 +465,30 @@ export function validateActiveStages(stages: string[]): { errors: string[]; warn
       return { errors, warnings };
     }
     canonicalIdx++;
+  }
+
+  // Rule 5 (§9b.2): fail-route coverage
+  const gaps = findFailRoutingGaps(asTyped);
+  if (gaps.length > 0) {
+    const byFixStage = new Map<PipelineType, FailRoutingGap[]>();
+    for (const gap of gaps) {
+      const group = byFixStage.get(gap.fixStage) ?? [];
+      group.push(gap);
+      byFixStage.set(gap.fixStage, group);
+    }
+    const clauses = Array.from(byFixStage.values()).map((group) => {
+      const stagesStr = group.map((g) => g.stage).join(', ');
+      const failAgent = group[0]!.failAgent;
+      const fixStage = group[0]!.fixStage;
+      return `FAILs in ${stagesStr} route to ${failAgent} (pipelines.fail_routing), ` +
+        `but ${failAgent}'s stage "${fixStage}" is not active at or before them.`;
+    });
+    const firstGap = gaps[0]!;
+    errors.push(
+      `Pipeline chain [${asTyped.join(' → ')}] cannot fix its own FAIL results: ${clauses.join(' ')} ` +
+      `Add "${firstGap.fixStage}" ahead of ${firstGap.stage}, or remove the verifier stage(s) from the chain.`
+    );
+    return { errors, warnings };
   }
 
   if (asTyped.includes('implementation') && !asTyped.includes('qa')) {
