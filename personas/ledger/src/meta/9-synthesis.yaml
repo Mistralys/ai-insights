@@ -6,6 +6,9 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.13.0 (2026-10-08): When the Knowledge Archiver dispatch cannot run (dispatch tool withheld at
+    the sub-agent depth limit, or the call fails), records a project comment and a Next Steps item
+    naming the pending manual run instead of skipping the step silently
   3.12.1 (2026-09-29): Claude Code Knowledge Archiver dispatch now passes `subagent_type` instead of
     describing the agent in `description`, which started a persona-less general-purpose agent.
     Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
