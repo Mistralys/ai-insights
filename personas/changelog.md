@@ -1,64 +1,26 @@
 # Personas Changelog
 
-## v3.39.0 - **WIP, UNRELEASED**
-- Ledger, Ledger-Support: Decomposer, Pipeline Configurator and PM never produce a WP that only
-  runs checks; exit gates ride on the last authoring WP, and the Ledger Doctor diagnoses legacy ones.
-- Ledger: QA re-engages on `RUN_QA` and narrows its run only when its most recent QA pipeline failed.
-- Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a
-  stated decision.
-- Planner: Links sibling repositories locally first and never plans a release or a switch back.
-- Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.
-- Standalone: Plan Auditor flags release steps and a missing symlink switch as Critical.
-- Ledger: Release Engineer prepares releases without running them and leaves symlinks in place.
-- Developer: Both suites never publish or tag, and link an unlinked sibling instead of waiting.
-- Planner: Gates on a person count as dependencies; Human Actions timing is before or after the run.
-- Ledger-Support: WP Decomposer moves merge and deploy gates out of WPs and re-times mid-run rows.
-- Standalone: Plan Auditor flags any step or criterion waiting on a person as Critical.
-- Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
-- Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
-  they start on Claude Code.
-- Standalone: Documentation; Synthesis leaves a ledger trace when the archiver can't run, README and AGENTS.md Curators dispatch document owners by slug.
-- Release Engineer: Gained the Claude Code `Task` tool it needs to dispatch sub-agents and hand off.
-- Ledger: Developer, QA, Security Auditor and Reviewer can hand off under Claude Code again.
-- Planner, Ledger-Support, Standalone: Baseline-capture guidance now travels the whole planning
-  chain — a before/after diff oracle gets its own early capture step, named in dependents' Notes,
-  given an implementation + QA chain, and flagged as a Major finding when missing.
-- Ledger: Documentation and Reviewer now require an explicit `files_modified: []` when nothing
-  changed.
-- Standalone: Documentation, README and AGENTS.md Curators, Plan Refiner, Plan Architect Reviewer,
-  Manifest Curator, Developer, Web GUI Specialist and Workspace Architect all dispatch sub-agents
-  by slug (or real agent name) on Claude Code and VS Code.
-- Deep Agents: Sub-agent dispatches pass the task in the tool's real `description` field.
-- Build: Handoff personas without the Claude Code `Task` tool now fail the build; rendered output
-  is checked on every target for a sub-agent selected by the wrong name; and a persona can limit
-  which targets it builds for (the Claude Coordinator is Claude Code only).
-- Docs: Persona Design Guide v3.6 documents each platform's sub-agent dispatch arguments.
-- Ledger, Standalone: Documentation personas check changed docblocks against README prose in any
-  module that describes them.
-- Ledger, Ledger-Support: Pipeline Configurator and PM give every authored deliverable a stage
-  that writes it; changelog entries belong to the release-engineering stage.
-- Build: A persona's tool grants are checked for parity across all its targets, with declared
-  exceptions honored; existing mismatches flagged by the new check have been fixed.
-- Build: Template comments (`{{!-- … --}}`, `{{! … }}`) are now supported and fully inert — a
-  commented-out partial or variable never expands, warns, or triggers a build check.
-- Build: The wrapper now runs every check — including a new warn-only check that flags an
-  oversized newest `personas/changelog.md` entry or any of its lines over 100 characters —
-  and both post-build steps on every invocation, even when an earlier check or the library
-  CLI itself fails, and exits with one combined status instead of stopping at the first
-  failure.
-- Build: The personas name-mapping generator moved out of the build wrapper into its own tested
-  module, and the Operating Philosophy tone check is now comment-aware — imperative prose written
-  inside a template comment is ignored rather than flagged.
+## v3.38.0 - Check-Only Chains Prevented, Handoffs Fixed
 
-## v3.38.0 - Agent-Composed Outcome Summaries
+**Planning personas no longer produce work packages that only run checks.** Sub-agent handoffs and
+dispatches now start the intended agent on Claude Code. The Synthesis Maintainer composes outcome
+summaries and applies requested synthesis edits.
 
-**The archiving agent now writes the project outcome summary** instead of the server parsing it
-from a heading. One shared guide governs its length and content across both suites. The
-Synthesis Maintainer can also apply requested edits to a completed project's synthesis.
-
-- Synthesis: Writes an Outcome Summary section in place of the unparseable Executive Summary.
-- Ledger-Support: Synthesis Maintainer composes the summary on archival and keeps it on refresh.
-- Ledger-Support: Synthesis Maintainer applies the edits you request before refreshing the ledger.
+- Ledger, Ledger-Support: No check-only work packages; the Ledger Doctor diagnoses legacy ones.
+- Ledger: Claude Code handoffs and sub-agent dispatches start the intended agent.
+- Ledger: QA re-engages when requested and narrows its run only after a failed QA pipeline.
+- Ledger-Support: Synthesis Maintainer composes outcome summaries and applies requested edits.
+- Ledger, Standalone: Synthesis records archival failures and writes an Outcome Summary section.
+- Planning: Releases stay out of plans; gates on a person count as dependencies.
+- Planning: Baseline-capture guidance now runs through the whole planning chain.
+- Developer: Never publishes or tags; Release Engineer prepares releases without running them.
+- Standalone: Plan Auditor flags release steps and person-gated steps as Critical.
+- Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
+- Ledger, Standalone: Documentation personas check docblocks against README prose.
+- Deep Agents: Sub-agent dispatches pass the task in the correct field.
+- Build: Wrong-name sub-agent dispatches and tool-grant mismatches now fail the build.
+- Build: Every check runs on each build; template comments are inert; personas can limit targets.
+- Docs: Persona Design Guide v3.6 documents sub-agent dispatch arguments per platform.
 - Shared: Added an outcome-summary crafting guide covering both suites.
 
 ## v3.37.0 - Self-Advancing Chains and Unattended Runs

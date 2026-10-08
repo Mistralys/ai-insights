@@ -1,14 +1,26 @@
 # AI Insights Changelog
 
-## v2.15.0 - **WIP, UNRELEASED**
+## v2.15.0 - Outcome Summaries and Safer Chains
+> mcp v2.11.0 · personas v3.38.0
+
+**Work packages whose verifier stage cannot be fixed are now rejected at creation.** Planning
+personas also stop producing check-only work packages. Agents now write project outcome summaries
+themselves, and Claude Code handoffs reliably start the intended agent. The agent picker can
+launch with permission prompts skipped.
+
+- MCP: Work package creation rejects chains whose verifier stage has no stage able to fix it.
+- Personas: Planning personas no longer produce check-only work packages.
+- MCP: Standalone import and synthesis refresh accept agent-supplied outcome summaries.
+- Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
+- Personas: Claude Code handoffs and sub-agent dispatches start the intended agent.
+- Personas: Releases stay out of plans; developers and release engineers never publish or tag.
 - CLI: Claude agent picker gained a toggle to launch with permission prompts skipped.
 - CLI: New `audit-orchestrator` command scans the orchestrator venv for security advisories.
-- Orchestrator: `pip-audit` added to the `dev` extras.
-- Dependencies: Updated JS and Python packages to clear known security advisories.
-- MCP: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
+- MCP: Artifact-declaration warnings now follow each pipeline type's policy.
 - MCP: Fixed synthesis refresh clearing a stored summary it could not replace.
-- Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
 - GUI: Persona model settings flag obsolete assignments and offer to remove them.
+- Build: Persona build runs every check and verifies sub-agent dispatch on all targets.
+- Dependencies: Updated JS and Python packages to clear known security advisories.
 
 ## v2.14.1 - CLI Claude Resume
 
