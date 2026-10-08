@@ -656,6 +656,11 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdAuditOrchestrator(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'audit-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdBackfillDuration(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'backfill-duration.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -1096,6 +1101,19 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdKillOrchestrator,
+  },
+  {
+    id:           'audit-orchestrator',
+    key:          null,
+    label:        'Audit orchestrator dependencies',
+    category:     'Orchestrator',
+    description:  'Scan the orchestrator venv for known security advisories (pip-audit)',
+    helpVariants: [
+      ['audit-orchestrator --json', 'Machine-readable output'],
+      ['audit-orchestrator --fix',  'Upgrade vulnerable packages'],
+    ],
+    helpHidden:   true,
+    run:          cmdAuditOrchestrator,
   },
   {
     id:           'backfill-duration',

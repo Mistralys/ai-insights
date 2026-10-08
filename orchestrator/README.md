@@ -569,6 +569,21 @@ Integration tests run the real LangGraph supervisor against scripted MCP-tool mo
 
 ---
 
+## Security Audit
+
+[pip-audit](https://pypi.org/project/pip-audit/) scans the installed packages for known security advisories. It is part of the `dev` extras, so `pip install -e ".[dev]"` (or `ai-insights setup`) installs it into `.venv`.
+
+```bash
+# From the workspace root — audits the packages installed in orchestrator/.venv
+./menu.sh audit-orchestrator            # human-readable table
+./menu.sh audit-orchestrator --json     # machine-readable output (agent use)
+./menu.sh audit-orchestrator --fix      # upgrade vulnerable packages
+```
+
+The command exits 0 when no vulnerabilities are found and 1 when any are found or the audit cannot run (missing venv or `pip-audit`). Unrecognised arguments are passed through to `pip-audit`. The orchestrator package itself is reported as "not found on PyPI and could not be audited" — that is expected for an editable install.
+
+---
+
 ## Linting
 
 [ruff](https://docs.astral.sh/ruff/) is the linter and formatter for `orchestrator/src/`. It is included in the `dev` extras.
