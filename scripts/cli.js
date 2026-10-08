@@ -963,9 +963,10 @@ const COMMANDS = [
     key:          'a',
     label:        'Launch an agent',
     category:     'Personas',
-    description:  'Launch a persona with Claude Code, or resume a session',
+    description:  'Launch a persona with Claude Code, or resume a session (permission toggle)',
     helpVariants: [
       ['agent --filter <term>', 'Pre-fill the filter query'],
+      ['agent --skip-permissions', 'Start with permission prompts skipped'],
     ],
     run:          cmdAgent,
   },

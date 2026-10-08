@@ -1,23 +1,29 @@
 # Personas Changelog
 
 ## v3.39.0 - **WIP, UNRELEASED**
+- Ledger, Ledger-Support: Decomposer, Pipeline Configurator and PM never produce a WP that only
+  runs checks; exit gates ride on the last authoring WP, and the Ledger Doctor diagnoses legacy ones.
+- Ledger: QA re-engages on `RUN_QA` and narrows its run only when its most recent QA pipeline failed.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a stated decision.
+- Planner: Links sibling repositories locally first and never plans a release or a switch back.
+- Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.
+- Standalone: Plan Auditor flags release steps and a missing symlink switch as Critical.
+- Ledger: Release Engineer prepares releases without running them and leaves symlinks in place.
+- Developer: Both suites never publish or tag, and link an unlinked sibling instead of waiting.
+- Planner: Gates on a person count as dependencies; Human Actions timing is before or after the run.
+- Ledger-Support: WP Decomposer moves merge and deploy gates out of WPs and re-times mid-run rows.
+- Standalone: Plan Auditor flags any step or criterion waiting on a person as Critical.
+- Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
+- Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
+  they start on Claude Code.
+- Standalone: Documentation; Synthesis leaves a ledger trace when the archiver can't run, README and AGENTS.md Curators dispatch document owners by slug.
+- Release Engineer: Gained the Claude Code `Task` tool it needs to dispatch sub-agents and hand off.
+- Ledger: Developer, QA, Security Auditor and Reviewer can hand off under Claude Code again.
 - Planner, Ledger-Support, Standalone: Baseline-capture guidance now travels the whole planning
   chain — a before/after diff oracle gets its own early capture step, named in dependents' Notes,
   given an implementation + QA chain, and flagged as a Major finding when missing.
 - Ledger: Documentation and Reviewer now require an explicit `files_modified: []` when nothing
   changed.
-- Planner, Ledger-Support, Standalone, Ledger, Developer: Plans link sibling repositories locally
-  and never release or wait on one; WPs keep releases out of scope and order the symlink switch
-  first; audits flag a missing switch or any release step as Critical; Release Engineer prepares
-  releases without running them; Developer links an unlinked sibling instead of waiting.
-- Planner, Ledger-Support, Standalone: A gate on a person now counts as a dependency — Human
-  Actions timing is always before or after the run, WPs never carry a merge or deploy gate, and
-  audits flag any step or criterion waiting on a person as Critical.
-- Ledger: Auto-handoff dispatches the successor by its real agent name and forwards the prompt as
-  is; PM, Synthesis, Release Engineer, Documentation, Developer, QA, Security Auditor and Reviewer
-  all dispatch and hand off correctly on Claude Code again, and Release Engineer gained the `Task`
-  tool it needs to do so.
 - Standalone: Documentation, README and AGENTS.md Curators, Plan Refiner, Plan Architect Reviewer,
   Manifest Curator, Developer, Web GUI Specialist and Workspace Architect all dispatch sub-agents
   by slug (or real agent name) on Claude Code and VS Code.

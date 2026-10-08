@@ -17,6 +17,7 @@ _SOURCE: Project manifest (overview, tech stack, constraints, decisions, API sur
                 └── README.md
                 └── api-surface.md
                 └── constraints.md
+                └── curation-log.md
                 └── data-flows.md
                 └── decisions.md
                 └── file-tree.md
@@ -73,6 +74,8 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Tech Stack** | [project-manifest/tech-stack.md](tech-stack.md) | Runtime, dependencies (incl. `langgraph>=1.1,<2.0`), architectural patterns |
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
+| **Design Decisions** | [project-manifest/decisions.md](decisions.md) | Rejected and not-adopted alternatives, and IDE/orchestrator divergences that look like bugs but are deliberate |
+| **Curation Log** | [project-manifest/curation-log.md](curation-log.md) | Standing decisions about this manifest and the dated trail of curation passes |
 
 ---
 
@@ -1282,6 +1285,36 @@ again would be incorrect.
 
 **Source:** `orchestrator/src/nodes/__init__.py` → `create_deep_agent()` call site; `deepagents` library → `graph.py` built-in tool merge.
 ```
+###  Path: `/orchestrator/docs/agents/project-manifest/curation-log.md`
+
+```md
+# Curation Log
+
+Why this manifest looks the way it does, and when it was last verified.
+Read freely — Standing Decisions explains the deliberate gaps and conventions.
+Written by the Manifest Curator only; no other agent edits this file.
+
+## Standing Decisions
+
+| Date | Decision | Rationale |
+|---|---|---|
+| — | — | None settled with the user yet. |
+
+## History
+
+### 2026-10-06 · Update · Curator v1.6.2
+
+**Scope:** `../../supervisor-routing.md` (Special Exits note, Circuit-Breaker section), `../../../README.md` (Exit codes), `decisions.md` (new entry), and the `README.md` index. Driven by integrating the durable findings of the retired plan `2026-10-01-verifier-only-rework-routing` — not a whole-manifest pass; every other document was left unverified.
+**Commit:** c8523c00
+**Changes:**
+- `supervisor-routing.md` — documented the all-terminal synthesis predicate as the supervisor's own copy of the ledger's synthesis guard (a `BLOCKED` WP never satisfies it), what counts as a failure for the circuit breaker (`stage_success` is `False` on any stage exception, including one after a `ledger_complete_pipeline` write), and the halted-WP cancellation sweep on the all-roles-WAIT fall-through.
+- `README.md` (orchestrator root) — added a note under Exit codes: the code derives from the error count and iteration limit only, not from WP outcomes.
+- `decisions.md` — added "Not Adopted: Settled-but-Not-Terminal WPs at Synthesis", recording the orchestrator half of the rejected out-of-chain rework design.
+- `README.md` (manifest index) — added rows for `decisions.md`, which was unlinked, and for this log.
+
+**Notes:** This manifest had no curation log; the file was created by this pass, so the trail says nothing about earlier maintenance. The working tree held uncommitted changes when scanned — the commit above is the last one. The reverted-decision search and changed-code intersection were not run (scoped pass, no floor commit); a full pass should run both. `.context/orchestrator/` is generated from these files and needs `node scripts/cli.js ctx-generate`.
+
+```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`
 
 ```md
@@ -1487,6 +1520,7 @@ plan — it always reflects the most recent run. The GUI reads it via
 
 - [Rejected: User-Turn Prompt WP-Scoping](#rejected-user-turn-prompt-wp-scoping)
 - [Not Adopted: Cross-WP Dispatch (`findNextReadyDispatch`)](#not-adopted-cross-wp-dispatch-findnextreadydispatch)
+- [Not Adopted: Settled-but-Not-Terminal WPs at Synthesis](#not-adopted-settled-but-not-terminal-wps-at-synthesis)
 
 ---
 
@@ -1538,6 +1572,23 @@ def _build_developer_prompt(state: WorkflowState) -> str:
 - If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
 
 **References:** [MCP server edge-cases.md §21.71](../../../../mcp-server/docs/agents/workflow-specification/edge-cases.md); the MCP server's [Non-PM Handoff Functions Must Dispatch to the Next READY WP Before Returning WAIT](../../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md#non-pm-handoff-functions-must-dispatch-to-the-next-ready-wp-before-returning-wait) constraint.
+
+---
+
+## Not Adopted: Settled-but-Not-Terminal WPs at Synthesis
+
+**Decision:** The supervisor keeps its terminal-only synthesis predicate (every WP `COMPLETE` or `CANCELLED`), and the CLI keeps exit codes `0`, `1` and `2`. There is no "settled" WP state that lets a run synthesise around a `BLOCKED` WP, and no exit code for a run that finished with accepted failures.
+
+**Context:** These orchestrator changes were part of a ledger design for WPs whose chain holds verifier stages but no `implementation` stage (from a plan that was retired and deleted; the decision record lives in the MCP server manifest's `constraints-workflow.md`, entry "A Chain With a Verifier Stage Must Include `implementation`"). The design had the ledger run the Developer outside the declared chain to fix a verifier FAIL, and let the fixer end the WP `BLOCKED` as "out of scope". The orchestrator side would have read a ledger-computed `synthesis_readiness` field from `ledger_get_project_status` instead of its own predicate, stopped the halted-WP sweep from cancelling such WPs, and exited with a dedicated code (`3`) listing them.
+
+**Why it was not adopted:** The user rejected the ledger design (2026-10-06). Verifier-only chains are treated as a decomposition defect and prevented by the planning personas — see the MCP server's [A Chain With a Verifier Stage Must Include `implementation`](../../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md#a-chain-with-a-verifier-stage-must-include-implementation) constraint. Without an out-of-scope `BLOCKED` state there is nothing for the orchestrator to treat as settled. A failure that cannot be fixed in scope ends at the existing rework limit.
+
+**Consequences for orchestrator implementations:**
+
+- Do not treat the private all-terminal check in `supervisor.py` as a duplication bug to be replaced by a ledger field. No such field exists.
+- Do not add an exit code or a sidecar `result` value for partially accepted runs. The GUI reads any `{slug}.run-status.json` `result` other than `SUCCESS` as `ERROR` (`mcp-server/gui/orchestrator-manager.ts`) and offers to resume any run whose `.orchestrator-run.json` `result` is not `SUCCESS` (`mcp-server/gui/public/views/project-detail-orch.js`), so a new value would show a finished run as failed and resumable.
+
+**References:** [supervisor-routing.md](../../supervisor-routing.md) (synthesis predicate, halted-WP cancellation); orchestrator [README.md](../../../README.md) → Exit codes.
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/file-tree.md`

@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-01
+> **Generated:** 2026-10-08
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.10.3)
+### Stage 2 — Project Manager (v3.11.1)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.9.4)
+### Stage 4 — QA (v3.10.1)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -153,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.12.2)
+### Stage 9 — Synthesis (v3.13.1)
 
 **Identity:** Head of Operations (OPS)
 
@@ -467,7 +467,7 @@ Map dependencies between Work Packages, identify parallelization opportunities, 
 
 ---
 
-### Ledger Doctor (v1.3.2)
+### Ledger Doctor (v1.3.3)
 
 **Identity:** Senior Workflow Reliability Engineer
 
@@ -521,7 +521,7 @@ Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run 
 
 ---
 
-### Ledger Pipeline Configurator (v1.3.0)
+### Ledger Pipeline Configurator (v1.4.0)
 
 **Identity:** Technical Program Manager — Pipeline Stage Analyst
 
@@ -542,7 +542,7 @@ Archive a completed standalone plan folder into the project ledger, or apply req
 
 ---
 
-### Ledger WP Decomposer (v1.9.0)
+### Ledger WP Decomposer (v1.10.0)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 

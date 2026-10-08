@@ -73,7 +73,7 @@ On **first launch**, the menu walks you through setup automatically — installi
 
 After that, the menu monitors your workspace for stale builds and configuration drift. Just open it — it keeps itself current.
 
-Once you've linked the CLI globally (`npm link`, see the [Developer Guide](docs/references/development.md)), `ai-insights agent` launches any persona directly from any terminal — a type-to-filter picker over everything deployed to `~/.claude/agents/`, with a pinned entry for resuming a previous Claude Code session in the current directory.
+Once you've linked the CLI globally (`npm link`, see the [Developer Guide](docs/references/development.md)), `ai-insights agent` launches any persona directly from any terminal — a type-to-filter picker over everything deployed to `~/.claude/agents/`, with a pinned entry for resuming a previous Claude Code session in the current directory. A pinned **Skip permission prompts** toggle (off by default, flipped with Enter) adds `--dangerously-skip-permissions` to every launch from the picker while it is on — useful when auto mode silently refuses ledger MCP calls. A warning stays on the instructions line while it is active, and the toggle cannot override managed settings that disable bypass mode.
 
 → [docs/references/menu-guide.md](docs/references/menu-guide.md) — full menu reference and direct commands
 

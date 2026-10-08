@@ -52,7 +52,6 @@ _SOURCE: Directory tree_
         │   ├── ledger-wp-decomposer.md
         ├── deep-agents/
         │   ├── ledger-bootstrapper.md
-        │   ├── ledger-claude-coordinator.md
         │   ├── ledger-dependency-sequencer.md
         │   ├── ledger-doctor.md
         │   ├── ledger-knowledge-archiver.md
@@ -90,7 +89,6 @@ _SOURCE: Directory tree_
         │   │   └── ledger-wp-decomposer.yaml
         ├── vs-code/
         │   └── ledger-bootstrapper.agent.md
-        │   └── ledger-claude-coordinator.agent.md
         │   └── ledger-dependency-sequencer.agent.md
         │   └── ledger-doctor.agent.md
         │   └── ledger-knowledge-archiver.agent.md
@@ -199,6 +197,7 @@ _SOURCE: Directory tree_
         │   └── insight-scope-and-types.md
         │   └── knowledge-ownership.md
         │   └── mcp-insight-capture.md
+        │   └── no-release-cycles.md
         │   └── no-stale-counts.md
         │   └── outcome-summary-crafting-guide.md
         │   └── planner-core-rules.md

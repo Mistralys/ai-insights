@@ -20,7 +20,7 @@
  *   AC-12, AC-15: renderPickerLines() divider placement and row-budget bound.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -34,7 +34,10 @@ import {
   renderPickerLines,
   CHROME_ROWS,
   runNonInteractivePicker,
+  runInteractivePicker,
+  parseLaunchArgs,
 } from '../lib/launch-agent-core.js';
+import { LaunchToggles, LAUNCH_TOGGLES } from '../lib/launch-toggles.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -319,5 +322,187 @@ describe('runNonInteractivePicker()', () => {
     const result = await runNonInteractivePicker(entries, 'resume', { readlineFactory });
 
     expect(result).toMatchObject({ id: 'resume-session', kind: 'session', claudeArgs: ['--resume'] });
+  });
+});
+
+
+// ─── Skip-permissions toggle (AC-03..AC-10) ──────────────────────────────────
+
+const stripAnsi = (str) => str.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '');
+const sampleAgents = [
+  { id: 'alpha', label: 'Alpha', description: 'first', file: 'a.md' },
+  { id: 'beta', label: 'Beta', description: 'second', file: 'b.md' },
+];
+
+describe('buildLaunchEntries() with toggles', () => {
+  it('places the toggle row between the session row and the agents', () => {
+    const entries = buildLaunchEntries(sampleAgents, LAUNCH_TOGGLES);
+    expect(entries[0].kind).toBe('session');
+    expect(entries[1]).toMatchObject({
+      id: 'toggle:skip-permissions',
+      kind: 'toggle',
+      toggleId: 'skip-permissions',
+      claudeArgs: [],
+    });
+    expect(entries.slice(2).map((e) => e.id)).toEqual(['alpha', 'beta']);
+  });
+
+  it('without defs returns the pre-toggle list', () => {
+    expect(buildLaunchEntries(sampleAgents).map((e) => e.kind)).toEqual(['session', 'agent', 'agent']);
+  });
+});
+
+describe('firstAgentIndex() with toggles', () => {
+  it('skips session and toggle rows', () => {
+    expect(firstAgentIndex(buildLaunchEntries(sampleAgents, LAUNCH_TOGGLES))).toBe(2);
+  });
+
+  it('returns 0 for a toggle-only list', () => {
+    expect(firstAgentIndex(buildLaunchEntries([], LAUNCH_TOGGLES).slice(1))).toBe(0);
+  });
+});
+
+describe('renderPickerLines() with toggles', () => {
+  const entries = buildLaunchEntries(sampleAgents, LAUNCH_TOGGLES);
+  const state = { query: '', cursor: 2 };
+  const divider = (lines) => lines.filter((l) => stripAnsi(l).includes('─────')).length;
+
+  it('renders ON/OFF per the toggle model', () => {
+    const t = new LaunchToggles();
+    expect(renderPickerLines(state, entries, 15, t).map(stripAnsi).join('\n')).toContain(
+      'Skip permission prompts: OFF',
+    );
+    t.toggle('skip-permissions');
+    expect(renderPickerLines(state, entries, 15, t).map(stripAnsi).join('\n')).toContain(
+      'Skip permission prompts: ON',
+    );
+    expect(renderPickerLines(state, entries).map(stripAnsi).join('\n')).toContain(': OFF');
+  });
+
+  it('draws one divider after the pinned block', () => {
+    const lines = renderPickerLines(state, entries, 15, new LaunchToggles()).map(stripAnsi);
+    expect(divider(lines)).toBe(1);
+    const dividerAt = lines.findIndex((l) => l.includes('─────'));
+    expect(lines[dividerAt - 1]).toContain('Skip permission prompts');
+    expect(lines[dividerAt + 1]).toContain('Alpha');
+  });
+
+  it('draws no divider for a pinned-only list', () => {
+    expect(divider(renderPickerLines(state, entries.slice(0, 2), 15, new LaunchToggles()))).toBe(0);
+  });
+
+  it('keeps the row budget bounded', () => {
+    const lines = renderPickerLines({ query: '', cursor: 0 }, entries, 1, new LaunchToggles());
+    expect(lines.length).toBeLessThanOrEqual(1 + CHROME_ROWS);
+    expect(CHROME_ROWS).toBe(5);
+  });
+
+  it('shows the warning on the instructions line even when the toggle row is filtered out', () => {
+    const t = new LaunchToggles(LAUNCH_TOGGLES, ['skip-permissions']);
+    const agentsOnly = entries.filter((e) => e.kind === 'agent');
+    const lines = renderPickerLines(state, agentsOnly, 15, t).map(stripAnsi);
+    expect(lines[1]).toContain('⚠ Skip permission prompts ON');
+  });
+
+  it('shows no warning when off or when toggles is null', () => {
+    expect(stripAnsi(renderPickerLines(state, entries, 15, new LaunchToggles())[1])).not.toContain('⚠');
+    expect(stripAnsi(renderPickerLines(state, entries, 15, null)[1])).not.toContain('⚠');
+  });
+});
+
+describe('runNonInteractivePicker() with toggles', () => {
+  const entries = buildLaunchEntries(sampleAgents, LAUNCH_TOGGLES);
+
+  it('flips the toggle then resolves with the next selected agent', async () => {
+    const toggles = new LaunchToggles();
+    const result = await runNonInteractivePicker(entries, '', {
+      readlineFactory: makeStubReadlineFactory(['2', '3']),
+      toggles,
+    });
+    expect(toggles.isOn('skip-permissions')).toBe(true);
+    expect(result.id).toBe('alpha');
+  });
+
+  it('flipping twice leaves it off and an empty answer cancels', async () => {
+    const toggles = new LaunchToggles();
+    const result = await runNonInteractivePicker(entries, '', {
+      readlineFactory: makeStubReadlineFactory(['2', '2', '']),
+      toggles,
+    });
+    expect(toggles.isOn('skip-permissions')).toBe(false);
+    expect(result).toBeNull();
+  });
+
+  it('ignores a toggle selection when no toggle model is supplied', async () => {
+    const result = await runNonInteractivePicker(entries, '', {
+      readlineFactory: makeStubReadlineFactory(['2', '']),
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe('runInteractivePicker() with toggles', () => {
+  it('flips on Enter over a toggle row without resolving, then resolves on an agent row', async () => {
+    const writes = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const setRaw = process.stdin.setRawMode;
+    process.stdin.setRawMode = () => process.stdin;
+    const resume = vi.spyOn(process.stdin, 'resume').mockImplementation(() => process.stdin);
+    const pause = vi.spyOn(process.stdin, 'pause').mockImplementation(() => process.stdin);
+    const entries = buildLaunchEntries(sampleAgents, LAUNCH_TOGGLES);
+    const toggles = new LaunchToggles();
+    try {
+      let settled = false;
+      const promise = runInteractivePicker(entries, '', toggles).then((r) => {
+        settled = true;
+        return r;
+      });
+      const press = (name) => process.stdin.emit('keypress', '', { name });
+
+      press('up'); // first agent (cursor 2) -> toggle row (1)
+      press('return');
+      await Promise.resolve();
+      expect(toggles.isOn('skip-permissions')).toBe(true);
+      expect(settled).toBe(false);
+
+      press('down');
+      press('return');
+      const result = await promise;
+      expect(result.id).toBe('alpha');
+      expect(toggles.isOn('skip-permissions')).toBe(true);
+    } finally {
+      process.stdin.removeAllListeners('keypress');
+      process.stdin.setRawMode = setRaw;
+      writes.mockRestore();
+      resume.mockRestore();
+      pause.mockRestore();
+    }
+  });
+});
+
+describe('parseLaunchArgs()', () => {
+  it('handles no args', () => {
+    expect(parseLaunchArgs([])).toEqual({ filter: '', ownArgs: [], passthroughArgs: [] });
+  });
+
+  it('extracts --filter', () => {
+    expect(parseLaunchArgs(['--filter', 'plan'])).toEqual({
+      filter: 'plan',
+      ownArgs: ['--filter', 'plan'],
+      passthroughArgs: [],
+    });
+  });
+
+  it('splits own and passthrough args on --', () => {
+    expect(parseLaunchArgs(['--skip-permissions', '--', '--x'])).toEqual({
+      filter: '',
+      ownArgs: ['--skip-permissions'],
+      passthroughArgs: ['--x'],
+    });
+  });
+
+  it('treats --filter after -- as passthrough', () => {
+    const r = parseLaunchArgs(['--', '--filter', 'y']);
+    expect(r.filter).toBe('');
+    expect(r.passthroughArgs).toEqual(['--filter', 'y']);
   });
 });

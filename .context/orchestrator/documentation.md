@@ -844,6 +844,8 @@ supervisor_node
   └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
 
+> **Synthesis predicate:** The all-terminal check compares each `ledger_list_work_packages` summary's `status` against `_TERMINAL_STATUSES` (`WP_TERMINAL_STATUSES` in `config.py`, derived from the manifest's `statuses.terminal_work_package`). It is the supervisor's own copy of the condition `ledger_complete_synthesis` enforces — the ledger exposes no "ready for synthesis" field. A `BLOCKED` WP never satisfies it, whatever its blocker type; a run that still holds one reaches synthesis only through the all-roles-WAIT fall-through below.
+
 > **State clearing on synthesis routes:** Both synthesis routing paths (all-WPs-terminal and all-roles-WAIT) explicitly set `"current_wp_id": ""` in their `Command` update dicts. This ensures the `restrict_to_wp` tool wrapper does not activate in the synthesis stage, which is project-scoped and must not be constrained to a single WP. A stale `current_wp_id` (left over from the preceding stage) would otherwise cause every MCP tool call in synthesis to trigger cross-WP violations.
 
 ### Dry-Run Mode
@@ -906,5 +908,9 @@ The `consecutive_failures` field in `WorkflowState` tracks per-WP failure counts
 - **Resets** the counter when `stage_success` is `True`.
 
 A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainder of the run (its `ledger_get_next_action` dispatch is bypassed). Skipped WPs do not terminate the run — the supervisor continues checking the remaining roles. Only when all roles return `WAIT` or are circuit-broken does the supervisor fall through to `synthesis`.
+
+"Failure" here means the stage node raised: `stage_success` is `False` on any exception, including one raised after the agent had already written its `ledger_complete_pipeline` result. A FAIL verdict recorded in the ledger is not a failure in this sense — the stage ran to completion.
+
+**Halted-WP cancellation.** On the all-roles-WAIT fall-through, before routing to synthesis, the supervisor cancels every WP that is non-terminal and has a consecutive-failure count of 3 or more. It calls `ledger_update_work_package_status(status="CANCELLED", agent="Project Manager")` and logs a `halted_wp_cancelled` entry per WP. The selection looks only at the failure count and terminal status — not at the WP's status otherwise, nor at its blocker. A cancellation that the ledger rejects is logged as a warning and the run proceeds to synthesis anyway. The ledger's own rework limit does not feed this counter: `BLOCK_FOR_REWORK_LIMIT` is a skip action, so a WP held there is cancelled by the sweep only if it has separately accumulated three stage exceptions.
 
 ```

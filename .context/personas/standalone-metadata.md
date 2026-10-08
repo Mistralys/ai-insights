@@ -72,6 +72,16 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
+    follows from the request and whether the file exists, rather than being asked for before anything is
+    read; Update covers changes the user asks for, not only staleness; and a decision the owner states in
+    the session — a minimal file, a dropped section, a restructure — counts as approval and is never put
+    back to them for confirmation. The five-section specification is now the default, not a fixed
+    hierarchy, and a new principle, The Owner's Decision Outranks the Default, carries the reasoning
+  2.1.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
+    with the owner's slug — the shared ownership partial put the name in `description`, which
+    starts a persona-less general-purpose agent.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   2.1.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   2.1.0 (2026-09-08): Findings outside `AGENTS.md` are now acted on rather than only reported — the shared
     ownership table carries a size triage that corrects small errors in place and dispatches the owning agent
@@ -430,6 +440,11 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.16.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
+    symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
+    no-release-cycles partial)
+  1.15.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
+    Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.15.1 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.15.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Contextual Analysis starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
   1.14.0 (2026-09-10): Code Insights split into Implementation Decisions and Follow-Up Items via a new `decision` type in the shared insight-scope-and-types partial; synthesis template renders both subsections, omitting whichever is empty
@@ -523,6 +538,14 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.3.3 (2026-09-29): Research Verify phase looks up each changed docblock across the project's
+    READMEs and compares every matching paragraph, with a matching Quality Checklist item — a
+    ledger synthesis found stale prose in an adjacent module's README after WPs updated only the
+    source docblocks
+  1.3.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
+    with the owner's slug — the shared ownership partial put the name in `description`, which
+    starts a persona-less general-purpose agent.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   1.3.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.3.0 (2026-09-08): The shared ownership table gained a size triage, so a document belonging to another agent
     is now corrected here when the fix is small and dispatched to its owner when it is not; the dispatch
@@ -644,6 +667,9 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
+    branch, and a `subagents` list declares `ctx-architect`
   1.6.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -686,6 +712,9 @@ cc_tools:
   - WebSearch
   - TodoRead
   - TodoWrite
+
+subagents:
+  - ctx-architect
 
 # overview metadata
 identity: "Technical Knowledge Architect"
@@ -841,6 +870,9 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.3.4 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
+    branch, and a `subagents` list declares `researcher`
   2.3.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task; Task kept, since the workflow
@@ -883,6 +915,9 @@ cc_tools:
   - TodoRead
   - TodoWrite
 
+subagents:
+  - researcher
+
 # research-brief-protocol partial
 brief_orientation: "Entries tagged `[arch]`, and untagged entries, are the ones this review draws on"
 brief_purpose: "orienting on the existing architecture"
@@ -910,6 +945,11 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.11.0 (2026-09-29): Local dependencies check — a multi-repository plan without a symlink switch or a
+    step that releases is Critical, a step switching the symlinks back is Major
+  1.10.0 (2026-09-29): Audits now check unattended execution — a step, dependency or AC waiting on a
+    person, or a Human Actions row timed inside the run, is a Critical Feasibility finding; Human Actions
+    gained a row in the section table and the Completeness Assessment
   1.9.3 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -986,6 +1026,11 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.1 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
+    in `description`, which starts a persona-less general-purpose agent; deep-agents dispatches gained their own
+    branch, and `1-planner` joined the `subagents` list.
+    VS Code `agentName` for the ledger Planner is now `1 - Planner v…`, its real frontmatter name —
+    `{{agent_1_planner}}` rendered `1-planner v…`, which VS Code matches to no agent
   1.7.0 (2026-09-25): Cross-model pass tracking — a Pass Identification step at session start reads the
     plan's `## Plan Audit Cycles` labels, derives this session's pass label, and classifies the session as
     first pass, continuation, or cross-model; a cross-model session deletes all three review artifacts
@@ -1034,6 +1079,7 @@ cc_tools:
   - TodoWrite
 
 subagents:
+  - 1-planner
   - plan-architect-reviewer
   - plan-auditor
   - usage-scenarios-curator
@@ -1056,6 +1102,15 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.6.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
+    group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
+    opens every multi-repository plan with a switch to local symlinks (the project's documented switch
+    where one exists), never plans switching them back, and checks every changed repository is in the
+    workspace; checklist item added
+  2.5.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
+    counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
+    sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a
+    follow-up plan; the Human Actions When cell takes exactly two values, backed by a checklist item
   2.5.0 (2026-09-24): Plans no longer place user actions inside their steps — the new principle
     **User Actions Bracket the Run** states that an unattended run cannot wait for a person, a matching
     Core Rule bars such a step, and a new `## Human Actions` plan section collects them as prerequisites
@@ -1126,6 +1181,10 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.6.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
+    with the owner's slug — the shared ownership partial put the name in `description`, which
+    starts a persona-less general-purpose agent.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   1.6.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.6.0 (2026-09-08): Added the An Adjective Is a Claim principle
     and a wording-verification step, and made The Manifest Wins Ties fire on the existing README's own claims —
@@ -1439,6 +1498,8 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.7.4 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
+    Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.7.3 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
   1.7.2 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.7.0 (2026-09-10): Gained optional research-brief.md consumption via the shared research-brief-reference partial — Interface Recon starts from its verified references; the brief is read-only here (only the Planner writes it, and it is deleted at archival), so it joins the byte-for-byte unchanged check and the plan folder now names three artefact classes
@@ -1558,6 +1619,8 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
+    Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.2.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools
   1.2.0 (2026-08-27): Design Guide v3.3 audit fixes — the Delegation Protocol table no longer collapses into a paragraph in rendered output, a deep-agents branch replaced the wrong Claude Code invocation shape on that target, the duplicate Onboarding Stages table merged into a single Stage Table, Upgrade mode's "stale" classification gained criteria, two Strict Constraints duplicating sub-section constraint blocks were removed, and "Minimal Footprint" was renamed to the canonical "Every Artefact Earns Its Place" per the C5c principle registry
   1.1.1 (2026-08-26): Rewrote two Operating Philosophy principles into indicative mood per design guide v3.0; "Delegate, Don't Duplicate" retitled "Delegation Over Duplication"

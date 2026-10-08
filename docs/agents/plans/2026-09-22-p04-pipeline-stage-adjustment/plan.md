@@ -1,5 +1,8 @@
 # Plan
 
+> **Sequencing note (added 2026-10-06):** This plan runs fourth, after `2026-10-06-p01-verifier-chain-prevention-personas`, `2026-10-06-p02-unfixable-verifier-chain-validation` and `2026-10-06-p03-rework-limit-headless-completion`. Plans 02 and 03 claim spec v2.6.0 / §21.72 and v2.7.0 / §21.73. Before executing, renumber this plan's spec version and new edge-case section to the next free values (expected v2.8.0 / §21.74), and bump the mcp-server version after plan P03's. Also apply plan P02's fail-route coverage rule (Hard Reject 5) in `ledger_update_pipeline_stages` through `validateActiveStages`, and include it in this plan's guard table. See plan P02's follow-up list.
+
+
 ## Plan Audit Cycles
 - Audits: 1 — Plan Auditor v1.9.3 — findings resolved
 - Architectural Reviews: 1 — Plan Architect Reviewer v2.3.3
@@ -179,7 +182,7 @@ The persona-side parity check is where the root cause actually lives, and it is 
 - Any GUI control for viewing or editing stage lists beyond the read-only chips that already render.
 - Mutating `dependencies`, `acceptance_criteria` structure, or any other creation-time WP field — only `active_pipeline_stages` becomes mutable.
 - Server-side validation that a stage list matches the work's actual security surface; that judgement stays with the Ledger Pipeline Configurator.
-- Retroactively auditing the WP-005 described in `docs/agents/plans/2026-09-22-pipeline-stage-adjustment/request.md` — this plan supplies the capability; running the belated audit on that project is a separate action.
+- Retroactively auditing the WP-005 described in `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/request.md` — this plan supplies the capability; running the belated audit on that project is a separate action.
 - Orchestrator (Python) changes — it holds no stage state (`grep` for `active_pipeline_stages` in `orchestrator/` returns nothing).
 - Auto-deriving the `Registered tools:` startup literal from a tool registry.
 

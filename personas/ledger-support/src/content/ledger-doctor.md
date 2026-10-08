@@ -203,13 +203,14 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 
 **Symptom:** `ledger_get_next_action` returns an error or `WAIT` because `rework_counts[type] >= 5`.
 
-**Diagnosis:** Determine whether the rework loop is genuine (persistent bug) or accidental (flaky tests, transient failures, orchestrator crashes with auto-cancels that weren't properly flagged).
+**Diagnosis:** Determine whether the rework loop is genuine (persistent bug) or accidental (flaky tests, transient failures, orchestrator crashes with auto-cancels that weren't properly flagged). A third cause is structural: a verifier-only WP, whose `active_pipeline_stages` holds `qa`, `security-audit` or `code-review` but no `implementation`, cycles the same verifier on its own FAIL, because nothing in its chain can fix what the verifier flags.
 
 **Procedure:**
 1. Review the pipeline history to understand *why* 5+ reworks occurred
 2. If the loop is due to transient failures: call `ledger_reset_rework_count` with `agent_role: "Project Manager"` and a clear `reason`
 3. If the loop is due to a genuine bug: recommend the user cancel the WP or restructure the acceptance criteria
-4. Document the decision
+4. If the WP is verifier-only: a reset only restarts the loop, and no in-place repair exists. Recommend the user cancel the WP and recreate it with `implementation`, its ACs carrying the gate as "no new failures against a recorded baseline" — the same gate commands run at the plan's starting commit in a temporary git worktree
+5. Document the decision
 
 ### Repair 4: Handoff Depth Exhaustion
 

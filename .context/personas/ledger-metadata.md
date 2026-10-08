@@ -37,6 +37,15 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.11.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
+    group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
+    opens every multi-repository plan with a switch to local symlinks (the project's documented switch
+    where one exists), never plans switching them back, and checks every changed repository is in the
+    workspace; checklist item added
+  2.10.1 (2026-09-29): A human action can no longer gate a step from inside the run — a new Core Rule
+    counts a confirmation wait or a "merged only after the operator confirms" ordering as a dependency,
+    sends merge/deploy orderings to an After-the-run row and other gated work to a prerequisite or a
+    follow-up plan; the Human Actions When cell takes exactly two values, backed by a checklist item
   2.10.0 (2026-09-25): The audit counter now carries a per-model tally — a rework dispatch naming a
     refinement pass label increments that label's count beside the total, so a plan refined by two models
     records both without the section growing past two lines
@@ -150,6 +159,21 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the
+    Pipeline Configurator's `Decomposition defect — no authoring work` flag and any chain with `qa`,
+    `security-audit` or `code-review` but no `implementation`, sends hits back to the WP Decomposer's
+    Consistency Pass, re-runs the Sequencer and Configurator, and escalates a second hit to the user.
+    Adding `implementation` with an invented AC is named as no remedy. The post-bootstrap check (now
+    step 11) drops "test-only" and "verification-only" from its scope; later steps renumbered
+  3.10.2 (2026-09-30): Step 10 also confirms that every WP without `implementation` has a stage to
+    author its docs, manifest or changelog deliverables, and recreates the WP with the missing stage —
+    a safety net behind the Pipeline Configurator's new authoring pre-requisite
+  3.10.1 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged. The four sub-agent dispatch steps on Claude Code
+    now pass `subagent_type` too, instead of describing the agent in `description`.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   3.10.0 (2026-09-24): Dispatches the WP Decomposer twice — the new step 6 runs its Consistency Pass over
     the draft before the Dependency Sequencer sees it, and the next stage is gated on the
     `## Consistency Pass` block the pass leaves behind; both Decomposer dispatches now name their mode,
@@ -242,6 +266,15 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.18.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
+    symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
+    no-release-cycles partial)
+  3.17.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged.
+    cc_tools gained `Task` — the 2026-09-14 override replaced `default_cc_tools`, so the Claude
+    Code auto-handoff could not start the next agent
   3.17.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -294,6 +327,7 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm
@@ -365,6 +399,18 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
+    with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
+    pattern, and keys the focused protocol on the WP's most recent `qa` pipeline being FAIL; a WP
+    whose last QA passed (e.g. back after a code-review bounce) gets the full Verification Stack.
+    Self-rework re-verifies without authoring a fix, and a standing failure FAILs again until the
+    rework limit ends the loop. Workflow action list and the `ledger_get_next_action` purpose updated
+  3.9.3 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged.
+    cc_tools gained `Task` — the 2026-09-14 override replaced `default_cc_tools`, so the Claude
+    Code auto-handoff could not start the next agent
   3.9.2 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -405,6 +451,7 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm
@@ -418,7 +465,7 @@ insight_pipeline_type: qa
 
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_QA`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `qa` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
@@ -458,6 +505,12 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged.
+    cc_tools gained `Task` — the 2026-09-14 override replaced `default_cc_tools`, so the Claude
+    Code auto-handoff could not start the next agent
   3.10.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -495,6 +548,7 @@ cc_tools:
   - Read
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm
@@ -548,6 +602,12 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.11.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged.
+    cc_tools gained `Task` — the 2026-09-14 override replaced `default_cc_tools`, so the Claude
+    Code auto-handoff could not start the next agent
   3.11.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -592,6 +652,7 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm
@@ -643,6 +704,16 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.8.0 (2026-09-29): Gained a Strict Constraints section — the release is prepared, never run
+    (publishing, tagging and constraint bumps belong to the user), local dependency symlinks are expected
+    state rather than a readiness defect, and Git writes including tags are ruled out
+  3.7.6 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged. The Changelog Curator and CTX Architect
+    dispatches now pass `subagent_type` and gained a deep-agents branch; cc_tools gained `Task`,
+    which it lacked outright, and a `subagents` list declares both.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   3.7.5 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -675,9 +746,14 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
   - mcp__central_pm
+
+subagents:
+  - changelog-curator
+  - ctx-architect
 
 has_mcp: true
 has_detect_project: true
@@ -720,6 +796,17 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.10.5 (2026-09-29): Gap Analysis searches the project's READMEs for each docblock the
+    implementation changed and compares every match — a synthesis found three stale paragraphs in
+    an adjacent module's README after WPs updated only the source docblocks, so the search is
+    not limited to the README beside the changed file. The inline no-stale-counts note is replaced by
+    the shared `no-stale-counts` partial the 3.7.1 entry already credited
+  3.10.4 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
+    partial put the slug in `description`, so every handoff started a persona-less
+    general-purpose agent that re-briefed the successor with a composed prompt. The
+    prompt is now stated as passed on unchanged; the CTX Architect dispatch gained the same
+    `subagent_type` and a separate deep-agents branch.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   3.10.3 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Task/Bash/etc
     but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite
     `has_mcp: true`; Claude Code requires the double-underscore `mcp__<server>` form, not the
@@ -767,6 +854,9 @@ cc_tools:
 
 subagents:
   - ctx-architect
+
+# no-stale-counts partial substitution
+stale_counts_targets: "documentation or pipeline comments"
 
 has_mcp: true
 has_detect_project: true
@@ -818,6 +908,9 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.12.1 (2026-09-29): Claude Code Knowledge Archiver dispatch now passes `subagent_type` instead of
+    describing the agent in `description`, which started a persona-less general-purpose agent.
+    Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
   3.12.0 (2026-09-28): synthesis.md now opens with an `### Outcome Summary` heading instead of a bold
     `Executive Summary` label, matching the heading every other suite writes and the one the archiving
     tools parse; the `outcome_summary` parameter rules moved into the shared crafting-guide partial

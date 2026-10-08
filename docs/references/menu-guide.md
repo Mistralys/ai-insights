@@ -42,7 +42,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | Item | Command | Description |
 |------|---------|-------------|
 | **Sync personas** | `sync-personas` | Build persona files and deploy to VS Code and Claude Code |
-| **Launch an agent** | `agent` | Pick a deployed persona from a type-to-filter list and launch it with `claude --agent`, from your current directory — or select the pinned "Resume a previous session" row above the personas to open Claude Code's own `claude --resume` session picker instead. The picker clears the screen on open and reopens automatically once the `claude` session exits, so switching agents (or resuming a session) is a continuous loop — press Escape/Ctrl+C (or submit empty input) at the picker to return to this menu |
+| **Launch an agent** | `agent` | Pick a deployed persona from a type-to-filter list and launch it with `claude --agent`, from your current directory — or select the pinned "Resume a previous session" row above the personas to open Claude Code's own `claude --resume` session picker instead. A pinned "Skip permission prompts" toggle row sits below it: Enter flips it in place (nothing launches), and while on, every launch gets `--dangerously-skip-permissions` and a ⚠ warning shows on the instructions line. It starts off on every invocation and persists across loop-backs. The picker clears the screen on open and reopens automatically once the `claude` session exits, so switching agents (or resuming a session) is a continuous loop — press Escape/Ctrl+C (or submit empty input) at the picker to return to this menu |
 | **Package personas** | `package-personas` | Build and ZIP standalone personas for distribution |
 | **Clean agent folder** | `clean-agents` | Remove persona files from all publish locations |
 
@@ -96,6 +96,7 @@ Every menu item can be invoked directly without entering the interactive menu:
 ./menu.sh sync-personas                   # build + deploy personas
 ./menu.sh agent                           # pick a persona (or resume a session) and launch claude
 ./menu.sh agent --filter <term>           # pre-fill the filter query (now pre-fills on the interactive picker too)
+./menu.sh agent --skip-permissions        # start the picker with permission prompts skipped (`-- --dangerously-skip-permissions` is absorbed into the same toggle)
 ./menu.sh build-skills                    # compile skill source files
 ./menu.sh build-skills --dry-run          # validate skill outputs without writing to dist/
 ./menu.sh publish-skills                  # build + deploy skills to IDE directories

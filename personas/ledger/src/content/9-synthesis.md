@@ -119,6 +119,18 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
    Expected output: An extraction report summarizing insights committed to the
    knowledge base. Review it before proceeding to Step 9.
+
+   **When the dispatch cannot run:** A sub-agent nested at the environment's
+   depth limit has its dispatch tool withheld, so the tool named above may be
+   missing, or the call may fail. In either case, leave a trace before
+   continuing, so the knowledge base gap stays visible:
+   - Call `ledger_add_project_comment` stating that the Knowledge Archiver did
+     not run, the reason (tool unavailable, or the error returned), and the
+     two parameters a manual run needs: `cwd_path` and `project_storage_path`.
+   - Add the same item under **Next Steps** in `synthesis.md`, worded as a
+     pending manual Knowledge Archiver run.
+   - Do not extract or record insights yourself — the Knowledge Archiver owns
+     insight writes. Continue with Step 9.
 9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and the `outcome_summary` you wrote for the report's `### Outcome Summary` section (see **Output Format**). This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
 10. **AX Feedback:** Before handing off, reflect on your session experience.
 

@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v2.16.0 - **WIP, UNRELEASED**
+- CLI: Claude agent picker gained a toggle to launch with permission prompts skipped.
+
 ## v2.15.0 - Agent-Composed Outcome Summaries
 > mcp v2.11.0 · personas v3.38.0
 
