@@ -12,6 +12,23 @@ missed declaration, and an unmatched acceptance criterion was appended silently.
 - Tools: A non-PM unmatched-criterion append also records an audit-trail project comment.
 - Docs: Manifest, help text, and schema descriptions cover both signals.
 
+## v2.12.0 - Fail-Route Coverage Validation
+
+**A work package whose verifier stage cannot be fixed now fails at creation, not at run time.**
+`ledger_create_work_package` rejects any `active_pipeline_stages` chain where a stage's FAIL
+target has no active stage able to act on it — e.g. `["qa", "code-review"]` without
+`implementation`. Existing work packages are unaffected: the rule applies only at creation,
+`active_pipeline_stages` is never re-validated on read, and `resolveFailAgent`'s fallback keeps
+routing pre-existing chains exactly as before.
+
+- Tools: `ledger_create_work_package` rejects chains whose verifier(s) have no active fix stage
+  at or before them (fail-route coverage), naming the fix in the error message.
+- Tools: New `findFailRoutingGaps()` helper derives the rejected-chain set entirely from the
+  workflow manifest, with no hard-coded stage or role names.
+- Docs: Tool help, schema descriptions, and the MCP server manifest describe the new rule and
+  mark the `resolveFailAgent` fallback as legacy-only.
+- Docs: Workflow specification bumped to v2.6.0 with the new rule and a dedicated edge case.
+
 ## v2.11.0 - Agent-Supplied Outcome Summaries
 
 **Agents can now supply the project outcome summary themselves.** The server only parses one out

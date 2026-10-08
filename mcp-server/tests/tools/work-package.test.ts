@@ -1651,15 +1651,20 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
   });
 
   it('emits warning for single-stage pipeline chain (soft guardrail 2)', async () => {
+    // Uses ['documentation'] rather than ['qa'] — since v2.6.0, a single-stage
+    // ['qa'] chain fails fail-route coverage (Rule 5: qa's FAIL target, Developer,
+    // owns implementation, which is not active). 'documentation' is self-routing
+    // (its FAIL target owns 'documentation' itself) so it still passes Rule 5
+    // while still exercising the single-stage soft guardrail.
     const result = await createWorkPackage(
       {
         project_path: APS_PLAN_PATH,
-        assigned_to: 'Developer',
+        assigned_to: 'Documentation',
         dependencies: [],
         title: 'Test WP',
         description: 'Test work package.',
         acceptance_criteria: ['Works'],
-        active_pipeline_stages: ['qa'],
+        active_pipeline_stages: ['documentation'],
       },
       tempDir
     );
@@ -1714,7 +1719,12 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
     ]);
   });
 
-  it('accepts verification-only composition ["qa", "code-review"] as a valid subsequence', async () => {
+  it('rejects verification-only composition ["qa", "code-review"] — fail-route coverage (§9b.2 Rule 5)', async () => {
+    // Since v2.6.0, a chain containing qa/code-review without implementation
+    // cannot fix its own FAIL results and is rejected at creation time.
+    const rootBefore = await store.readRootIndex();
+    const countBefore = rootBefore.total_work_packages;
+
     const result = await createWorkPackage(
       {
         project_path: APS_PLAN_PATH,
@@ -1727,14 +1737,13 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
       },
       tempDir
     );
-    expect(result.isError).toBeFalsy();
-    // Response may include appended soft-guardrail warning text after the JSON (§9b.2 rule 7)
-    const rawText = (result as any).content[0].text as string;
-    const jsonEnd = rawText.lastIndexOf('}') + 1;
-    const wp = JSON.parse(rawText.slice(0, jsonEnd));
-    expect(wp.active_pipeline_stages).toEqual(['qa', 'code-review']);
-    // Custom composition warning should be present
-    expect(rawText).toContain('Warning: WP uses a custom pipeline composition');
+    expect(result.isError).toBe(true);
+    const text = (result as any).content[0].text as string;
+    expect(text).toContain('implementation');
+    expect(text).toContain('Developer');
+
+    const rootAfter = await store.readRootIndex();
+    expect(rootAfter.total_work_packages).toBe(countBefore);
   });
 });
 
@@ -3291,7 +3300,10 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
   });
 
   it('summary active_pipeline_stages matches WP detail active_pipeline_stages', async () => {
-    const stages = ['qa', 'code-review'];
+    // A valid custom (non-default) composition — ['qa','code-review'] alone would
+    // fail fail-route coverage (§9b.2 Rule 5) since v2.6.0; 'implementation' ahead
+    // of them preserves the "custom subset" intent of this test.
+    const stages = ['implementation', 'qa', 'code-review'];
     await createWorkPackage(
       {
         project_path: WP008_APS_PLAN,

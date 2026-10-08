@@ -114,6 +114,7 @@ When `active_pipeline_stages` is provided during WP creation, validation enforce
 2. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
 3. **No duplicates** — each pipeline type may appear at most once
 4. **Non-empty** — at least one stage must be included
+5. **Fail-route coverage** — for every active stage `S`, let `R = FAIL_ROUTING_MAP[S]`. If `R` owns an active stage `F` (via `AGENT_PIPELINE_MAP`), then `F` must appear in `CANONICAL_PIPELINE_ORDERING` at or before `S`. A stage whose FAIL target owns no stage at all, or whose FAIL target owns the stage itself, satisfies the rule trivially. A stage whose FAIL target owns a stage that is absent from the active list, or present but ordered after `S`, fails the rule and blocks creation. This closes the gap left when a chain contains a verifier stage but no stage upstream of it that can act on a FAIL result.
 
 #### Soft Guardrails (emit warning project comments, do not block creation)
 
@@ -151,6 +152,12 @@ function validateActiveStages(stages):
   if stages.length == 0:
     ERROR("active_pipeline_stages must contain at least one stage")
 
+  // Rule 5: Fail-route coverage
+  gaps = findFailRoutingGaps(stages)   // reads FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP, CANONICAL_PIPELINE_ORDERING
+  if gaps is not empty:
+    ERROR("Pipeline chain cannot fix its own FAIL results: {gaps grouped by missing fix stage}")
+    return   // early return, same as rules 1-4 — soft guardrails below are never reached
+
   // Soft guardrail 5: Implementation without QA
   if "implementation" in stages AND "qa" not in stages:
     warnings.append("WP has implementation without QA — consider adding qa for quality assurance")
@@ -166,7 +173,9 @@ function validateActiveStages(stages):
   return warnings
 ```
 
-> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
+> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence, subject to Rule 5. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
+
+> **Rule 5 applies to every write path, not just creation:** Any present or future operation that sets `active_pipeline_stages` — not only `createWorkPackage` — must route through `validateActiveStages` so Rule 5 is enforced uniformly. Stored chains are never re-validated on read: a WP created before this rule existed keeps whatever chain it was given, and reading it back applies no check. See [§21.72](edge-cases.md#2172-unfixable-verifier-chain-rejection) for the full treatment of legacy chains.
 
 ### 9b.3 Artifact Declaration Expectation
 

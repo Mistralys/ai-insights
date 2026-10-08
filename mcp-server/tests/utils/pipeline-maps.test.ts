@@ -10,17 +10,41 @@ import {
   firstActiveStage,
   lastActiveStage,
   validateActiveStages,
+  findFailRoutingGaps,
   DEFAULT_PIPELINE_STAGES,
   PIPELINE_TYPES,
   PIPELINE_AGENT_MAP,
+  FAIL_AGENT_MAP,
+  AGENT_PIPELINE_MAP,
+  CANONICAL_PIPELINE_ORDERING,
   ARTIFACT_DECLARATION_POLICY,
   evaluateArtifactDeclaration,
   type PipelineType,
   type ArtifactDeclarationPolicy,
+  type FailRoutingGap,
 } from '../../src/utils/pipeline-maps.js';
 
 const ALL_6: readonly PipelineType[] = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 const LEGACY_4: readonly PipelineType[] = ['implementation', 'qa', 'code-review', 'documentation'];
+
+/**
+ * Enumerates every non-empty subsequence of CANONICAL_PIPELINE_ORDERING (63 for
+ * 6 stages). Since the canonical ordering is fixed, every non-empty subset
+ * preserves canonical order by construction — this is exactly the universe of
+ * chains validateActiveStages' rules 1-4 accept, used to test Rule 5 exhaustively.
+ */
+function allNonEmptyCanonicalSubsequences(): PipelineType[][] {
+  const n = CANONICAL_PIPELINE_ORDERING.length;
+  const result: PipelineType[][] = [];
+  for (let mask = 1; mask < (1 << n); mask++) {
+    const subset: PipelineType[] = [];
+    for (let i = 0; i < n; i++) {
+      if (mask & (1 << i)) subset.push(CANONICAL_PIPELINE_ORDERING[i]!);
+    }
+    result.push(subset);
+  }
+  return result;
+}
 
 // ─── getDownstreamTypes ─────────────────────────────────────────────────────
 // Per §8.4: returns all types that follow the given type in PIPELINE_TYPES order.
@@ -224,15 +248,18 @@ describe('resolveFailAgent', () => {
     expect(resolveFailAgent('documentation')).toBe('Documentation');
   });
 
-  it('applies fallback when Developer stage (implementation) is absent', () => {
-    // WP has only qa + code-review (no implementation stage)
+  it('applies fallback when Developer stage (implementation) is absent — legacy chain (pre-v2.6.0)', () => {
+    // WP has only qa + code-review (no implementation stage). Since spec v2.6.0,
+    // validateActiveStages' Rule 5 rejects this chain for new WPs — it is exercised
+    // here only to prove the fallback still routes correctly for WPs that predate
+    // the rule and already hold such a chain (§21.63, §9.3.1).
     const stages: readonly PipelineType[] = ['qa', 'code-review'];
     // Standard fail target for qa is Developer (owns implementation), but
     // implementation is not in activeStages → fallback to first active stage's agent (QA).
     expect(resolveFailAgent('qa', stages)).toBe('QA');
   });
 
-  it('applies fallback for code-review when implementation is absent', () => {
+  it('applies fallback for code-review when implementation is absent — legacy chain (pre-v2.6.0)', () => {
     const stages: readonly PipelineType[] = ['code-review', 'documentation'];
     expect(resolveFailAgent('code-review', stages)).toBe('Reviewer');
   });
@@ -431,8 +458,28 @@ describe('validateActiveStages', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('returns no errors for a valid 3-stage subset (qa + code-review + documentation)', () => {
+  it('rejects a 3-stage subset lacking implementation (qa + code-review + documentation) — Rule 5', () => {
+    // Since spec v2.6.0, a chain containing qa/code-review without implementation
+    // fails fail-route coverage (§9b.2 Rule 5) even with documentation appended.
     const { errors, warnings } = validateActiveStages(['qa', 'code-review', 'documentation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('implementation');
+    expect(errors[0]).toContain('Developer');
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('accepts a documentation-only chain (self-fixing stage) — Rule 5', () => {
+    const { errors } = validateActiveStages(['documentation']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('accepts a release-engineering + documentation chain (self-fixing stages only) — Rule 5', () => {
+    const { errors } = validateActiveStages(['release-engineering', 'documentation']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('accepts implementation + code-review (fix stage present) — Rule 5', () => {
+    const { errors } = validateActiveStages(['implementation', 'code-review']);
     expect(errors).toHaveLength(0);
   });
 
@@ -475,6 +522,17 @@ describe('validateActiveStages', () => {
     expect(errors[0]).toContain('canonical order');
   });
 
+  it('rejects a verifier chain without its fix stage (qa + code-review) — Rule 5 (AC-01)', () => {
+    const { errors, warnings } = validateActiveStages(['qa', 'code-review']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('implementation');
+    expect(errors[0]).toContain('Developer');
+    expect(errors[0]).toContain('qa');
+    expect(errors[0]).toContain('code-review');
+    expect(errors[0]).toContain('pipelines.fail_routing');
+    expect(warnings).toHaveLength(0);
+  });
+
   it('returns warning for implementation without qa', () => {
     const { errors, warnings } = validateActiveStages(['implementation', 'code-review', 'documentation']);
     expect(errors).toHaveLength(0);
@@ -505,5 +563,106 @@ describe('validateActiveStages', () => {
     const { errors, warnings } = validateActiveStages([]);
     expect(errors).toHaveLength(1);
     expect(warnings).toHaveLength(0); // early return before warnings
+  });
+
+  it('accepts the standalone-import chain ["implementation"]', () => {
+    const { errors } = validateActiveStages(['implementation']);
+    expect(errors).toHaveLength(0);
+  });
+});
+
+// ─── fail-route coverage invariant (§9b.2 Rule 5, AC-02/AC-03) ─────────────
+// Exhaustively verifies, against the real manifest, that validateActiveStages'
+// acceptance of a chain and resolveFailAgent's fallback-reachability for that
+// chain always agree. Uses no stage or role literals — recomputes on every
+// manifest edit (fail_routing, canonical order, or role ownership changes).
+
+describe('fail-route coverage invariant', () => {
+  const allChains = allNonEmptyCanonicalSubsequences();
+
+  it('accepted ⇔ fallback unreachable for every stage (derived)', () => {
+    for (const chain of allChains) {
+      const { errors } = validateActiveStages(chain as string[]);
+      const accepted = errors.length === 0;
+
+      const fallbackUnreachable = chain.every(
+        (stage) => resolveFailAgent(stage, chain) === FAIL_AGENT_MAP[stage]
+      );
+
+      expect(accepted).toBe(fallbackUnreachable);
+    }
+  });
+
+  // Snapshot of today's concrete rejected/accepted split under the current
+  // manifest. Unlike the derived invariant above, this case pins the rejected
+  // set by name and is EXPECTED TO CHANGE if fail_routing, role ownership, or
+  // the canonical order is ever edited — the derived invariant above does not.
+  it('snapshot: rejected set under the current manifest (contains a verifier, lacks implementation)', () => {
+    const verifierStages: readonly PipelineType[] = ['qa', 'security-audit', 'code-review'];
+    let rejectedCount = 0;
+    let acceptedCount = 0;
+
+    for (const chain of allChains) {
+      const { errors } = validateActiveStages(chain as string[]);
+      const expectedRejected = chain.some((s) => verifierStages.includes(s)) && !chain.includes('implementation');
+
+      expect(errors.length > 0).toBe(expectedRejected);
+      if (errors.length > 0) rejectedCount++; else acceptedCount++;
+    }
+
+    expect(rejectedCount).toBe(28);
+    expect(acceptedCount).toBe(35);
+  });
+});
+
+// ─── findFailRoutingGaps ────────────────────────────────────────────────────
+
+describe('findFailRoutingGaps', () => {
+  const allChains = allNonEmptyCanonicalSubsequences();
+
+  it('is derived from manifest maps for every canonical subsequence (AC-04)', () => {
+    for (const chain of allChains) {
+      const ordered = CANONICAL_PIPELINE_ORDERING.filter((t) => chain.includes(t));
+      const expectedGaps: FailRoutingGap[] = [];
+
+      for (let i = 0; i < ordered.length; i++) {
+        const stage = ordered[i]!;
+        const failAgent = FAIL_AGENT_MAP[stage];
+        const fixStage = AGENT_PIPELINE_MAP[failAgent];
+        if (fixStage === undefined) continue;
+        const activePrefix = ordered.slice(0, i + 1);
+        if (!activePrefix.includes(fixStage)) {
+          expectedGaps.push({ stage, failAgent, fixStage });
+        }
+      }
+
+      const actualGaps = findFailRoutingGaps(chain);
+      expect(actualGaps).toEqual(expectedGaps);
+
+      for (const gap of actualGaps) {
+        expect(gap.failAgent).toBe(FAIL_AGENT_MAP[gap.stage]);
+        expect(gap.fixStage).toBe(AGENT_PIPELINE_MAP[gap.failAgent]);
+        // Self-routing stages (fixStage === stage) always satisfy the rule trivially
+        // and therefore never appear in the gap list.
+        expect(gap.fixStage).not.toBe(gap.stage);
+      }
+    }
+  });
+
+  it('is empty for the default 4-stage chain', () => {
+    expect(findFailRoutingGaps(DEFAULT_PIPELINE_STAGES)).toHaveLength(0);
+  });
+
+  it('is empty for the full 6-stage chain', () => {
+    expect(findFailRoutingGaps(PIPELINE_TYPES)).toHaveLength(0);
+  });
+
+  it('reports one gap per verifier for ["qa","security-audit","code-review"], each with fixStage "implementation"', () => {
+    const gaps = findFailRoutingGaps(['qa', 'security-audit', 'code-review']);
+    expect(gaps).toHaveLength(3);
+    expect(gaps.map((g) => g.stage)).toEqual(['qa', 'security-audit', 'code-review']);
+    for (const gap of gaps) {
+      expect(gap.fixStage).toBe('implementation');
+    }
   });
 });

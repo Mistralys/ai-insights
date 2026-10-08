@@ -226,9 +226,11 @@ const CreateWorkPackageSchema = z.object({
     .describe(
       'Optional pipeline stages for this WP. When omitted, defaults to the 4-stage legacy pipeline ' +
       '(implementation → qa → code-review → documentation). ' +
-      'Must be a non-empty subsequence of the canonical ordering: ' +
+      'Must be a non-empty subsequence (gaps allowed) of the canonical ordering: ' +
       'implementation → qa → security-audit → code-review → release-engineering → documentation. ' +
-      'All entries must be valid pipeline types from PIPELINE_TYPES. No duplicates allowed.'
+      'All entries must be valid pipeline types from PIPELINE_TYPES. No duplicates allowed. ' +
+      'Every stage\'s FAIL target must own an active stage at or before it — verifier stages ' +
+      '(qa, security-audit, code-review) require an active implementation stage upstream.'
     ),
 });
 

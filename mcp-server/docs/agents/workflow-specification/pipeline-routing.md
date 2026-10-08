@@ -12,7 +12,7 @@ Pipelines within a work package follow a **canonical ordering** of six stages. T
 Canonical:  implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-The PM may compose **any valid subsequence** of this ordering. Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
+The PM may compose **any valid subsequence** of this ordering that passes [§9b.2](operations.md#9b2-active-pipeline-stages-validation). Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
 
 ```
 Default:    implementation → qa → code-review → documentation
@@ -271,9 +271,9 @@ function resolveFailAgent(pipelineType, activeStages):
   return PIPELINE_AGENT_MAP[firstStage]
 ```
 
-In practice, this fallback only triggers for unusual compositions where the standard fail target's stage was omitted (e.g., a WP with `["qa", "code-review"]` where a `qa` FAIL would normally route to Developer, but `implementation` is not active — the fallback routes to QA itself for self-rework). For all standard compositions (including the default 4 stages and full 6 stages), the base FAIL_ROUTING_MAP applies directly.
+Since [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) (fail-route coverage, spec v2.6.0), this fallback is reachable **only for WPs created before v2.6.0**. Rule 5 rejects at creation time every chain that would otherwise trigger it — a WP with `["qa", "code-review"]`, for example, is no longer accepted, because `qa`'s FAIL target (Developer) owns `implementation`, which is absent. Pre-existing WPs with such a chain are not migrated and keep routing through the fallback exactly as before (e.g., a legacy `["qa", "code-review"]` WP's `qa` FAIL still routes to QA itself for self-rework). For every chain accepted by `validateActiveStages`, the base FAIL_ROUTING_MAP applies directly and the fallback branch is never taken. See [§21.72](edge-cases.md#2172-unfixable-verifier-chain-rejection) for the full treatment.
 
-> **Self-referential fallback:** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56).
+> **Self-referential fallback (legacy chains only — see §21.72):** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56). Since v2.6.0, only WPs created before that version can reach this path.
 
 > **Failure routing rationale:**
 > - **Security Auditor (`security-audit`)** failures route to Developer because security issues are typically code-level fixes, consistent with the QA and code-review failure routing pattern.
