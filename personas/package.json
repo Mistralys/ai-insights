@@ -9,7 +9,7 @@
     "dry-run": "node ../scripts/build-personas.js --dry-run"
   },
   "dependencies": {
-    "@mistralys/persona-builder": "^2.6.0",
+    "@mistralys/persona-builder": "^3.0.1",
     "js-yaml": "^4.1.0"
   }
 }
