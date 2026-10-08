@@ -423,6 +423,8 @@ Options:
 | `1` | One or more errors occurred |
 | `2` | Safety limit reached (`--max-iterations` exceeded) |
 
+The code reflects how the run went, not what state the work packages ended in. `_print_run_summary()` in `src/cli.py` derives it from the error count and the iteration limit only, and its `WPs done` line counts `COMPLETE` WPs alone. A run that ends with WPs cancelled or still blocked, but raised no errors, exits `0`. Read the ledger or the summary's WP counts for the outcome of the work itself.
+
 ---
 
 ## Troubleshooting
