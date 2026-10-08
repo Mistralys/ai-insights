@@ -4,7 +4,8 @@
 - Ledger, Ledger-Support: Decomposer, Pipeline Configurator and PM never produce a WP that only
   runs checks; exit gates ride on the last authoring WP, and the Ledger Doctor diagnoses legacy ones.
 - Ledger: QA re-engages on `RUN_QA` and narrows its run only when its most recent QA pipeline failed.
-- Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a stated decision.
+- Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a
+  stated decision.
 - Planner: Links sibling repositories locally first and never plans a release or a switch back.
 - Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.
 - Standalone: Plan Auditor flags release steps and a missing symlink switch as Critical.
@@ -40,9 +41,11 @@
   exceptions honored; existing mismatches flagged by the new check have been fixed.
 - Build: Template comments (`{{!-- … --}}`, `{{! … }}`) are now supported and fully inert — a
   commented-out partial or variable never expands, warns, or triggers a build check.
-- Build: The wrapper now runs every check and both post-build steps on every invocation,
-  even when an earlier check or the library CLI itself fails, and exits with one combined
-  status instead of stopping at the first failure.
+- Build: The wrapper now runs every check — including a new warn-only check that flags an
+  oversized newest `personas/changelog.md` entry or any of its lines over 100 characters —
+  and both post-build steps on every invocation, even when an earlier check or the library
+  CLI itself fails, and exits with one combined status instead of stopping at the first
+  failure.
 - Build: The personas name-mapping generator moved out of the build wrapper into its own tested
   module, and the Operating Philosophy tone check is now comment-aware — imperative prose written
   inside a template comment is ignored rather than flagged.

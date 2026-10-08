@@ -38,7 +38,7 @@ Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally re
 
 5. **Cross-target tool-capability parity:** Implemented by `@mistralys/persona-builder`'s `validateToolParity()`, run as a `build()` post-pass once every suite × target has finished rendering. Compares each persona's granted capabilities across all of its built targets and fails the build for any capability a persona has on one target but lacks the equivalent tool for on another — naming the granting target(s)/tool(s) and the lacking target's own missing tool name. A persona's YAML `tool_parity_exceptions` list (capability names, or `mcp:`-prefixed forms) is excluded from the comparison; declaring a name that isn't a capability recognised by any registered target's tool-capability map is flagged as a build warning. This is a distinct check from the `cc_tools` / dispatch consistency check (step 3), which only verifies Claude Code's `Task` grant — parity compares every capability across every target pair.
 
-6. **Warnings:** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size (`scripts/lib/changelog-size-check.js`).
+6. **Warnings:** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size — line count, bullet count, sentences per bullet, and per-line length (`scripts/lib/changelog-size-check.js`).
 
 ### `personas/persona-build.config.js` — Config Interface
 
