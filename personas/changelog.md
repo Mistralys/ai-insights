@@ -1,6 +1,9 @@
 # Personas Changelog
 
 ## v3.39.0 - **WIP, UNRELEASED**
+- Ledger, Ledger-Support: Decomposer, Pipeline Configurator and PM never produce a WP that only
+  runs checks; exit gates ride on the last authoring WP, and the Ledger Doctor diagnoses legacy ones.
+- Ledger: QA re-engages on `RUN_QA` and narrows its run only when its most recent QA pipeline failed.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a stated decision.
 - Planner: Links sibling repositories locally first and never plans a release or a switch back.
 - Ledger-Support: WP Decomposer keeps releases out of WPs and orders the symlink switch first.

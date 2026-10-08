@@ -102,15 +102,24 @@ Use the following `type` values when recording observations:
 
 ---
 
-## Rework Handling (REWORK_QA)
+## Rework Handling
 
-When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted code after a previous QA bounce. Follow this focused protocol instead of the full Verification Stack:
+`ledger_get_next_action` returns `RUN_QA` for three distinct situations, which its `reason` field tells apart: a first verification, re-engagement after a new `implementation` PASS since the last QA pipeline, and self-rework after a QA FAIL on a WP whose chain has no `implementation` stage.
+
+Which protocol applies depends on the WP's **most recent** `qa` pipeline, not on its whole history:
+
+- **Most recent `qa` pipeline is FAIL:** follow the focused protocol below. This is the Developer resubmitting after your bounce, or self-rework.
+- **No prior `qa` pipeline, or the most recent one passed:** run the full Verification Stack. A WP whose last QA passed comes back after a code-review or security-audit bounce, and the Developer's new changes have never been verified. An older FAIL further back in the history does not narrow the run.
+
+Focused protocol:
 
 1. **Read the previous bounce:** Call `ledger_get_work_package` and examine your most recent `qa` pipeline's `comments` array. These contain the specific issues you flagged — they define your rework verification scope.
 2. **Narrow your focus:** Re-verify only the previously-failed ACs and any code directly affected by the Developer's fixes. Do not re-run the full Verification Stack from scratch.
 3. **Regression pass:** Run a targeted regression check to ensure the fixes did not introduce new issues.
 4. **Reference your original feedback:** In your `ledger_complete_pipeline` call, explicitly note which previously-failed ACs now pass and whether any remain unresolved.
 5. **Observations still apply:** Continue calling `ledger_add_observation` after each re-verification you run during rework. The narrower scope does not exempt you from incremental capture.
+
+**Self-rework:** Self-rework happens only on a legacy WP created without `implementation`, so no Developer has changed anything since your FAIL. Re-verify, but never author a fix to production code or tests yourself. Where the failure still stands, complete the pipeline as FAIL again — the ledger's rework limit ends the loop.
 
 ---
 
@@ -134,7 +143,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the QA pipeline.
 4. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases). Record observations via `ledger_add_observation` incrementally after each verification layer.
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
-6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_QA` (full Verification Stack), `REWORK_QA` (focus on previously-failed ACs), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
+6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_QA` (full Verification Stack, or the focused protocol in Rework Handling where your most recent `qa` pipeline is FAIL), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 7. {{> handoff-block-vscode}}
 {{else if target_claude_code}}

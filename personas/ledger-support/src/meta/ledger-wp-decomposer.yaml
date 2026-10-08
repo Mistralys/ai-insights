@@ -8,6 +8,14 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.9.0 (2026-10-06): No verification-only WPs — a WP that only runs checks has no stage to fix a
+    failure, so the ledger loops it on the same verifier (incident: hcp-editor WP-019 exit gate).
+    Principle widened to "Verification Belongs With the Work It Verifies"; the test-WP exceptions now
+    require the WP to write tests (end-to-end tests are written in `implementation`, not owned by QA).
+    Exit gates fold into the last authoring WP with `implementation`, and Step 6 defines their ACs:
+    covered WPs named in ACs and Notes so the Sequencer orders them, "no new failures against a
+    baseline" taken at the plan's starting commit in a temporary worktree, exact commands with
+    whole-name test filters. Constraint, checklist, and a new Consistency Pass check 8 match
   1.8.1 (2026-09-30): Step 2 routes by-product changelog entries and version bumps to the owning WP's
     release-engineering stage instead of its documentation stage, matching the Pipeline Configurator
   1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and

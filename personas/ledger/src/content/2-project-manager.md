@@ -48,7 +48,7 @@ You will be provided with:
 The PM orchestrates four sub-agents across five dispatches to produce the project ledger — the WP Decomposer runs twice, once to write the draft and once to check it. Your direct output is minimal — the sub-agents do the heavy lifting:
 
 1. **Sub-agent context passed at each step.** Each sub-agent reads the plan folder itself, so you pass paths rather than file contents:
-   - To the **WP Decomposer**: the plan document path, the project name, and the mode — `Decompose` on the first dispatch, `Consistency Pass` on the second.
+   - To the **WP Decomposer**: the plan document path, the project name, and the mode — `Decompose` on the first dispatch, `Consistency Pass` on the second. A re-dispatch from step 9 adds the flagged WP numbers.
    - To the **Dependency Sequencer**: the plan folder path.
    - To the **Pipeline Configurator**: the plan folder path.
    - To the **Ledger Bootstrapper**: the plan document path and the absolute project path.
@@ -178,7 +178,16 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: `pipeline-configuration.md` written to the plan folder.
-9. **Invoke Ledger Bootstrapper sub-agent:**
+9. **Reject verifier-only WPs:** Read `pipeline-configuration.md` and look for two things:
+   - **The Configurator's flag:** any WP listed under the `Decomposition defect — no authoring work` heading in the Guardrail Notes.
+   - **The stage lists:** any WP whose `active_pipeline_stages` contains `qa`, `security-audit` or `code-review` but no `implementation`.
+
+   A WP found either way only runs checks, and nothing in its chain can fix a failing one. The check happens here, before the Bootstrapper registers any WP, because afterwards the only remedy is to recreate it. Where neither search finds a WP, record that and continue to step 10.
+
+   For each hit, dispatch the WP Decomposer again with the same arguments as step 6, mode `Consistency Pass`, adding the flagged WP numbers and the Configurator's reason for each. Its check 8 folds the WP's ACs into the WP whose work it verifies, or into the last authoring WP for an exit gate, and deletes the empty WP. Then re-run steps 7 and 8 on the changed draft and repeat this step once. A WP still flagged after that second check goes to the user instead of the Bootstrapper.
+
+   Adding `implementation` with an invented AC is not a remedy. The Developer's stage then passes on nothing, and the failing check still has nobody to fix it.
+10. **Invoke Ledger Bootstrapper sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_bootstrapper}}"`
@@ -197,12 +206,12 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
-10. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`. Also check that every deliverable the WP must author has a stage that writes it: docs and manifests need `documentation`, changelog entries and version fields need `release-engineering`. Where one is missing, recreate the WP with that stage inserted at its canonical position.
-11. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
+11. **Validate WPs without `implementation`:** For every WP whose `active_pipeline_stages` excludes `implementation` — after step 9 that means documentation-only and any other chain with no verifier — verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`. Also check that every deliverable the WP must author has a stage that writes it: docs and manifests need `documentation`, changelog entries and version fields need `release-engineering`. Where one is missing, recreate the WP with that stage inserted at its canonical position.
+12. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
 {{#if target_vscode}}
-12. {{> handoff-block-vscode}}
+13. {{> handoff-block-vscode}}
 {{else if target_claude_code}}
-12. {{> handoff-block-claude-code}}
+13. {{> handoff-block-claude-code}}
 {{else}}
-12. {{> handoff-block-manual}}
+13. {{> handoff-block-manual}}
 {{/if}}

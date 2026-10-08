@@ -5,6 +5,12 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
+    with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
+    pattern, and keys the focused protocol on the WP's most recent `qa` pipeline being FAIL; a WP
+    whose last QA passed (e.g. back after a code-review bounce) gets the full Verification Stack.
+    Self-rework re-verifies without authoring a fix, and a standing failure FAILs again until the
+    rework limit ends the loop. Workflow action list and the `ledger_get_next_action` purpose updated
   3.9.3 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
     general-purpose agent that re-briefed the successor with a composed prompt. The
@@ -65,7 +71,7 @@ insight_pipeline_type: qa
 
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_QA`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `qa` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
