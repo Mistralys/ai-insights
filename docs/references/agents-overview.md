@@ -153,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.12.1)
+### Stage 9 — Synthesis (v3.13.0)
 
 **Identity:** Head of Operations (OPS)
 
