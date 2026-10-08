@@ -16,7 +16,7 @@
 - Ledger: Auto-handoff passes the successor as the dispatched agent and forwards its prompt as is.
 - Ledger: PM, Synthesis, Release Engineer and Documentation sub-agent dispatches name the agent
   they start on Claude Code.
-- Standalone: Documentation, README and AGENTS.md Curators dispatch document owners by slug.
+- Standalone: Documentation; Synthesis leaves a ledger trace when the archiver can't run, README and AGENTS.md Curators dispatch document owners by slug.
 - Release Engineer: Gained the Claude Code `Task` tool it needs to dispatch sub-agents and hand off.
 - Ledger: Developer, QA, Security Auditor and Reviewer can hand off under Claude Code again.
 - Deep Agents: Sub-agent dispatches pass the task in the tool's real `description` field.
