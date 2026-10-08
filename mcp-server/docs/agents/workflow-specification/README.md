@@ -2,12 +2,18 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.5.1
-**Date:** 2026-05-30
+**Version:** 2.6.0
+**Date:** 2026-10-06
 
 ---
 
 ## Changelog
+
+### v2.6.0 - Artifact Declaration Policy & Visible Criteria Append
+
+- **Policy-driven artifact declaration (§9b.3, §12.1, §21.64):** `ARTIFACT_EXPECTED_PIPELINE_TYPES` (a yes/no set) is replaced by `ARTIFACT_DECLARATION_POLICY`, an exhaustive `Record<PipelineType, ArtifactDeclarationPolicy>` map with three values — `'exempt'` (`qa`, `security-audit`), `'non-empty'` (`implementation`), and `'declare'` (`code-review`, `release-engineering`, `documentation`). A pure `evaluateArtifactDeclaration(policy, filesModified)` function maps a `(policy, filesModified)` pair to `'ok'` / `'undeclared'` / `'empty'`; only `'ok'` suppresses the soft warning. This lets a `'declare'`-policy stage accept an explicit `[]` as "ran this stage, changed nothing" — a signal the former set-based check could not express.
+- **Visible unmatched acceptance-criterion append (§12.3, new §21.72):** `completePipeline`'s acceptance-criteria exact-match-and-append behaviour is unchanged, but every unmatched update is now collected and surfaced: the response payload gains `appended_criteria: string[]`, the response text gains a verbatim-copy recommendation note, and a non-PM caller additionally receives a low-priority `"warning"` project comment naming the WP and quoting each appended text.
+- **Response notes accumulator (§12.1):** The former single `artifactsWarning` string is replaced by an ordered `notes: string[]` accumulator (criteria note first, then the artifact note), joined after `guidance` in the final response text — giving callers and tests a fixed order to assert against.
 
 ### v2.5.1 - Mixed-Routing Forward Progress
 

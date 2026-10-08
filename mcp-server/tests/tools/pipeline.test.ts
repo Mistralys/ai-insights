@@ -1450,6 +1450,166 @@ describe('completePipeline — acceptance_criteria_updates merge semantics (FIX-
 });
 
 // ---------------------------------------------------------------------------
+// WP-005 — unmatched acceptance_criteria_updates visibility (§12.1, §12.3)
+// ---------------------------------------------------------------------------
+
+describe('completePipeline — unmatched acceptance criteria visibility', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  function makeRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'work/WP-001.md' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  function makeWpWithAc(
+    ac: Array<{ criterion: string; met: boolean }>,
+  ): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: ac,
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp005-ac-visibility-'));
+    store = new LedgerStore(FIX06_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    await store.writeRootIndex(makeRoot());
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('surfaces appended_criteria, a response note, and a project comment for an unmatched update (non-PM)', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'All tests pass', met: false },
+    ]));
+
+    const result = await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+      artifacts: { files_modified: ['src/a.ts'] },
+      acceptance_criteria_updates: [{ criterion: 'All unit tests pass — no regressions', met: true }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const payload = JSON.parse((result as any).content[0].text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(payload.appended_criteria).toEqual(['All unit tests pass — no regressions']);
+    const text = (result as any).content[0].text;
+    expect(text).toContain('matched no existing criterion');
+    expect(text).toContain('Copy criterion text verbatim from ledger_get_work_package');
+
+    const root = await store.readRootIndex();
+    const comment = root.project_comments.find((c) => c.note.includes('appended 1 unmatched'));
+    expect(comment).toBeDefined();
+    expect(comment!.type).toBe('warning');
+    expect(comment!.priority).toBe('low');
+    expect(comment!.note).toContain('WP-001');
+    expect(comment!.note).toContain('"All unit tests pass — no regressions"');
+  });
+
+  it('does not emit appended_criteria, a note, or a project comment when every update matches', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'All tests pass', met: false },
+    ]));
+
+    const result = await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+      artifacts: { files_modified: ['src/a.ts'] },
+      acceptance_criteria_updates: [{ criterion: 'All tests pass', met: true }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).not.toContain('matched no existing criterion');
+    const payload = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(payload.appended_criteria).toBeUndefined();
+
+    const root = await store.readRootIndex();
+    expect(root.project_comments.find((c) => c.note.includes('unmatched'))).toBeUndefined();
+  });
+
+  it('surfaces appended_criteria and the note but NOT a project comment for a PM override', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'All tests pass', met: false },
+    ]));
+
+    const result = await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Project Manager',
+      artifacts: { files_modified: ['src/a.ts'] },
+      acceptance_criteria_updates: [{ criterion: 'A brand new criterion', met: true }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('matched no existing criterion');
+    const payload = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(payload.appended_criteria).toEqual(['A brand new criterion']);
+
+    const root = await store.readRootIndex();
+    expect(root.project_comments.find((c) => c.note.includes('unmatched'))).toBeUndefined();
+  });
+
+  it('exact matching is case/whitespace sensitive — a near-miss is still appended', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'All tests pass', met: false },
+    ]));
+
+    await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+      artifacts: { files_modified: ['src/a.ts'] },
+      acceptance_criteria_updates: [{ criterion: 'all tests pass', met: true }],
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.acceptance_criteria).toHaveLength(2);
+    expect(wp.acceptance_criteria.find((c) => c.criterion === 'All tests pass')?.met).toBe(false);
+    expect(wp.acceptance_criteria.find((c) => c.criterion === 'all tests pass')?.met).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // WP-006 — completePipeline auto-finalize on documentation PASS (§WP-006)
 // ---------------------------------------------------------------------------
 
@@ -1941,6 +2101,164 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     const text = (result as any).content[0].text;
     expect(text).not.toContain('artifacts.files_modified is empty or absent');
   });
+
+  it('does NOT emit artifacts warning for security-audit (exempt policy)', async () => {
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Security Auditor', dependencies: [], file: 'ledger/WP-001.json' },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      dependencies: [],
+      acceptance_criteria: [],
+      active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'],
+      revision: 0,
+      pipelines: [
+        { type: 'security-audit', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    } as any);
+
+    const result = await completePipeline({
+      project_path: DYN_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'security-audit',
+      status: 'PASS',
+      summary: ['Audit passed'],
+      agent_role: 'Security Auditor',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).not.toContain('artifacts.files_modified is empty or absent');
+  });
+
+  it('still warns for implementation (non-empty policy) when files_modified is an explicit []', async () => {
+    await store.writeRootIndex(makeRoot2());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'documentation'],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    } as any);
+
+    const result = await completePipeline({
+      project_path: DYN_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Implemented feature'],
+      agent_role: 'Developer',
+      artifacts: { files_modified: [] },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('artifacts.files_modified is empty or absent');
+  });
+
+  for (const declareType of ['code-review', 'release-engineering', 'documentation'] as const) {
+    const agentRole = declareType === 'code-review' ? 'Reviewer'
+      : declareType === 'release-engineering' ? 'Release Engineer'
+      : 'Documentation';
+
+    it(`accepts an explicit [] without warning for ${declareType} (declare policy)`, async () => {
+      await store.writeRootIndex({
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: agentRole, dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+        project_comments: [],
+      });
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        status: 'IN_PROGRESS',
+        assigned_to: agentRole,
+        dependencies: [],
+        acceptance_criteria: [],
+        active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'],
+        revision: 0,
+        pipelines: [
+          { type: declareType, status: 'IN_PROGRESS', started_at: now(), summary: [] },
+        ],
+      } as any);
+
+      const result = await completePipeline({
+        project_path: DYN_PLAN_PATH,
+        work_package_id: 'WP-001',
+        type: declareType,
+        status: 'PASS',
+        summary: ['Ran this stage, changed nothing'],
+        agent_role: agentRole,
+        artifacts: { files_modified: [] },
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = (result as any).content[0].text;
+      expect(text).not.toContain('artifacts.files_modified is empty or absent');
+    });
+
+    it(`still warns for ${declareType} (declare policy) when files_modified is absent`, async () => {
+      await store.writeRootIndex({
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: agentRole, dependencies: [], file: 'ledger/WP-001.json' },
+        ],
+        project_comments: [],
+      });
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        status: 'IN_PROGRESS',
+        assigned_to: agentRole,
+        dependencies: [],
+        acceptance_criteria: [],
+        active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'],
+        revision: 0,
+        pipelines: [
+          { type: declareType, status: 'IN_PROGRESS', started_at: now(), summary: [] },
+        ],
+      } as any);
+
+      const result = await completePipeline({
+        project_path: DYN_PLAN_PATH,
+        work_package_id: 'WP-001',
+        type: declareType,
+        status: 'PASS',
+        summary: ['Done'],
+        agent_role: agentRole,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = (result as any).content[0].text;
+      expect(text).toContain('artifacts.files_modified is empty or absent');
+      expect(text).toContain('Pass an explicit empty array when this pass modified nothing.');
+    });
+  }
 
   it('auto-finalizes documentation-only WP when documentation is the terminal stage', async () => {
     // Documentation-only WP: ["documentation"]. Documentation is both first and terminal agent.

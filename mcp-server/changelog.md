@@ -1,5 +1,17 @@
 # Project Ledger MCP Server - Changelog
 
+## Unreleased
+
+**Artifact-declaration warnings and acceptance-criteria appends are now precise and visible.**
+The former yes/no artifact-declaration set could not tell an explicit "nothing changed" from a
+missed declaration, and an unmatched acceptance criterion was appended silently.
+
+- Tools: Artifact-declaration warnings are now policy-driven per pipeline type, not a fixed set.
+- Tools: Reviewer, Release Engineer, and Documentation may pass `files_modified: []` to say so.
+- Tools: An unmatched `acceptance_criteria_updates` entry now surfaces in `appended_criteria`.
+- Tools: A non-PM unmatched-criterion append also records an audit-trail project comment.
+- Docs: Manifest, help text, and schema descriptions cover both signals.
+
 ## v2.11.0 - Agent-Supplied Outcome Summaries
 
 **Agents can now supply the project outcome summary themselves.** The server only parses one out

@@ -558,11 +558,13 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 
 ### 21.64 Artifact Declaration Soft Warning
 
-- When `completePipeline` records a PASS result for a pipeline type in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (`implementation`, `code-review`, `release-engineering`, `documentation`) and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
-- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** — those agents verify but do not modify files
-- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared
+- When `completePipeline` records a PASS result for a non-PM caller, the per-type `ARTIFACT_DECLARATION_POLICY` (§9b.3) decides whether `artifacts.files_modified` is acceptable — not a fixed yes/no set. `evaluateArtifactDeclaration(policy, filesModified)` returns `'ok'`, `'undeclared'` (field absent/null), or `'empty'` (field is `[]`, only reachable under the `'non-empty'` policy); any non-`'ok'` outcome emits a `"warning"` project comment (§12.1)
+- Verification-only pipeline types (`qa`, `security-audit`) are policy `'exempt'` — those agents verify but do not modify files, so the field is never checked
+- `implementation` is policy `'non-empty'` — an absent field **or** an explicit `[]` both warn, since a PASS that modified nothing is almost certainly a missed declaration
+- `code-review`, `release-engineering`, and `documentation` are policy `'declare'` — an absent field warns, but an explicit `[]` is accepted as `'ok'` and does **not** warn: the Reviewer may find nothing to Fix-Forward, the Release Engineer may find nothing release-relevant, and the Documentation agent may find no gap, each a real outcome the agent states explicitly rather than omits
+- `code-review` is `'declare'` rather than `'exempt'` because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared when they occur
 - This is a **soft warning** only — it does not block the PASS or affect routing
-- The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness
+- The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness; for `'declare'`-policy stages the note additionally says to pass an explicit empty array when nothing was modified
 
 ### 21.65 Test-Only WP Production Method Prerequisite
 
@@ -765,3 +767,12 @@ When the helper returns a non-null dispatch, the handoff function returns that d
 Cross-WP dispatch is a **best-effort optimization for IDE runners**. The orchestrator's supervisor polling loop already re-dispatches READY WPs without relying on this mechanism. Implementations that omit `findNextReadyDispatch()` remain correct in orchestrator mode; the fix only prevents stalls in IDE mode. No invariants of the core state machine are affected — READY WPs and pipeline ownership rules are unchanged.
 
 **Related sections:** [§13.5](handoff.md#135-findnextreadydispatch-algorithm) (`findNextReadyDispatch` algorithm), [§13.1](handoff.md#131-per-agent-handoff-functions) (per-agent handoff functions — QA, Security Auditor, Reviewer, Release Engineer, Documentation each call `findNextReadyDispatch()` before final WAIT), [§21.70](#2170-pm-pipeline-routing-for-in_progress-wps) (PM equivalent for IN_PROGRESS WP routing)
+
+### 21.72 Unmatched Acceptance-Criterion Update
+
+- When `completePipeline`'s `acceptance_criteria_updates` includes an entry whose `criterion` text does not exact-match any existing criterion on the WP, the server still appends it as a new criterion (§12.3) — this append behaviour is unchanged and intentional, since relaxing the exact match (e.g. normalising whitespace or punctuation) would mask genuine typographic drift between an agent's paraphrase and the ledger's authoritative text
+- What changes is visibility: every unmatched entry's text is collected during the same completion call and surfaced three ways — (1) the response payload gains `appended_criteria: string[]`, listing every appended text, for every caller including the PM; (2) the response text gains a note recommending the criterion text be copied verbatim from `ledger_get_work_package` next time; (3) for a non-PM caller, a single low-priority `"warning"` project comment names the WP and quotes each appended text, giving the PM and Synthesis an audit trail
+- A PM override (`agentRole == "Project Manager"` completing a pipeline not owned by that role) still produces `appended_criteria` and the response note, but **not** the project comment — the PM is the audience the comment would otherwise be written for
+- **Example:** A Developer calls `completePipeline` with `acceptance_criteria_updates: [{ criterion: "All unit tests pass — no regressions", met: true }]`, but the WP's actual criterion text reads `"All unit tests pass, no regressions"` (comma, not em dash). The exact match fails, a new criterion is appended verbatim, `appended_criteria` lists the Developer's text, and a project comment flags the mismatch for the PM to reconcile
+- This closes the gap left by the otherwise-silent append: previously, a caller had no signal distinguishing an intentional new criterion from an accidental typographic near-miss on an existing one
+- **Related:** [§12.3](operations.md#123-acceptance-criteria-merge-semantics) (merge semantics and the `appended_criteria` response field), [§9b.3](operations.md#9b3-artifact-declaration-expectation) (the sibling artifact-declaration signal, following the same "keep the rule, surface the signal" shape)
