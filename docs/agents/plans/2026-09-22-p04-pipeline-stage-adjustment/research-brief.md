@@ -19,7 +19,7 @@
 
 ### Verified References
 
-- `docs/agents/plans/2026-09-22-pipeline-stage-adjustment/request.md` (L1–L21): The request file, moved into the plan folder from `docs/agents/projects/`. WP-005 of a prior plan — the WP implementing credential redaction — was registered with the default 4-stage chain instead of the 5-stage chain including `security-audit` that its own `pipeline-configuration.md` prescribed. No MCP tool existed to patch `active_pipeline_stages`; a direct filesystem edit was blocked by the auto-mode permission classifier; the incident was logged `resolved: false` and the WP reached COMPLETE without an independent security audit. The user's ask: "add the possibility to make such adjustments, restricted to the relevant agents."
+- `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/request.md` (L1–L21): The request file, moved into the plan folder from `docs/agents/projects/`. WP-005 of a prior plan — the WP implementing credential redaction — was registered with the default 4-stage chain instead of the 5-stage chain including `security-audit` that its own `pipeline-configuration.md` prescribed. No MCP tool existed to patch `active_pipeline_stages`; a direct filesystem edit was blocked by the auto-mode permission classifier; the incident was logged `resolved: false` and the WP reached COMPLETE without an independent security audit. The user's ask: "add the possibility to make such adjustments, restricted to the relevant agents."
 
 ### Established Patterns
 
