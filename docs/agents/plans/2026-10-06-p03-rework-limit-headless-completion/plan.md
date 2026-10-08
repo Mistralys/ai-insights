@@ -8,6 +8,12 @@
 
 The repository's long-term secondary goal is a reliable headless orchestrator workflow. The decision of 2026-10-06 (`constraints-workflow.md`, "A Chain With a Verifier Stage Must Include `implementation`") routes failures that cannot be fixed in scope to the existing rework limit (`BLOCK_FOR_REWORK_LIMIT`, then PM review). That makes the rework-limit path load-bearing for headless runs. Insight `ea8cb364-…` records an orchestrator loop that ran 4+ cycles before a WP was cancelled. This investigation shows that the halted-WP sweep was the only exit available, and why. The global insight `f213b2d6-…` (a write gate should share its sibling's validation path) was weighed for item 2 and rejected for scope (see Considered Alternatives).
 
+**Plan P02 has landed (2026-10-08, `docs/agents/plans/2026-10-08-p02-unfixable-verifier-chain-validation/`).** It shipped spec v2.6.0 with §21.72, Hard Reject 5 (`findFailRoutingGaps()` in `mcp-server/src/utils/pipeline-maps.ts`) and mcp-server v2.12.0, which the STABLE ledger server already runs. Three consequences for this plan:
+
+- The numbering this plan expected is confirmed: spec v2.7.0 / §21.73, mcp-server v2.13.0, orchestrator v1.5.0. The line references below were re-verified against the post-P02 tree.
+- P02 kept every pre-v2.6.0 verifier-only chain working through the legacy-only `resolveFailAgent` fallback, and §21.72 says that self-loop is "bounded only by `MAX_REWORK_COUNT`". That bound is unreachable for the same reason as item 1, so this plan's fix is what makes §21.72 true. The plan now covers legacy chains explicitly (step 1, AC-12).
+- P02's synthesis left four open topics. Each one is either addressed here (Human Actions, Deferred Items) or already carried by plan P04's sequencing note.
+
 ## Summary
 
 This plan fixes three findings about how the rework limit behaves in a headless run.
@@ -27,7 +33,7 @@ The fix:
 
 **Item 3: stale documentation, not a missing test.** The requested `current_wp_id` assertions already exist for both synthesis routes. This plan removes the stale note and adds the one missing variant: the non-halted all-WAIT path.
 
-Spec edits take the next free numbers after plan P02 (expected v2.7.0, §21.73).
+Spec edits take the next free numbers after plan P02, which has landed v2.6.0 and §21.72: this plan writes v2.7.0 and §21.73. The fix also closes the limit for legacy verifier-only chains that P02 left running through the `resolveFailAgent` fallback.
 
 ## Architectural Context
 
@@ -71,6 +77,8 @@ Effect: a stored counter of 5 now means "a rework of this stage was needed and r
 - the stage owner gets `BLOCK_FOR_REWORK_LIMIT`;
 - downstream stages get `WAIT_FOR_UPSTREAM_REWORK_LIMIT`;
 - the PM gets `REVIEW_REWORK_LIMIT`.
+
+The fix is keyed on the pipeline type, not on implementation, so it also applies to legacy verifier-only chains (§21.72). On a pre-v2.6.0 `["qa", "code-review"]` WP, each QA restart after a QA FAIL is a direct rework of `qa`. The refused fifth QA start now persists `rework_counts.qa = 5`, after which QA gets `BLOCK_FOR_REWORK_LIMIT`, the Reviewer gets `WAIT_FOR_UPSTREAM_REWORK_LIMIT`, and the PM gets `REVIEW_REWORK_LIMIT` with `pipeline_type: "qa"`. No legacy-specific code is needed.
 
 The number of reworks that actually run is unchanged (4). `REVIEW_REWORK_LIMIT` additionally carries `pipeline_type`, `rework_count` and `max_rework_count`, matching the Developer P1 payload, so an orchestrator can log what spec §16.3c asks for.
 
@@ -136,14 +144,15 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
 | `begin-work.ts` / `pipeline.ts` duplicated guard chain | Two copies of Guards 1–5 | Rejected | A refactor beyond the defect; the user asked for tight scope. The parity suite (step 6) pins equivalence. |
 | `orchestrator/src/supervisor.py` L673–L741 halted sweep | Routes straight to synthesis after cancelling, so unblocked dependents and starved WPs never run | Rejected (deferred) | After step 7, the rework-limit path no longer goes through the sweep. The remaining defect affects crash-halted WPs only, which is outside the three items. Recorded in Deferred Items. |
 | `mcp-server/docs/agents/workflow-specification/operations.md` §11.1 prerequisite line | Contradicts §21.27 | Promoted to step 1 | The spec must state the rule the code is aligned to. |
+| `mcp-server/docs/agents/workflow-specification/edge-cases.md` §21.72 "Legacy-WP treatment" (plan P02) | States the legacy self-loop is bounded by `MAX_REWORK_COUNT`, which no tool-driven state reaches today | Promoted to step 1 | This plan makes the statement true. A cross-reference to §21.73 keeps the two sections consistent. |
 | `orchestrator/docs/supervisor-routing.md` L68 | Stale "Test coverage gap (known)" note | Promoted to step 10 | Item 3 outcome. |
 
 ## Detailed Steps
 
 1. **Revise the workflow specification first** (`mcp-server/docs/agents/workflow-specification/`). Take the version and section numbers by the rule in Dependencies; the expected values are v2.7.0 and §21.73.
    - `operations.md` §11.1:
-     - Prerequisite guard (L447–L451): filter `NOT p.auto_cancelled`, citing §21.27.
-     - Circuit breaker (L517–L529): when the incremented count reaches `MAX_REWORK_COUNT` and the stored count was below it, persist `rework_counts` (and the claim, for `ledger_begin_work`). Create no pipeline. Return the error. When the stored count is already at or above the maximum, reject without writing.
+     - Prerequisite guard (L458–L462): filter `NOT p.auto_cancelled`, citing §21.27.
+     - Circuit breaker (L528–L540): when the incremented count reaches `MAX_REWORK_COUNT` and the stored count was below it, persist `rework_counts` (and the claim, for `ledger_begin_work`). Create no pipeline. Return the error. When the stored count is already at or above the maximum, reject without writing.
      - Add one sentence stating that `ledger_begin_work` applies this guard chain after its claim phase.
    - `dependencies-and-rework.md`:
      - §16.3: state that `MAX_REWORK_COUNT − 1` reworks run, that the start which would be the `MAX`-th rework is refused and recorded, and that the recommendation actions fire from then on.
@@ -155,11 +164,13 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
        - the persisted counter and its idempotence;
        - claim persistence for READY WPs, so P1/P2 see an IN_PROGRESS WP;
        - unchanged rework capacity;
-       - headless resolution per §16.3c.
+       - headless resolution per §16.3c;
+       - legacy verifier-only chains (§21.72): the same trip on `rework_counts.qa` (or the verifier's own type) ends the self-loop.
      - Amend §21.27 so the prerequisite bullet names both `startPipeline` and `ledger_begin_work`.
-     - Check L447–L464 ("reaches `MAX_REWORK_COUNT` (5)") still reads correctly.
+     - Check §21.53 (L453–L457, "reaches `MAX_REWORK_COUNT` (5)") still reads correctly.
+     - In §21.72 "Legacy-WP treatment", add one sentence pointing to §21.73: the `MAX_REWORK_COUNT` bound on a legacy self-loop is reached through the refused start. Leave the rest of §21.72 and the legacy-only markers on §21.63, §21.66 and §21.67 unchanged.
    - `walkthrough.md` L142: clarify "Maximum rework cycles before circuit breaker" (the `MAX`-th rework start is refused).
-   - `README.md`: version, date 2026-10-06, and a changelog entry naming §11.1, §14.1.2, §16.3, §16.3c, §21.27 and the new §21.73.
+   - `README.md`: version, the execution date, and a changelog entry above `v2.6.0 - Fail-Route Coverage Validation` naming §11.1, §14.1.2, §16.3, §16.3c, §21.27, §21.72 and the new §21.73.
 2. **Align the manifest version.** Set `shared/workflow-manifest.json` `spec_version` to the version written in step 1.
 3. **Persist the counter on a refused start** in `mcp-server/src/tools/pipeline.ts` (step 6b) and `mcp-server/src/tools/begin-work.ts` (Guard 5), per Approach 1a:
    - Inside the updater: record the breaker message in a variable declared outside it. Skip the pipeline append and the `assigned_to` update. Set `root.last_updated`, and return `{ wp, root }` only when the stored count was below the maximum. When it was already at or above the maximum, throw as today (no write).
@@ -179,13 +190,13 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
    - `mcp-server/docs/agents/project-manifest/constraints-workflow.md`:
      - "Pipelines Can Only Be Started for an Active Stage": delete the divergence paragraph (L370) and replace it with a pointer to `tests/tools/start-path-parity.test.ts` as the parity guard.
      - "Rework Count Increments on Pipeline Retry": rewrite the circuit-breaker paragraph (L488) for the persisted trip and the limit actions.
-     - "A Chain With a Verifier Stage Must Include `implementation`": rewrite "Unfixable failures" to describe the working path (refused start → limit actions → PM review, which headless orchestrators perform by cancelling). In "Why the chain cannot recover", reword "until its `rework_counts` entry reaches `MAX_REWORK_COUNT`". Locate by heading, since the verifier plan edits the same entry.
+     - "A Chain With a Verifier Stage Must Include `implementation`": rewrite "Unfixable failures" to describe the working path (refused start → limit actions → PM review, which headless orchestrators perform by cancelling). In "Why the chain cannot recover (legacy chains only — see Enforcement below)", reword the last bullet ("until its `rework_counts` entry reaches `MAX_REWORK_COUNT`") so it says the refused start records the limit (§21.73). Leave plan P02's "Enforcement (v2.6.0)" paragraph and the heading as they are. Locate by heading.
    - `api-surface.md`:
      - L421 and L443–L445: describe the persisted trip for both tools.
-     - L6542: list the PM P2 payload fields.
+     - L6578: list the PM P2 payload fields.
      - Note the `beginWork` prerequisite exclusion.
    - `data-flows.md` Flow 4: step 3 states the auto-cancelled exclusion and that `ledger_begin_work` runs the same check. Step 5 describes the persisted trip.
-   - `mcp-server/src/tools/help-content.ts` L291 and the `ledger_start_pipeline` entry: describe the refused start that records the limit.
+   - `mcp-server/src/tools/help-content.ts` L292 and the `ledger_start_pipeline` entry: describe the refused start that records the limit.
 10. **Orchestrator docs.**
     - `orchestrator/docs/supervisor-routing.md`:
       - Update the routing table (L56): `REVIEW_REWORK_LIMIT` is handled by the supervisor.
@@ -195,13 +206,13 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
     - `orchestrator/docs/jsonl-log-schema.md`, `orchestrator/docs/architecture.md`, `orchestrator/docs/agents/project-manifest/api-surface.md`: add the `rework_limit_wp_cancelled` and `rework_limit_cancel_failed` rows next to `halted_wp_cancelled`.
     - `orchestrator/docs/agents/project-manifest/decisions.md` ("Not Adopted: Settled-but-Not-Terminal WPs at Synthesis"): add a Consequences bullet stating that the rework limit ends in CANCELLED through the supervisor's §16.3c handling, which keeps the terminal-only predicate and the 0/1/2 exit codes. Add `supervisor-routing.md` § Rework-Limit Cancellation to References.
 11. **Release preparation.**
-    - `mcp-server/changelog.md`: add an entry under the next free minor version (expected v2.13.0, after plan P02's v2.12.0) in house style:
+    - `mcp-server/changelog.md`: add an entry under the next free minor version (v2.13.0, after plan P02's v2.12.0, now the topmost entry) in house style:
       - the refused start records the limit;
       - the PM review payload names the stage and count;
       - `ledger_begin_work` ignores auto-cancelled prerequisite runs;
       - spec realigned.
     - Run `npm run sync-version` in `mcp-server/`.
-    - `orchestrator/changelog.md` + `orchestrator/pyproject.toml`: next minor (expected v1.5.0). The supervisor cancels rework-limited WPs per spec §16.3c instead of dispatching the PM.
+    - `orchestrator/changelog.md` + `orchestrator/pyproject.toml`: next minor (v1.5.0; the current version is 1.4.0). The supervisor cancels rework-limited WPs per spec §16.3c instead of dispatching the PM.
     - Run `node scripts/check-version-sync.js` from the workspace root.
 12. **Regenerate derived documents** last: `node scripts/bundle-docs.js` and `node scripts/cli.js ctx-generate`.
 
@@ -211,8 +222,8 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
 - Steps 3–5 precede step 6. Step 4 precedes step 7 (the supervisor reads the payload fields, but must tolerate their absence for older servers).
 - Steps 3 and 7 must land in the same run. Step 3 alone makes `REVIEW_REWORK_LIMIT` reachable, and without step 7 it would dispatch the plan-only PM node in a loop.
 - Step 12 runs last.
-- **Plan order (numbered folders, amended 2026-10-06):** `2026-10-06-p01-verifier-chain-prevention-personas` (personas), then `2026-10-06-p02-unfixable-verifier-chain-validation`, then this plan (P03), then `2026-09-22-p04-pipeline-stage-adjustment`. This plan was moved ahead of 09-22: the accepted-failure path it repairs is a precondition of plan P02's decision, while 09-22 is a new capability. This plan has no code dependency on either neighbour. They share spec and version numbering only.
-- **Numbering rule:** at execution time, read the spec `README.md` version and the highest `### 21.N` in `edge-cases.md`. Take the next minor version and `§21.(N+1)`. In the planned order this yields v2.7.0 and §21.73 (after plan P02's v2.6.0 / §21.72); 09-22 then takes the next numbers after this plan. Apply the same rule to the mcp-server version (expected v2.13.0) and the orchestrator version (expected v1.5.0).
+- **Plan order (numbered folders, amended 2026-10-08):** `2026-10-06-p01-verifier-chain-prevention-personas` (personas, deployed) and `2026-10-08-p02-unfixable-verifier-chain-validation` (COMPLETE 2026-10-08), then this plan (P03), then `2026-09-22-p04-pipeline-stage-adjustment`, then `2026-10-06-p05-headless-pm-review-actions` (which generalises this plan's supervisor intercept). This plan was moved ahead of 09-22: the accepted-failure path it repairs is a precondition of plan P02's decision, while 09-22 is a new capability. This plan has no code dependency on either neighbour. They share spec and version numbering only.
+- **Numbering rule:** at execution time, read the spec `README.md` version and the highest `### 21.N` in `edge-cases.md`. Take the next minor version and `§21.(N+1)`. Re-verified after plan P02 (2026-10-08): the spec is at v2.6.0 and the highest section is §21.72, so this plan writes v2.7.0 and §21.73. P04 then takes the next numbers, as its own sequencing note already instructs. Apply the same rule to the mcp-server version (2.12.0 → v2.13.0) and the orchestrator version (1.4.0 → v1.5.0).
 
 ## Required Components
 
@@ -229,6 +240,7 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
 ## Assumptions
 
 - The orchestrator spawns its MCP server from `mcp-server/dist/` (`MCP_SERVER_CMD`), and `scripts/run-orchestrator.js` rebuilds `dist/` when stale. So steps 3 and 7 reach headless runs together.
+- Plan P02's changes are in the tree this plan runs on (spec v2.6.0, §21.72, mcp-server v2.12.0). Where Human Action 1 was skipped they sit uncommitted beside this plan's changes, which only affects how the diffs separate.
 - A refused ledger start keeps surfacing as a stage crash (`ToolException`). The plan relies on that only for the exit-code statement, not for correctness.
 - The ledger keeps emitting `REVIEW_REWORK_LIMIT` only for IN_PROGRESS WPs (P2). If an agent sets a limited WP to BLOCKED with a non-dependency blocker, P1 `UNBLOCK_WP` would take precedence. Headless agents cannot do this after a refused start, because the stage aborts at the refusal.
 
@@ -241,19 +253,21 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
 ## Out of Scope
 
 - Persona changes. These are follow-ups for the Persona Curator:
-  - (a) PM persona (`personas/ledger/src/content/2-project-manager.md`): handling for `REVIEW_REWORK_LIMIT` (IDE flows: cancel or `ledger_reset_rework_count`), `UNBLOCK_WP`, `REVIEW_STALE`, `REVIEW_ABANDONED` and `REPAIR_ORPHAN_BLOCKED`. In headless runs, those four other actions still dispatch the plan-only PM node.
+  - (a) PM persona (`personas/ledger/src/content/2-project-manager.md`): handling for `REVIEW_REWORK_LIMIT` (IDE flows: cancel or `ledger_reset_rework_count`), `UNBLOCK_WP`, `REVIEW_STALE`, `REVIEW_ABANDONED` and `REPAIR_ORPHAN_BLOCKED`. The headless side of the four other actions is planned in `docs/agents/plans/2026-10-06-p05-headless-pm-review-actions/`. The IDE persona side remains a Persona Curator follow-up.
   - (b) Pipeline-agent personas: on `BLOCK_FOR_REWORK_LIMIT`, stop and hand off; do not try to cancel, since that is PM-only.
   - (c) Synthesis persona (`9-synthesis.md`): report cancelled WPs and the reason (spec §16.3c step 3).
 - The halted-WP sweep's direct synthesis route (see Deferred Items).
 - Extracting a shared start-guard helper.
-- Editing the two other pending plans.
+- Editing the other pending plans (P04, P05).
+- Retiring the legacy-only `resolveFailAgent` fallback (see Deferred Items).
 - `docs/references/agents-overview.md`.
 
 ## Human Actions
 
 | # | Action | When | Why an agent cannot do it |
 |---|--------|------|---------------------------|
-| 1 | Rebuild and restart the STABLE Ledger MCP server so IDE sessions pick up the persisted trip and the new payload | After the run | The server backs the user's live agent sessions; restarting it is the user's call. |
+| 1 | Commit plan P02's uncommitted changes, and decide on the other working-tree changes P02 flagged (the deleted `2026-10-06-p02-…` folder, `personas/name-mapping.json`), so this plan's diff starts from a clean tree | Before the run | The user manages version control; agents never run Git write commands. |
+| 2 | Rebuild and restart the STABLE Ledger MCP server so IDE sessions pick up the persisted trip and the new payload | After the run | The server backs the user's live agent sessions; restarting it is the user's call. |
 
 ## Acceptance Criteria
 
@@ -275,6 +289,7 @@ The investigation confirms that both synthesis routes set `current_wp_id: ""` (`
 - AC-09: The spec carries the new version and §21.73 (or the numbers assigned by the rule), with §11.1, §14.1.2, §16.3, §16.3c and §21.27 updated. `shared/workflow-manifest.json` `spec_version` matches.
 - AC-10: The `auto_cancelled` divergence notes are gone from `constraints-workflow.md`, and `data-flows.md` Flow 4 states the exclusion. Manifest docs, tool help and orchestrator docs (including `decisions.md`) describe the new behaviour.
 - AC-11: Changelogs and package versions agree (`check-version-sync.js`). `npm test` and `npm run build` pass in `mcp-server/`, `pytest` and `ruff check` pass in `orchestrator/`, and the derived docs are regenerated.
+- AC-12: On a legacy `["qa", "code-review"]` WP seeded directly in storage (as created before v2.6.0) and driven by tool calls through four QA self-reworks, the refused fifth QA start persists `rework_counts.qa = 5`. QA then gets `BLOCK_FOR_REWORK_LIMIT`, the Reviewer gets `WAIT_FOR_UPSTREAM_REWORK_LIMIT`, and the PM gets `REVIEW_REWORK_LIMIT` with `pipeline_type: "qa"`. §21.72 cross-references §21.73.
 
 ## Testing Strategy
 
@@ -304,6 +319,7 @@ On the ledger side, unit tests pin the persisted trip on both start tools. A par
   - **Reworks:** four cycles of implementation PASS / QA FAIL, then the fifth `ledger_begin_work` is refused.
   - **Limit actions:** asserts Developer `BLOCK_FOR_REWORK_LIMIT`, QA `WAIT_FOR_UPSTREAM_REWORK_LIMIT` and PM `REVIEW_REWORK_LIMIT` with the payload fields — AC-02.
   - **Cancel to synthesis:** the PM cancels `WP-001`, `WP-002` becomes READY and is completed, and `ledger_complete_synthesis` succeeds with the project COMPLETE — AC-03.
+  - **Legacy verifier-only chain:** a second `describe` seeds `WP-001` with `active_pipeline_stages: ["qa", "code-review"]` through `store.writeWorkPackage` (as `tests/tools/workflow-next-action.test.ts` L48 does), since `ledger_create_work_package` now rejects that chain. It drives four QA FAIL / `ledger_begin_work(qa)` cycles, asserts the fifth start is refused with `rework_counts.qa === 5` persisted, and asserts QA `BLOCK_FOR_REWORK_LIMIT`, Reviewer `WAIT_FOR_UPSTREAM_REWORK_LIMIT` and PM `REVIEW_REWORK_LIMIT` with `pipeline_type: "qa"` — AC-12.
 - `orchestrator/tests/test_supervisor.py`:
   - `TestDirectActionRouting`: remove the `("Project Manager", "REVIEW_REWORK_LIMIT", "pm")` parameter — AC-04.
   - New `TestReworkLimitCancellation` (PM responses sequenced via `side_effect`; `ledger_update_work_package_status` mock records calls):
@@ -323,6 +339,7 @@ On the ledger side, unit tests pin the persisted trip on both start tools. A par
   - `npm test` and `npm run build` (mcp-server); `pytest` and `ruff check` (orchestrator) — AC-11.
   - `node scripts/check-version-sync.js` — AC-11.
   - `tests/utils/workflow-manifest.test.ts` SPEC_VERSION parity — AC-09.
+  - A grep that §21.72 links to §21.73 in `edge-cases.md` — AC-12.
   - A grep that "already differ in one place" no longer appears in `constraints-workflow.md` and "Test coverage gap (known)" no longer appears in `supervisor-routing.md` — AC-08, AC-10.
 
 ## Documentation Updates
@@ -330,7 +347,7 @@ On the ledger side, unit tests pin the persisted trip on both start tools. A par
 - `mcp-server/docs/agents/workflow-specification/operations.md`: §11.1 prerequisite filter, persisted trip, begin_work sentence
 - `mcp-server/docs/agents/workflow-specification/dependencies-and-rework.md`: §16.3 semantics; §16.3c orchestrator handling
 - `mcp-server/docs/agents/workflow-specification/recommendations.md`: §14.1.2 P2 payload
-- `mcp-server/docs/agents/workflow-specification/edge-cases.md`: new §21.73; §21.27 amended
+- `mcp-server/docs/agents/workflow-specification/edge-cases.md`: new §21.73 (including legacy chains); §21.27 amended; §21.72 "Legacy-WP treatment" cross-reference to §21.73
 - `mcp-server/docs/agents/workflow-specification/walkthrough.md`: L142 constant description
 - `mcp-server/docs/agents/workflow-specification/README.md`: version, date, changelog
 - `shared/workflow-manifest.json`: `spec_version`
@@ -354,7 +371,10 @@ On the ledger side, unit tests pin the persisted trip on both start tools. A par
 | 1 | The halted-WP sweep routes straight to synthesis after cancelling (`supervisor.py` L673–L741). Dependents unblocked by the cancellation, and WPs starved behind the halted WP in their role's `ledger_get_next_action` order, never run, so synthesis gets `WAIT` and the run ends without one. | Item 1 trace, step 6 | After this plan the rework-limit path no longer uses the sweep. What remains affects crash-halted WPs only, outside the three items. | The fix is to re-evaluate routing after a sweep that cancelled something, instead of going straight to synthesis. Reconsider with the next orchestrator reliability plan. |
 | 2 | Any ledger tool refusal aborts the whole stage: `ToolException` from langchain-mcp-adapters, no `handle_tool_error`. | Item 1 trace, step 3 | Changing tool-error semantics affects every stage and every guard. | This explains why a refused start costs a stage and an `errors` entry. |
 | 3 | Extract the duplicated `beginWork` / `startPipeline` guard chain into one helper | Item 2 | Out of scope by instruction; the parity suite pins equivalence | Insight `f213b2d6-…`. |
-| 4 | PM, pipeline-agent and Synthesis persona follow-ups (see Out of Scope) | Item 1 | Persona Curator | The four other PM review actions still dispatch the plan-only PM node in headless runs. |
+| 4 | PM, pipeline-agent and Synthesis persona follow-ups (see Out of Scope) | Item 1 | Persona Curator | The headless side of the four other PM review actions is planned in P05 (`2026-10-06-p05-headless-pm-review-actions`). The persona side stays open. |
+| 5 | Retire the legacy-only `resolveFailAgent` fallback, its legacy-only tests, and spec §21.63, §21.66, §21.67 and §21.72's legacy-WP bullet | Plan P02 synthesis, Next Steps | Only valid once no ledger holds a pre-v2.6.0 chain lacking `implementation` ahead of a verifier. That condition cannot be checked from this plan. | After this plan, a legacy self-loop ends at the limit (cancelled headlessly), so such WPs drain faster. Reconsider once a store scan shows no remaining legacy chains. |
+| 6 | Renumber plan P04's spec version and edge-case section, and apply Hard Reject 5 in `ledger_update_pipeline_stages` | Plan P02 synthesis, Deferred & Follow-Up | Already carried by P04's own sequencing note (P04 `plan.md` L3). Editing P04 is out of scope here. | After this plan, P04 takes v2.8.0 / §21.74 and mcp-server v2.14.0. |
+| 7 | Documentation-stage completions should declare `artifacts.files_modified` for traceability | Plan P02 synthesis, Deferred & Follow-Up (low) | A Documentation persona practice, outside this plan's code and docs | Persona Curator follow-up. P02's own instance was an accurate empty declaration. |
 
 ## Risks & Mitigations
 
@@ -364,8 +384,8 @@ On the ledger side, unit tests pin the persisted trip on both start tools. A par
 | **A refused call that writes surprises callers or tests** | The error text is unchanged, and the write happens once (idempotent at the limit). AC-01 pins it, and §21.73 documents it. |
 | **READY-WP claim persisted on a refused start** | This is intended: it keeps the WP visible to P1/P2. It is pinned by a test and documented in §21.73. |
 | **Re-poll loop never terminates if the ledger keeps naming the same WP** | Cancelled IDs are tracked per iteration. A repeat is treated as a failure, and the PM role is skipped for that iteration (AC-05). |
-| **Spec and version numbering collides with the two pending plans** | The explicit numbering rule in Dependencies applies. This plan never reuses their reserved numbers. |
-| **The verifier plan and this plan edit the same `constraints-workflow.md` entry** | Edits are located by heading. This plan rewrites only "Unfixable failures" and one bullet of "Why the chain cannot recover"; the verifier plan owns "Enforcement". |
+| **Spec and version numbering collides with the pending plans** | Plan P02's numbers are already in the tree (v2.6.0, §21.72, mcp-server v2.12.0), and the numbering rule in Dependencies reads the live values. P04's sequencing note and P05's expected numbers already assume this plan's v2.7.0 / §21.73. |
+| **This plan overwrites plan P02's text in the shared `constraints-workflow.md` entry or in §21.72** | Edits are located by heading. This plan rewrites only "Unfixable failures" and the last bullet of "Why the chain cannot recover (legacy chains only …)", and adds one sentence to §21.72. P02's "Enforcement (v2.6.0)" paragraph and legacy-only markers stay as they are. |
 | **The 09-22 plan moves `resetReworkCount` into `work-package-admin.ts`** | No overlap: this plan does not touch the reset tool. A CANCELLED WP is recovered via `ledger_reopen_cancelled_wp`, which resets the counters, and can then be restaged with 09-22's tool. |
 | **Runs that cancel at the limit still exit 1** | Documented (README exit-codes text already says the code reflects errors, not WP state). This is consistent with `decisions.md`. |
 

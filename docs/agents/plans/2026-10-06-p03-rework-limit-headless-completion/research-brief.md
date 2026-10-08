@@ -10,12 +10,13 @@
 - Workflow specification — `mcp-server/docs/agents/workflow-specification/` — modification
 - Manifest and orchestrator docs — `mcp-server/docs/agents/project-manifest/`, `orchestrator/docs/` — modification
 - Tests — `mcp-server/tests/`, `orchestrator/tests/` — new and modified
-- Pending plans that share spec numbering — `docs/agents/plans/2026-10-06-p02-unfixable-verifier-chain-validation/`, `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/` — read only
+- Pending and completed plans that share spec numbering — `docs/agents/plans/2026-10-08-p02-unfixable-verifier-chain-validation/` (executed 2026-10-08), `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/`, `docs/agents/plans/2026-10-06-p05-headless-pm-review-actions/` — read only
+- Legacy verifier-only chains after plan P02 — `mcp-server/src/utils/pipeline-maps.ts`, `edge-cases.md` §21.72 — read only (interaction with the rework limit)
 
 ## Area: Rework-limit recommendation and circuit breaker (ledger)
 
 ### Verified References
-- `shared/workflow-manifest.json`: `constants.max_rework_count` = 5; `spec_version` = `2.4.1` (drifted; the verifier plan realigns it). `pipelines.fail_routing` sends `implementation`, `qa`, `security-audit`, `code-review` FAILs to `developer`, `release-engineering` to `release_engineer`, `documentation` to `docs`. Role order: Planner, Project Manager, Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation, Synthesis.
+- `shared/workflow-manifest.json`: `constants.max_rework_count` = 5; `spec_version` = `2.6.0` (realigned by plan P02, 2026-10-08). `pipelines.fail_routing` sends `implementation`, `qa`, `security-audit`, `code-review` FAILs to `developer`, `release-engineering` to `release_engineer`, `documentation` to `docs`. Role order: Planner, Project Manager, Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation, Synthesis.
 - `mcp-server/src/utils/workflow-helpers.ts` L37: `MAX_REWORK_COUNT` derived from the manifest. L179–L181 `isMostRecentPipelineFail` uses `latestNonCancelledPipeline` (auto-cancelled excluded). L191–L198 `hasDownstreamFail` delegates to it. L286+ `hasDownstreamReengagedSince` excludes auto-cancelled.
 - `mcp-server/src/tools/pipeline.ts` `startPipeline`, inside `store.updateWorkPackageWithSync`:
   - L192–L203: prerequisite lookup `wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled)`; most recent must be PASS.
@@ -119,7 +120,7 @@
 
 ### Verified References
 - Spec §21.27 (`edge-cases.md` L231–L242): auto-cancelled pipelines are excluded from "Prerequisite check in `startPipeline` (§11.1, §8.2) … a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start".
-- Spec §11.1 pseudocode (`operations.md` L447–L451): `prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)` — no exclusion. Internal spec inconsistency; §21.27 is the specific rule and matches `startPipeline`.
+- Spec §11.1 pseudocode (`operations.md` L458–L462, shifted +11 by plan P02's Rule 5 text in §9b.2): `prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)` — no exclusion. Internal spec inconsistency; §21.27 is the specific rule and matches `startPipeline`.
 - The spec has no separate `beginWork` algorithm; `ledger_begin_work` is claim + the `startPipeline` guard chain (`constraints-workflow.md` "Pipelines Can Only Be Started for an Active Stage").
 - `mcp-server/tests/tools/start-pipeline-guards.test.ts` L196–L227 pins the §21.27 case for `startPipeline` only. `mcp-server/tests/tools/begin-work.test.ts` (602 lines) has no `auto_cancelled` case.
 - Writers of `auto_cancelled: true`: `cancelPipeline` with `auto_cancelled` (`pipeline.ts` L676–L717; orchestrator rollback), IN_PROGRESS → BLOCKED / CANCELLED (`work-package.ts` L651–L658, L882–L885), cascade reblock (spec §15.5), GUI project reset (`api-surface.md` L3834).
@@ -137,11 +138,11 @@
 ## Area: Workflow specification
 
 ### Verified References
-- `README.md` L5–L6: Version 2.5.1, Date 2026-05-30; changelog L10+.
+- `README.md` L5: Version 2.6.0 (plan P02); changelog L10+, topmost entry `### v2.6.0 - Fail-Route Coverage Validation` (L12).
 - `dependencies-and-rework.md` §16.2 (L230–L238), §16.3 (L240–L250), §16.3b (L252–L289), §16.3c (L291–L309, "orchestrator SHOULD … log … transition the WP to CANCELLED … allow the project to proceed to synthesis"; "Halted WPs and synthesis" note).
-- `operations.md` §11.1 L447–L451 (prerequisite) and L517–L529 (rework detection + circuit breaker; `ERROR` aborts).
+- `operations.md` §11.1 starts L438; L458–L462 (prerequisite, no auto-cancelled filter) and L528–L540 (rework detection + circuit breaker; `ERROR` aborts). Plan P02 added §9b.2 Rule 5 (L117, L155–L159) and two notes after the pseudocode, which shifted §11.1 by 11 lines.
 - `recommendations.md` §14.1.2 L40–L63 (PM priorities; `return REVIEW_REWORK_LIMIT with wp.id`), Developer L116–L131, QA L192–L193, Reviewer L212–L213, Documentation L230–L231, Security Auditor L262–L263, Release Engineer L282–L283.
-- `edge-cases.md`: last section §21.71 (L738). §21.27 L231–L242. §21.68 L680–L703. L447–L464 (upstream rework-limit propagation example "rework_counts.implementation reaches MAX_REWORK_COUNT (5)").
+- `edge-cases.md`: last section §21.72 "Unfixable Verifier Chain Rejection" (L777, plan P02). §21.27 L231–L242. §21.53 "Upstream Circuit Breaker Propagation" L453–L457 (example "rework_counts.implementation reaches MAX_REWORK_COUNT (5)"). §21.63 (L552), §21.66 (L580), §21.67 (L633) now titled "(legacy chains only — see §21.72)".
 - `walkthrough.md` L142 (`MAX_REWORK_COUNT` "Maximum rework cycles before circuit breaker"), L151, L166.
 
 ### Constraints
@@ -150,14 +151,14 @@
 ## Area: Manifest and orchestrator docs
 
 ### Verified References
-- `mcp-server/docs/agents/project-manifest/constraints-workflow.md`: L360–L372 "Pipelines Can Only Be Started for an Active Stage" (divergence paragraph L370); L414–L440 "A Chain With a Verifier Stage Must Include `implementation`" ("Unfixable failures" paragraph, "until its `rework_counts` entry reaches `MAX_REWORK_COUNT`"); L488 circuit-breaker paragraph under "Rework Count Increments on Pipeline Retry".
-- `mcp-server/docs/agents/project-manifest/api-surface.md` L339 (reset use case), L421 (`ledger_begin_work` start phase), L443–L445 (rework detection, circuit breaker), L6542 (PM P2), L6568–L6636 (per-role P1/P1b).
-- `mcp-server/docs/agents/project-manifest/data-flows.md` Flow 4 L257–L313.
-- `mcp-server/src/tools/help-content.ts` L291 "Rework circuit breaker — rejects if per-type rework count is at maximum".
+- `mcp-server/docs/agents/project-manifest/constraints-workflow.md`: L357–L372 "Pipelines Can Only Be Started for an Active Stage" (divergence paragraph L370); L414–L445 "A Chain With a Verifier Stage Must Include `implementation`" — after plan P02 its "Why the chain cannot recover" heading reads "(legacy chains only — see Enforcement below)" and still ends "until its `rework_counts` entry reaches `MAX_REWORK_COUNT`"; "Enforcement (v2.6.0)" now describes the landed creation-time rejection; "Unfixable failures" (L431) is unchanged; L489 circuit-breaker paragraph under "Rework Count Increments on Pipeline Retry".
+- `mcp-server/docs/agents/project-manifest/api-surface.md` L339 (reset use case), L421 (`ledger_begin_work` start phase), L443–L445 (rework detection, circuit breaker), L6578 (PM P2), L6604–L6672 (per-role P1/P1b). Plan P02 added 36 lines above the recommendation section.
+- `mcp-server/docs/agents/project-manifest/data-flows.md` Flow 4 from L261.
+- `mcp-server/src/tools/help-content.ts` L292 "Rework circuit breaker — rejects if per-type rework count is at maximum".
 - `orchestrator/docs/supervisor-routing.md` L19–L25 (special exits, synthesis predicate), L35–L67 (standard routing; table lists `REVIEW_REWORK_LIMIT` → pm), L68 stale "Test coverage gap (known)" note, L79–L89 circuit breaker and halted-WP cancellation.
 - `orchestrator/docs/jsonl-log-schema.md` L84, `orchestrator/docs/architecture.md` L287, `orchestrator/docs/agents/project-manifest/api-surface.md` L55: `halted_wp_cancelled` rows.
 - `orchestrator/docs/agents/project-manifest/decisions.md` L68+ (Not Adopted entry).
-- Changelogs: `mcp-server/changelog.md` top v2.11.0 (`package.json` 2.11.0); `orchestrator/changelog.md` top v1.4.0 (`pyproject.toml` 1.4.0).
+- Changelogs: `mcp-server/changelog.md` top v2.12.0 (`package.json` 2.12.0, plan P02); `orchestrator/changelog.md` top v1.4.0 (`pyproject.toml` 1.4.0).
 
 ## Area: Tests
 
@@ -177,9 +178,26 @@
 ## Area: Pending plans sharing spec numbering
 
 ### Verified References
-- `docs/agents/plans/2026-10-06-p02-unfixable-verifier-chain-validation/plan.md`: spec 2.5.1 → 2.6.0, §21.72; manifest `spec_version` → 2.6.0; mcp-server v2.12.0; edits `operations.md` §9b.2, `pipeline-routing.md`, `data-model.md`, `edge-cases.md` (§21.55, §21.60, §21.63, §21.65–§21.67), `walkthrough.md` Appendix C, `README.md`; `constraints-workflow.md` entry "A Chain With a Verifier Stage…" (Enforcement paragraph); runs first.
-- `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/plan.md`: as written claims 2.6.0 and §21.72 (to renumber after plans P02 and 03; expected 2.8.0 / §21.74); new §12.3c; moves `resetReworkCount` and others into new `work-package-admin.ts`; new `pm-role-guard.ts`; mcp-server minor bump; persona changes; root changelog.
+- `docs/agents/plans/2026-10-08-p02-unfixable-verifier-chain-validation/` (**executed and COMPLETE, 2026-10-08**; the 2026-10-06 folder it superseded is deleted in the working tree): landed spec 2.6.0 with §21.72, manifest `spec_version` 2.6.0, mcp-server v2.12.0 (`findFailRoutingGaps()` in `mcp-server/src/utils/pipeline-maps.ts`, Hard Reject 5 in `validateActiveStages()`). Its changes are still uncommitted in the working tree. `synthesis.md` open items: (a) P04 renumbering; (b) `resolveFailAgent` fallback retirement once no ledger holds a pre-v2.6.0 legacy chain; (c) unrelated uncommitted working-tree changes; (d) documentation-stage completions should declare `files_modified`.
+- `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/plan.md`: its body still claims 2.6.0 and §21.72, but a sequencing note at L3 (added 2026-10-06) instructs renumbering to the next free values (expected v2.8.0 / §21.74) and applying P02's Hard Reject 5 in `ledger_update_pipeline_stages`. P02's open item (a) is therefore already carried by P04 itself.
+- `docs/agents/plans/2026-10-06-p05-headless-pm-review-actions/plan.md`: builds on this plan's supervisor intercept, generalising it into a table-driven mechanism for `UNBLOCK_WP`, `REVIEW_STALE`, `REVIEW_ABANDONED` and `REPAIR_ORPHAN_BLOCKED`; expects v2.9.0 / §21.75. It covers the orchestrator half of this plan's Out of Scope item (a); the PM persona half (IDE flows) remains open.
 - `docs/agents/plans/2026-10-06-p01-verifier-chain-prevention-personas/plan.md`: persona plan; states the existing rework limit ends unfixable loops.
+
+## Area: Legacy verifier-only chains after plan P02
+
+### Verified References
+- `mcp-server/docs/agents/workflow-specification/edge-cases.md` §21.72 (L777+): new chains lacking `implementation` ahead of a verifier are rejected at creation; stored chains are never re-validated or migrated. A legacy `["qa", "code-review"]` WP self-loops QA ↔ QA through the `resolveFailAgent` fallback, "bounded only by `MAX_REWORK_COUNT` (§16.2)". §21.63, §21.66 and §21.67 are marked legacy-only.
+- `mcp-server/src/tools/pipeline.ts` L221–L235 and `begin-work.ts` L198–L209: a QA restart after a QA FAIL is a direct rework (`isDirectRework`), so `rework_counts.qa` increments on each self-loop cycle and the same unreachable-limit defect applies with `pipeline_type` `qa`.
+- `mcp-server/src/tools/workflow-next-action.ts` L774–L791: QA P1 `BLOCK_FOR_REWORK_LIMIT` on its own count; L1039–L1050 Reviewer P1b `WAIT_FOR_UPSTREAM_REWORK_LIMIT`; PM P2 (L381–L398) fires for any key.
+- Test seeding of legacy chains: tests write WP details directly through `handle.store.writeWorkPackage(...)` (`mcp-server/tests/tools/workflow-next-action.test.ts` L48), which bypasses `validateActiveStages`; `ledger_create_work_package` now rejects such chains.
+- `mcp-server/src/utils/pipeline-maps.ts` `findFailRoutingGaps()` (plan P02): manifest-derived, no stage or role literals.
+- MCP server running in STABLE reports `server_version` 2.12.0 (`ledger_ping`, 2026-10-08), so P02 is live. The deployed Claude Code personas `~/.claude/agents/ledger-pipeline-configurator.md` and `ledger-wp-decomposer.md` already carry plan P01's verifier-chain guidance.
+
+### Structural Observations
+- §21.72's claim that a legacy self-loop is "bounded only by `MAX_REWORK_COUNT`" is not true today: the refused start never persists the counter, so the bound is the orchestrator's 3-crash breaker. This plan's fix makes the claim true, so §21.72 and §21.73 need a cross-reference.
+
+### Constraints
+- No migration of legacy chains and no change to `resolveFailAgent` (plan P02 decision).
 
 ## Strategic Context
 
