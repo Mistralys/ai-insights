@@ -288,6 +288,9 @@ Read WorkPackageDetail and RootIndex
   ↓
 updater function:
   1. Validate WP status is IN_PROGRESS
+  1b. Validate type ∈ activeStages (activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES)
+       → throw "Cannot start pipeline '<type>' … not in the WP's active stages."
+       Applies under PM Override too; ledger_begin_work runs the same guard (Guard 2b).
   2. Check for duplicate in-progress pipeline of same type
   3. Enforce pipeline ordering via resolvePrerequisite(type, activeStages):
        activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
@@ -362,7 +365,8 @@ updater function:
              release-engineering routes to Release Engineer (self-rework);
              documentation routes to Documentation (self-rework).
              Fallback: if the base fail-target's stage is absent from activeStages,
-             routes to the first active stage's agent.
+             routes to the first active stage's agent — on a chain without
+             implementation (e.g. ["qa","code-review"]) that is the failing verifier.
   7. Update root.last_updated timestamp
   ↓
 Write both files atomically

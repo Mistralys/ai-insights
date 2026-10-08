@@ -259,6 +259,10 @@ vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
 changelog: |
+  1.3.3 (2026-10-06): Repair 3 diagnoses legacy verifier-only WPs — a chain with `qa`, `security-audit`
+    or `code-review` but no `implementation` cycles the same verifier until the rework limit. A reset
+    only restarts the loop, so the fix is cancel-and-recreate with `implementation` and a gate AC worded
+    against a baseline taken at the plan's starting commit, matching the WP Decomposer
   1.3.2 (2026-09-14): cc_tools gained `mcp__central_pm` — the existing override granted Bash/Read/Edit/
     etc but never the MCP server itself, so `--agent` invocation had zero central_pm tools despite the
     full read/write ledger access this persona's Diagnostic Toolkit requires; Claude Code requires the
@@ -534,6 +538,14 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.3.0 (2026-10-06): Verification-only chain withdrawn — a verifier with no `implementation` stage
+    has nobody to fix what it flags, so the ledger loops the WP back to the same verifier (incident:
+    hcp-editor WP-019, an exit gate on `["qa", "code-review"]`). New Decision Criteria block and
+    constraint: `qa`, `security-audit` and `code-review` require `implementation`. A WP with nothing
+    to author gets the standard chain as a placeholder plus the fixed Guardrail Notes flag
+    `Decomposition defect — no authoring work`, which the PM searches for before bootstrap. Triage,
+    Guardrail Notes, Output Template and Quality Checklist updated to match; the CLI side-effect
+    checklist item went with the chain
   1.2.3 (2026-09-30): Changelogs dropped from the documentation-only chain — they are the Release
     Engineer's, and the chain contradicted both the `release-engineering` criteria and the new
     authoring pre-requisite; a docs-plus-changelog WP now runs release-engineering then documentation
@@ -654,6 +666,14 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.9.0 (2026-10-06): No verification-only WPs — a WP that only runs checks has no stage to fix a
+    failure, so the ledger loops it on the same verifier (incident: hcp-editor WP-019 exit gate).
+    Principle widened to "Verification Belongs With the Work It Verifies"; the test-WP exceptions now
+    require the WP to write tests (end-to-end tests are written in `implementation`, not owned by QA).
+    Exit gates fold into the last authoring WP with `implementation`, and Step 6 defines their ACs:
+    covered WPs named in ACs and Notes so the Sequencer orders them, "no new failures against a
+    baseline" taken at the plan's starting commit in a temporary worktree, exact commands with
+    whole-name test filters. Constraint, checklist, and a new Consistency Pass check 8 match
   1.8.1 (2026-09-30): Step 2 routes by-product changelog entries and version bumps to the owning WP's
     release-engineering stage instead of its documentation stage, matching the Pipeline Configurator
   1.8.0 (2026-09-29): No WP releases or waits on a release — publishing, tagging, constraint bumps and

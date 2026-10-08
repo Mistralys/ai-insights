@@ -25,6 +25,7 @@ _SOURCE: Directory tree_
         │   │   └── README.md
         │   │   └── api-surface.md
         │   │   └── constraints.md
+        │   │   └── curation-log.md
         │   │   └── data-flows.md
         │   │   └── decisions.md
         │   │   └── file-tree.md

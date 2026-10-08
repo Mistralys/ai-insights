@@ -159,6 +159,12 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the
+    Pipeline Configurator's `Decomposition defect — no authoring work` flag and any chain with `qa`,
+    `security-audit` or `code-review` but no `implementation`, sends hits back to the WP Decomposer's
+    Consistency Pass, re-runs the Sequencer and Configurator, and escalates a second hit to the user.
+    Adding `implementation` with an invented AC is named as no remedy. The post-bootstrap check (now
+    step 11) drops "test-only" and "verification-only" from its scope; later steps renumbered
   3.10.2 (2026-09-30): Step 10 also confirms that every WP without `implementation` has a stage to
     author its docs, manifest or changelog deliverables, and recreates the WP with the missing stage —
     a safety net behind the Pipeline Configurator's new authoring pre-requisite
@@ -393,6 +399,12 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
+    with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
+    pattern, and keys the focused protocol on the WP's most recent `qa` pipeline being FAIL; a WP
+    whose last QA passed (e.g. back after a code-review bounce) gets the full Verification Stack.
+    Self-rework re-verifies without authoring a fix, and a standing failure FAILs again until the
+    rework limit ends the loop. Workflow action list and the `ledger_get_next_action` purpose updated
   3.9.3 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
     general-purpose agent that re-briefed the successor with a composed prompt. The
@@ -453,7 +465,7 @@ insight_pipeline_type: qa
 
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_QA`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `qa` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
