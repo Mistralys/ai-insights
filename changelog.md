@@ -1,18 +1,10 @@
 # AI Insights Changelog
 
-## v2.16.0 - **WIP, UNRELEASED**
+## v2.15.0 - **WIP, UNRELEASED**
 - CLI: Claude agent picker gained a toggle to launch with permission prompts skipped.
 - CLI: New `audit-orchestrator` command scans the orchestrator venv for security advisories.
 - Orchestrator: `pip-audit` added to the `dev` extras.
 - Dependencies: Updated JS and Python packages to clear known security advisories.
-
-## v2.15.0 - Agent-Composed Outcome Summaries
-> mcp v2.11.0 · personas v3.38.0
-
-**Project outcome summaries are now written by the archiving agent, not parsed from a heading.**
-Refreshing a synthesis no longer wipes a stored summary. The Synthesis Maintainer can also apply
-requested edits, and the persona model settings flag obsolete assignments.
-
 - MCP: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
 - MCP: Fixed synthesis refresh clearing a stored summary it could not replace.
 - Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
