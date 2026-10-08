@@ -21,6 +21,11 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 - Never leave a template placeholder unfilled in `plan.md`. Where a section genuinely does not apply, omit the whole section rather than shipping an empty heading or a literal `{…}` slot.
 - Never emit truncation markers (`// ... existing code ...`, `…`) in place of real content in either artifact.
 
+### Acceptance Oracles
+- Where an acceptance criterion is a before/after diff against generated or rendered output, give that oracle its own early capture step — a step with no dependencies, ordered before any step that mutates what it snapshots. Generated output is often gitignored and cannot be recovered once a later step has already changed the source that produces it, so the only reliable reference is one taken before the run touches anything.
+- Record where the snapshot goes: a location the run itself will not clean or overwrite. Either a gitignored directory inside the repository or a directory outside every repository the plan changes is valid — this principle holds for a single-repo project with no workspace root just as much as for a multi-repo one, so state the location without prescribing which kind of location it must be.
+- Name every step that consumes the snapshot as depending on the capture step, so the ordering survives even when other steps are reordered during review.
+
 ### Justified Structure
 - For every new abstraction, interface, base class, plugin hook, configuration knob, or dependency the plan introduces, name either a current consumer or the concrete growth it anticipates. An anticipated trajectory is a valid justification — an array that will hold behaviour within months is a class today. What is not valid is structure with neither a consumer nor a named trajectory: mark those as speculative in the Rationale or remove them.
 - Reach for an existing utility, helper, or module before proposing a new one, and cite the existing artefact by file path when you do. Duplicating a structure that already exists adds maintenance surface without adding capability.

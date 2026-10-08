@@ -82,6 +82,7 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/run-gui.js` | `./menu.sh gui` | Launch the MCP server GUI dashboard |
 | `node scripts/preflight-orchestrator.js` | `./menu.sh preflight` | Pre-flight readiness checks (venv, `.env`, dist, conflicts) |
 | `node scripts/run-orchestrator.js` | `./menu.sh orchestrator` | Launch the orchestrator (rebuilds MCP server if stale) |
+| `node scripts/audit-orchestrator.js` | `./menu.sh audit-orchestrator` | Scan the orchestrator venv for known security advisories (`pip-audit`) |
 | `node scripts/kill-orchestrator.js` | `./menu.sh kill-orchestrator` | Detect and terminate stale orchestrator processes |
 | `node scripts/read-log.js` | `./menu.sh read-log` | Structured JSONL log reader — query, filter, and summarize orchestrator run logs |
 | `node scripts/extract-dialogue.js <target>` | — | Extract readable prose text from chunk `.jsonl` files; writes a `.md` alongside the source (same directory, same base name). Supports single-file and directory batch modes, `--force`, `--dry-run`, `--help`. Registered in `cli.js` as a hidden orchestrator command (`node scripts/cli.js extract-dialogue`). |

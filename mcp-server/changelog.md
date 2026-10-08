@@ -1,34 +1,20 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.12.0 - Fail-Route Coverage Validation
+## v2.11.0 - Outcome Summaries and Stricter Chain Validation
 
 **A work package whose verifier stage cannot be fixed now fails at creation, not at run time.**
-`ledger_create_work_package` rejects any `active_pipeline_stages` chain where a stage's FAIL
-target has no active stage able to act on it — e.g. `["qa", "code-review"]` without
-`implementation`. Existing work packages are unaffected: the rule applies only at creation,
-`active_pipeline_stages` is never re-validated on read, and `resolveFailAgent`'s fallback keeps
-routing pre-existing chains exactly as before.
+Agents can also supply the project outcome summary themselves, and artifact-declaration
+warnings now follow each pipeline type's policy.
 
-- Tools: `ledger_create_work_package` rejects chains whose verifier(s) have no active fix stage
-  at or before them (fail-route coverage), naming the fix in the error message.
-- Tools: New `findFailRoutingGaps()` helper derives the rejected-chain set entirely from the
-  workflow manifest, with no hard-coded stage or role names.
-- Docs: Tool help, schema descriptions, and the MCP server manifest describe the new rule and
-  mark the `resolveFailAgent` fallback as legacy-only.
-- Docs: Workflow specification bumped to v2.6.0 with the new rule and a dedicated edge case.
-
-## v2.11.0 - Agent-Supplied Outcome Summaries
-
-**Agents can now supply the project outcome summary themselves.** The server only parses one out
-of the synthesis document when none is supplied, so existing callers and batch imports keep
-working. A synthesis refresh no longer wipes a good summary it cannot re-derive.
-
+- Tools: Work package creation rejects chains where a verifier has no stage able to fix it.
 - Tools: Standalone import and synthesis refresh accept an agent-supplied outcome summary.
-- Tools: A supplied summary wins over the parsed one; omitting it behaves as before.
-- Fixed: Synthesis refresh no longer clears a stored summary it cannot replace.
+- Tools: Artifact-declaration warnings now follow each pipeline type's policy.
+- Tools: Reviewer, Release Engineer and Documentation may declare an empty modified-files list.
+- Tools: Unmatched acceptance-criteria updates now surface in the result and leave an audit comment.
+- Tools: Synthesis refresh no longer clears a stored summary it cannot replace.
+- GUI: Obsolete persona model assignments show a banner with an option to remove them.
 - GUI: Saving persona model assignments now names every unknown persona.
-- GUI: Obsolete persona assignments show a banner with an option to remove them.
-- Docs: Tool help and manifest describe the new summary handling.
+- Docs: Tool help, manifest and workflow specification describe the new rules.
 
 ## v2.10.1 - Synthesis Updates for Every Runner
 

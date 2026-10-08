@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.4.0 (2026-10-08): Added a Baseline-Capture Chain — a WP whose deliverable is an early diff-oracle
+    snapshot always gets ["implementation", "qa"], never verification-only, cross-referenced from the
+    verification-only chain's state-changing-operations pre-requisite as an exception
   1.3.0 (2026-10-06): Verification-only chain withdrawn — a verifier with no `implementation` stage
     has nobody to fix what it flags, so the ledger loops the WP back to the same verifier (incident:
     hcp-editor WP-019, an exit gate on `["qa", "code-review"]`). New Decision Criteria block and

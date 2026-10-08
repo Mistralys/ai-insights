@@ -67,6 +67,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | **Preview stage prompts** | `preview-prompts` | Render and review the prompts used by each pipeline stage |
 | **Run orchestrator** | `orchestrator` | Execute the full ledger pipeline against a plan file |
 | **Read orchestrator log** | `read-log` | Query and filter JSONL run logs in a readable format |
+| **Audit orchestrator dependencies** | `audit-orchestrator` | Scan the orchestrator venv for known security advisories (`--json`, `--fix`) |
 | **Kill stale processes** | `kill-orchestrator` | Find and terminate orphaned orchestrator processes |
 
 ### Validation & Utilities

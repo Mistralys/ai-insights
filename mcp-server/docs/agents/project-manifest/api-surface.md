@@ -497,7 +497,9 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 2. **Agent role guard:** `agent_role` must match the `PIPELINE_AGENT_MAP` owner for the given pipeline `type`. 
    **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type. When PM override is active, the handoff note's `from_agent` is set to `'Project Manager (PM Override)'` instead of the standard map value.
 
-**`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
+**`acceptance_criteria_updates` merge semantics (§12.3):** Each item is matched by exact `criterion` string (`===`, no normalization). If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array — and the append is now visible: every unmatched text is collected and the response payload gains `appended_criteria: string[]`, the response text gains a verbatim-copy recommendation note, and (for a non-PM caller) a single low-priority `"warning"` project comment names the WP and quotes each appended text.
+
+**Artifact declaration policy (§9b.3):** On a non-PM PASS, `artifacts.files_modified` is evaluated against `ARTIFACT_DECLARATION_POLICY[type]` via `evaluateArtifactDeclaration()`. `qa`/`security-audit` are `'exempt'` (never checked); `implementation` is `'non-empty'` (absent or `[]` both warn); `code-review`/`release-engineering`/`documentation` are `'declare'` (absent warns, but an explicit `[]` is accepted as "ran this stage, changed nothing"). A non-`'ok'` outcome appends a project comment and a response note containing the substring `"artifacts.files_modified is empty or absent"`.
 
 **Auto-finalize:** When `status: 'PASS'` and the calling agent owns the WP's **last active stage** (terminal stage), the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`. The terminal stage is computed dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs this is `documentation` (Documentation agent); for custom-stage WPs it may be any stage.
 - **All criteria met** — WP is automatically transitioned to `COMPLETE` within the same lock scope. Response payload includes `auto_finalized: true`. `pending_work_packages` is decremented and the root summary is updated. After the lock is released, `propagateDependencyUnblock` is called to transition eligible BLOCKED dependents to READY (§6.3 compliance — see Gotcha 8 in constraints.md for lock-ordering details).
@@ -3332,6 +3334,30 @@ const AGENT_PIPELINE_MAP: Record<string, PipelineType>;
 const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>>;  // null = no prerequisite
 const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>>;
 const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>>;
+
+// Per-pipeline-type policy governing how strictly completePipeline evaluates a PASS
+// declaration of artifacts.files_modified (§9b.3). Replaces the former hand-maintained
+// ARTIFACT_EXPECTED_PIPELINE_TYPES set, which could only express "checked"/"not checked"
+// and could not distinguish an explicit [] from an absent field.
+type ArtifactDeclarationPolicy = 'exempt' | 'non-empty' | 'declare';
+
+// Exhaustive Record<PipelineType, ArtifactDeclarationPolicy> — every pipeline type has an
+// explicit policy, so adding a PipelineType is a compile error here until decided.
+// Values: qa/security-audit → 'exempt'; implementation → 'non-empty';
+// code-review/release-engineering/documentation → 'declare'.
+const ARTIFACT_DECLARATION_POLICY: Record<PipelineType, ArtifactDeclarationPolicy>;
+
+// Outcome of evaluating a declared files_modified value against a policy.
+// 'ok' — satisfies the policy, no warning. 'undeclared' — field absent/null.
+// 'empty' — field is [], only reachable under 'non-empty'.
+type ArtifactDeclarationOutcome = 'ok' | 'undeclared' | 'empty';
+
+// Pure evaluator mapping a (policy, filesModified) pair to one of the three outcomes above.
+// Used by completePipeline (step 4c) to decide whether to emit the soft artifact warning.
+function evaluateArtifactDeclaration(
+  policy: ArtifactDeclarationPolicy,
+  filesModified: string[] | null | undefined,
+): ArtifactDeclarationOutcome;
 ```
 
 ---

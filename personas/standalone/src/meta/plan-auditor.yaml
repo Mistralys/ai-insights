@@ -5,6 +5,9 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.12.0 (2026-10-01): Baseline oracles check — a before/after diff-oracle AC with no early, dependency-
+    free capture step naming its storage location is a Major finding under Feasibility, added after the
+    Local dependencies check
   1.11.0 (2026-09-29): Local dependencies check — a multi-repository plan without a symlink switch or a
     step that releases is Critical, a step switching the symlinks back is Major
   1.10.0 (2026-09-29): Audits now check unattended execution — a step, dependency or AC waiting on a

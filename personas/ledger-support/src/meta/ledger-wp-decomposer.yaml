@@ -8,6 +8,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.10.0 (2026-10-08): No WP outruns its own baseline — a new constraint keeps a before/after diff
+    oracle's early capture step as its own WP, named in the Notes of every WP that mutates the files the
+    snapshot covers, so the Dependency Sequencer orders the capture first
   1.9.0 (2026-10-06): No verification-only WPs — a WP that only runs checks has no stage to fix a
     failure, so the ledger loops it on the same verifier (incident: hcp-editor WP-019 exit gate).
     Principle widened to "Verification Belongs With the Work It Verifies"; the test-WP exceptions now

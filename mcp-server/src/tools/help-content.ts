@@ -441,8 +441,8 @@ ${PROJECT_PATH_PARAM}
 - **summary** (array): Array of summary strings
 
 ## Optional Parameters
-- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }. If the criterion text matches an existing entry, its \`met\` flag is updated. If the text is **not found**, a new criterion entry is appended to the WP's acceptance criteria list.
-- **artifacts** (object): { files_modified, commit_hash, pull_request }
+- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }. If the criterion text matches an existing entry, its \`met\` flag is updated. If the text is **not found**, a new criterion entry is appended to the WP's acceptance criteria list — matching stays exact-text (no normalization), but the append is not silent: the response gains \`appended_criteria: [...]\` listing every unmatched text, a response note recommends copying criterion text verbatim from \`ledger_get_work_package\` next time, and (for non-PM callers) a low-priority \`"warning"\` project comment names the WP and quotes each appended text.
+- **artifacts** (object): { files_modified, commit_hash, pull_request }. Whether an absent or empty \`files_modified\` triggers a soft warning on a non-PM PASS depends on the pipeline type's declaration policy: \`qa\` and \`security-audit\` are exempt (never checked); \`implementation\` requires a non-empty array (both absent and \`[]\` warn); \`code-review\`, \`release-engineering\`, and \`documentation\` require the field to be present but accept an explicit \`[]\` as "ran this stage, changed nothing" (only an absent field warns).
 - **metrics** (object): { test_coverage, tests_passed, tests_failed, security_issues }
 - **comments** (array): Observations from the pipeline
 - **handoff_notes** (array of strings): Notes for the next agent. Creates a structured handoff note entry on the WP addressed to the next agent in the pipeline chain.

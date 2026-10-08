@@ -9,10 +9,10 @@
  * entry grow to 323 lines / ~60 bullets before a manual condense pass.
  *
  * This is a lint, not a proof: it flags the newest entry for human review
- * against three mechanical thresholds (line count, bullet count, sentences
- * per bullet). Historical entries are immutable and several already exceed
- * an ideal size for their moment in time, so only the first `## v` heading
- * in the file — the entry about to land — is ever inspected.
+ * against four mechanical thresholds (line count, bullet count, sentences
+ * per bullet, line length). Historical entries are immutable and several
+ * already exceed an ideal size for their moment in time, so only the first
+ * `## v` heading in the file — the entry about to land — is ever inspected.
  */
 
 /** Above this many lines, the newest entry is flagged for condensing. */
@@ -24,7 +24,30 @@ export const MAX_BULLETS = 25;
 /** Above this many sentences in one bullet, that bullet is flagged. */
 export const MAX_SENTENCES_PER_BULLET = 2;
 
+/**
+ * Above this many code points, a single line of the newest entry is flagged.
+ * House style (`AGENTS.md` Changelog Convention rule 5,
+ * `changelog-curator.md` "Line length"): lines target ≤ 100 characters,
+ * excluding Markdown links from the count.
+ */
+export const MAX_LINE_LENGTH = 100;
+
 const HEADING_RE = /^##\s+v(\d+\.\d+\.\d+)/;
+
+/** Matches a Markdown link `[label](target)`, capturing the label. */
+const MD_LINK_RE = /\[([^\]]*)\]\([^)]*\)/g;
+
+/**
+ * Strip every Markdown link's `(target)` portion, keeping only its `[label]`
+ * text (brackets removed too), so line-length counting matches house
+ * style's "Markdown links are excluded from this count" rule without
+ * undercounting the visible prose the label itself contributes.
+ * @param {string} line
+ * @returns {string}
+ */
+function stripLinkTargets(line) {
+  return line.replace(MD_LINK_RE, (_match, label) => label);
+}
 
 /**
  * Split a bullet's folded text into sentences, dropping quoted spans and
@@ -132,13 +155,14 @@ function collectBullets(lines, startLine) {
  * Check the newest changelog entry against the size/verbosity thresholds.
  * @param {string} markdown - full changelog.md text
  * @param {string} filename - filename for message context
- * @param {{ maxLines?: number, maxBullets?: number, maxSentencesPerBullet?: number }} [options]
+ * @param {{ maxLines?: number, maxBullets?: number, maxSentencesPerBullet?: number, maxLineLength?: number }} [options]
  * @returns {string[]} warning strings (empty = no violation detected)
  */
 export function checkChangelogEntrySize(markdown, filename, options = {}) {
   const maxLines = options.maxLines ?? MAX_ENTRY_LINES;
   const maxBullets = options.maxBullets ?? MAX_BULLETS;
   const maxSentencesPerBullet = options.maxSentencesPerBullet ?? MAX_SENTENCES_PER_BULLET;
+  const maxLineLength = options.maxLineLength ?? MAX_LINE_LENGTH;
 
   const entry = extractLatestChangelogEntry(markdown);
   if (!entry) return [];
@@ -170,6 +194,16 @@ export function checkChangelogEntrySize(markdown, filename, options = {}) {
         `${filename}:${bullet.line}: changelog bullet has ${bulletSentences.length} sentences, ` +
         `exceeding the ${maxSentencesPerBullet}-sentence guideline. Trim rationale/mechanism ` +
         `detail — it belongs in the persona's own integrated changelog.`,
+      );
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const counted = [...stripLinkTargets(lines[i])].length;
+    if (counted > maxLineLength) {
+      warnings.push(
+        `${filename}:${startLine + i}: changelog line is ${counted} characters, exceeding ` +
+        `the ${maxLineLength}-character house style. Wrap it.`,
       );
     }
   }

@@ -12,6 +12,7 @@ import {
   MAX_ENTRY_LINES,
   MAX_BULLETS,
   MAX_SENTENCES_PER_BULLET,
+  MAX_LINE_LENGTH,
 } from '../lib/changelog-size-check.js';
 
 describe('extractLatestChangelogEntry', () => {
@@ -173,5 +174,74 @@ describe('checkChangelogEntrySize', () => {
 
   it('returns [] when there is no version heading', () => {
     expect(checkChangelogEntrySize('# No heading here.', 'changelog.md')).toEqual([]);
+  });
+
+  describe('line length', () => {
+    it('produces no line-length warning at exactly MAX_LINE_LENGTH characters', () => {
+      const line = `- Docs: ${'x'.repeat(MAX_LINE_LENGTH - '- Docs: '.length)}`;
+      expect(line.length).toBe(MAX_LINE_LENGTH);
+      const md = ['## v3.2.0 - Test', line].join('\n');
+      const warnings = checkChangelogEntrySize(md, 'changelog.md');
+      expect(warnings.filter(w => w.includes('characters'))).toEqual([]);
+    });
+
+    it('produces exactly one line-length warning, naming the line number, one character over', () => {
+      const line = `- Docs: ${'x'.repeat(MAX_LINE_LENGTH - '- Docs: '.length + 1)}`;
+      expect(line.length).toBe(MAX_LINE_LENGTH + 1);
+      const md = ['## v3.2.0 - Test', '', line].join('\n');
+      const warnings = checkChangelogEntrySize(md, 'changelog.md');
+      const lengthWarnings = warnings.filter(w => w.includes('characters'));
+      expect(lengthWarnings).toHaveLength(1);
+      expect(lengthWarnings[0]).toBe(
+        `changelog.md:3: changelog line is ${MAX_LINE_LENGTH + 1} characters, exceeding the ` +
+        `${MAX_LINE_LENGTH}-character house style. Wrap it.`,
+      );
+    });
+
+    it('counts a Markdown link as its label only, excluding the target', () => {
+      const label = 'x'.repeat(MAX_LINE_LENGTH - '- Docs: '.length);
+      const longTarget = 'https://example.com/' + 'y'.repeat(200);
+      const line = `- Docs: [${label}](${longTarget})`;
+      const md = ['## v3.2.0 - Test', line].join('\n');
+      const warnings = checkChangelogEntrySize(md, 'changelog.md');
+      expect(warnings.filter(w => w.includes('characters'))).toEqual([]);
+    });
+
+    it('counts multi-byte characters (e.g. em dash, middle dot) as one code point each', () => {
+      // 'x'.repeat(N) + one em dash + one middle dot = N + 2 code points, both
+      // above astral-plane BMP code points that would be miscounted by `.length`
+      // alone if either character were a surrogate pair — these are not, but the
+      // `[...line].length` spread form is what the implementation must use.
+      const prefix = '- Docs: ';
+      const filler = 'x'.repeat(MAX_LINE_LENGTH - prefix.length - 1);
+      const line = `${prefix}${filler}—·`;
+      expect([...line].length).toBe(MAX_LINE_LENGTH + 1);
+      const md = ['## v3.2.0 - Test', '', line].join('\n');
+      const warnings = checkChangelogEntrySize(md, 'changelog.md');
+      expect(warnings.filter(w => w.includes('characters'))).toHaveLength(1);
+    });
+
+    it('respects the maxLineLength options override', () => {
+      const md = ['## v3.2.0 - Test', '- Docs: a short line.'].join('\n');
+      expect(checkChangelogEntrySize(md, 'changelog.md', { maxLineLength: 5 })
+        .some(w => w.includes('characters'))).toBe(true);
+      expect(checkChangelogEntrySize(md, 'changelog.md')
+        .some(w => w.includes('characters'))).toBe(false);
+    });
+
+    it('never inspects a historical entry\'s line length', () => {
+      const longHistorical = '- Docs: ' + 'x'.repeat(200);
+      const md = [
+        '## v3.2.0 - Newest',
+        '',
+        '- Docs: short.',
+        '',
+        '## v3.1.0 - Older',
+        '',
+        longHistorical,
+      ].join('\n');
+      const warnings = checkChangelogEntrySize(md, 'changelog.md');
+      expect(warnings.filter(w => w.includes('characters'))).toEqual([]);
+    });
   });
 });

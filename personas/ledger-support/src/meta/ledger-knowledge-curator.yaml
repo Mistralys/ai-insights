@@ -5,6 +5,10 @@ vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 changelog: |
+  1.4.2 (2026-09-29): Added `edit` to VS Code `tools`, and removed `Bash`, `WebFetch`, `WebSearch`,
+    `TodoRead` and `TodoWrite` from `cc_tools`, keeping `Edit`/`Write` on both targets — the persona
+    edits documents that mention specific insights, so both targets need that grant (user decision,
+    2026-09-29); the content has no shell-command, web-fetch, or todo instruction
   1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -35,6 +39,7 @@ audit_date: "2026-08-28"
 tools:
   - vscode
   - read
+  - edit
   - search
   - central_pm/*
 
@@ -43,16 +48,11 @@ tools:
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
 cc_tools:
-  - Bash
   - Read
   - Edit
   - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata

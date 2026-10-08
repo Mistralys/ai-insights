@@ -19,6 +19,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { HEALTH_CHECKS, runChecks } from '../lib/health-checks.js';
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
 
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
@@ -142,14 +143,14 @@ describe("runChecks('all')", () => {
   it('includes every entry from HEALTH_CHECKS', async () => {
     const results = await runChecks('all');
     expect(results).toHaveLength(HEALTH_CHECKS.length);
-  }, 15_000);
+  });
 
   it('resolves with boolean passed for every entry including slow checks', async () => {
     const results = await runChecks('all');
     for (const r of results) {
       expect(typeof r.passed, `${r.id}.passed should be boolean`).toBe('boolean');
     }
-  }, 15_000);
+  });
 
   it('includes all slow-tier check ids in the results', async () => {
     const results = await runChecks('all');
@@ -158,8 +159,8 @@ describe("runChecks('all')", () => {
     for (const id of slowIds) {
       expect(resultIds, `slow check "${id}" should appear in 'all' results`).toContain(id);
     }
-  }, 15_000);
-});
+  });
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── runChecks('slow') ────────────────────────────────────────────────────────
 
@@ -172,8 +173,8 @@ describe("runChecks('slow')", () => {
     for (const check of slowChecks) {
       expect(resultIds).toContain(check.id);
     }
-  }, 15_000);
-});
+  });
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── runChecks error handling ─────────────────────────────────────────────────
 

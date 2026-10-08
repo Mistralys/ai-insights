@@ -20,6 +20,8 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'backfill-duration.js');
@@ -241,4 +243,4 @@ describe('backfill-duration', () => {
     expect(meta.active_ms).toBeUndefined();
     expect(meta.pipeline_runs).toBeUndefined();
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);

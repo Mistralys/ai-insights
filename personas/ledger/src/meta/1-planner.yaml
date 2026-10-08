@@ -7,6 +7,13 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.13.0 (2026-10-01): Added an Acceptance Oracles rule and a matching checklist item — a before/after
+    diff oracle now gets its own early, dependency-free capture step, ordered before any step that
+    mutates what it snapshots, with its storage location recorded in the plan; no path is prescribed
+  2.12.0 (2026-09-29): Added `Task` to `cc_tools` — the planner dispatches ad-hoc sub-agents such as
+    the Researcher on Claude Code (no `subagents` list added: the content names no specific sub-agent,
+    and a declared slug the output never references would fail the rendered-reference check). Added
+    `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   2.11.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
     group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
     opens every multi-repository plan with a switch to local symlinks (the project's documented switch
@@ -69,10 +76,20 @@ tools:
   - todo
   - central_pm/*
 
+# `agent` (VS Code): this persona dispatches ad-hoc sub-agents (e.g. the
+# Researcher) it does not name in advance, so no `subagents` list is
+# declared here — a declared slug the rendered output never references
+# would fail the rendered-reference check (changelog 2.12.0). The grant is
+# kept on both targets deliberately; see the matching `Task` comment below.
+
 # cc_tools: explicit list required — the builder resolves cc_tools from
 # cc_tools → tools (never default_cc_tools), so the VS Code tools list
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
+#
+# `Task` (Claude Code): the ad-hoc-dispatch counterpart of the `agent`
+# grant above — same rationale, same absence of a `subagents` list
+# (changelog 2.12.0).
 cc_tools:
   - Bash
   - Read
@@ -80,8 +97,11 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true

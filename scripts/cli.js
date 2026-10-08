@@ -43,6 +43,7 @@ import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 import {
   storeInit,
@@ -655,6 +656,11 @@ function cmdKillOrchestrator(args) {
   if (code !== 0) process.exit(code);
 }
 
+function cmdAuditOrchestrator(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'audit-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdBackfillDuration(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'backfill-duration.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
@@ -885,12 +891,7 @@ async function cmdOrchestratorTests(args) {
   if (marker.includes('live')) {
     const sentinel = path.join(MCP_SERVER_DIR, 'dist', 'index.js');
     const srcDir   = path.join(MCP_SERVER_DIR, 'src');
-    let needBuild  = !fs.existsSync(sentinel);
-    if (!needBuild) {
-      const sentinelMtime = fs.statSync(sentinel).mtimeMs;
-      needBuild = latestMtime(srcDir) > sentinelMtime;
-    }
-    if (needBuild) {
+    if (isMcpDistStale({ srcDir, sentinelFile: sentinel })) {
       log('  MCP server dist is stale — rebuilding…', 'dim');
       if (sh(NPM, ['run', 'build'], { cwd: MCP_SERVER_DIR }) !== 0) {
         log('  ✗ MCP server build failed', 'red');
@@ -903,22 +904,6 @@ async function cmdOrchestratorTests(args) {
   const code = runScript(pytest, testArgs, { cwd: ORCHESTRATOR_DIR });
   if (code !== 0) process.exit(code);
   await waitForKey();
-}
-
-/**
- * Recursively find the latest mtime (ms) of any file under `dir`.
- */
-function latestMtime(dir) {
-  let latest = -Infinity;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      latest = Math.max(latest, latestMtime(full));
-    } else if (entry.isFile()) {
-      latest = Math.max(latest, fs.statSync(full).mtimeMs);
-    }
-  }
-  return latest;
 }
 
 // --- Command registry ---
@@ -1116,6 +1101,19 @@ const COMMANDS = [
     ],
     helpHidden:   true,
     run:          cmdKillOrchestrator,
+  },
+  {
+    id:           'audit-orchestrator',
+    key:          null,
+    label:        'Audit orchestrator dependencies',
+    category:     'Orchestrator',
+    description:  'Scan the orchestrator venv for known security advisories (pip-audit)',
+    helpVariants: [
+      ['audit-orchestrator --json', 'Machine-readable output'],
+      ['audit-orchestrator --fix',  'Upgrade vulnerable packages'],
+    ],
+    helpHidden:   true,
+    run:          cmdAuditOrchestrator,
   },
   {
     id:           'backfill-duration',

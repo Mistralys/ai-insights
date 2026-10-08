@@ -96,7 +96,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c36"></a>
 <a name="b9"></a>
-9. **`{{agent_slug_*}}` references in ledger persona content must match the persona's declared `subagents` list.** Every `{{agent_slug_X_Y}}` reference in `personas/ledger/src/content/*.md` is cross-checked against that persona's `subagents` field in its YAML (`personas/ledger/src/meta/*.yaml`). The suffix `X_Y` is converted to kebab-case (`X-Y`) and must appear as an entry in the `subagents` list. The check runs **unconditionally** — on both real builds and `--check` runs. If any reference has no matching `subagents` entry, a `[ERROR]` block is emitted identifying the persona, the template variable, and the expected slug, and `process.exit(1)` is called.
+9. **`{{agent_slug_*}}` references in ledger persona content must match the persona's declared `subagents` list.** Every `{{agent_slug_X_Y}}` reference in `personas/ledger/src/content/*.md` is cross-checked against that persona's `subagents` field in its YAML (`personas/ledger/src/meta/*.yaml`). The suffix `X_Y` is converted to kebab-case (`X-Y`) and must appear as an entry in the `subagents` list. The check runs **unconditionally** — on both real builds and `--check` runs — via `scripts/lib/agent-slug-validation.js`'s `validateAgentSlugReferences()`, one of the five descriptors `scripts/build-personas.js` passes through its `runBuildChecks()` check runner (`scripts/lib/build-checks.js`). A reference written inside a template comment (`{{!-- … --}}` / `{{! … }}`) is ignored — the wrapper passes the library's `stripComments()` (falling back to the identity function for a stale `dist/` predating that export). If any reference has no matching `subagents` entry, a `[ERROR]` block is emitted identifying the persona, the template variable, and the expected slug; the runner records this as an error-severity result and `scripts/build-personas.js` exits non-zero once every check (and the library CLI) has run — not immediately, as the check used to do when it was inline.
 
    **Error message format:**
    ```
@@ -115,11 +115,11 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c37"></a>
 <a name="b10"></a>
-10. **Version in name-mapping is derived from the `changelog` block scalar.** `scripts/build-personas.js` uses an internal `resolveVersionFromChangelog(rawYamlText)` helper to extract version from each persona's `changelog:` YAML field before falling back to the explicit `version:` field and then to `DEFAULT_VERSION`. This mirrors the derivation logic in the persona-builder library's `resolveChangelogMeta()`. Supported formats:
+10. **Version in name-mapping is derived from the `changelog` block scalar.** `scripts/build-personas.js` delegates the post-build name-mapping step to `scripts/lib/name-mapping.js`, whose exported `resolveVersionFromChangelog(rawYamlText)` helper extracts version from each persona's `changelog:` YAML field before falling back to the explicit `version:` field and then to `DEFAULT_VERSION`. This mirrors the derivation logic in the persona-builder library's `resolveChangelogMeta()`. Supported formats:
     - `X.Y.Z (YYYY-MM-DD): description` — version + date extracted
     - `X.Y.Z: description` — version extracted, no date
 
-    The build script emits diagnostics via the `validateChangelogField()` helper:
+    The build delegates diagnostics to the same module's exported `validateChangelogField()` helper:
     - `[WARN]` when `changelog` is present but contains no parseable version line
     - `[WARN]` when the first parseable version entry has no date component
     - `[WARN]` when the same version number appears more than once with different dates (data-entry mistake that would cause `last_updated` to be ambiguous)

@@ -193,7 +193,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 ## Strict Constraints
 
 * **No Blocking Fix-Forward:** If a change alters what the program *does* — even slightly — it is not Fix-Forward. Treat it as Blocking and bounce to the Developer instead of applying it yourself.
-* **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail.
+* **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail. Never omit the field: where you reviewed nothing and changed nothing, pass `artifacts.files_modified: []` explicitly rather than leaving it out.
 * **No Unowned Documentation Fixes:** Do not apply documentation changes yourself when you spot a gap during review — tag it `documentation-forward` (see Reference Material) and let the Documentation agent own that scope.
 * **Verbatim AC Text:** When populating `acceptance_criteria_updates` in `ledger_complete_pipeline`, copy each criterion string **verbatim** from the `acceptance_criteria` array returned by `ledger_get_work_package`. Do not rephrase, abbreviate, or reformat — the ledger uses exact-match comparison, and paraphrased text silently creates a duplicate criterion instead of updating the original.
 * **No Git Write Operations:** Do not use Git write commands (add, commit, push, branch creation). The user manages version control.

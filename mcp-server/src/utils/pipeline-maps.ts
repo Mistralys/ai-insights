@@ -321,18 +321,60 @@ export function describePipelineAgents(prefix: string): string {
 }
 
 /**
- * Pipeline types where agents are expected to declare `artifacts.files_modified`.
- * Verification-only stages (`qa`, `security-audit`) are excluded because those
- * agents verify but do not modify files. `code-review` is included because the
- * Reviewer may apply Fix-Forward edits (Tier 2 feedback).
- * Used by `completePipeline` to scope the §12.1 soft warning.
+ * Per-pipeline-type policy governing how strictly `completePipeline` evaluates a
+ * PASS declaration of `artifacts.files_modified`. Replaces the former hand-maintained
+ * `ARTIFACT_EXPECTED_PIPELINE_TYPES` set, which could only express "checked" or
+ * "not checked" and could not distinguish an explicit `[]` from an absent field.
+ *
+ * - `'exempt'` — the field is never checked. `qa` and `security-audit` are exempt:
+ *   those agents verify but do not modify files.
+ * - `'non-empty'` — absent or an empty array is unacceptable; only a populated array
+ *   is ok. `implementation` is `'non-empty'`: a PASS that modified nothing is almost
+ *   certainly a missed declaration.
+ * - `'declare'` — absent is unacceptable, but an explicit empty array `[]` is a valid,
+ *   accepted declaration meaning "ran this stage, changed nothing." `code-review`,
+ *   `release-engineering`, and `documentation` are `'declare'`.
+ *
+ * Used by `completePipeline` (via `evaluateArtifactDeclaration`) to scope the §9b.3 soft warning.
  */
-export const ARTIFACT_EXPECTED_PIPELINE_TYPES: ReadonlySet<PipelineType> = new Set<PipelineType>([
-  'implementation',
-  'code-review',
-  'release-engineering',
-  'documentation',
-]);
+export type ArtifactDeclarationPolicy = 'exempt' | 'non-empty' | 'declare';
+
+/**
+ * Exhaustive `Record<PipelineType, ArtifactDeclarationPolicy>` — every pipeline type
+ * must have an explicit policy, so adding a new PipelineType is a compile error here
+ * until a decision is made for it (TypeScript enforces the `Record` key exhaustiveness).
+ */
+export const ARTIFACT_DECLARATION_POLICY: Record<PipelineType, ArtifactDeclarationPolicy> = {
+  'implementation': 'non-empty',
+  'qa': 'exempt',
+  'security-audit': 'exempt',
+  'code-review': 'declare',
+  'release-engineering': 'declare',
+  'documentation': 'declare',
+};
+
+/**
+ * Outcome of evaluating a declared `files_modified` value against a policy:
+ * - `'ok'` — the declaration satisfies the policy; no warning is emitted.
+ * - `'undeclared'` — the field is absent or null.
+ * - `'empty'` — the field is present but `[]`; only reachable under `'non-empty'`
+ *   (a `'declare'`-policy `[]` is `'ok'`, and `'exempt'` never reaches this branch).
+ */
+export type ArtifactDeclarationOutcome = 'ok' | 'undeclared' | 'empty';
+
+/**
+ * Pure evaluator mapping a `(policy, filesModified)` pair to one of three outcomes.
+ * Only `'ok'` suppresses the soft warning in `completePipeline` (§9b.3, §12.1).
+ */
+export function evaluateArtifactDeclaration(
+  policy: ArtifactDeclarationPolicy,
+  filesModified: string[] | null | undefined,
+): ArtifactDeclarationOutcome {
+  if (policy === 'exempt') return 'ok';
+  if (filesModified === null || filesModified === undefined) return 'undeclared';
+  if (policy === 'non-empty' && filesModified.length === 0) return 'empty';
+  return 'ok'; // policy === 'declare' accepts [] as 'ok'
+}
 
 /**
  * Returns the first active pipeline stage in canonical order.

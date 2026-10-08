@@ -6,6 +6,9 @@ id: standalone-ledger-orchestrator-runner
 cc_file_name: ledger-orchestrator-runner.md
 da_file_name: ledger-orchestrator-runner.md
 changelog: |
+  1.5.2 (2026-09-29): Removed `Task` from `cc_tools` — this persona declares no `subagents` and its
+    content contains no dispatch instruction, so the Claude Code grant exceeded the VS Code `agent`-less
+    grant without cause
   1.5.1 (2026-03-26): Troubleshooting table updated with --depth N flag for kill-orchestrator
   1.5.0 (2026-03-25): Replaced log monitoring with read-log.js; kill-orchestrator.js added
   1.4.1 (2026-03-25): Fixed terminal polling; JSONL schema reading; dry-run go/no-go decisions
@@ -28,7 +31,6 @@ cc_tools:
   - Read
   - Edit
   - Grep
-  - Task
   - TodoRead
   - TodoWrite
 

@@ -4,19 +4,28 @@
  * build-personas.js — thin wrapper around @mistralys/persona-builder.
  * All build logic is delegated to the library via the CLI binary.
  * Usage: node scripts/build-personas.js [--check] [--strict] [--dry-run]
+ *
+ * Every wrapper-side check (agent-slug cross-references, insight_agent
+ * pairing, rendered sub-agent references, philosophy tone, changelog entry
+ * size) runs unconditionally, through the single `runBuildChecks()`
+ * descriptor list in `lib/build-checks.js` — a failing or crashing check
+ * never hides a later one or the post-build steps. The process exit call
+ * happens exactly once, at the end of the script, via `resolveExitCode()`,
+ * which combines the library CLI's own exit status with the aggregated
+ * check results.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
-import { loadModelRegistry, resolveModel } from './lib/persona-model-resolution.js';
-import { parseYamlScalars, extractYamlBlockScalar } from './lib/yaml-utils.js';
+import { generateNameMapping, writeNameMapping } from './lib/name-mapping.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
-import { validateCcToolsInDirs } from './lib/cc-tools-validation.js';
-import { validateSubagentReferences, resolvePersonaTargets } from './lib/subagent-reference-validation.js';
+import { validateSubagentReferences } from './lib/subagent-reference-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
 import { checkChangelogEntrySize } from './lib/changelog-size-check.js';
+import { validateAgentSlugReferences } from './lib/agent-slug-validation.js';
+import { runBuildChecks, resolveExitCode } from './lib/build-checks.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -52,15 +61,20 @@ if (!CHECK) {
   }
 }
 
-// Delegate build to the library CLI
+// Delegate build to the library CLI. The exit status is captured rather than
+// used to exit immediately — a failing library CLI no longer hides the
+// post-build steps or the checks below; the process exit call happens
+// exactly once, at the very end of this script, after resolveExitCode()
+// combines this status with every check's result.
 const cliArgs = ['--config', CONFIG];
 if (CHECK)  cliArgs.push('--check');
 if (STRICT) cliArgs.push('--strict');
 
+let libraryStatus = 0;
 try {
   execFileSync(process.execPath, [CLI, ...cliArgs], { stdio: 'inherit' });
 } catch (err) {
-  process.exit(err.status ?? 1);
+  libraryStatus = err.status ?? 1;
 }
 
 // Post-build: sync personas/package.json version from changelog (real builds only)
@@ -88,500 +102,122 @@ if (!CHECK) {
 
 // Post-build: generate personas/name-mapping.json (real builds only)
 if (!CHECK) {
-  const ledgerMetaDir = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
-  const outPath       = path.join(ROOT, 'personas', 'name-mapping.json');
+  const outPath = path.join(ROOT, 'personas', 'name-mapping.json');
 
-  // Dynamically derive ledger persona filenames from the filesystem — all files matching
-  // /^\d+-.*\.yaml$/ in personas/ledger/src/meta/, sorted by leading digit.
-  // This eliminates manual synchronization with shared/workflow-manifest.json.
-  const LEDGER_PERSONA_FILES = fs.readdirSync(ledgerMetaDir)
-    .filter(f => /^\d+-.*\.yaml$/.test(f))
-    .sort((a, b) => {
-      const numA = parseInt(a.match(/^(\d+)/)[1], 10);
-      const numB = parseInt(b.match(/^(\d+)/)[1], 10);
-      return numA - numB;
-    });
-
-  // Non-ledger suite definitions: [suiteName, metaDir]
-  const NON_LEDGER_SUITES = [
-    ['standalone',     path.join(ROOT, 'personas', 'standalone', 'src', 'meta')],
-    ['ledger-support', path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta')],
-  ];
-
-  const SCALAR_FIELDS = ['number', 'role', 'id', 'version', 'vs_file_name', 'cc_file_name', 'da_file_name'];
-
-  // Non-ledger personas use the same scalar fields minus number/role (which are
-  // absent or derived differently).
-  const STANDALONE_SCALAR_FIELDS = ['id', 'name', 'version', 'vs_file_name', 'cc_file_name', 'da_file_name', 'model_slug'];
-
-  // ---------------------------------------------------------------------------
-  // Load model registry once for the entire name-mapping pass
-  // (loadModelRegistry and resolveModel are imported from lib/persona-model-resolution.js)
-  // ---------------------------------------------------------------------------
-
-  const registryDir = path.join(ROOT, 'personas', 'model-registry');
-  const { uuidToSlug, registryEntries, assignments } = loadModelRegistry(registryDir);
-
-
-  /**
-   * Extracts the version string from a `changelog: |` block scalar in raw YAML
-   * text. Returns the version string (e.g. "3.6.3") or undefined when absent.
-   *
-   * Regex patterns mirror resolveChangelogMeta() in @mistralys/persona-builder:
-   *   Primary:  "3.6.3 (2026-05-29): description"
-   *   Fallback: "3.6.3: description"            (no date)
-   */
-  function resolveVersionFromChangelog(text) {
-    if (typeof text !== 'string') return undefined;
-    const content = extractYamlBlockScalar(text, 'changelog');
-    if (!content) return undefined;
-    // Line-by-line first-wins, mirrors resolveChangelogMeta() in the library
-    for (const line of content.split(/\r?\n/)) {
-      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
-      if (withDate) return withDate[1];
-      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
-      if (withoutDate) return withoutDate[1];
-    }
-    return undefined;
-  }
-
-  /**
-   * Validates the `changelog` field in a persona YAML.
-   * Warns when the field is present but unparseable, or when the first version
-   * entry has no date. Logs an info message when explicit `version` or
-   * `last_updated` scalar fields coexist with the changelog (indicating they
-   * can be removed).
-   */
-  function validateChangelogField(raw, filename) {
-    const content = extractYamlBlockScalar(raw, 'changelog');
-    if (content === undefined) return;
-
-    // Track first-entry date status and detect same-version/different-date duplicates.
-    let firstHasDate = null; // null = not yet seen, true/false = first entry result
-    let firstVersion = null;
-    const versionDates = {}; // version → date string (first occurrence)
-
-    for (const line of content.split(/\r?\n/)) {
-      const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\((\d{4}-\d{2}-\d{2})\)\s*:/);
-      if (withDate) {
-        const [, ver, date] = withDate;
-        if (firstHasDate === null) { firstHasDate = true; firstVersion = ver; }
-        if (Object.prototype.hasOwnProperty.call(versionDates, ver)) {
-          if (versionDates[ver] !== date) {
-            console.warn(`[WARN] ${filename}: version "${ver}" appears with two different dates` +
-              ` (${versionDates[ver]} and ${date}).`);
-          }
-        } else {
-          versionDates[ver] = date;
-        }
-        continue;
-      }
-      const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
-      if (withoutDate && firstHasDate === null) { firstHasDate = false; firstVersion = withoutDate[1]; }
-    }
-
-    if (firstHasDate === null) {
-      console.warn(`[WARN] ${filename}: changelog present but no parseable version found.`);
-    } else if (!firstHasDate) {
-      console.warn(`[WARN] ${filename}: changelog first entry has no date (version "${firstVersion}").`);
-    }
-
-    const scalars = parseYamlScalars(raw, ['version', 'last_updated']);
-    if (scalars.version) {
-      console.info(`[INFO] ${filename}: explicit version "${scalars.version}" coexists with changelog.`);
-    }
-    if (scalars.last_updated) {
-      console.info(`[INFO] ${filename}: explicit last_updated "${scalars.last_updated}" coexists with changelog.`);
-    }
-  }
-
-  /** Returns the filename stem (strips the last extension). */
-  function stem(filename) {
-    return filename.replace(/\.[^.]+$/, '');
-  }
-
-  // ---------------------------------------------------------------------------
-  // Ledger suite — read _shared.yaml for default_version and default model info
-  // ---------------------------------------------------------------------------
-
-  const ledgerSharedRaw   = fs.readFileSync(path.join(ledgerMetaDir, '_shared.yaml'), 'utf8');
-  const ledgerSharedData  = parseYamlScalars(ledgerSharedRaw, ['default_version', 'default_model', 'default_model_slug']);
-  const DEFAULT_VERSION   = ledgerSharedData.default_version;
-  const LEDGER_DEFAULT_MODEL      = ledgerSharedData.default_model;
-  const LEDGER_DEFAULT_MODEL_SLUG = ledgerSharedData.default_model_slug;
-
-  // ---------------------------------------------------------------------------
-  // Build ledger entries
-  // ---------------------------------------------------------------------------
-
-  const ledgerEntries = LEDGER_PERSONA_FILES.map(file => {
-    const raw  = fs.readFileSync(path.join(ledgerMetaDir, file), 'utf8');
-    const data = parseYamlScalars(raw, SCALAR_FIELDS);
-
-    validateChangelogField(raw, file);
-
-    const ccFileName = data.cc_file_name;
-    const daFileName = data.da_file_name || ccFileName;
-    const ccStem     = stem(ccFileName);
-    const daStem     = stem(daFileName);
-    const number     = Number(data.number);
-    const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
-
-    const modelInfo = resolveModel(
-      data.id,
-      undefined, // ledger personas don't carry per-persona model_slug in YAML (uses shared default)
-      LEDGER_DEFAULT_MODEL_SLUG,
-      LEDGER_DEFAULT_MODEL,
-      uuidToSlug,
-      assignments,
-      registryEntries,
-    );
-
-    return {
-      number,
-      id:         data.id,
-      role:       data.role,
-      version,
-      suite:      'ledger',
-      model:      modelInfo.model,
-      model_slug: modelInfo.model_slug,
-      cc_model:   modelInfo.cc_model,
-      vscode: {
-        file_name:  data.vs_file_name,
-        agent_name: `${number} - ${data.role} v${version}`,
-      },
-      claude_code: {
-        file_name:  ccFileName,
-        agent_name: ccStem,
-      },
-      deep_agents: {
-        file_name:  daFileName,
-        agent_name: daStem,
-      },
-    };
+  const { entries, ledgerCount, nonLedgerCount } = generateNameMapping({
+    personasDir: path.join(ROOT, 'personas'),
   });
-
-  // Sort by number (files are already ordered, but be explicit)
-  ledgerEntries.sort((a, b) => a.number - b.number);
-
-  // ---------------------------------------------------------------------------
-  // Non-ledger suites (standalone, ledger-support)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Derives the role name for a non-ledger persona by stripping the known suite
-   * suffix from the persona's `name` field.
-   * e.g. "Developer (Standalone)"  → "Developer"
-   *      "Ledger Bootstrapper"     → "Ledger Bootstrapper"  (no recognized suffix)
-   */
-  function deriveRole(name) {
-    return name
-      .replace(/\s+\(Standalone\)$/i, '')
-      .replace(/\s+\(Ledger Support\)$/i, '')
-      .trim();
-  }
-
-  const nonLedgerEntries = [];
-
-  for (const [suiteName, suiteMetaDir] of NON_LEDGER_SUITES) {
-    if (!fs.existsSync(suiteMetaDir)) continue;
-
-    const suiteFiles = fs.readdirSync(suiteMetaDir)
-      .filter(f => f.endsWith('.yaml') && !f.startsWith('_'));
-
-    // Read suite-level _shared.yaml for default model slug (if present)
-    const suiteSharedPath = path.join(suiteMetaDir, '_shared.yaml');
-    let suiteDefaultModelSlug = undefined;
-    if (fs.existsSync(suiteSharedPath)) {
-      const suiteSharedData = parseYamlScalars(
-        fs.readFileSync(suiteSharedPath, 'utf8'),
-        ['default_model_slug'],
-      );
-      suiteDefaultModelSlug = suiteSharedData.default_model_slug || undefined;
-    }
-
-    for (const file of suiteFiles) {
-      const raw  = fs.readFileSync(path.join(suiteMetaDir, file), 'utf8');
-      const data = parseYamlScalars(raw, STANDALONE_SCALAR_FIELDS);
-
-      if (!data.id) continue; // malformed YAML — skip silently
-
-      const ccFileName = data.cc_file_name;
-      if (!ccFileName) continue; // no output target — skip
-
-      const daFileName = data.da_file_name || ccFileName;
-      const ccStem     = stem(ccFileName);
-      const daStem     = stem(daFileName);
-      const version    = resolveVersionFromChangelog(raw) || data.version || DEFAULT_VERSION;
-      const personaName = data.name || stem(file);
-      const role        = deriveRole(personaName);
-
-      const modelInfo = resolveModel(
-        data.id,
-        data.model_slug || suiteDefaultModelSlug,
-        undefined,  // no ledger-style shared model default for non-ledger suites
-        undefined,
-        uuidToSlug,
-        assignments,
-        registryEntries,
-      );
-
-      const entry = {
-        number:     null,
-        id:         data.id,
-        role,
-        version,
-        suite:      suiteName,
-        model:      modelInfo.model,
-        model_slug: modelInfo.model_slug,
-        cc_model:   modelInfo.cc_model,
-        vscode: {
-          file_name:  data.vs_file_name || ccFileName,
-          agent_name: personaName,
-        },
-        claude_code: {
-          file_name:  ccFileName,
-          agent_name: ccStem,
-        },
-        deep_agents: {
-          file_name:  daFileName,
-          agent_name: daStem,
-        },
-      };
-
-      nonLedgerEntries.push(entry);
-    }
-  }
-
-  // Sort non-ledger entries alphabetically by suite then role for stable output
-  nonLedgerEntries.sort((a, b) => {
-    if (a.suite !== b.suite) return a.suite < b.suite ? -1 : 1;
-    return a.role < b.role ? -1 : 1;
-  });
-
-  // ---------------------------------------------------------------------------
-  // Write name-mapping.json — ledger entries first, then non-ledger suites
-  // ---------------------------------------------------------------------------
-
-  const mapping = [...ledgerEntries, ...nonLedgerEntries];
-
-  fs.writeFileSync(outPath, JSON.stringify(mapping, null, 2) + '\n', 'utf8');
-  console.log(`Generated personas/name-mapping.json with ${mapping.length} entries (${ledgerEntries.length} ledger, ${nonLedgerEntries.length} non-ledger).`);
+  writeNameMapping(outPath, entries);
+  console.log(`Generated personas/name-mapping.json with ${entries.length} entries (${ledgerCount} ledger, ${nonLedgerCount} non-ledger).`);
 }
 
-// Always: validate {{agent_slug_*}} cross-references (real builds AND --check).
-// Ensures every {{agent_slug_X_Y}} reference in a persona content file has a
-// matching slug "x-y" declared in that persona's `subagents` list in the YAML.
-{
-  const metaDir    = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
-  const contentDir = path.join(ROOT, 'personas', 'ledger', 'src', 'content');
-
-  /**
-   * Parse a flat dash-prefixed block list from YAML text under `key`.
-   * Handles: key:\n  - item1\n  - item2
-   * Returns [] when the key is absent, empty, or has an inline scalar value.
-   */
-  function extractSubagentsList(text, key) {
-    const prefix = key + ':';
-    let collecting = false;
-    const result = [];
-
-    for (const line of text.split('\n')) {
-      const stripped = line.trim();
-      if (!stripped || stripped.startsWith('#')) continue;
-
-      if (stripped.startsWith(prefix)) {
-        const rest = stripped.slice(prefix.length).trim();
-        if (!rest) {
-          collecting = true;
-        }
-        continue;
-      }
-
-      if (collecting) {
-        if (stripped.startsWith('- ')) {
-          let val = stripped.slice(2).trim();
-          if ((val.startsWith('"') && val.endsWith('"')) ||
-              (val.startsWith("'") && val.endsWith("'"))) {
-            val = val.slice(1, -1);
-          }
-          const ci = val.indexOf(' #');
-          if (ci !== -1) val = val.slice(0, ci).trim();
-          result.push(val);
-        } else {
-          break;  // next top-level key — stop collecting
-        }
-      }
-    }
-    return result;
-  }
-
-  const metaFiles = fs.existsSync(metaDir)
-    ? fs.readdirSync(metaDir).filter(f => /^\d+-/.test(f) && f.endsWith('.yaml'))
-    : [];
-
-  const errors = [];
-
-  for (const yamlFile of metaFiles) {
-    const baseName    = yamlFile.replace('.yaml', '');
-    const contentPath = path.join(contentDir, baseName + '.md');
-    if (!fs.existsSync(contentPath)) continue;
-
-    const subagents   = extractSubagentsList(
-      fs.readFileSync(path.join(metaDir, yamlFile), 'utf8'),
-      'subagents',
-    );
-    const contentText = fs.readFileSync(contentPath, 'utf8');
-
-    const agentSlugRe = /\{\{agent_slug_([a-z0-9_]+)\}\}/g;
-    let m;
-    while ((m = agentSlugRe.exec(contentText)) !== null) {
-      const suffix       = m[1];
-      const expectedSlug = suffix.replace(/_/g, '-');
-
-      if (!subagents.includes(expectedSlug)) {
-        errors.push(
-          `Persona "${baseName}": {{agent_slug_${suffix}}} references slug ` +
-          `"${expectedSlug}" which is not declared in the subagents list. ` +
-          `Add "${expectedSlug}" to the subagents field in ${yamlFile}.`,
-        );
-      }
-    }
-  }
-
-  if (errors.length > 0) {
-    console.error('\n[ERROR] agent_slug cross-reference check failed:\n');
-    for (const err of errors) {
-      console.error('  ' + err);
-    }
-    process.exit(1);
-  }
+// Hoist the library load above the descriptor list so both the agent-slug
+// check (comment-aware stripComments) and the sub-agent-reference check
+// (build()) share the one loaded module, instead of requiring it a second
+// time deep inside a later block. Wrapped in try/catch: a stale dist/ build
+// predating the stripComments export, or one that fails to load entirely,
+// must not prevent the slug check from running — it just runs without
+// comment awareness in that case, and the sub-agent-reference check's own
+// run() will surface the missing `build` function as an error result
+// through the runner's try/catch instead.
+let libraryModule;
+try {
+  libraryModule = _require(path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'index.cjs'));
+} catch {
+  libraryModule = null;
 }
-// Always: validate insight_agent / insight_report_target pairing and role match.
-{
-  const suiteMetas = [
-    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
-    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
-    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
-  ];
+const stripCommentsFn = (libraryModule && typeof libraryModule.stripComments === 'function')
+  ? libraryModule.stripComments
+  : (text) => text;
 
-  const errors = validateInsightFieldsInDirs(suiteMetas);
+// Every check below runs on every invocation (real build AND --check),
+// through the single runBuildChecks() descriptor list — no check's failure
+// (or crash) hides a later one, and the two hard-fail checks (formerly five
+// individual exit calls, now none here) are decided once, at the end, by
+// resolveExitCode().
+const checks = [
+  {
+    id: 'agent-slug-refs',
+    label: 'agent_slug cross-reference check',
+    severity: 'error',
+    // Ensures every {{agent_slug_X_Y}} reference in a persona content file
+    // has a matching slug "x-y" declared in that persona's `subagents` list
+    // in the YAML. A reference written inside a template comment is inert
+    // (stripCommentsFn removes it before the scan), matching the library's
+    // own comment-inertness contract.
+    run: () => validateAgentSlugReferences(
+      path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+      path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
+      { stripComments: stripCommentsFn },
+    ),
+  },
+  {
+    id: 'insight-fields',
+    label: 'insight_agent validation',
+    severity: 'error',
+    run: () => validateInsightFieldsInDirs([
+      path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
+      path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
+      path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
+    ]),
+  },
+  {
+    id: 'subagent-refs',
+    label: 'rendered sub-agent reference validation',
+    severity: 'error',
+    // Renders every persona in memory through the library's own build()
+    // (check mode, no writes) — the only reliable view of the output:
+    // generated files are gitignored and the CLI's --check does not compare
+    // against disk. Per-persona `targets` filtering, the cross-target
+    // dispatch-grant check, and the "sub-agent not built for this target"
+    // error are all owned by the library now — it already skips rendering
+    // (and therefore never writes) an excluded persona × target
+    // combination, so there is nothing left here to prune from disk. This
+    // check still validates that each rendered dispatch names every
+    // declared sub-agent by the identifier its target platform matches, and
+    // selects no undeclared agent. A missing `build` (library failed to
+    // load above) or a rejected build() call (e.g. a broken persona)
+    // surfaces here as an error result via the runner's try/catch, rather
+    // than crashing the whole script.
+    run: async () => {
+      const config  = _require(CONFIG);
+      const summary = await libraryModule.build({ ...config, check: true });
+      return validateSubagentReferences(summary.results);
+    },
+  },
+  {
+    id: 'philosophy-tone',
+    label: 'imperative phrasing in Operating Philosophy sections',
+    severity: 'warn',
+    // Heuristic (guide v3.0 mood rule) — warns rather than fails, since a
+    // legitimate declarative can open with a verb the detector does not
+    // know. Shared partials are included: a philosophy section extracted
+    // into a partial must not fall out of tone coverage. Imperative prose
+    // written inside a template comment is inert here too, via the same
+    // stripCommentsFn seam the agent-slug check above uses.
+    run: () => checkPhilosophyToneInDirs([
+      path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
+      path.join(ROOT, 'personas', 'standalone', 'src', 'content'),
+      path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
+      path.join(ROOT, 'personas', 'shared', 'partials'),
+    ], { stripComments: stripCommentsFn }),
+  },
+  {
+    id: 'changelog-size',
+    label: 'oversized personas/changelog.md entry',
+    severity: 'warn',
+    // Heuristic (line/bullet/sentence thresholds) — warns rather than
+    // fails, since a legitimately large multi-persona release can still be
+    // well-summarized.
+    run: () => {
+      const changelogPath = path.join(ROOT, 'personas', 'changelog.md');
+      if (!fs.existsSync(changelogPath)) return [];
+      const text = fs.readFileSync(changelogPath, 'utf8');
+      return checkChangelogEntrySize(text, 'personas/changelog.md');
+    },
+  },
+];
 
-  if (errors.length > 0) {
-    console.error('\n[ERROR] insight_agent validation failed:\n');
-    for (const err of errors) {
-      console.error('  ' + err);
-    }
-    process.exit(1);
-  }
-}
+const { errorCount } = await runBuildChecks(checks);
 
-// Always: validate cc_tools / subagents consistency.
-// A persona that lists subagents but lacks Task in its effective Claude Code
-// tool list cannot dispatch them — fail hard so it is caught before release.
-{
-  const suiteMetas = [
-    path.join(ROOT, 'personas', 'ledger', 'src', 'meta'),
-    path.join(ROOT, 'personas', 'standalone', 'src', 'meta'),
-    path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta'),
-  ];
-
-  const errors = validateCcToolsInDirs(suiteMetas);
-
-  if (errors.length > 0) {
-    console.error('\n[ERROR] cc_tools / dispatch validation failed:\n');
-    for (const err of errors) {
-      console.error('  ' + err);
-    }
-    process.exit(1);
-  }
-}
-
-// Always: per-persona targets and rendered sub-agent references.
-// Renders every persona in memory through the library's own build() (check
-// mode, no writes) — the only reliable view of the output: generated files are
-// gitignored and the CLI's --check does not compare against disk.
-//   1. Real builds only: a persona whose YAML lists `targets` gets the output
-//      for every other target deleted, so it is never deployed there.
-//   2. Always: validates that each rendered dispatch names every declared
-//      sub-agent by the identifier its target platform matches, and selects
-//      no undeclared agent. Fails hard: a wrong identifier makes the platform
-//      start a different agent, or none, without an error.
-{
-  const { build } = _require(path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'index.cjs'));
-  const config    = _require(CONFIG);
-  const summary   = await build({ ...config, check: true });
-
-  if (!CHECK) {
-    for (const r of summary.results) {
-      const { targets } = resolvePersonaTargets(fs.readFileSync(r.personaYamlPath, 'utf8'));
-      if (!targets.includes(r.target) && fs.existsSync(r.outputPath)) {
-        fs.unlinkSync(r.outputPath);
-        console.log(`Pruned ${path.relative(ROOT, r.outputPath)} (target "${r.target}" not in the persona's \`targets\`).`);
-      }
-    }
-  }
-
-  const errors = validateSubagentReferences(summary.results);
-
-  if (errors.length > 0) {
-    console.error('\n[ERROR] rendered sub-agent reference validation failed:\n');
-    for (const err of errors) {
-      console.error('  ' + err);
-    }
-    process.exit(1);
-  }
-}
-
-// Always: warn on imperative phrasing in Operating Philosophy sections.
-// Heuristic (guide v3.0 mood rule) — warns rather than fails, since a
-// legitimate declarative can open with a verb the detector does not know.
-{
-  // Shared partials are included: a philosophy section extracted into a partial
-  // must not fall out of tone coverage.
-  const suiteContents = [
-    path.join(ROOT, 'personas', 'ledger', 'src', 'content'),
-    path.join(ROOT, 'personas', 'standalone', 'src', 'content'),
-    path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
-    path.join(ROOT, 'personas', 'shared', 'partials'),
-  ];
-
-  const warnings = checkPhilosophyToneInDirs(suiteContents);
-
-  if (warnings.length > 0) {
-    console.warn('\n[WARN] imperative phrasing in Operating Philosophy sections:\n');
-    for (const warning of warnings) {
-      console.warn('  ' + warning);
-    }
-    console.warn(
-      '\n  Philosophy principles are stated in the indicative mood (guide v3.0).\n' +
-      '  Apply the "You should" test: if prepending it reads naturally, rewrite\n' +
-      '  the principle as a claim about the domain.\n',
-    );
-  }
-}
-
-// Always: warn on an oversized newest personas/changelog.md entry.
-// Heuristic (line/bullet/sentence thresholds) — warns rather than fails, since
-// a legitimately large multi-persona release can still be well-summarized.
-{
-  const changelogPath = path.join(ROOT, 'personas', 'changelog.md');
-
-  if (fs.existsSync(changelogPath)) {
-    const text = fs.readFileSync(changelogPath, 'utf8');
-    const warnings = checkChangelogEntrySize(text, 'personas/changelog.md');
-
-    if (warnings.length > 0) {
-      console.warn('\n[WARN] oversized personas/changelog.md entry:\n');
-      for (const warning of warnings) {
-        console.warn('  ' + warning);
-      }
-      console.warn(
-        '\n  personas/changelog.md is summary-only (AGENTS.md Changelog Convention,\n' +
-        '  rule 8): one outcome-oriented line per affected persona/theme, no\n' +
-        '  rationale or mechanism detail. Full detail belongs in that persona\'s\n' +
-        '  own integrated changelog.\n',
-      );
-    }
-  }
-}
+process.exit(resolveExitCode(libraryStatus, { errorCount }));

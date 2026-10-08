@@ -17,8 +17,10 @@ import {
   FAIL_AGENT_MAP,
   AGENT_PIPELINE_MAP,
   CANONICAL_PIPELINE_ORDERING,
-  ARTIFACT_EXPECTED_PIPELINE_TYPES,
+  ARTIFACT_DECLARATION_POLICY,
+  evaluateArtifactDeclaration,
   type PipelineType,
+  type ArtifactDeclarationPolicy,
   type FailRoutingGap,
 } from '../../src/utils/pipeline-maps.js';
 
@@ -396,19 +398,50 @@ describe('lastActiveStage', () => {
   });
 });
 
-// ─── ARTIFACT_EXPECTED_PIPELINE_TYPES ───────────────────────────────────────
+// ─── ARTIFACT_DECLARATION_POLICY / evaluateArtifactDeclaration ─────────────
 
-describe('ARTIFACT_EXPECTED_PIPELINE_TYPES', () => {
-  it('contains implementation, code-review, release-engineering, documentation', () => {
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('implementation')).toBe(true);
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('code-review')).toBe(true);
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('release-engineering')).toBe(true);
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('documentation')).toBe(true);
+describe('ARTIFACT_DECLARATION_POLICY', () => {
+  it('assigns an explicit policy to every pipeline type (exhaustiveness)', () => {
+    for (const type of PIPELINE_TYPES) {
+      expect(ARTIFACT_DECLARATION_POLICY[type]).toBeDefined();
+    }
   });
 
-  it('does NOT contain verification-only types (qa, security-audit)', () => {
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('qa')).toBe(false);
-    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('security-audit')).toBe(false);
+  it('marks qa and security-audit as exempt', () => {
+    expect(ARTIFACT_DECLARATION_POLICY['qa']).toBe('exempt');
+    expect(ARTIFACT_DECLARATION_POLICY['security-audit']).toBe('exempt');
+  });
+
+  it('marks implementation as non-empty', () => {
+    expect(ARTIFACT_DECLARATION_POLICY['implementation']).toBe('non-empty');
+  });
+
+  it('marks code-review, release-engineering, and documentation as declare', () => {
+    expect(ARTIFACT_DECLARATION_POLICY['code-review']).toBe('declare');
+    expect(ARTIFACT_DECLARATION_POLICY['release-engineering']).toBe('declare');
+    expect(ARTIFACT_DECLARATION_POLICY['documentation']).toBe('declare');
+  });
+});
+
+describe('evaluateArtifactDeclaration', () => {
+  // Full grid: every (policy, filesModified) combination the function can see.
+  const cases: Array<[ArtifactDeclarationPolicy, string[] | null | undefined, ReturnType<typeof evaluateArtifactDeclaration>]> = [
+    ['exempt', undefined, 'ok'],
+    ['exempt', null, 'ok'],
+    ['exempt', [], 'ok'],
+    ['exempt', ['a.ts'], 'ok'],
+    ['non-empty', undefined, 'undeclared'],
+    ['non-empty', null, 'undeclared'],
+    ['non-empty', [], 'empty'],
+    ['non-empty', ['a.ts'], 'ok'],
+    ['declare', undefined, 'undeclared'],
+    ['declare', null, 'undeclared'],
+    ['declare', [], 'ok'],
+    ['declare', ['a.ts'], 'ok'],
+  ];
+
+  it.each(cases)('policy=%s filesModified=%j → %s', (policy, filesModified, expected) => {
+    expect(evaluateArtifactDeclaration(policy, filesModified)).toBe(expected);
   });
 });
 

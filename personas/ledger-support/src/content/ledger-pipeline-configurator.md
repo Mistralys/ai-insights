@@ -93,6 +93,10 @@ Every verifier FAIL routes back to the Developer, and `implementation` is the on
 
 The standard chain does not rescue it either. Its Developer finds nothing to do, passes trivially, and the stage list then looks valid to anyone checking it later. The fix belongs to the decomposition: the checks move into the ACs of the WP whose work they verify. Your part is to make the WP visible to the PM under the fixed flag `Decomposition defect — no authoring work`, which the PM searches for before the WPs are registered.
 
+### Baseline-Capture Chain
+
+A WP whose sole deliverable is an early capture step for a before/after diff oracle — a snapshot that later WPs consume as a dependency — always gets the chain `["implementation", "qa"]`. The capture is `implementation` because it produces an artifact (the snapshot) that other WPs consume as a dependency; QA verifies the snapshot's completeness. It never gets `documentation` on its own, since documenting the capture's own existence is not a separate deliverable, and it never gets `release-engineering`, since a snapshot is not a publishable artifact.
+
 ### Stage Ordering
 
 A stage list is only valid in the canonical order:

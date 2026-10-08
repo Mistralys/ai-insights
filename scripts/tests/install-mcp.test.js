@@ -27,6 +27,8 @@ import {
   install,
 } from '../install-mcp-global.js';
 
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Create a fresh temp directory for each test. */
@@ -192,7 +194,7 @@ describe('writeShim()', () => {
       rmDir(tmpDir);
     }
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);
 
 // ─── installVSCode() — AC-4: only central_pm key modified ────────────────────
 

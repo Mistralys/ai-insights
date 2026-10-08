@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { isClaudeCliAvailable } from '../lib/claude-cli.js';
+import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
 
 describe('isClaudeCliAvailable()', () => {
   it('returns a boolean without throwing, regardless of whether claude is installed', () => {
@@ -21,4 +22,4 @@ describe('isClaudeCliAvailable()', () => {
 
     expect(typeof result).toBe('boolean');
   });
-});
+}, SUBPROCESS_TEST_TIMEOUT_MS);

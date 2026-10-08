@@ -5,6 +5,9 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.2 (2026-09-29): Removed `web` from VS Code `tools` — the persona's `cc_tools` already document
+    "no web access" and its content contains no fetch/URL instruction, so the VS Code grant exceeded
+    Claude Code's without cause
   1.7.1 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatches gained their own
     branch, and `1-planner` joined the `subagents` list.
@@ -37,7 +40,6 @@ tools:
   - read
   - edit
   - search
-  - web
   - agent
   - todo
 

@@ -23,6 +23,7 @@ import os   from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { isCliLinked } from './npm-link.js';
+import { latestMtime } from './mcp-dist-freshness.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -60,28 +61,10 @@ function latestMtimeFlat(dir) {
   }
 }
 
-/**
- * Recursively find the latest mtime (ms) among all files in a directory.
- * Returns -Infinity if the directory is unreadable or empty.
- * @param {string} dir
- * @returns {number}
- */
-function latestMtime(dir) {
-  let latest = -Infinity;
-  try {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        latest = Math.max(latest, latestMtime(full));
-      } else if (entry.isFile()) {
-        latest = Math.max(latest, fs.statSync(full).mtimeMs);
-      }
-    }
-  } catch {
-    // Directory unreadable — treat as empty.
-  }
-  return latest;
-}
+// `latestMtime(dir)` — recursive max mtime among all files in a directory,
+// returning -Infinity for a missing or unreadable directory — is imported
+// from the shared `./mcp-dist-freshness.js` module above; this file no
+// longer defines its own copy.
 
 // ─── Helpers (continued) ─────────────────────────────────────────────────────
 

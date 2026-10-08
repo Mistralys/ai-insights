@@ -7,6 +7,7 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.11.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the
     Pipeline Configurator's `Decomposition defect — no authoring work` flag and any chain with `qa`,
     `security-audit` or `code-review` but no `implementation`, sends hits back to the WP Decomposer's
@@ -68,6 +69,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:

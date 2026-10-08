@@ -183,12 +183,15 @@ Implementation agents **must** declare all files modified during a pipeline in `
 
 **Enforcement:** This is a process rule, not a hard validation gate.
 
-- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent **and** the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (see implementation in §12.1).
-- `ARTIFACT_EXPECTED_PIPELINE_TYPES` contains `implementation`, `code-review`, `release-engineering`, and `documentation` — pipeline types where agents may modify files.
-- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** from this warning because those agents verify but do not modify files.
+- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline's `artifacts.files_modified` declaration is unacceptable for its pipeline type **and** the call is not a PM override (see implementation in §12.1).
+- "Unacceptable" is decided per pipeline type by a `ARTIFACT_DECLARATION_POLICY: Record<PipelineType, ArtifactDeclarationPolicy>` map, where `ArtifactDeclarationPolicy` is one of three values:
+  - `'exempt'` — the field is never checked. `qa` and `security-audit` are `exempt`: those agents verify but do not modify files.
+  - `'non-empty'` — absent or an empty array is unacceptable; only a populated array is `ok`. `implementation` is `non-empty`: a PASS that modified nothing is almost certainly a missed declaration.
+  - `'declare'` — absent is unacceptable, but an explicit empty array `[]` is a valid, accepted declaration meaning "ran this stage, changed nothing." `code-review`, `release-engineering`, and `documentation` are `declare`: a Reviewer may legitimately find nothing to Fix-Forward, a Release Engineer may find nothing release-relevant, and the Documentation agent may find no gap — each of those is a real outcome, not a missed declaration, and `[]` is how the agent says so explicitly.
+- A pure evaluator, `evaluateArtifactDeclaration(policy, filesModified)`, maps a `(policy, filesModified)` pair to one of three outcomes: `'ok'`, `'undeclared'` (the field is absent or null), or `'empty'` (the field is present but `[]`, only reachable under `'non-empty'`). Only `'ok'` suppresses the soft warning.
 - `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared for traceability.
-- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline`.
-- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
+- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline` — and, for `'declare'`-policy stages, to pass an explicit `[]` rather than omitting the field when the pass modified nothing.
+- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge. Its note text keeps the pre-existing substring `artifacts.files_modified is empty or absent` for any caller matching on it, and adds a stage-specific sentence for `'declare'`-policy types: "Pass an explicit empty array when this pass modified nothing."
 
 **Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
 
@@ -687,8 +690,17 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
   pipeline.artifacts = opts.artifacts       // optional
   pipeline.metrics = opts.metrics           // optional
   pipeline.comments = opts.comments         // optional
-  
-  // Acceptance criteria updates (merge semantics)
+
+  isPmOverride = (agentRole == "Project Manager" AND agentRole != expectedRole)
+  notes = []                     // response.notes accumulator, replaces the former
+                                  // single artifactsWarning string; joined after
+                                  // `guidance` in the final response text, in push order
+  responsePayload = { wp, pipeline }   // base response shape; appended_criteria added below
+
+  // Acceptance criteria updates (merge semantics, §12.3) — matching stays exact-text;
+  // every unmatched update is still appended (the behaviour is unchanged), but it is
+  // now collected so the response and the audit trail can say so visibly.
+  appended = []
   if opts.acceptance_criteria_updates is provided:
     for each update in opts.acceptance_criteria_updates:
       existing = wp.acceptance_criteria.find(ac => ac.criterion == update.criterion)
@@ -698,6 +710,29 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
         wp.acceptance_criteria.append({     // Append new
           criterion: update.criterion,
           met: update.met
+        })
+        appended.append(update.criterion)
+
+    if appended is not empty:
+      responsePayload.appended_criteria = appended
+      notes.append(
+        "Note: " + appended.length + " acceptance_criteria_updates entr" +
+        (appended.length == 1 ? "y" : "ies") +
+        " matched no existing criterion and " +
+        (appended.length == 1 ? "was" : "were") +
+        " appended as new. Copy criterion text verbatim from ledger_get_work_package " +
+        "to update an existing one instead."
+      )
+      if agentRole != "Project Manager":
+        root.project_comments.append(ProjectComment {
+          type: "warning",
+          priority: "low",
+          timestamp: now(),
+          agent: agentRole,
+          note: "Pipeline " + pipelineType + " on " + wp.work_package_id +
+            " appended " + appended.length + " unmatched acceptance_criteria_updates " +
+            "entr" + (appended.length == 1 ? "y" : "ies") + " as new criteria: " +
+            appended.map(c => "\"" + c + "\"").join(", ")
         })
   
   // Handoff notes
@@ -722,18 +757,51 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
     }
     wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
   
-  // Artifact completeness soft warning (scoped to creative/modifying pipeline types)
-  if status == "PASS" AND pipelineType in ARTIFACT_EXPECTED_PIPELINE_TYPES AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
-    root.project_comments.append(ProjectComment {
-      type: "warning",
-      priority: "low",
-      timestamp: now(),
-      agent: agentRole,
-      note: "Pipeline {pipelineType} on {wp.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability"
-    })
+  // Artifact completeness soft warning — policy-driven per pipeline type (§9b.3), not a
+  // fixed set. isPmOverride callers are never warned (a PM-completed pipeline is an
+  // administrative override, not a creative agent's declaration).
+  if status == "PASS" AND NOT isPmOverride:
+    policy = ARTIFACT_DECLARATION_POLICY[pipelineType]
+    outcome = evaluateArtifactDeclaration(policy, opts.artifacts?.files_modified)
+    if outcome != "ok":
+      extraSentence = policy == "declare"
+        ? " Pass an explicit empty array when this pass modified nothing."
+        : ""
+      note = "Pipeline " + pipelineType + " on " + wp.work_package_id +
+        " completed with PASS but declared no artifacts.files_modified — " +
+        "consider declaring modified files for traceability." + extraSentence
+      root.project_comments.append(ProjectComment {
+        type: "warning",
+        priority: "low",
+        timestamp: now(),
+        agent: agentRole,
+        note: note
+      })
+      notes.append("Note: artifacts.files_modified is empty or absent." + extraSentence)
 
   root.last_updated = now()
 ```
+
+`evaluateArtifactDeclaration(policy, filesModified)` is a pure function with no side effects:
+
+```
+function evaluateArtifactDeclaration(policy, filesModified):
+  if policy == "exempt":
+    return "ok"
+  if filesModified is null:
+    return "undeclared"
+  if policy == "non-empty" AND filesModified.length == 0:
+    return "empty"
+  return "ok"   // policy == "declare" accepts [] as "ok"
+```
+
+The two `notes.append(...)` calls above (the criteria note from the acceptance-criteria block,
+then the artifact note) populate one ordered `notes: string[]` accumulator, replacing the
+former single `artifactsWarning` string. The response text is built by joining `guidance` with
+every entry in `notes`, in the fixed order they were pushed — criteria note first (it is
+computed earlier in the function, §12.1 lines 691–727), artifacts note second (§12.1 lines
+751–771) — so a caller or test can assert on exact response text instead of a free-form
+concatenation.
 
 ### 12.2 Handoff Note Routing Summary
 
@@ -764,7 +832,12 @@ On FAIL (fallback — standard target's stage not active):
 
 - Match by **exact** criterion text
 - Found → update the `met` flag
-- Not found → **append** as a new entry `{ criterion, met }`
+- Not found → **append** as a new entry `{ criterion, met }` — the match stays strict (no
+  whitespace/punctuation normalisation), but the append is no longer silent: every unmatched
+  update's text is collected and surfaced on the response as `appended_criteria: string[]`, with
+  a response note recommending a verbatim copy of the existing criterion text next time. For a
+  non-PM caller, a single low-priority `"warning"` project comment also names the WP and quotes
+  each appended text, giving the PM and Synthesis an audit trail without blocking completion.
 
 ### 12.3b Acceptance Criteria Management
 

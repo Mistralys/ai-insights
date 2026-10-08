@@ -5,6 +5,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
     with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
     pattern, and keys the focused protocol on the WP's most recent `qa` pipeline being FAIL; a WP
@@ -60,6 +61,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true

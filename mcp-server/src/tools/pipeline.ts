@@ -18,7 +18,8 @@ import {
   resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
   lastActiveStage,
-  ARTIFACT_EXPECTED_PIPELINE_TYPES,
+  ARTIFACT_DECLARATION_POLICY,
+  evaluateArtifactDeclaration,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
@@ -307,7 +308,13 @@ const CompletePipelineSchema = z.object({
   summary: z.union([z.string(), z.array(z.string())]).describe('Summary of what was done. Accepts a single string or an array of strings (e.g., "Implemented feature X" or ["Implemented feature X", "Added tests"]).'),
   artifacts: z
     .object({
-      files_modified: z.array(z.string()).optional(),
+      files_modified: z.array(z.string()).optional().describe(
+        'Files modified during this pipeline. Declaration expectations are policy-driven per ' +
+        'pipeline type: "implementation" requires a non-empty array; "code-review", ' +
+        '"release-engineering", and "documentation" accept an explicit [] meaning "ran this ' +
+        'stage, changed nothing" — pass [] rather than omitting the field when nothing changed; ' +
+        '"qa" and "security-audit" are exempt (those agents verify but do not modify files).'
+      ),
       commit_hash: z.string().optional(),
       pull_request: z.string().optional(),
     })
@@ -350,7 +357,7 @@ const CompletePipelineSchema = z.object({
       }).passthrough()
     )
     .optional()
-    .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE.'),
+    .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE. Matching is by exact criterion text: copy it verbatim from ledger_get_work_package. An update whose criterion text matches none of the WP\'s existing criteria is still appended as a new criterion (not rejected) — the response\'s appended_criteria field and a project comment will flag this so it can be reconciled.'),
   handoff_notes: z
     .union([z.string(), z.array(z.string())])
     .optional()
@@ -403,8 +410,12 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
   let unmetCriteriaList: string[] = [];
   // Captured from within the lock callback so buildCompletionGuidance can use it
   let activeStagesForGuidance: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES;
-  // Soft warning text for empty artifacts (set inside callback, appended to response)
-  let artifactsWarning = '';
+  // Ordered notes accumulator (set inside callback, joined after guidance in the response).
+  // Replaces the former single artifactsWarning string now that a second note (unmatched
+  // acceptance criteria) can also be emitted — see §12.1.
+  const notes: string[] = [];
+  // Unmatched acceptance_criteria_updates entries (texts), surfaced as responsePayload.appended_criteria
+  let appendedCriteria: string[] = [];
 
   // §21.59 Advisory staleness map: pre-read dep WPs to compare their last-modification
   // signal against the pipeline's started_at. Only populated when status is PASS.
@@ -494,29 +505,6 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         pipeline.comments = args.comments;
       }
 
-      // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline (§12.1).
-      // Only fires for pipeline types in ARTIFACT_EXPECTED_PIPELINE_TYPES (implementation,
-      // code-review, release-engineering, documentation). Verification-only stages (qa,
-      // security-audit) are exempt since those agents do not modify files.
-      // code-review is included because the Reviewer may apply Fix-Forward edits.
-      if (args.status === 'PASS' && !isPmOverride && ARTIFACT_EXPECTED_PIPELINE_TYPES.has(args.type)) {
-        const filesModified = args.artifacts?.files_modified;
-        if (!filesModified || filesModified.length === 0) {
-          // §12.1: Persist as a project comment for traceability
-          root.project_comments.push({
-            type: 'warning',
-            priority: 'low',
-            timestamp: now(),
-            agent: args.agent_role,
-            note: `Pipeline ${args.type} on ${args.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability`,
-          });
-          artifactsWarning =
-            '\n\nNote: artifacts.files_modified is empty or absent. ' +
-            'If you modified any files during this pipeline, declare them in artifacts.files_modified ' +
-            'for a complete audit trail.';
-        }
-      }
-
       // §21.59 Advisory cross-WP dependency freshness check (SHOULD level).
       // Warns when a dependency was modified after this pipeline started.
       // Does NOT block PASS — emits project comments only.
@@ -534,7 +522,9 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         }
       }
 
-      // 4. Update acceptance criteria if provided
+      // 4. Update acceptance criteria if provided (merge semantics, §12.3). Matching stays
+      // exact-text; every unmatched update is still appended (behaviour unchanged), but it is
+      // now collected so the response and the audit trail can say so visibly.
       if (args.acceptance_criteria_updates) {
         for (const update of args.acceptance_criteria_updates) {
           const criterion = wp.acceptance_criteria.find(
@@ -545,11 +535,58 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
             criterion.met = update.met;
           } else {
             wp.acceptance_criteria.push({ criterion: update.criterion, met: update.met });
+            appendedCriteria.push(update.criterion);
+          }
+        }
+
+        if (appendedCriteria.length > 0) {
+          const verb = appendedCriteria.length === 1 ? 'was' : 'were';
+          notes.push(
+            `Note: ${appendedCriteria.length} acceptance_criteria_updates entr${appendedCriteria.length === 1 ? 'y' : 'ies'} ` +
+            `matched no existing criterion and ${verb} appended as new. Copy criterion text verbatim ` +
+            `from ledger_get_work_package to update an existing one instead.`
+          );
+          if (!isPmOverride) {
+            root.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: args.agent_role,
+              note:
+                `Pipeline ${args.type} on ${args.work_package_id} appended ${appendedCriteria.length} ` +
+                `unmatched acceptance_criteria_updates entr${appendedCriteria.length === 1 ? 'y' : 'ies'} as new ` +
+                `criteria: ${appendedCriteria.map((c) => `"${c}"`).join(', ')}`,
+            });
           }
         }
       }
 
-      // 4b. Generalized auto-finalize (§WP-006): fires when the agent owning the LAST
+      // 4c. Soft warning: policy-driven per pipeline type (§9b.3), not a fixed set.
+      // isPmOverride callers are never warned (a PM-completed pipeline is an administrative
+      // override, not a creative agent's declaration).
+      if (args.status === 'PASS' && !isPmOverride) {
+        const policy = ARTIFACT_DECLARATION_POLICY[args.type];
+        const outcome = evaluateArtifactDeclaration(policy, args.artifacts?.files_modified);
+        if (outcome !== 'ok') {
+          const extraSentence = policy === 'declare'
+            ? ' Pass an explicit empty array when this pass modified nothing.'
+            : '';
+          const note =
+            `Pipeline ${args.type} on ${args.work_package_id} completed with PASS but declared no ` +
+            `artifacts.files_modified — consider declaring modified files for traceability.${extraSentence}`;
+          // §9b.3: Persist as a project comment for traceability
+          root.project_comments.push({
+            type: 'warning',
+            priority: 'low',
+            timestamp: now(),
+            agent: args.agent_role,
+            note,
+          });
+          notes.push(`Note: artifacts.files_modified is empty or absent.${extraSentence}`);
+        }
+      }
+
+      // 4d. Generalized auto-finalize (§WP-006): fires when the agent owning the LAST
       // active stage completes that stage with PASS and all acceptance criteria are met.
       // The terminal stage is computed dynamically from the WP's active_pipeline_stages.
       // PM overrides bypass auto-finalize intentionally.
@@ -636,12 +673,19 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       responsePayload.auto_finalize_blocked = true;
       responsePayload.unmet_criteria = unmetCriteriaList;
     }
+    if (appendedCriteria.length > 0) {
+      responsePayload.appended_criteria = appendedCriteria;
+    }
+
+    // §12.1: notes are joined after guidance, in push order (criteria note first, artifacts
+    // note second — matching the order they are computed in the lock callback above).
+    const notesText = notes.length > 0 ? '\n\n' + notes.join('\n\n') : '';
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(responsePayload, null, 2) + guidance + artifactsWarning,
+          text: JSON.stringify(responsePayload, null, 2) + guidance + notesText,
         },
       ],
     };
