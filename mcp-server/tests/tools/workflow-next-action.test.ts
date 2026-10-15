@@ -302,6 +302,9 @@ describe('PM action logic', () => {
 
     expect(result.action).toBe('REVIEW_REWORK_LIMIT');
     expect(result.work_package_id).toBe('WP-001');
+    expect(result.pipeline_type).toBe('qa');
+    expect(result.rework_count).toBe(MAX_REWORK_COUNT);
+    expect(result.max_rework_count).toBe(MAX_REWORK_COUNT);
   });
 
   // Case 4: IN_PROGRESS WP with a stale IN_PROGRESS pipeline (>24h) → REVIEW_STALE

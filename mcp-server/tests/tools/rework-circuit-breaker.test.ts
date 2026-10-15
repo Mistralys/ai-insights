@@ -175,6 +175,99 @@ describe('Circuit breaker in start_pipeline (live _internal)', () => {
   });
 });
 
+describe('Circuit breaker persists the trip in start_pipeline', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  const failPipeline: Pipeline = {
+    type: 'implementation',
+    status: 'FAIL',
+    started_at: now(),
+    completed_at: now(),
+    summary: ['Failed'],
+  };
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'circuit-persist-'));
+    store = new LedgerStore(PLAN_PATH, tempDir);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          file: 'work/WP-001.md',
+          status: 'IN_PROGRESS',
+          assigned_to: 'QA',
+          dependencies: [],
+        },
+      ],
+      project_comments: [],
+    });
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const start = () =>
+    _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+  it('persists the counter at MAX, appends no pipeline and keeps assigned_to when the increment trips the breaker', async () => {
+    const wp = makeWpDetail('WP-001', 'IN_PROGRESS', [failPipeline], MAX_REWORK_COUNT - 1);
+    wp.assigned_to = 'QA';
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await start();
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toMatch(/^Error starting pipeline: Rework circuit breaker/);
+    const stored = await store.readWorkPackage('WP-001');
+    expect(stored.rework_counts?.implementation).toBe(MAX_REWORK_COUNT);
+    expect(stored.pipelines).toHaveLength(1);
+    expect(stored.assigned_to).toBe('QA');
+  });
+
+  it('writes nothing when the stored count is already at MAX', async () => {
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('WP-001', 'IN_PROGRESS', [failPipeline], MAX_REWORK_COUNT),
+    );
+    const before = await store.readWorkPackage('WP-001');
+
+    const result = await start();
+
+    expect((result as any).isError).toBe(true);
+    const after = await store.readWorkPackage('WP-001');
+    expect(after.last_updated).toBe(before.last_updated);
+    expect(after.rework_counts?.implementation).toBe(MAX_REWORK_COUNT);
+  });
+
+  it('makes getDeveloperAction report the rework limit after the trip', async () => {
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('WP-001', 'IN_PROGRESS', [failPipeline], MAX_REWORK_COUNT - 1),
+    );
+    await start();
+
+    const action = parseResult(await getDeveloperAction(await store.readRootIndex(), store));
+    expect(action.action).toBe('BLOCK_FOR_REWORK_LIMIT');
+  });
+});
+
 describe('BLOCK_FOR_REWORK_LIMIT in getDeveloperAction', () => {
   let tempDir: string;
   let store: LedgerStore;

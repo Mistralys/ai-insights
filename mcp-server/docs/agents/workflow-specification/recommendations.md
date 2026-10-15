@@ -41,7 +41,7 @@ The Planner operates before the ledger exists. `getNextAction` for the Planner r
 Priority order:
 
 1. **UNBLOCK_WP**: Any WP is BLOCKED with a non-dependency blocker (`decision`, `external`, `technical`) — PM should investigate and resolve
-2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure
+2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure. The action output carries `pipeline_type` (the circuit-broken type), `rework_count` and `max_rework_count` so a consumer (including a headless orchestrator, §16.3c) can act without re-reading the WP
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
 3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) AND the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` (measured via `root.last_updated` for the WP's claiming transition or, if available, the WP detail's most recent status-change timestamp) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
 3c. **REPAIR_ORPHAN_BLOCKED**: Any WP is BLOCKED with a `dependency` blocker (or absent blocker type) but all its formal dependencies are terminal — the WP should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but wasn't, likely due to an interruption during the cascade lock gap (§20.4). PM should transition it to READY or manually unblock.
@@ -60,7 +60,9 @@ function getPMAction(root, store):
   
   // Priority 2: Rework limit reached
   for each WP where any rework_counts[*] >= MAX_REWORK_COUNT:
-    return REVIEW_REWORK_LIMIT with wp.id
+    pipelineType = first type in rework_counts with count >= MAX_REWORK_COUNT
+    return REVIEW_REWORK_LIMIT with wp.id, pipelineType,
+           rework_count = rework_counts[pipelineType], max_rework_count = MAX_REWORK_COUNT
   
   // Priority 3: Stale pipelines
   for each IN_PROGRESS WP with any stale pipeline:

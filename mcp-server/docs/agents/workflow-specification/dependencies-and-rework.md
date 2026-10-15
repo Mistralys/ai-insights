@@ -247,6 +247,8 @@ When rework_counts[pipelineType] >= MAX_REWORK_COUNT:
   - Human intervention required: cancel or restructure the WP
 ```
 
+Because the counter increments on each rework start, `MAX_REWORK_COUNT - 1` reworks actually run; the `MAX`-th rework start is the one that is refused. That refused start **persists** the incremented counter (§11.1, §21.74), so the limit actions above fire from that point on — the limit is reached through the refused start itself, not through a start that succeeded.
+
 The circuit breaker is evaluated **per pipeline type**. Reaching the limit on `documentation` does not block `implementation` rework, and vice versa.
 
 ### 16.3b Circuit Breaker Reset
@@ -294,7 +296,7 @@ The circuit breaker (§16.3) is designed around a human Project Manager who can 
 
 **Prescribed behavior for automated orchestrators:**
 
-When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and no PM intervention is available (the system is running headlessly), the orchestrator SHOULD:
+When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and no PM intervention is available (the system is running headlessly), the orchestrator handles it **itself** rather than dispatching a PM agent: the supervisor node cancels the WP directly (with `agent_role: "Project Manager"`), logs the event (WP ID, pipeline type, and rework count), makes a best-effort project comment for the Synthesis agent, and re-queries the PM action within the same routing pass. The PM node is never dispatched for this recommendation. Concretely, the orchestrator SHOULD:
 
 1. **Log the circuit-breaker event** — Record the WP ID, the circuit-broken pipeline type, the rework count, and a diagnostic note explaining that the circuit breaker was reached. This ensures the operator has visibility into which WPs were affected and why.
 2. **Transition the WP to CANCELLED** — Call `updateWorkPackageStatus(CANCELLED)` on the circuit-broken WP. This is a PM-level operation; automated orchestrators acting as PM surrogates must invoke it with `agent_role: "Project Manager"`. Cancellation is terminal (§21.1) — the WP's pipeline history is preserved for post-run analysis, and `synthesis_generated` is not reset (§21.38).

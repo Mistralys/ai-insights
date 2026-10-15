@@ -367,7 +367,7 @@ Active pipeline order: implementation → qa → code-review → documentation.
 Cannot start pipeline 'implementation' for work package WP-019: this pipeline type is not in the WP's active stages. Active stages: qa → code-review.
 ```
 
-**Divergence between the two start paths:** `beginWork` re-implements the `startPipeline` guard chain rather than calling it, so the copies can drift. They already differ in one place: the prerequisite lookup in `startPipeline` excludes `auto_cancelled` pipelines, while the one in `beginWork` does not. Apply any change to a start guard to both files.
+**Divergence between the two start paths:** `beginWork` re-implements the `startPipeline` guard chain rather than calling it, so the copies can drift. Apply any change to a start guard to both files; `tests/tools/start-path-parity.test.ts` runs each scenario through both tools and pins that they agree on the outcome and the persisted `rework_counts`.
 
 > **Specification:** [§11.1](../workflow-specification/operations.md) (`startPipeline` guard "Pipeline type must be in the WP's active stages").
 
@@ -424,11 +424,11 @@ This convention binds whoever composes a chain — the planning personas (WP Dec
 - In `CANONICAL_PIPELINE_ORDERING`, `implementation` is the only stage upstream of the verifiers, and `pipelines.fail_routing` in `shared/workflow-manifest.json` sends every verifier FAIL to the Developer.
 - When `implementation` is absent, `resolveFailAgent()` falls back to the owner of the first active stage. On `["qa", "code-review"]` that is QA itself, so a QA FAIL routes back to QA (the handoff note reads `from_agent: "QA"`, `to_agent: "QA"`).
 - The recommendation engine turns that into a self-rework: `getQaAction` P4b (and the matching Reviewer and Security Auditor P4b branches) emits `RUN_QA` when `resolveFailAgent('qa', activeStages) === 'QA'`. `getDeveloperAction` skips every WP whose chain lacks `implementation`, so no agent ever changes anything between runs.
-- The verifier re-runs against unchanged code and fails identically until its `rework_counts` entry reaches `MAX_REWORK_COUNT`.
+- The verifier re-runs against unchanged code and fails identically until a start whose increment reaches `MAX_REWORK_COUNT` is refused; that refusal persists the `rework_counts` entry at the maximum (see the circuit-breaker paragraph under "Rework Count Increments on Pipeline Retry"), after which the recommendation engine reports the rework limit instead of `RUN_QA`.
 
 **Enforcement (v2.6.0):** `validateActiveStages()` now rejects this chain at creation time via the fail-route coverage hard guardrail documented above (`findFailRoutingGaps()` in `src/utils/pipeline-maps.ts`). `ledger_create_work_package` with `active_pipeline_stages: ["qa", "code-review"]` returns an error result and writes no WP. The rule is enforced only at creation — `active_pipeline_stages` is never re-validated on read, so a WP created before v2.6.0 that already holds such a chain is not migrated and keeps routing through the `resolveFailAgent()` fallback described above.
 
-**Unfixable failures:** A failure the WP cannot fix in scope — such as a pre-existing test failure unrelated to the plan — is left to the existing rework-limit path (`BLOCK_FOR_REWORK_LIMIT`, then PM review). There is no "accept as out of scope" verdict, by decision.
+**Unfixable failures:** A failure the WP cannot fix in scope — such as a pre-existing test failure unrelated to the plan — is left to the existing rework-limit path: the start that would exceed the limit is refused and persists the counter at the maximum, the recommendation engine then emits `BLOCK_FOR_REWORK_LIMIT` (Developer) or `REVIEW_REWORK_LIMIT` (PM), and the WP goes to PM review. There is no "accept as out of scope" verdict, by decision.
 
 **Origin:** Ledger project `hcp-editor/2026-10-01-ms03-ms04-coma-payload-completion`, WP-019 — a `["qa", "code-review"]` exit gate whose QA FAIL (a pre-existing, plan-unrelated test) looped back to QA until a PM amended the acceptance criterion. Headless runs have no PM to make that amendment.
 
@@ -486,7 +486,7 @@ This convention binds whoever composes a chain — the planning personas (WP Dec
 | Direct rework (last same-type FAIL) | `rework_counts[type]` +1 |
 | Downstream rework (prerequisite reworked after last PASS) | `rework_counts[type]` +1 |
 
-**Circuit breaker:** After incrementing, the effective count is computed as `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` rejects with an error guiding the caller to cancel or restructure. `getDeveloperAction` also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
+**Circuit breaker:** After incrementing, the effective count is computed as `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` (and `ledger_begin_work`) reject with an error guiding the caller to cancel or restructure. **The trip is persisted:** when the increment itself reaches the maximum (stored count was below it), the refused call still writes `rework_counts[type] = MAX_REWORK_COUNT` and `last_updated` (and, for `ledger_begin_work` on a READY WP, the claim) with no pipeline appended, so the stored state records that the rework cannot run and every `>= MAX_REWORK_COUNT` recommendation check fires. When the stored count is already at or above the maximum, the call throws and writes nothing. Deliberate departure from other tools: an `isError` result can write a counter (idempotent once the limit is stored). `getDeveloperAction` also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
 
 ---
 

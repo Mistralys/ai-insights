@@ -459,7 +459,8 @@ function startPipeline(wp, root, pipelineType, agentRole):
   // Guard: Prerequisites must be met (dynamic resolution — §8.1.1)
   prerequisite = resolvePrerequisite(pipelineType, activeStages)
   if prerequisite is not null:
-    prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)
+    // Auto-cancelled pipelines are excluded (§21.27)
+    prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite AND NOT p.auto_cancelled)
     if prereqPipelines is empty OR prereqPipelines.last().status != "PASS":
       ERROR("Requires PASS {prerequisite} pipeline first")
   
@@ -532,11 +533,18 @@ function startPipeline(wp, root, pipelineType, agentRole):
     for each stage in activeStages:
       if counts[stage] is undefined:
         counts[stage] = 0
-    counts[pipelineType] = (counts[pipelineType] ?? 0) + 1
+    storedCount = counts[pipelineType]
+    counts[pipelineType] = storedCount + 1
     wp.rework_counts = counts
     
-    // Circuit breaker (per-pipeline-type threshold)
+    // Circuit breaker (per-pipeline-type threshold, persist-on-trip — §21.74)
     if counts[pipelineType] >= MAX_REWORK_COUNT:   // default: 5
+      if storedCount < MAX_REWORK_COUNT:
+        // The refused start that crosses the limit is recorded: write the
+        // incremented rework_counts (and, for ledger_begin_work, the claim)
+        // so the limit is observable by getNextAction. No pipeline is created.
+        persist(wp)
+      // else: counter already at or above the maximum — write nothing (idempotent)
       ERROR("Rework limit reached for {pipelineType}. Cancel or restructure this WP.")
   
   // Create pipeline
@@ -553,6 +561,8 @@ function startPipeline(wp, root, pipelineType, agentRole):
   root.work_packages[wp.id].assigned_to = wp.assigned_to
   root.last_updated = now()
 ```
+
+**Refused-start persistence (§21.74):** When the circuit breaker trips on a start whose incremented count crosses the maximum from below, the incremented `rework_counts` is persisted even though the call errors and no pipeline is created; for `ledger_begin_work` the preceding claim (READY → IN_PROGRESS) is persisted as well, so the refusal leaves the WP claimed rather than rolled back. When the stored count is already at or above the maximum, the call writes nothing. `ledger_begin_work` applies this same guard chain (including the circuit breaker) after its claim phase, exactly as `startPipeline` does.
 
 ### 11.1.1 Re-Validation Guard
 

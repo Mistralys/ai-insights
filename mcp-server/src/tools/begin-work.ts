@@ -69,6 +69,9 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
 
   // Captured inside the updater callback and read after the lock releases.
   let claimed = false;
+  // Set when the rework increment tripped the circuit breaker; the trip (and the
+  // claim) is persisted, then the error is thrown after the lock releases.
+  let breakerMessage: string | null = null;
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -174,7 +177,7 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
       // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
       const prerequisite = resolvePrerequisite(args.type as PipelineType, activeStages);
       if (prerequisite !== null) {
-        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
+        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled);
         const mostRecentPrereq = prereqPipelines.at(-1);
         if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
           const orderedActive = (activeStages as readonly string[]).join(' → ');
@@ -203,18 +206,27 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
       const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType, activeStages);
       const needsRework = isDirectRework || isDownstreamRework;
 
+      const countBeforeIncrement = wp.rework_counts?.[args.type] ?? 0;
       if (needsRework) {
         const current = wp.rework_counts?.[args.type] ?? 0;
         wp.rework_counts = { ...(wp.rework_counts ?? {}), [args.type]: current + 1 };
       }
 
       // Guard 5: Circuit breaker — reject if per-type rework count is at maximum.
+      // When the increment itself reaches the limit, the trip is persisted (counter
+      // and claim, no pipeline appended); when the stored count is already at or
+      // above the maximum, the throw aborts the write and nothing is persisted.
       const effectiveReworkCount = wp.rework_counts?.[args.type] ?? 0;
       if (effectiveReworkCount >= MAX_REWORK_COUNT) {
-        throw new Error(
+        const message =
           `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
-            `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`
-        );
+          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`;
+        if (countBeforeIncrement >= MAX_REWORK_COUNT) {
+          throw new Error(message);
+        }
+        breakerMessage = message;
+        root.last_updated = now();
+        return { wp, root };
       }
 
       // Append new pipeline entry.
@@ -242,6 +254,10 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
 
       return { wp, root };
     });
+
+    if (breakerMessage !== null) {
+      throw new Error(breakerMessage);
+    }
 
     // Return updated work package with the claimed flag appended.
     const updatedWp = await store.readWorkPackage(args.work_package_id);

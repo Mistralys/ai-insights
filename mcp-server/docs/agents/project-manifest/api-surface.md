@@ -418,7 +418,7 @@ The `agent` field is required because the server checks which persona is attempt
 
 **Other statuses (`COMPLETE`, `BLOCKED`, etc.):** Rejected with a descriptive error.
 
-**Pipeline start phase:** Applies the same pipeline ordering, duplicate IN_PROGRESS rejection, rework detection, circuit breaker, revalidation guard, and `agent_role` ownership validation as `ledger_start_pipeline`. A `[PM Override]` marker is added when `agent_role: 'Project Manager'`.
+**Pipeline start phase:** Applies the same pipeline ordering, duplicate IN_PROGRESS rejection, rework detection, circuit breaker (including the persisted trip: a refused start whose increment reaches the maximum still persists the counter and the claim, with no pipeline appended), revalidation guard, and `agent_role` ownership validation as `ledger_start_pipeline`. The prerequisite lookup excludes `auto_cancelled` pipelines, exactly as `ledger_start_pipeline` does (§21.27). A `[PM Override]` marker is added when `agent_role: 'Project Manager'`.
 
 **Response:** Same shape as `ledger_start_pipeline` (updated WP detail + pipelines) with an additional `claimed: boolean` field.
 
@@ -442,7 +442,7 @@ Starts a new pipeline for a work package. The `type` field is validated by `Pipe
 
 **Rework detection:** A rework is detected when either (a) the most recent same-type completed pipeline has `FAIL` status (**direct rework**) or (b) a prerequisite pipeline type was reworked after the last PASS of the current type (**downstream rework**). Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from rework detection in both cases. When rework is detected, `rework_counts[type]` is incremented.
 
-**Rework circuit breaker:** The effective count is `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), the call is rejected with an error guiding the caller to cancel or restructure the WP.
+**Rework circuit breaker:** The effective count is `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), the call is rejected with an error guiding the caller to cancel or restructure the WP. When the increment itself reaches the maximum, the refusal persists `rework_counts[type]` at the maximum (no pipeline appended, `assigned_to` unchanged) so the limit is recorded and the recommendation engine surfaces `BLOCK_FOR_REWORK_LIMIT` / `REVIEW_REWORK_LIMIT` (PM review path); if the stored count is already at or above the maximum, nothing is written.
 
 **Revalidation guard:** After rework detection, `checkRevalidationGuard()` is called. If a prior PASS of the prerequisite pipeline has become stale relative to upstream rework, the guard fires and rejects the start with a descriptive explanation.
 
@@ -6602,6 +6602,8 @@ export const pipelineAgentRoleMap: Record<string, string>;
 // other role action functions). Evaluates priorities in strict top-down order:
 //   P1 UNBLOCK_WP        — BLOCKED WP with decision/external/technical blocker.
 //   P2 REVIEW_REWORK_LIMIT — IN_PROGRESS WP where any rework_counts entry >= MAX_REWORK_COUNT.
+//                          Payload: { action, work_package_id, pipeline_type (the rework_counts key that tripped),
+//                          rework_count, max_rework_count, reason }.
 //   P3 REVIEW_STALE      — IN_PROGRESS WP with a stale active pipeline (via extractStalePipelineAction).
 //   P3b REVIEW_ABANDONED — IN_PROGRESS WP with no active pipelines and last activity > STALE_PIPELINE_HOURS ago;
 //                          grace period: skips WPs where status_changed_at is within the threshold.

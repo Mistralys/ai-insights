@@ -213,7 +213,8 @@ mcp-server/
     │
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts
-    │   └── full-workflow.test.ts
+    │   ├── full-workflow.test.ts
+    │   └── rework-limit.test.ts  # Tool-driven rework-limit walk (no seeded counters): persisted trip on the refused fifth start, Developer/QA/PM limit actions, PM cancel -> dependent READY -> synthesis; plus legacy verifier-only chain
     │
     ├── schema/                  # Schema validation tests
     │   ├── project-archiving-schema.test.ts
@@ -265,6 +266,7 @@ mcp-server/
     │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   ├── schema-integrity.test.ts
     │   ├── standalone-import.test.ts  # 18 tests for ledger_import_standalone: successful import (project creation, WP-001 structure, archival, cwd_path fallback, project_path precedence), all four validation error paths (no path, bad basename, missing plan.md, missing synthesis.md), duplicate slug rejection, outcome summary extraction with fallback, repo name derivation, and project_summary (root index persistence, .meta.json persistence, backward compatibility when omitted, schema rejection of empty strings)
+    │   ├── start-path-parity.test.ts  # startPipeline vs beginWork parity: same isError and persisted rework_counts across prerequisite, auto-cancelled and rework-limit scenarios
     │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
     │   ├── version-freshness.test.ts

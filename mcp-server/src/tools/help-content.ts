@@ -289,7 +289,7 @@ ${PROJECT_PATH_PARAM}
 - Dependency completeness — all dependencies must be COMPLETE before claiming
 - Duplicate pipeline rejection — no two IN_PROGRESS pipelines of the same type
 - Pipeline ordering — determined per-WP by active_pipeline_stages (defaults to implementation → qa → code-review → documentation for standard WPs)
-- Rework circuit breaker — rejects if per-type rework count is at maximum
+- Rework circuit breaker — rejects if per-type rework count is at maximum; a start whose rework increment reaches the maximum is refused but records the limit (counter and claim persisted, no pipeline appended)
 - Agent role validation — pipeline type must match the expected owner role
 
 ## Response
@@ -425,6 +425,7 @@ ${PROJECT_PATH_PARAM}
 - No duplicate in-progress pipeline of the same type allowed
 - **Pipeline ordering is enforced per-WP:** each stage must be preceded by a PASS on the immediately preceding active stage in the WP's active_pipeline_stages list. The default 4-stage order is implementation → qa → code-review → documentation, but WPs may define custom subsets or include security-audit and release-engineering.
 - Starting a pipeline **automatically updates** the work package's \`assigned_to\` field to the responsible agent (Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation).
+- **Rework circuit breaker:** a start whose rework increment reaches the maximum rework count for that pipeline type is refused with an error, but the refusal records the limit: the per-type counter is persisted at the maximum and no pipeline is appended. Later recommendation checks then report the rework limit (review path for the Project Manager). Further starts at or above the maximum are refused without writing anything.
 `,
 
   ledger_complete_pipeline: `

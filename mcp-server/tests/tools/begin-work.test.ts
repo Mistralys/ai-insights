@@ -18,6 +18,7 @@ import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import { _internal } from '../../src/tools/begin-work.js';
+import { MAX_REWORK_COUNT } from '../../src/utils/workflow-helpers.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
@@ -598,5 +599,147 @@ describe('beginWork — respects active_pipeline_stages (custom stage ordering)'
 
     expect((result as any).isError).toBe(true);
     expect(resultText(result)).toContain('not in the WP\'s active stages');
+  });
+});
+
+describe('beginWork — circuit breaker persists the trip', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'begin-work-breaker-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  const failPipeline = {
+    type: 'implementation' as const,
+    status: 'FAIL' as const,
+    started_at: now(),
+    completed_at: now(),
+    summary: ['Failed'],
+  };
+
+  const begin = () =>
+    _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+  it('on a READY WP at MAX-1 returns isError, persists the claim and counter MAX, appends no pipeline', async () => {
+    await store.writeRootIndex(makeRootIndex('READY', 'Developer'));
+    const wp = makeWpDetail('READY', 'Developer', [failPipeline]);
+    wp.rework_counts = { implementation: MAX_REWORK_COUNT - 1 };
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await begin();
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toMatch(/^Error beginning work: Rework circuit breaker/);
+    const stored = await store.readWorkPackage('WP-001');
+    expect(stored.status).toBe('IN_PROGRESS');
+    expect(stored.assigned_to).toBe('Developer');
+    expect(stored.rework_counts?.implementation).toBe(MAX_REWORK_COUNT);
+    expect(stored.pipelines).toHaveLength(1);
+    const root = await store.readRootIndex();
+    expect(root.work_packages[0].status).toBe('IN_PROGRESS');
+  });
+
+  it('on an IN_PROGRESS WP at MAX-1 persists the counter without appending a pipeline', async () => {
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+    const wp = makeWpDetail('IN_PROGRESS', 'Developer', [failPipeline]);
+    wp.rework_counts = { implementation: MAX_REWORK_COUNT - 1 };
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await begin();
+
+    expect((result as any).isError).toBe(true);
+    const stored = await store.readWorkPackage('WP-001');
+    expect(stored.rework_counts?.implementation).toBe(MAX_REWORK_COUNT);
+    expect(stored.pipelines).toHaveLength(1);
+  });
+
+  it('writes nothing when the stored count is already at MAX', async () => {
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+    const wp = makeWpDetail('IN_PROGRESS', 'Developer', [failPipeline]);
+    wp.rework_counts = { implementation: MAX_REWORK_COUNT };
+    await store.writeWorkPackage('WP-001', wp);
+    const before = await store.readWorkPackage('WP-001');
+
+    const result = await begin();
+
+    expect((result as any).isError).toBe(true);
+    const after = await store.readWorkPackage('WP-001');
+    expect(after.last_updated).toBe(before.last_updated);
+  });
+});
+
+describe('beginWork — auto-cancelled prerequisite (§21.27)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  const t0 = '2026-01-01T00:00:00.000Z';
+  const t1 = '2026-01-01T00:01:00.000Z';
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'begin-work-autocancel-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  const beginQa = () =>
+    _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      agent_role: 'QA',
+    });
+
+  it('starts QA when the trailing implementation FAIL is auto-cancelled', async () => {
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('IN_PROGRESS', 'Developer', [
+        { type: 'implementation', status: 'PASS', started_at: t0, completed_at: t0, summary: [] },
+        { type: 'implementation', status: 'FAIL', started_at: t1, completed_at: t1, summary: [], auto_cancelled: true },
+      ]),
+    );
+
+    const result = await beginQa();
+
+    expect((result as any).isError).toBeUndefined();
+    const stored = await store.readWorkPackage('WP-001');
+    expect(stored.pipelines.at(-1)?.type).toBe('qa');
+  });
+
+  it('rejects QA when the trailing implementation FAIL is genuine', async () => {
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('IN_PROGRESS', 'Developer', [
+        { type: 'implementation', status: 'PASS', started_at: t0, completed_at: t0, summary: [] },
+        { type: 'implementation', status: 'FAIL', started_at: t1, completed_at: t1, summary: [] },
+      ]),
+    );
+
+    const result = await beginQa();
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toMatch(/requires a PASS 'implementation'/);
   });
 });

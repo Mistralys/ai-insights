@@ -2,12 +2,20 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.7.0
-**Date:** 2026-10-06
+**Version:** 2.8.0
+**Date:** 2026-10-09
 
 ---
 
 ## Changelog
+
+### v2.8.0 - Rework Limit Persisted on Refused Start
+
+- **Persist-on-trip circuit breaker (§11.1, §16.3, new §21.74):** The start that makes `rework_counts[type]` reach `MAX_REWORK_COUNT` is refused as before but now persists the incremented counter (and, for `ledger_begin_work`, the claim); a stored count already at or above the maximum writes nothing. `MAX_REWORK_COUNT - 1` reworks run. `ledger_begin_work` applies the same guard chain after its claim phase.
+- **Auto-cancelled prerequisite filter (§11.1, §21.27):** The prerequisite guard excludes auto-cancelled pipelines; §21.27 names both `startPipeline` and `ledger_begin_work`.
+- **Headless escalation (§16.3c):** An orchestrator handles `REVIEW_REWORK_LIMIT` itself (cancel as Project Manager, log, best-effort project comment, re-query PM in the same pass) without dispatching the PM node.
+- **PM action payload (§14.1.2):** `REVIEW_REWORK_LIMIT` carries `pipeline_type`, `rework_count` and `max_rework_count`.
+- **Legacy chains (§21.72):** One sentence links the `MAX_REWORK_COUNT` bound on legacy verifier-only self-loops to §21.74.
 
 ### v2.7.0 - Artifact Declaration Policy & Visible Criteria Append
 

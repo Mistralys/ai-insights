@@ -1,5 +1,16 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.12.0 - Rework Limit Is Recorded on a Refused Start
+
+**A start refused by the rework limit now leaves a record, so a headless run can act on it.**
+The supervisor can cancel limited work packages itself instead of stalling.
+
+- Tools: A start refused by the rework limit now persists the counter that tripped it.
+- Tools: The Project Manager review payload names the limited stage and its rework count.
+- Tools: `ledger_begin_work` ignores auto-cancelled prerequisite runs, like `ledger_start_pipeline`.
+- Tests: A parity suite pins that both start tools agree on outcome and rework counts.
+- Docs: Workflow specification and manifest describe the limit handling and the shared check.
+
 ## v2.11.0 - Outcome Summaries and Stricter Chain Validation
 
 **A work package whose verifier stage cannot be fixed now fails at creation, not at run time.**

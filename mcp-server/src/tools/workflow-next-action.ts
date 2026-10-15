@@ -390,6 +390,9 @@ export async function getProjectManagerAction(
               text: JSON.stringify({
                 action: 'REVIEW_REWORK_LIMIT',
                 work_package_id: wpDetail.work_package_id,
+                pipeline_type: type,
+                rework_count: count,
+                max_rework_count: MAX_REWORK_COUNT,
                 reason: `Rework limit reached for ${type} pipeline.`,
               }, null, 2),
             }],

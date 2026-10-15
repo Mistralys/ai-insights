@@ -282,6 +282,7 @@ updater function:
        Filters CANONICAL_PIPELINE_ORDERING by activeStages; returns the
        immediately preceding active stage as the prerequisite (null if first stage)
      If prerequisite not null and most recent prerequisite pipeline is not PASS
+       (auto_cancelled pipelines are excluded from this lookup; ledger_begin_work runs the same check)
        → throw descriptive error:
          "Cannot start '<type>' pipeline: requires a PASS '<prereq>' pipeline first.
           Active pipeline order: <activeStages joined with →>."
@@ -294,7 +295,10 @@ updater function:
        Direct rework: last same-type completed pipeline has FAIL status → increment rework_counts[type]
        Downstream rework: prerequisite pipeline type reworked after last PASS → increment rework_counts[type]
        Effective count for circuit breaker: rework_counts?.[type] ?? 0
-       If effective count ≥ MAX_REWORK_COUNT (5) → reject with error
+       If effective count ≥ MAX_REWORK_COUNT (5) → reject with error. If the increment
+       itself reached the limit (stored count was below it), the counter is persisted at
+       MAX (no pipeline appended) before the error is returned; if the stored count was
+       already ≥ MAX, nothing is written.
   6. Create new Pipeline object (status: IN_PROGRESS, started_at: now())
   7. Append to WP.pipelines array
   8. Update WP.assigned_to via PIPELINE_AGENT_MAP:

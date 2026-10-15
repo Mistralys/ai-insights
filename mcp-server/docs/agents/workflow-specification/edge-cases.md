@@ -235,9 +235,9 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
   - `hasDownstreamFail` (§11.3): filters out auto-cancelled pipelines
   - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
   - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
-  - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
+  - Rework detection in `startPipeline` and `ledger_begin_work` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
   - Re-validation guard in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` for the temporal baseline, ensuring auto-cancelled pipelines do not shift the comparison timestamp
-  - Prerequisite check in `startPipeline` (§11.1, §8.2): filters out auto-cancelled pipelines; a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start — the auto-cancelled FAIL does not mask the genuine PASS
+  - Prerequisite check in `startPipeline` and `ledger_begin_work` (§11.1, §8.2): filters out auto-cancelled pipelines; a WP with `[impl PASS, impl FAIL(auto_cancelled)]` correctly allows QA to start — the auto-cancelled FAIL does not mask the genuine PASS
 - This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
 - The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
 
@@ -802,7 +802,7 @@ before them. Add "implementation" ahead of qa, or remove the verifier stage(s) f
 
 #### Legacy-WP treatment
 
-Rule 5 is enforced only at the moment `active_pipeline_stages` is set. Stored chains are **never re-validated on read**, and there is **no migration** of existing WPs. A WP created before v2.6.0 that already holds a chain like `["qa", "code-review"]` keeps routing exactly as it did before this rule existed — through the `resolveFailAgent` fallback (§9.3.1, now documented as legacy-only), the `null → false` re-engagement guard (§21.66, now marked legacy-only), and the P4b self-rework fallback (§21.67, now marked legacy-only). None of those mechanisms are removed or altered by this rule; they remain load-bearing for every pre-v2.6.0 WP that has not been recreated with a valid chain.
+Rule 5 is enforced only at the moment `active_pipeline_stages` is set. Stored chains are **never re-validated on read**, and there is **no migration** of existing WPs. A WP created before v2.6.0 that already holds a chain like `["qa", "code-review"]` keeps routing exactly as it did before this rule existed — through the `resolveFailAgent` fallback (§9.3.1, now documented as legacy-only), the `null → false` re-engagement guard (§21.66, now marked legacy-only), and the P4b self-rework fallback (§21.67, now marked legacy-only). None of those mechanisms are removed or altered by this rule; they remain load-bearing for every pre-v2.6.0 WP that has not been recreated with a valid chain. The `MAX_REWORK_COUNT` bound on such a self-loop is reached through a refused, persisted start — see [§21.74](#2174-rework-limit-reached-through-a-refused-start).
 
 #### Scope of enforcement
 
@@ -818,3 +818,15 @@ Rule 5 applies to **every operation that sets `active_pipeline_stages`**, not on
 - **Example:** A Developer calls `completePipeline` with `acceptance_criteria_updates: [{ criterion: "All unit tests pass — no regressions", met: true }]`, but the WP's actual criterion text reads `"All unit tests pass, no regressions"` (comma, not em dash). The exact match fails, a new criterion is appended verbatim, `appended_criteria` lists the Developer's text, and a project comment flags the mismatch for the PM to reconcile
 - This closes the gap left by the otherwise-silent append: previously, a caller had no signal distinguishing an intentional new criterion from an accidental typographic near-miss on an existing one
 - **Related:** [§12.3](operations.md#123-acceptance-criteria-merge-semantics) (merge semantics and the `appended_criteria` response field), [§9b.3](operations.md#9b3-artifact-declaration-expectation) (the sibling artifact-declaration signal, following the same "keep the rule, surface the signal" shape)
+
+### 21.74 Rework Limit Reached Through a Refused Start
+
+**Introduced:** spec v2.8.0, [§11.1](operations.md#111-algorithm) (circuit breaker), [§16.3](dependencies-and-rework.md#163-circuit-breaker), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators)
+
+- **The former unreachable limit:** The rework counter increments inside `startPipeline`, and the circuit breaker errors on the start that makes it reach `MAX_REWORK_COUNT`. Before v2.8.0 the errored call wrote nothing, so the stored counter never exceeded `MAX_REWORK_COUNT - 1`. Every recommendation keyed on `rework_counts[*] >= MAX_REWORK_COUNT` (`BLOCK_FOR_REWORK_LIMIT`, `REVIEW_REWORK_LIMIT`, the §21.53 upstream propagation) was therefore unreachable, and a headless run (§16.3c) looped on refused starts without ever seeing the limit
+- **Persisted counter and idempotence:** When the incremented count reaches the maximum from below, the refused start persists `rework_counts` (no pipeline is created) and still returns the error. When the stored count is already at or above the maximum, the call writes nothing, so repeated refused starts neither inflate the counter nor touch `last_updated`
+- **Claim persistence for READY WPs:** `ledger_begin_work` on a READY WP claims first and then applies the guard chain. If the circuit breaker trips, the claim (READY → IN_PROGRESS, assignment) is persisted together with the counter, so the WP is left IN_PROGRESS with no pipeline rather than rolled back to READY. The PM recommendation `REVIEW_REWORK_LIMIT` (§14.1.2) then applies to it
+- **Rework capacity is unchanged:** The threshold comparison is untouched; `MAX_REWORK_COUNT - 1` reworks run and the `MAX`-th start is the refused one. Only the persistence of that final increment is new
+- **Headless resolution:** Once the limit is observable, an automated orchestrator resolves it per §16.3c: the supervisor cancels the WP itself with `agent_role: "Project Manager"`, logs the type and count, makes a best-effort project comment for Synthesis, and re-queries the PM action in the same routing pass. The PM node is not dispatched
+- **Legacy verifier-only chains:** A pre-v2.6.0 WP whose chain has no fixer stage (§21.72, e.g. `["qa", "code-review"]`) self-loops through the `resolveFailAgent` fallback. That loop is bounded by `MAX_REWORK_COUNT` only because the final refused start is now persisted; before this rule the bound was not actually reachable
+- **Related:** [§11.1](operations.md#111-algorithm), [§16.3](dependencies-and-rework.md#163-circuit-breaker), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators), [§14.1.2](recommendations.md#1412-project-manager-action-logic), [§21.27](#2127-auto-cancelled-pipelines), [§21.53](#2153-upstream-circuit-breaker-propagation), [§21.72](#2172-unfixable-verifier-chain-rejection)
