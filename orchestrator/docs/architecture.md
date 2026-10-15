@@ -285,6 +285,9 @@ Each run writes a JSONL file to `orchestrator/logs/` during execution. At run co
 | `progress_snapshot` | `supervisor.py` | `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, `elapsed_s` (optional), `run_start_ts` |
 | `rework_detected` | `supervisor.py` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count`, `level="INFO"` |
 | `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination`, `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
+| `rework_limit_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination`, `pipeline_type`, `rework_count`, `max_rework_count`, `reason`, `level="WARNING"` — WP cancelled by the supervisor after `REVIEW_REWORK_LIMIT` |
+| `rework_limit_cancel_failed` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `error`, `level="ERROR"` — cancellation failed or WP returned again (plus an `errors` entry) |
+| `rework_limit_comment_failed` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `error`, `level="WARNING"` — audit project comment failed; cancellation stands |
 | `route` | `supervisor.py` | `destination`, `prev_stage`, `prev_wp_id`, `prev_result`, `level` (`"INFO"` / `"WARNING"`) |
 | `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` (dict) |
 | `run_error` | `cli.py` | `stage="cli"`, `level="ERROR"`, `error` (message string), `thread_id` |

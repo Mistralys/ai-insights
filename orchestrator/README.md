@@ -534,11 +534,11 @@ Tests are structured as:
 | `test_run_queue.py` | `register()` / `unregister()` contracts, `QUEUE_FILE` constant, atomic write + rename, file-lock guarding, duplicate `entry_id` tolerance, missing-queue-file no-op |
 | `test_filelock.py` | Cross-platform file locking: successful acquire, contention raises `OSError`, double-unlock idempotency |
 | `test_logging.py` | `_format_duration` edge cases (None, 0, sub-minute, multi-minute, multi-hour); all 8 event-type console format patterns (`stage_start`, `stage_complete`, `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured`); existing event-type stability (generic fallback unchanged); robustness against missing/null fields; `TestDialogueCaptured` (4 tests — format with `file_path`, stage + WP ID included, missing `file_path`, missing `wp_id`) |
-| `test_integration.py` | End-to-end graph execution (7 scenarios, ScriptedLedger) |
+| `test_integration.py` | End-to-end graph execution (ScriptedLedger) |
 
 ### Integration Tests (`test_integration.py`)
 
-Integration tests run the real LangGraph supervisor against scripted MCP-tool mocks (`ScriptedLedger`). **No MCP server build or LLM API key is required.** All 7 tests run in under 1 second total.
+Integration tests run the real LangGraph supervisor against scripted MCP-tool mocks (`ScriptedLedger`). **No MCP server build or LLM API key is required.** The tests run in under a few seconds total.
 
 | Test | Covers |
 |------|--------|
@@ -546,11 +546,12 @@ Integration tests run the real LangGraph supervisor against scripted MCP-tool mo
 | `test_rework_loop_qa_fail_then_pass` | QA FAIL → Developer rework → QA PASS → Reviewer → Synthesis |
 | `test_multi_wp_dependency_ordering` | WP-002 waits for WP-001 COMPLETE before it starts |
 | `test_safety_limit_terminates_at_configured_limit` | `max_iterations=3` triggers the safety-limit halt at the configured ceiling |
+| `test_rework_limit_cancels_wp_and_reaches_synthesis` | A WP at the rework limit is cancelled by the supervisor (spec §16.3c), its dependent runs afterwards, the `pm` node does not loop, and the run reaches `synthesis` |
 | `test_checkpoint_resume` | Interrupt before `developer`, resume from checkpoint, verify continuation |
 | `test_integration_marker_applied` | Meta-test: all integration tests carry `@pytest.mark.integration` |
 | `test_in_memory_state_isolated_between_runs` | Each test gets an independent `ScriptedLedger`; no shared state |
 
-**`ScriptedLedger`** is the key fixture. It accepts a list of pre-scripted state dicts that model realistic ledger responses (`project_status`, `wp_list`, `wp_details`). Each stage-node stub records its name in `execution_log` and calls `ledger.advance()` to move to the next scripted state, so the supervisor sees the correct post-execution result on its next iteration.
+**`ScriptedLedger`** is the key fixture. It accepts a list of pre-scripted state dicts that model realistic ledger responses (`project_status`, `wp_list`, `wp_details`). Each stage-node stub records its name in `execution_log` and calls `ledger.advance()` to move to the next scripted state, so the supervisor sees the correct post-execution result on its next iteration. It also derives the PM `REVIEW_REWORK_LIMIT` action from a WP detail's `rework_counts`, and exposes a `ledger_update_work_package_status` tool that marks the WP CANCELLED and its dependent READY.
 
 #### Marks
 

@@ -82,6 +82,9 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `dry_run_complete` | `supervisor.py` | `stage="supervisor"`, `destination=END`, `reason`, `level="INFO"`. Emitted in `--dry-run` mode on the second supervisor iteration when no WPs exist — signals clean termination (PM stub cannot create a ledger). |
 | `halted_repeated_failure` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination=END`, `consecutive_failures`, `level="WARNING"` |
 | `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination` (synthesis), `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
+| `rework_limit_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination` (pm), `pipeline_type`, `rework_count`, `max_rework_count`, `reason`, `level="WARNING"` — WP cancelled by the supervisor after `REVIEW_REWORK_LIMIT` (spec §16.3c) |
+| `rework_limit_cancel_failed` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `pipeline_type`, `rework_count`, `max_rework_count`, `error`, `level="ERROR"` — cancellation failed or the WP was returned again; also adds an `errors` entry |
+| `rework_limit_comment_failed` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `error`, `level="WARNING"` — the audit project comment failed; the cancellation stands |
 | `heartbeat` | `utils/logging.py` | `stage="heartbeat"`, `silence_s`, `level="INFO"` |
 | `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `thread_id`, `total_duration_s` |

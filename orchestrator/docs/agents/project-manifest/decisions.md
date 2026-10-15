@@ -77,5 +77,6 @@ def _build_developer_prompt(state: WorkflowState) -> str:
 
 - Do not treat the private all-terminal check in `supervisor.py` as a duplication bug to be replaced by a ledger field. No such field exists.
 - Do not add an exit code or a sidecar `result` value for partially accepted runs. The GUI reads any `{slug}.run-status.json` `result` other than `SUCCESS` as `ERROR` (`mcp-server/gui/orchestrator-manager.ts`) and offers to resume any run whose `.orchestrator-run.json` `result` is not `SUCCESS` (`mcp-server/gui/public/views/project-detail-orch.js`), so a new value would show a finished run as failed and resumable.
+- A WP that reaches the ledger's rework limit is cancelled by the supervisor itself (spec §16.3c, `_handle_rework_limit`), not routed to the PM node. The run then synthesises around it as a `CANCELLED` WP; the reason is recorded as a `decision` project comment and a log entry, with no new exit code or WP status (the CLI still exits 1 from the refused start's stage error).
 
-**References:** [supervisor-routing.md](../../supervisor-routing.md) (synthesis predicate, halted-WP cancellation); orchestrator [README.md](../../../README.md) → Exit codes.
+**References:** [supervisor-routing.md](../../supervisor-routing.md) (synthesis predicate, halted-WP cancellation); orchestrator [README.md](../../../README.md) → Exit codes; [supervisor-routing.md](../../supervisor-routing.md) → Rework-Limit Cancellation.

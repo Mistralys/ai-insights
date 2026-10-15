@@ -1008,6 +1008,210 @@ class TestHaltedWPCancellation:
 
 
 # ---------------------------------------------------------------------------
+# Tests: REVIEW_REWORK_LIMIT handled by the supervisor (spec §16.3c)
+# ---------------------------------------------------------------------------
+
+def _limit_action(wp_id: str = "WP-001") -> dict:
+    return {
+        "action": "REVIEW_REWORK_LIMIT",
+        "work_package_id": wp_id,
+        "pipeline_type": "code-review",
+        "rework_count": 3,
+        "max_rework_count": 3,
+    }
+
+
+class TestReworkLimitCancellation:
+    """The supervisor cancels rework-limited WPs itself and re-polls the PM."""
+
+    def _tools(
+        self,
+        pm_actions: list[dict],
+        *,
+        update_raises: Exception | None = None,
+        comment_raises: Exception | None = None,
+        calls: dict | None = None,
+    ) -> list:
+        """PM returns *pm_actions* in sequence (last repeats); others WAIT."""
+        calls = calls if calls is not None else {}
+        calls.setdefault("update", [])
+        calls.setdefault("comment", [])
+        calls.setdefault("pm_polls", 0)
+        tools = make_mcp_tools_with_actions({})
+
+        async def next_action(kwargs: dict) -> str:
+            if kwargs.get("agent_role") == "Project Manager":
+                i = min(calls["pm_polls"], len(pm_actions) - 1)
+                calls["pm_polls"] += 1
+                return json.dumps(pm_actions[i])
+            return json.dumps({"action": "WAIT"})
+
+        for t in tools:
+            if t.name == "ledger_get_next_action":
+                t.ainvoke = AsyncMock(side_effect=next_action)
+
+        async def update(kwargs: dict) -> str:
+            calls["update"].append(dict(kwargs))
+            if update_raises is not None:
+                raise update_raises
+            return json.dumps({"status": "CANCELLED"})
+
+        async def comment(kwargs: dict) -> str:
+            calls["comment"].append(dict(kwargs))
+            if comment_raises is not None:
+                raise comment_raises
+            return json.dumps({"ok": True})
+
+        u = MagicMock()
+        u.name = "ledger_update_work_package_status"
+        u.ainvoke = AsyncMock(side_effect=update)
+        c = MagicMock()
+        c.name = "ledger_add_project_comment"
+        c.ainvoke = AsyncMock(side_effect=comment)
+        return tools + [u, c]
+
+    @staticmethod
+    def _entries(cmd, action: str) -> list:
+        return [e for e in cmd.update.get("run_log", []) if e.get("action") == action]
+
+    async def test_cancels_and_never_routes_to_pm(self):
+        calls: dict = {}
+        tools = self._tools([_limit_action(), {"action": "WAIT"}], calls=calls)
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert cmd.goto != "pm"
+        assert len(calls["update"]) == 1
+        assert calls["update"][0]["status"] == "CANCELLED"
+        assert calls["update"][0]["agent"] == "Project Manager"
+        assert calls["update"][0]["work_package_id"] == "WP-001"
+
+    async def test_logs_warning_without_errors_entry(self):
+        tools = self._tools([_limit_action(), {"action": "WAIT"}])
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        entries = self._entries(cmd, "rework_limit_wp_cancelled")
+        assert len(entries) == 1
+        e = entries[0]
+        assert e["level"] == "WARNING"
+        assert e["wp_id"] == "WP-001"
+        assert e["pipeline_type"] == "code-review"
+        assert e["rework_count"] == 3
+        assert e["max_rework_count"] == 3
+        assert e["reason"]
+        assert not cmd.update.get("errors")
+
+    async def test_single_project_comment_names_wp_stage_count_limit(self):
+        calls: dict = {}
+        tools = self._tools([_limit_action(), {"action": "WAIT"}], calls=calls)
+        await make_supervisor_node(tools)(base_state())
+
+        assert len(calls["comment"]) == 1
+        c = calls["comment"][0]
+        assert c["type"] == "decision"
+        assert c["priority"] == "medium"
+        assert c["agent"] == "Project Manager"
+        for token in ("WP-001", "code-review", "3"):
+            assert token in c["note"]
+
+    async def test_comment_failure_is_non_fatal(self):
+        tools = self._tools(
+            [_limit_action(), {"action": "WAIT"}],
+            comment_raises=RuntimeError("boom"),
+        )
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert self._entries(cmd, "rework_limit_wp_cancelled")
+        failed = self._entries(cmd, "rework_limit_comment_failed")
+        assert len(failed) == 1
+        assert failed[0]["level"] == "WARNING"
+        assert not cmd.update.get("errors")
+
+    async def test_second_limited_wp_cancelled_same_iteration(self):
+        calls: dict = {}
+        tools = self._tools(
+            [_limit_action("WP-001"), _limit_action("WP-002"), {"action": "WAIT"}],
+            calls=calls,
+        )
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert [c["work_package_id"] for c in calls["update"]] == ["WP-001", "WP-002"]
+        assert len(self._entries(cmd, "rework_limit_wp_cancelled")) == 2
+
+    async def test_following_pm_action_dispatches_normally(self):
+        tools = self._tools([
+            _limit_action(),
+            {"action": "ROUTE_PIPELINE_AGENT", "work_package_id": "WP-002",
+             "next_agent": "QA"},
+        ])
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert cmd.goto == "qa"
+        assert cmd.update["current_wp_id"] == "WP-002"
+        assert self._entries(cmd, "rework_limit_wp_cancelled")
+
+    async def test_cancel_failure_logs_error_and_moves_on(self):
+        calls: dict = {}
+        tools = self._tools(
+            [_limit_action()], update_raises=RuntimeError("nope"), calls=calls
+        )
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert cmd.goto == "synthesis"
+        failed = self._entries(cmd, "rework_limit_cancel_failed")
+        assert len(failed) == 1
+        assert failed[0]["level"] == "ERROR"
+        assert cmd.update.get("errors")
+        assert not calls["comment"]
+        assert not self._entries(cmd, "rework_limit_wp_cancelled")
+
+    async def test_failed_cancel_moves_on_to_next_role(self):
+        tools = make_mcp_tools_with_actions({
+            "Project Manager": _limit_action(),
+            "QA": {"action": "RUN_QA", "work_package_id": "WP-003"},
+        })
+        u = MagicMock()
+        u.name = "ledger_update_work_package_status"
+        u.ainvoke = AsyncMock(side_effect=RuntimeError("nope"))
+        cmd = await make_supervisor_node(tools + [u])(base_state())
+
+        assert cmd.goto == "qa"
+        assert self._entries(cmd, "rework_limit_cancel_failed")
+        assert cmd.update.get("errors")
+
+    async def test_same_wp_returned_again_is_not_cancelled_twice(self):
+        calls: dict = {}
+        tools = self._tools([_limit_action()], calls=calls)  # repeats forever
+        cmd = await make_supervisor_node(tools)(base_state())
+
+        assert len(calls["update"]) == 1
+        assert len(self._entries(cmd, "rework_limit_cancel_failed")) == 1
+        assert cmd.update.get("errors")
+        assert cmd.goto != "pm"
+
+    async def test_limited_wp_with_three_failures_still_cancelled(self):
+        calls: dict = {}
+        tools = self._tools([_limit_action(), {"action": "WAIT"}], calls=calls)
+        state = base_state()
+        state["consecutive_failures"] = {"WP-001": 3}
+        cmd = await make_supervisor_node(tools)(state)
+
+        # The halted sweep may repeat the (idempotent) cancel from its stale
+        # status snapshot; the limit handler itself must have cancelled first.
+        assert calls["update"]
+        assert calls["update"][0]["status"] == "CANCELLED"
+        assert self._entries(cmd, "rework_limit_wp_cancelled")
+
+    async def test_fall_through_clears_stale_current_wp_id(self):
+        tools = self._tools([_limit_action(), {"action": "WAIT"}])
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+        cmd = await make_supervisor_node(tools)(state)
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
+
+
+# ---------------------------------------------------------------------------
 # Tests: level field in log entries
 # ---------------------------------------------------------------------------
 
@@ -1144,7 +1348,6 @@ class TestDirectActionRouting:
         ("Documentation", "UPDATE_CRITERIA","docs"),
         # PM actions
         ("Project Manager", "UNBLOCK_WP",          "pm"),
-        ("Project Manager", "REVIEW_REWORK_LIMIT",  "pm"),
         ("Project Manager", "REPAIR_ORPHAN_BLOCKED","pm"),
         ("Project Manager", "REVIEW_STALE",         "pm"),
         ("Project Manager", "REVIEW_ABANDONED",     "pm"),
@@ -1296,9 +1499,12 @@ class TestAllRolesWait:
         """Even with an IN_PROGRESS WP, all-WAIT must route to synthesis."""
         tools = make_mcp_tools_with_actions({}, has_wps=True)
         node = make_supervisor_node(tools)
-        cmd = await node(base_state())
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+        cmd = await node(state)
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_all_roles_wait_log_entry_records_reason(self):
         """All-WAIT routing log entry must mention 'all roles returned WAIT'."""

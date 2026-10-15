@@ -50,6 +50,9 @@ from src.supervisor import make_supervisor_node
 
 pytestmark = pytest.mark.integration
 
+# Mirrors the MCP server's MAX_REWORK_COUNT.
+REWORK_LIMIT = 3
+
 
 # ---------------------------------------------------------------------------
 # Helpers — scripted ledger state machine
@@ -112,6 +115,23 @@ class ScriptedLedger:
             for wp in wp_list
             if wp.get("status") not in ("COMPLETE", "CANCELLED")
         ]
+
+        # Priority 2 (PM only): IN_PROGRESS WP whose rework count reached the limit.
+        if agent_role == "Project Manager":
+            for wp_summary in wp_list:
+                if wp_summary.get("status") != "IN_PROGRESS":
+                    continue
+                wp_id = wp_summary.get("work_package_id", "")
+                detail = wp_details.get(wp_id, wp_summary)
+                for ptype, count in (detail.get("rework_counts") or {}).items():
+                    if isinstance(count, int) and count >= REWORK_LIMIT:
+                        return {
+                            "action": "REVIEW_REWORK_LIMIT",
+                            "work_package_id": wp_id,
+                            "pipeline_type": ptype,
+                            "rework_count": count,
+                            "max_rework_count": REWORK_LIMIT,
+                        }
 
         # All non-terminal WPs BLOCKED → PM handles repair.
         if non_terminal and all(
@@ -194,6 +214,31 @@ class ScriptedLedger:
             )
             return json.dumps(result)
 
+        def _update_status(kwargs: dict) -> str:
+            wp_id: str = kwargs.get("work_package_id", "")
+            status: str = kwargs.get("status", "")
+            state = self.state
+            for wp in state.get("wp_list", []):
+                if wp.get("work_package_id") == wp_id:
+                    wp["status"] = status
+                elif (
+                    status == "CANCELLED"
+                    and wp.get("status") == "BLOCKED"
+                    and wp_id in wp.get("dependencies", [])
+                ):
+                    wp["status"] = "READY"
+            for detail_id, detail in state.get("wp_details", {}).items():
+                if detail_id == wp_id:
+                    detail["status"] = status
+                elif (
+                    status == "CANCELLED"
+                    and detail.get("status") == "BLOCKED"
+                    and wp_id in detail.get("dependencies", [])
+                ):
+                    detail["status"] = "READY"
+            self.execution_log.append(f"status:{wp_id}:{status}")
+            return json.dumps({"work_package_id": wp_id, "status": status})
+
         def _make(name: str, fn) -> MagicMock:
             tool = MagicMock()
             tool.name = name
@@ -206,6 +251,7 @@ class ScriptedLedger:
             _make("ledger_list_work_packages", _wp_list),
             _make("ledger_get_work_package", _wp_detail),
             _make("ledger_get_next_action", _next_action),
+            _make("ledger_update_work_package_status", _update_status),
         ]
 
     def make_stage_node(self, stage: str, *, advance: bool = True):
@@ -324,6 +370,8 @@ def _wp(
     status: str,
     *,
     pipelines: list[dict] | None = None,
+    dependencies: list[str] | None = None,
+    rework_counts: dict[str, int] | None = None,
 ) -> dict:
     """Build a compact WP dict usable in both wp_list and wp_details lookups."""
     return {
@@ -331,6 +379,8 @@ def _wp(
         "status": status,
         "pipelines": pipelines or [],
         "acceptance_criteria": [],
+        "dependencies": dependencies or [],
+        "rework_counts": rework_counts or {},
     }
 
 
@@ -694,6 +744,58 @@ async def test_multi_wp_dependency_ordering():
     assert "synthesis" in ledger.execution_log
     # synthesis must be last
     assert ledger.execution_log[-1] == "synthesis"
+    assert result.get("errors") == []
+
+
+# ---------------------------------------------------------------------------
+# Test — Rework limit cancels the WP (spec §16.3c) and the run reaches synthesis
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_rework_limit_cancels_wp_and_reaches_synthesis():
+    """
+    A WP at the rework limit is cancelled by the supervisor itself; its
+    dependent is unblocked and runs, the PM node never executes, and the run
+    reaches synthesis.
+    """
+    wp1, wp2 = "WP-001", "WP-002"
+    limited = _wp(
+        wp1,
+        "IN_PROGRESS",
+        pipelines=[_pipeline("implementation", "PASS"), _pipeline("qa", "FAIL")],
+        rework_counts={"implementation": REWORK_LIMIT},
+    )
+    dependent = _wp(wp2, "BLOCKED", dependencies=[wp1])
+    steps = [
+        {
+            "project_status": {"status": "IN_PROGRESS"},
+            "wp_list": [limited, dependent],
+            "wp_details": {wp1: limited, wp2: dependent},
+        },
+        {
+            "project_status": {"status": "COMPLETE"},
+            "wp_list": [_wp(wp1, "CANCELLED"), _wp(wp2, "COMPLETE")],
+            "wp_details": {
+                wp1: _wp(wp1, "CANCELLED"),
+                wp2: _wp(wp2, "COMPLETE"),
+            },
+        },
+    ]
+
+    ledger = ScriptedLedger(steps)
+    graph, _ = _build_integration_graph(ledger)
+    thread_cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
+    result = await graph.ainvoke(_initial_state(max_iterations=20), thread_cfg)
+
+    log = ledger.execution_log
+    assert f"status:{wp1}:CANCELLED" in log
+    assert "pm" not in log
+    assert "developer" in log  # the dependent's stage ran after the cancellation
+    assert log.index(f"status:{wp1}:CANCELLED") < log.index("developer")
+    assert "synthesis" in log
+    assert log[-1] == "synthesis"
     assert result.get("errors") == []
 
 

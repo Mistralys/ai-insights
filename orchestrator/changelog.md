@@ -1,5 +1,13 @@
 # Orchestrator Changelog
 
+## v1.5.0 - Supervisor Rework-Limit Cancellation
+
+- Supervisor: `REVIEW_REWORK_LIMIT` is now handled by the supervisor per spec §16.3c: the WP is cancelled, an audit project comment is recorded, and the PM role is re-polled instead of routing to the `pm` node.
+- Supervisor: Added `_SUPERVISOR_OWNED_ACTIONS`, `_handle_rework_limit` and a shared `_cancel_wp` helper (also used by the halted-WP sweep).
+- Logs: Added `rework_limit_wp_cancelled`, `rework_limit_cancel_failed` and `rework_limit_comment_failed` entries.
+- Tests: Added rework-limit cancellation coverage and a stale `current_wp_id` assertion for the all-WAIT synthesis route.
+- Docs: Updated supervisor routing, log schema, architecture, API surface and decisions.
+
 ## v1.4.0 - Multi-Store Resolution
 
 - Utils: Added store resolution utility for multi-store ledger root lookup.

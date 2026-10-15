@@ -64,7 +64,7 @@ _SKIP_ACTIONS: frozenset[str] = frozenset({
 # crash the supervisor.
 _DISPATCH_ACTIONS: frozenset[str] = frozenset({
     # PM
-    "UNBLOCK_WP", "REVIEW_REWORK_LIMIT", "REVIEW_STALE", "REVIEW_ABANDONED",
+    "UNBLOCK_WP", "REVIEW_STALE", "REVIEW_ABANDONED",
     "REPAIR_ORPHAN_BLOCKED", "ROUTE_PIPELINE_AGENT",
     # Developer
     "IMPLEMENT", "CLAIM_WP", "CONTINUE_PIPELINE", "RESUME_OR_CANCEL",
@@ -81,6 +81,15 @@ _DISPATCH_ACTIONS: frozenset[str] = frozenset({
     # Documentation
     "WRITE_DOCS", "FINALIZE_WP", "UPDATE_CRITERIA",
 })
+
+# Actions the supervisor resolves itself instead of routing to a stage node.
+# REVIEW_REWORK_LIMIT: spec §16.3c assigns the cancellation of a WP that hit
+# the rework limit to the orchestrator (see ``_handle_rework_limit``).
+_SUPERVISOR_OWNED_ACTIONS: frozenset[str] = frozenset({
+    "REVIEW_REWORK_LIMIT",
+})
+
+_PM_ROLE = "Project Manager"
 
 # Maps each agent role name (as used in ledger_get_next_action) to the
 # corresponding LangGraph stage destination.
@@ -149,6 +158,143 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
             )
         raw = await bare(kwargs)
         return parse_tool_response(raw)
+
+    async def _cancel_wp(project_path: str, wp_id: str) -> None:
+        """Transition *wp_id* to CANCELLED as the Project Manager.
+
+        Raises whatever the underlying tool call raises; callers decide how
+        to log a failure.
+        """
+        await _call_tool(
+            "ledger_update_work_package_status",
+            project_path=project_path,
+            work_package_id=wp_id,
+            status="CANCELLED",
+            agent=_PM_ROLE,
+        )
+
+    async def _query_next_action(project_path: str, role: str) -> Optional[dict]:  # noqa: UP045
+        """Return the next-action payload for *role*, or None when unusable."""
+        try:
+            action_data = await _call_tool(
+                "ledger_get_next_action",
+                project_path=project_path,
+                agent_role=role,
+            )
+        except Exception as exc:
+            log.warning(
+                "Failed to get next action for role %s: %s; skipping.", role, exc
+            )
+            return None
+        if not isinstance(action_data, dict):
+            log.warning(
+                "Unexpected response shape from ledger_get_next_action for "
+                "role %s; treating as WAIT.",
+                role,
+            )
+            return None
+        return action_data
+
+    async def _handle_rework_limit(
+        *,
+        project_path: str,
+        action_data: dict,
+        cancelled_ids: set[str],
+        log_entries: list,
+        errors: list,
+        run_logger: Any,
+    ) -> bool:
+        """Cancel a WP that reached the rework limit (spec §16.3c).
+
+        Returns True when the WP was cancelled (the caller should re-poll the
+        PM role) and False when it could not be (the caller skips the role).
+        """
+        wp_id: str = action_data.get("work_package_id", "") or ""
+        pipeline_type = action_data.get("pipeline_type", "")
+        rework_count = action_data.get("rework_count")
+        max_rework_count = action_data.get("max_rework_count")
+
+        def _emit(entry: dict) -> None:
+            if run_logger:
+                run_logger.stream_entry(entry)
+            log_entries.append(entry)
+
+        def _fail(message: str) -> bool:
+            log.error("Rework-limit cancellation failed for WP %s: %s", wp_id, message)
+            _emit(_log_entry(
+                stage="supervisor",
+                wp_id=wp_id,
+                action="rework_limit_cancel_failed",
+                destination=str(END),
+                level="ERROR",
+                pipeline_type=pipeline_type,
+                rework_count=rework_count,
+                max_rework_count=max_rework_count,
+                error=message,
+            ))
+            errors.append({
+                "timestamp": datetime.now(UTC).isoformat(),
+                "message": (
+                    f"Rework-limit cancellation of WP {wp_id or '<unknown>'} "
+                    f"failed: {message}"
+                ),
+            })
+            return False
+
+        if not wp_id:
+            return _fail("action carried no work_package_id")
+        if wp_id in cancelled_ids:
+            return _fail("WP was returned again after cancellation")
+
+        try:
+            await _cancel_wp(project_path, wp_id)
+        except Exception as exc:  # noqa: BLE001
+            return _fail(str(exc))
+        cancelled_ids.add(wp_id)
+
+        reason = (
+            f"Cancelled: {pipeline_type} pipeline reached the rework limit "
+            f"({rework_count}/{max_rework_count})"
+        )
+        log.warning("Cancelled WP %s: %s", wp_id, reason)
+        _emit(_log_entry(
+            stage="supervisor",
+            wp_id=wp_id,
+            action="rework_limit_wp_cancelled",
+            destination=_DEST_PM,
+            level="WARNING",
+            pipeline_type=pipeline_type,
+            rework_count=rework_count,
+            max_rework_count=max_rework_count,
+            reason=reason,
+        ))
+
+        # Best-effort audit comment so Synthesis (which reads the ledger, not
+        # the run log) can see why the WP was cancelled.
+        try:
+            await _call_tool(
+                "ledger_add_project_comment",
+                project_path=project_path,
+                type="decision",
+                priority="medium",
+                agent=_PM_ROLE,
+                note=(
+                    f"Cancelled {wp_id}: {pipeline_type} rework count "
+                    f"{rework_count} reached the limit of {max_rework_count} "
+                    "(spec §16.3c, cancelled by the orchestrator supervisor)."
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed to record rework-limit comment for WP %s: %s", wp_id, exc)
+            _emit(_log_entry(
+                stage="supervisor",
+                wp_id=wp_id,
+                action="rework_limit_comment_failed",
+                destination=_DEST_PM,
+                level="WARNING",
+                error=str(exc),
+            ))
+        return True
 
     def _log_entry(
         stage: str, wp_id: str, action: str, destination: str, **extra: Any
@@ -545,28 +691,37 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         extra_errors: list = []
 
         for role in _ROLES:
-            try:
-                action_data = await _call_tool(
-                    "ledger_get_next_action",
-                    project_path=project_path,
-                    agent_role=role,
-                )
-            except Exception as exc:
-                log.warning(
-                    "Failed to get next action for role %s: %s; skipping.", role, exc
-                )
-                continue
-
-            if not isinstance(action_data, dict):
-                log.warning(
-                    "Unexpected response shape from ledger_get_next_action for "
-                    "role %s; treating as WAIT.",
-                    role,
-                )
+            action_data = await _query_next_action(project_path, role)
+            if action_data is None:
                 continue
 
             action: str = action_data.get("action", "") or ""
             wp_id: str = action_data.get("work_package_id", "") or ""
+
+            # Supervisor-owned actions (spec §16.3c): cancel, then re-poll the
+            # PM role so a following PM action is not masked.
+            if role == _PM_ROLE and action in _SUPERVISOR_OWNED_ACTIONS:
+                cancelled_ids: set[str] = set()
+                skip_role = False
+                while action in _SUPERVISOR_OWNED_ACTIONS:
+                    if not await _handle_rework_limit(
+                        project_path=project_path,
+                        action_data=action_data,
+                        cancelled_ids=cancelled_ids,
+                        log_entries=extra_log_entries,
+                        errors=extra_errors,
+                        run_logger=run_logger,
+                    ):
+                        skip_role = True
+                        break
+                    action_data = await _query_next_action(project_path, role)
+                    if action_data is None:
+                        skip_role = True
+                        break
+                    action = action_data.get("action", "") or ""
+                    wp_id = action_data.get("work_package_id", "") or ""
+                if skip_role:
+                    continue
 
             # Nothing to do for this role right now.
             if action in _SKIP_ACTIONS:
@@ -686,13 +841,7 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 and cf.get(_wp_id_h, 0) >= 3
             ):
                 try:
-                    await _call_tool(
-                        "ledger_update_work_package_status",
-                        project_path=project_path,
-                        work_package_id=_wp_id_h,
-                        status="CANCELLED",
-                        agent="Project Manager",
-                    )
+                    await _cancel_wp(project_path, _wp_id_h)
                     log.warning(
                         "Cancelling halted WP %s to allow synthesis to proceed.",
                         _wp_id_h,

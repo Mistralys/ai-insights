@@ -51,9 +51,12 @@ For each role in priority order:
   action ∈ _DISPATCH_ACTIONS and circuit-breaker (≥ 3 consecutive failures)
                                      → skip WP, record WARNING entry
 
+  action ∈ _SUPERVISOR_OWNED_ACTIONS (PM role only: REVIEW_REWORK_LIMIT)
+                                     → cancel the WP, re-poll the PM role (never routed to pm)
+
   action ∈ _DISPATCH_ACTIONS         → dispatch to role's stage:
     "Project Manager"   → pm               (_DISPATCH_ACTIONS includes REPAIR_ORPHAN_BLOCKED,
-    "Developer"         → developer         UNBLOCK_WP, REVIEW_REWORK_LIMIT, REVIEW_STALE,
+    "Developer"         → developer         UNBLOCK_WP, REVIEW_STALE,
     "QA"                → qa                REVIEW_ABANDONED, IMPLEMENT, REWORK, CLAIM_WP,
     "Security Auditor"  → security_auditor  CONTINUE_PIPELINE, RESUME_OR_CANCEL, RUN_QA,
     "Reviewer"          → reviewer          RUN_SECURITY_AUDIT, RUN_REVIEW,
@@ -64,8 +67,6 @@ All roles returned WAIT/skip          → synthesis
 ```
 
 > **State clearing on synthesis fall-through:** Like the all-WPs-terminal path, this path also sets `"current_wp_id": ""` in the `Command` update dict to prevent the `restrict_to_wp` guard from activating in synthesis.
-
-> **Test coverage gap (known):** The existing `test_supervisor.py` synthesis routing tests assert `goto == "synthesis"` but do not assert `current_wp_id == ""` in the Command update dict. Dedicated assertions verifying both synthesis paths clear `current_wp_id` (including with a stale non-empty value in input state) are missing and should be added in a follow-up task.
 
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage
@@ -86,4 +87,14 @@ A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainde
 
 "Failure" here means the stage node raised: `stage_success` is `False` on any exception, including one raised after the agent had already written its `ledger_complete_pipeline` result. A FAIL verdict recorded in the ledger is not a failure in this sense — the stage ran to completion.
 
-**Halted-WP cancellation.** On the all-roles-WAIT fall-through, before routing to synthesis, the supervisor cancels every WP that is non-terminal and has a consecutive-failure count of 3 or more. It calls `ledger_update_work_package_status(status="CANCELLED", agent="Project Manager")` and logs a `halted_wp_cancelled` entry per WP. The selection looks only at the failure count and terminal status — not at the WP's status otherwise, nor at its blocker. A cancellation that the ledger rejects is logged as a warning and the run proceeds to synthesis anyway. The ledger's own rework limit does not feed this counter: `BLOCK_FOR_REWORK_LIMIT` is a skip action, so a WP held there is cancelled by the sweep only if it has separately accumulated three stage exceptions.
+**Halted-WP cancellation.** On the all-roles-WAIT fall-through, before routing to synthesis, the supervisor cancels every WP that is non-terminal and has a consecutive-failure count of 3 or more. It calls `ledger_update_work_package_status(status="CANCELLED", agent="Project Manager")` and logs a `halted_wp_cancelled` entry per WP. The selection looks only at the failure count and terminal status — not at the WP's status otherwise, nor at its blocker. A cancellation that the ledger rejects is logged as a warning and the run proceeds to synthesis anyway. The ledger's own rework limit does not feed this counter: `BLOCK_FOR_REWORK_LIMIT` is a skip action, so a WP held there is cancelled by the sweep only if it has separately accumulated three stage exceptions. A WP that itself reached the rework limit (`REVIEW_REWORK_LIMIT`) is cancelled earlier, in the role loop — see below. Both cancellations share the `_cancel_wp` helper.
+
+### Rework-Limit Cancellation (spec §16.3c)
+
+When the Project Manager role returns `REVIEW_REWORK_LIMIT`, the supervisor does not route to the `pm` node (which only renders the plan and would re-decompose it). The action is in `_SUPERVISOR_OWNED_ACTIONS`, not `_DISPATCH_ACTIONS`, and `_handle_rework_limit` runs ahead of the skip, unknown-action and consecutive-failure checks, so a limited WP with three consecutive failures is still cancelled.
+
+1. Call `ledger_update_work_package_status(status="CANCELLED", agent="Project Manager")` through `_cancel_wp`, and log `rework_limit_wp_cancelled` (WARNING; `wp_id`, `pipeline_type`, `rework_count`, `max_rework_count`, `reason`). No `errors` entry.
+2. Make one best-effort `ledger_add_project_comment` (`type="decision"`, `priority="medium"`, `agent="Project Manager"`) naming the WP, stage, count and limit, so Synthesis, which reads the ledger and not the run log, can see why the WP was cancelled. A failure is logged as `rework_limit_comment_failed` (WARNING, no `errors` entry); the cancellation stands.
+3. Re-query the PM role. Further limited WPs are cancelled in the same iteration; any other action (e.g. `ROUTE_PIPELINE_AGENT`) dispatches normally; WAIT moves on to the next role.
+
+If the cancellation fails, or the same WP is returned again after it was cancelled, the supervisor logs `rework_limit_cancel_failed` (ERROR) with an `errors` entry and skips the PM role for this iteration. The new log entries are part of the returned `run_log` on every exit path. The payload fields `pipeline_type`, `rework_count` and `max_rework_count` come from the ledger server; an older server that omits them still gets the cancellation, with empty values in the log.
