@@ -481,7 +481,7 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 - When `active_pipeline_stages` is `null` or absent, all dynamic functions (`resolvePrerequisite`, `resolveNextAgent`, `resolveFailAgent`, `getUpstreamTypes`, `getDownstreamTypes`, `firstActiveStage`, `lastActiveStage`) fall back to the default stages — equivalent to the static routing of v1.x
 - Stages only become active when explicitly included in the WP's `active_pipeline_stages` at creation time
 - Pipeline agents filter their recommendation and handoff logic to only consider WPs where their owned stage is in `active_pipeline_stages`. WPs without their stage are invisible to these agents
-- **No mid-flight stage addition:** `active_pipeline_stages` is set at WP creation and cannot be modified thereafter. If the PM discovers mid-project that a WP needs additional stages, the PM must cancel and recreate the WP with the correct stages (losing pipeline history), or manually route work via project comments and PM overrides. This limitation is consistent with the immutable-dependencies design (§15.2) and keeps the pipeline routing deterministic throughout a WP's lifecycle
+- **Mid-flight stage adjustment (since spec v2.9.0):** `active_pipeline_stages` is set at WP creation but is no longer permanently fixed — it is PM-mutable through exactly one gated operation, `ledger_update_pipeline_stages` (§12.3c), rather than a general unlock. If the PM discovers mid-project that a WP needs additional stages (or needs a never-run stage removed), the PM calls that operation instead of cancelling and recreating the WP. See [§21.75](#2175-mid-flight-pipeline-stage-adjustment) for the full guard sequence, the reopen-then-restage recovery for a COMPLETE WP, and the downstream replay this enables
 - **Mixed-stage projects:** A single project may contain WPs with different `active_pipeline_stages` configurations. For example, security-critical WPs may include all 6 stages while documentation-only WPs use `["documentation"]`. Each WP's routing is independent — the pipeline ordering is per-WP, not per-project
 - **Legacy chains (pre-v2.6.0):** Since spec v2.6.0, [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) rejects any new chain whose verifier stage lacks an active fix stage at or before it. WPs created before v2.6.0 that already hold such a chain are not migrated and are not re-validated on read — they keep routing exactly as described in §21.63/§21.66/§21.67. See [§21.72](#2172-unfixable-verifier-chain-rejection)
 
@@ -830,3 +830,44 @@ Rule 5 applies to **every operation that sets `active_pipeline_stages`**, not on
 - **Headless resolution:** Once the limit is observable, an automated orchestrator resolves it per §16.3c: the supervisor cancels the WP itself with `agent_role: "Project Manager"`, logs the type and count, makes a best-effort project comment for Synthesis, and re-queries the PM action in the same routing pass. The PM node is not dispatched
 - **Legacy verifier-only chains:** A pre-v2.6.0 WP whose chain has no fixer stage (§21.72, e.g. `["qa", "code-review"]`) self-loops through the `resolveFailAgent` fallback. That loop is bounded by `MAX_REWORK_COUNT` only because the final refused start is now persisted; before this rule the bound was not actually reachable
 - **Related:** [§11.1](operations.md#111-algorithm), [§16.3](dependencies-and-rework.md#163-circuit-breaker), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators), [§14.1.2](recommendations.md#1412-project-manager-action-logic), [§21.27](#2127-auto-cancelled-pipelines), [§21.53](#2153-upstream-circuit-breaker-propagation), [§21.72](#2172-unfixable-verifier-chain-rejection)
+
+### 21.75 Mid-Flight Pipeline Stage Adjustment
+
+**Introduced:** spec v2.9.0, [§12.3c](operations.md#123c-updatepipelinestages) (`ledger_update_pipeline_stages`)
+
+#### The defect this closes
+
+Before v2.9.0, `active_pipeline_stages` was write-once: set by `createWorkPackage` with no later write path. A work package registered with the wrong stage list (for example, a security-sensitive WP missing `security-audit`) stayed wrong for its whole lifetime — `startPipeline` hard-rejects any stage not in the active list, so the missing verification never ran. The only documented remedy was cancel-and-recreate, which orphans every WP that depends on the recreated ID. `ledger_update_pipeline_stages` (§12.3c) replaces the whole list in place, under seven ordered guards, closing the gap without a new WP ID.
+
+#### Reopen-then-restage sequence for a COMPLETE WP
+
+A COMPLETE WP cannot be re-staged directly — guard 4 (§12.3c) rejects it. Recovery is a deliberate two-call sequence:
+
+1. `ledger_update_work_package_status` (COMPLETE → IN_PROGRESS, `agent: "Project Manager"`) reopens the WP. This is the existing reopen path (§6.2, §21.44, §21.48): `revision += 1`, `rework_counts` reset to empty, `synthesis_generated` / `synthesis_generated_at` cleared, `pending_work_packages += 1`, and a cascade reblock of direct dependents.
+2. `ledger_update_pipeline_stages` (`agent_role: "Project Manager"`) replaces the stage list on the now-IN_PROGRESS WP.
+
+**Reordered guard evaluation.** §12.3c evaluates guard 3 (not `CANCELLED`) before guard 4 (not `COMPLETE`), and guard 4 before the running-pipeline guard (5) and the removal guard (6). This ordering means a PM who targets a COMPLETE WP always receives the actionable "reopen first" message — naming `ledger_update_work_package_status` explicitly — even when the requested list would also fail the removal guard. The less-actionable removal rejection is never surfaced first when both conditions apply.
+
+#### Downstream replay after inserting a stage
+
+Inserting a stage ahead of previously-passed stages does not require manually re-running them. Once the new stage is active and reaches PASS, the existing routing engine replays everything downstream of it unaided, using the standard newer-upstream-PASS checks (§14.6, §11.1.1) rather than any special-cased logic:
+
+- Example: a 4-stage WP (`implementation`, `qa`, `code-review`, `documentation`, all PASS) is reopened and re-staged to insert `security-audit` between `qa` and `code-review`. The Security Auditor handoff's "first-run" branch (`RUN_SECURITY_AUDIT`, [§14.1.2](recommendations.md#1412)) fires on the strength of the existing `qa` PASS and the absence of any prior `security-audit` pipeline — it does not consult `assigned_to`.
+- A PASS on the newly-inserted stage then re-engages `code-review` (its `last_updated` now post-dates the upstream PASS), then `documentation` behind it, through the same mechanism.
+- The terminal-stage auto-finalize (§6.2.1) returns the WP to COMPLETE once the last active stage PASSes again.
+
+#### Bookkeeping recomputed automatically
+
+- **`passed_stages` / `progress_pct`:** `updateWorkPackageWithSync` (the shared write path behind every multi-field WP mutation) recomputes the root summary's `passed_stages` from the **new** stage list and re-syncs `.meta.json` `progress_pct` in the same write. §12.3c does not compute either value itself.
+- **No `rework_counts` initialisation for a newly added stage:** `rework_counts` is keyed by pipeline type and starts every type at an implicit zero. A stage added to the chain needs no explicit counter entry — its first start simply has nothing to count yet.
+- **`assigned_to` nulling on removal:** If the stage being removed is the one `wp.assigned_to`'s role currently owns (via the `PIPELINE_AGENT_MAP` reverse lookup), §12.3c nulls `wp.assigned_to` and the matching root-summary field in the same write. Without this, the WP would keep an `assigned_to` value that names no active stage — invisible to every role's `ledger_get_next_action` handler, since each handler gates on both stage membership and `assigned_to == role`. This mirrors the existing precedent at `reopenCancelledWp` and the IN_PROGRESS → READY transition (§21.48).
+
+#### Rework-counter interaction (§21.74)
+
+`ledger_update_pipeline_stages` never modifies `rework_counts`. A COMPLETE WP's counters are already cleared by the reopen in step 1 above, so the reopen-then-restage recovery path starts clean. A WP that is stuck **at** the rework limit is different: since v2.8.0 ([§21.74](#2174-rework-limit-reached-through-a-refused-start)) a refused start persists the tripped counter, so re-staging such a WP does not unstick it — the counter stays at `MAX_REWORK_COUNT` for the type that tripped it regardless of what the stage list now contains. The PM must call `ledger_reset_rework_count` for that type as a separate, deliberate step. Where the response from `ledger_update_pipeline_stages` observes a counter at or above the limit, it names `ledger_reset_rework_count` in its next-step guidance.
+
+#### Legacy verifier-only chains
+
+Re-staging can add `implementation` to a pre-v2.6.0 chain that has none (§21.72), and the resulting chain passes [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) — Rule 5 only requires that a fixer stage be active, not that it have real authoring work. Per [§21.67](#2167-first-active-stage-self-rework-deadlock-legacy-chains-only--see-2172), adding `implementation` alone is not a remedy for a decomposition defect: a Developer stage with nothing to author passes on nothing, and the failing check still has nobody to meaningfully fix it. Re-staging is the right tool only where the work package has real authoring work for the newly active stage; otherwise cancel-and-recreate (§21.72) remains the correct recovery.
+
+**Related:** [§12.3c](operations.md#123c-updatepipelinestages) (guards, dual-document write, response shape), [§9b.2](operations.md#9b2-active-pipeline-stages-validation) (validation rules, which this operation reuses unchanged), [§21.44](#2144-rework-count-reset-on-wp-reopen) / [§21.48](#2148-consolidated-reopen-workflow-guidance) (reopen bookkeeping), [§21.67](#2167-first-active-stage-self-rework-deadlock-legacy-chains-only--see-2172) / [§21.72](#2172-unfixable-verifier-chain-rejection) (legacy verifier-only chains), [§21.74](#2174-rework-limit-reached-through-a-refused-start) (persisted rework counters)

@@ -11,6 +11,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
 const _require = createRequire(import.meta.url);
 const manifest = _require('../../../shared/workflow-manifest.json') as
@@ -335,6 +338,21 @@ describe('derived constant parity — mcp-server vs manifest', () => {
   it('SPEC_VERSION matches manifest spec_version', async () => {
     const { SPEC_VERSION } = await import('../../src/utils/constants.js');
     expect(SPEC_VERSION).toBe(manifest.spec_version);
+  });
+
+  it('manifest spec_version matches the workflow specification README Version line', () => {
+    // Guards against the drift the spec v2.9.0 changelog records: v2.6.0 and v2.7.0 both bumped
+    // the spec README without bumping shared/workflow-manifest.json, and nothing caught it until
+    // the P03 synthesis flagged it by hand. This assertion makes that drift fail loudly instead.
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const specReadmePath = path.resolve(
+      __dirname,
+      '../../docs/agents/workflow-specification/README.md',
+    );
+    const specReadmeText = readFileSync(specReadmePath, 'utf-8');
+    const versionMatch = specReadmeText.match(/^\*\*Version:\*\*\s*(\S+)/m);
+    expect(versionMatch, 'Expected to find a "**Version:** x.y.z" line in the spec README').not.toBeNull();
+    expect(manifest.spec_version).toBe(versionMatch![1]);
   });
 });
 

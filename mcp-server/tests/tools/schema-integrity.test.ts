@@ -1,7 +1,7 @@
 /**
  * Schema Integrity Regression Test
  *
- * Verifies that all 29 tool schemas registered with the MCP server produce
+ * Verifies that every tool schema registered with the MCP server produces
  * non-empty JSON Schema `properties`. This test fails if anyone re-adds
  * `.refine()`, `.transform()`, or `.superRefine()` to an outer `z.object()`
  * schema — those methods convert `ZodObject` to `ZodEffects`, causing the
@@ -24,6 +24,7 @@ import { register as registerProjectLifecycle } from '../../src/tools/project-li
 import { register as registerWorkflowHandoff } from '../../src/tools/workflow-handoff.js';
 import { register as registerWorkflowNextAction } from '../../src/tools/workflow-next-action.js';
 import { register as registerWorkPackage } from '../../src/tools/work-package.js';
+import { register as registerWorkPackageAdmin } from '../../src/tools/work-package-admin.js';
 import { register as registerKnowledge } from '../../src/tools/knowledge.js';
 import { register as registerRepositoryContext } from '../../src/tools/repository-context.js';
 
@@ -49,11 +50,12 @@ beforeAll(() => {
   registerWorkflowHandoff(mockServer);
   registerWorkflowNextAction(mockServer);
   registerWorkPackage(mockServer);
+  registerWorkPackageAdmin(mockServer);
   registerKnowledge(mockServer);
   registerRepositoryContext(mockServer);
 });
 
-// ── Expected tool names (all 29) ──────────────────────────────────────────
+// ── Expected tool names ────────────────────────────────────────────────────
 const EXPECTED_TOOL_NAMES = [
   // begin-work
   'ledger_begin_work',
@@ -88,6 +90,7 @@ const EXPECTED_TOOL_NAMES = [
   'ledger_reset_rework_count',
   'ledger_reopen_cancelled_wp',
   'ledger_update_acceptance_criteria',
+  'ledger_update_pipeline_stages',
   // knowledge
   'ledger_add_insight',
   'ledger_search_insights',

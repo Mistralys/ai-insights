@@ -129,7 +129,8 @@ mcp-server/
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
 │   │   ├── standalone-import.ts # ledger_import_standalone — imports a completed standalone developer plan execution into the project ledger; Zod schema (project_path/cwd_path/project_summary); validation pipeline (path present → basename convention → plan.md → synthesis.md → optional usage-scenarios.md detection → duplicate slug); delegates writes to LedgerStore.importStandaloneProject(); archives authored source files only (never scenario-coverage.md); exports _internal and register()
 │   │   ├── repository-context.ts  # ledger_get_repository_context — returns a compact project timeline with curated outcome summaries, knowledge-base insights, and strategic vision for a repository; exports register(server) and _internal (test-only: GetRepositoryContextSchema, getRepositoryContext, safeListRepositoryInsights, safeListAllStoreRepositoryInsights); handler: resolves repository name (repository_name takes precedence over cwd_path); in multi-store mode (WP-008) — registry uses getMergedRegistry() (store-order priority), projects scanned across all stores via getAllStorePaths() with plan_path dedup, insights from safeListAllStoreRepositoryInsights() via MultiStoreManager.listKnowledge(); in legacy mode — consults single .repositories.json, aggregates projects from declared folder_names via LedgerStore.listProjectsByFolderNames(), queries knowledge via safeListRepositoryInsights(); both helpers suppress slug-validation errors and re-throw I/O errors; sorts by date_created desc, caps at max_projects; deduplicates combined insights by UUID id (global-first, first-seen wins); relevant_insights[] always present (empty when include_insights: false) (WP-005, WP-008)
-│   │   ├── work-package.ts      # WP CRUD tools
+│   │   ├── work-package.ts      # WP CRUD tools; exports propagateDependencyReblock for work-package-admin.ts
+│   │   ├── work-package-admin.ts # PM-only admin tools: ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, ledger_update_pipeline_stages — split out of work-package.ts; imports propagateDependencyReblock rather than duplicating it
 │   │   ├── workflow.ts          # Thin aggregator
 │   │   ├── workflow-handoff.ts              # ledger_get_handoff_status
 │   │   ├── workflow-next-action.ts          # ledger_get_next_action
@@ -143,6 +144,7 @@ mcp-server/
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
 │       ├── path-validator.ts    # Pure path-segment validation; assertSafeSegment() slug-segment predicate; no storage deps
+│       ├── pm-role-guard.ts     # requirePmRole(toolName, agentRole) — shared PM-only role check; returns null when agentRole === 'Project Manager', else the standard { content, isError: true } rejection naming both toolName and agentRole; extracted from three verbatim-copied inline guards originally in work-package.ts (ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria), each call site preserving its original position relative to resolveProjectPath; those three call sites now live in work-package-admin.ts after the module split, joined by a fourth call site for ledger_update_pipeline_stages (added directly against the shared helper, not part of the original extraction)
 │       ├── project-resolver.ts  # resolveProjectPath() + formatCandidateList(); requires LedgerStore
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
@@ -214,7 +216,8 @@ mcp-server/
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts
     │   ├── full-workflow.test.ts
-    │   └── rework-limit.test.ts  # Tool-driven rework-limit walk (no seeded counters): persisted trip on the refused fifth start, Developer/QA/PM limit actions, PM cancel -> dependent READY -> synthesis; plus legacy verifier-only chain
+    │   ├── rework-limit.test.ts  # Tool-driven rework-limit walk (no seeded counters): persisted trip on the refused fifth start, Developer/QA/PM limit actions, PM cancel -> dependent READY -> synthesis; plus legacy verifier-only chain
+    │   └── update-pipeline-stages-recovery.test.ts  # Tool-driven end-to-end reopen-then-restage recovery (modelled on rework-limit.test.ts, no seeded stage list or counters): create a 4-stage WP, walk it to COMPLETE, reopen via ledger_update_work_package_status (COMPLETE -> IN_PROGRESS), add security-audit via ledger_update_pipeline_stages, confirm the Security Auditor's RUN_SECURITY_AUDIT recommendation and startPipeline acceptance, confirm the audit PASS re-engages code-review then documentation, and confirm the WP finalizes COMPLETE
     │
     ├── schema/                  # Schema validation tests
     │   ├── project-archiving-schema.test.ts
@@ -269,6 +272,7 @@ mcp-server/
     │   ├── start-path-parity.test.ts  # startPipeline vs beginWork parity: same isError and persisted rework_counts across prerequisite, auto-cancelled and rework-limit scenarios
     │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
+    │   ├── update-pipeline-stages.test.ts  # Unit/guard tests for ledger_update_pipeline_stages: full 7-guard-and-response surface — PM-only, structural/fail-route validation (empty, unknown, duplicate, out-of-order, fail-route-gap lists), CANCELLED/COMPLETE/IN_PROGRESS-pipeline rejections, executed-stage removal rejection, never-run-stage removal + assigned_to clearing (owned vs. not-owned), guard-ordering proofs (role-before-validation, validation-before-CANCELLED, COMPLETE-before-removal), audit comment, warning passthrough, and rework-limit-at-MAX_REWORK_COUNT next-step surfacing
     │   ├── version-freshness.test.ts
     │   ├── work-package.test.ts
     │   ├── workflow-batch-actions.test.ts

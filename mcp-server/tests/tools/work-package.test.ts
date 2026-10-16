@@ -4,13 +4,15 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { z } from 'zod';
 import { _internal, CLAIMABLE_ROLES } from '../../src/tools/work-package.js';
+import { _internal as adminInternal } from '../../src/tools/work-package-admin.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex, WorkPackageSummary } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail, Pipeline } from '../../src/schema/work-package.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../../src/utils/constants.js';
 
-const { buildStatusTransitionGuidance, propagateDependencyUnblock, propagateDependencyReblock, createWorkPackage, updateWorkPackageStatus, claimWorkPackage, resetReworkCount, updateAcceptanceCriteria } = _internal;
+const { buildStatusTransitionGuidance, propagateDependencyUnblock, propagateDependencyReblock, createWorkPackage, updateWorkPackageStatus, claimWorkPackage } = _internal;
+const { resetReworkCount, updateAcceptanceCriteria } = adminInternal;
 
 describe('WP status transition guidance (buildStatusTransitionGuidance)', () => {
   it('BLOCKED guidance mentions Developer rework via get_next_action', () => {

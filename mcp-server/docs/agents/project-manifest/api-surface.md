@@ -394,6 +394,35 @@ The `agent` field is required because the server checks which persona is attempt
   - Rejects non-PM callers (guard fires before acquiring the file lock).
   - Each `new_criterion` string must be non-empty and non-whitespace.
 
+#### `ledger_update_pipeline_stages`
+
+```typescript
+(args: {
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
+  work_package_id: string; // WP-### format
+  agent_role: string;      // Must be "Project Manager"
+  stages: string[];        // min 1 — the complete replacement active_pipeline_stages list, not an add/remove delta
+  reason: string;          // Non-empty, non-whitespace; stored in audit trail
+}) => Promise<MCPResult>
+```
+
+**PM-only tool.** Replaces a work package's entire `active_pipeline_stages` list in place, under seven ordered guards (the first six reject; the seventh is a companion mutation). See [Workflow Specification §12.3c](../workflow-specification/operations.md#123c-updatepipelinestages) and [§21.75](../workflow-specification/edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the full guard rationale and the reopen-then-restage recovery sequence; see [Flow R](data-flows.md#flow-r-mid-flight-pipeline-stage-adjustment) for the data-flow diagram.
+
+- **Guards, in evaluation order:**
+  1. `agent_role` must be `"Project Manager"` — rejected via `requirePmRole` before any disk I/O.
+  2. `validateActiveStages(stages)` — the same structural + fail-route validation used at WP creation (non-empty, known names, no duplicates, canonical order, Rule 5 fail-route coverage), reused unchanged. Hard errors reject on `errors[0]`; soft warnings (e.g. a single-stage list) are returned in the response without blocking the write.
+  3. `wp.status` must not be `CANCELLED` — a terminal WP has no pipeline left to configure.
+  4. `wp.status` must not be `COMPLETE` — rejected with a message naming `ledger_update_work_package_status` (COMPLETE → IN_PROGRESS) as the required first step. Checked **ahead of** guard 6 so a COMPLETE WP always gets the reopen instruction, even when its requested list also removes an already-passed stage.
+  5. No pipeline may currently be `IN_PROGRESS` — rejected, naming the running pipeline type. The PM must cancel it first via `ledger_cancel_pipeline`.
+  6. No removed stage may have a non-`auto_cancelled` pipeline record — removing a stage that actually ran would hide its history from the GUI (which derives its chips from the active list) while the pipeline record stays on disk. A never-run stage may always be removed.
+  7. *(companion mutation, not a rejection)* If a removed stage was owned (via `PIPELINE_AGENT_MAP`) by `wp.assigned_to`'s role, `assigned_to` is nulled on both the WP detail and the matching root-summary field in the same write — otherwise the WP would carry a stale assignment invisible to every role's `ledger_get_next_action` handler.
+- **Dual-document write:** `wp.active_pipeline_stages` and the matching root-index summary field are written inside one `updateWorkPackageWithSync` call, which also recomputes `passed_stages` / `progress_pct` from the new list as part of the same shared write path — no separate recomputation step.
+- **Audit trail:** Every successful call appends exactly one `{ type: 'pipeline_stages_updated', priority: 'high', agent: 'Project Manager' }` project comment naming the previous list, the new list, the supplied `reason`, and whether `assigned_to` was cleared.
+- **`rework_counts` is never modified** by this tool. If any counter is at or above `MAX_REWORK_COUNT`, the response's next-step guidance names `ledger_reset_rework_count` as a separate, deliberate follow-up call — re-staging alone does not unstick a tripped counter.
+- **Response fields:** `message`, `work_package_id`, `previous_stages`, `new_stages`, `warnings`, `next_step`.
+- **Use case:** Fixes a work package registered with the wrong stage list (e.g. a security-sensitive WP missing `security-audit`) in place, without cancelling and recreating it — which would orphan every WP depending on its ID.
+
 ---
 
 ### Pipeline Tools
@@ -4100,7 +4129,7 @@ async function resolveMultiStoreLedgerRoot(
 
 Tool modules expose internal helpers and constants to unit tests via one of three patterns:
 
-- **`pipeline.ts`**, **`work-package.ts`**, **`project-lifecycle.ts`**, and **`observations.ts`**: use a manual `export const _internal = { ... }` object. Tests import with `import { _internal } from <module>.js`. In `pipeline.ts` and `observations.ts` the Zod schemas are included in `_internal` (alongside routing constants and helpers) — there is no separate `_schemas` export. See §53 in `constraints.md`.
+- **`pipeline.ts`**, **`work-package.ts`**, **`work-package-admin.ts`**, **`project-lifecycle.ts`**, and **`observations.ts`**: use a manual `export const _internal = { ... }` object. Tests import with `import { _internal } from <module>.js`. In `pipeline.ts` and `observations.ts` the Zod schemas are included in `_internal` (alongside routing constants and helpers) — there is no separate `_schemas` export. See §53 in `constraints.md`.
 - **Workflow sub-modules**: helpers and constants are exported directly as named exports. Tests use direct named imports from the defining module (e.g. `import { getDeveloperAction } from workflow-next-action.js`). `workflow.ts` re-exports all symbols for backward compatibility, but tests should prefer importing from the defining module.
 
 **These internal exports are not part of the public API — do not call them from production code.**
@@ -4235,10 +4264,32 @@ export const _internal: {
     args: UpdateWorkPackageStatusArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
+};
+```
+
+> **Note:** The PM-only administrative tools (`ledger_reset_rework_count`, `ledger_reopen_cancelled_wp`, `ledger_update_acceptance_criteria`) moved out of this module into `src/tools/work-package-admin.ts` — see the dedicated section below. A fourth PM-only tool, `ledger_update_pipeline_stages`, was added directly to that module rather than here. `propagateDependencyReblock` stays here (above) and is now exported for that module to import.
+
+### `src/tools/work-package-admin.ts` — PM-only administrative tools
+
+PM-only escape hatches for correcting ledger state that the normal WP lifecycle (claim → pipelines → status transitions, owned by `work-package.ts`) has no path to fix on its own. None of the normal WP flow touches this module. Imports `propagateDependencyReblock` from `work-package.ts` rather than duplicating it — the only shared logic between the two modules.
+
+```typescript
+export const _internal: {
   // Core implementation of ledger_reset_rework_count (PM-only). Same _ledgerRoot
   // guard as createWorkPackage (§58).
   resetReworkCount: (
     args: ResetReworkCountArgs,
+    _ledgerRoot?: string
+  ) => Promise<MCPResult>;
+  // Core implementation of ledger_reopen_cancelled_wp (PM-only). Rejects via
+  // requirePmRole() before any disk I/O (role guard runs first in this handler,
+  // unlike the other two in this module, which resolve projectPath first).
+  // Requires a CANCELLED precondition; transitions to READY or BLOCKED depending
+  // on canStartWorkPackage(); clears assigned_to and rework_counts; invalidates
+  // synthesis; fires propagateDependencyReblock() post-write to cascade-reblock
+  // downstream dependents.
+  reopenCancelledWp: (
+    args: ReopenCancelledWpArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
   // Core implementation of ledger_update_acceptance_criteria (PM-only). Same
@@ -4247,7 +4298,20 @@ export const _internal: {
     args: UpdateAcceptanceCriteriaArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
+  // Core implementation of ledger_update_pipeline_stages (PM-only). Rejects via
+  // requirePmRole() before any disk I/O, then validateActiveStages() before
+  // project resolution — both guards run ahead of createWorkPackage's single
+  // _ledgerRoot guard (§58). Replaces the WP's whole active_pipeline_stages list
+  // under seven ordered guards; see the dedicated tool entry above and Flow R in
+  // data-flows.md for the full guard sequence.
+  updatePipelineStages: (
+    args: UpdatePipelineStagesArgs,
+    _ledgerRoot?: string
+  ) => Promise<MCPResult>;
 };
+
+// Registers all four tools above via server.registerTool() inside register(server).
+export function register(server: McpServer): void;
 ```
 
 ### `src/tools/pipeline.ts` — routing constants

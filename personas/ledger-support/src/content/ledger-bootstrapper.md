@@ -130,6 +130,8 @@ After all WPs are registered:
 
 2. For any WP that looks incorrect, call `ledger_get_work_package` to inspect it.
 
+3. **Stage parity check:** Call `ledger_list_work_packages` and compare each returned WP's `active_pipeline_stages` against its row in `pipeline-configuration.md`'s Per-WP Stage Configuration table. On any mismatch, correct it immediately with `ledger_update_pipeline_stages` (`agent_role: "Project Manager"`, `reason` naming the Per-WP Stage Configuration table as the source of truth) rather than leaving the WP registered with the wrong stage list. Record both the mismatch and the correction in the Step 5 report's Stage parity line.
+
 ### Step 5 — Report
 
 Produce the initialization report:
@@ -150,6 +152,8 @@ Produce the initialization report:
 
 **Flagged in the WP definitions:** {One line per error or inconsistency noticed in the upstream output and executed as given anyway — or the literal "none; the four documents were internally consistent".}
 
+**Stage parity:** {One line per WP whose `active_pipeline_stages` did not match its Per-WP Stage Configuration table row, naming the WP, the mismatch, and that it was corrected via `ledger_update_pipeline_stages` — or the literal "none; every WP's active_pipeline_stages matched its table row".}
+
 **Ledger Status:** {Initialized successfully | Initialized with {COUNT} failures — see above}
 ```
 
@@ -159,7 +163,7 @@ Produce the initialization report:
 - **Never invent a `project_summary`.** Where the plan has no `## Summary` section, or it is too brief to yield two sentences, omit the parameter.
 - **Never pass `work_package_id`.** The tool assigns the ID and returns it; capture the returned value rather than predicting it.
 - **Never abbreviate, summarize, or reformat a WP description.** The body carries over verbatim from `work-packages-draft.md`, minus only the header line and the acceptance criteria block.
-- **Never report success with an unfilled Failures slot.** Both report slots take an explicit "none" line — an empty slot cannot be told apart from a slot nobody filled in.
+- **Never report success with an unfilled Failures slot or an unfilled Stage parity slot.** All three report slots take an explicit "none" line — an empty slot cannot be told apart from a slot nobody filled in.
 
 ## Strict Constraints
 
@@ -183,7 +187,7 @@ Produce the initialization report:
 
 1. **Ingest Inputs:** Resolve `{PLAN_PATH}` from the project path you were given, then read `plan.md`, `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from it. Where any is missing or unparseable, report the broken upstream stage and stop rather than proceeding on partial input.
 2. **Execute the Bootstrapping Protocol:** Follow the Bootstrapping Protocol above (Steps 1–5), observing its Constraints block.
-3. **Report Results:** Present the initialization report from Step 5 with both accountability slots filled in — either with items, or with their explicit "none" line.
+3. **Report Results:** Present the initialization report from Step 5 with all three accountability slots filled in — either with items, or with their explicit "none" line.
 4. **Handoff:** End the response with:
    ```
    AGENT: Ledger Bootstrapper

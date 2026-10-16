@@ -356,7 +356,7 @@ Active pipeline order: implementation → qa → code-review → documentation.
 
 ### Pipelines Can Only Be Started for an Active Stage
 
-**Rule:** A pipeline type that is not in the WP's `active_pipeline_stages` (or `DEFAULT_PIPELINE_STAGES` when omitted) cannot be started — not by its owning agent, and not through PM Override. No server path runs a stage outside the declared chain, and no tool changes a WP's `active_pipeline_stages` after the WP is written — a WP that turns out to need another stage is recreated with it.
+**Rule:** A pipeline type that is not in the WP's `active_pipeline_stages` (or `DEFAULT_PIPELINE_STAGES` when omitted) cannot be started — not by its owning agent, and not through PM Override. No server path runs a stage outside the declared chain. Since v2.9.0, `active_pipeline_stages` is no longer fixed for the WP's whole lifetime — see "`active_pipeline_stages` Mutation: PM-Only, Guarded" below for the one gated operation that may change it after creation.
 
 **Enforcement:** The guard is implemented twice, once per start path, and both copies run after the agent-role guard:
 - `startPipeline()` in `src/tools/pipeline.ts` (step 2b, after the IN_PROGRESS check).
@@ -411,6 +411,18 @@ Cannot start pipeline 'implementation' for work package WP-019: this pipeline ty
 
 ---
 
+### `active_pipeline_stages` Mutation: PM-Only, Guarded
+
+**Rule:** Since v2.9.0, `active_pipeline_stages` is no longer write-once. The PM-only `ledger_update_pipeline_stages` tool replaces a WP's entire stage list in place, under seven ordered guards: PM-only role, the same structural + fail-route validation as creation (reusing `validateActiveStages()` unchanged), not-`CANCELLED`, not-`COMPLETE` (a `COMPLETE` WP must be reopened first via `ledger_update_work_package_status`), no `IN_PROGRESS` pipeline, no removal of a stage with an executed (non-`auto_cancelled`) pipeline record, and a companion mutation that nulls `assigned_to` when a removed never-run stage was the one its role owned. The tool never modifies `rework_counts` and never auto-reopens a `COMPLETE` WP — both are separate, deliberate PM calls.
+
+**Recovery path this enables:** A WP registered with the wrong stage list (e.g. missing `security-audit`, or a pre-v2.6.0 `["qa", "code-review"]` chain with no `implementation` upstream — see "A Chain With a Verifier Stage Must Include `implementation`" below) can be corrected in place via `ledger_update_work_package_status` (COMPLETE → IN_PROGRESS, if needed) followed by `ledger_update_pipeline_stages`, instead of being cancelled and recreated — which would orphan every WP depending on its ID.
+
+**Enforcement:** `updatePipelineStages()` in `src/tools/work-package-admin.ts`, registered as `ledger_update_pipeline_stages`.
+
+> **Specification:** [§12.3c](../workflow-specification/operations.md#123c-updatepipelinestages), [§21.75](../workflow-specification/edge-cases.md#2175-mid-flight-pipeline-stage-adjustment).
+
+---
+
 ### A Chain With a Verifier Stage Must Include `implementation`
 
 This convention binds whoever composes a chain — the planning personas (WP Decomposer, Pipeline Configurator, Project Manager) and anyone calling `ledger_create_work_package` by hand. A chain such as `["qa", "code-review"]` has no stage that can fix what its verifiers flag.
@@ -426,7 +438,9 @@ This convention binds whoever composes a chain — the planning personas (WP Dec
 - The recommendation engine turns that into a self-rework: `getQaAction` P4b (and the matching Reviewer and Security Auditor P4b branches) emits `RUN_QA` when `resolveFailAgent('qa', activeStages) === 'QA'`. `getDeveloperAction` skips every WP whose chain lacks `implementation`, so no agent ever changes anything between runs.
 - The verifier re-runs against unchanged code and fails identically until a start whose increment reaches `MAX_REWORK_COUNT` is refused; that refusal persists the `rework_counts` entry at the maximum (see the circuit-breaker paragraph under "Rework Count Increments on Pipeline Retry"), after which the recommendation engine reports the rework limit instead of `RUN_QA`.
 
-**Enforcement (v2.6.0):** `validateActiveStages()` now rejects this chain at creation time via the fail-route coverage hard guardrail documented above (`findFailRoutingGaps()` in `src/utils/pipeline-maps.ts`). `ledger_create_work_package` with `active_pipeline_stages: ["qa", "code-review"]` returns an error result and writes no WP. The rule is enforced only at creation — `active_pipeline_stages` is never re-validated on read, so a WP created before v2.6.0 that already holds such a chain is not migrated and keeps routing through the `resolveFailAgent()` fallback described above.
+**Enforcement (v2.6.0):** `validateActiveStages()` now rejects this chain at creation time via the fail-route coverage hard guardrail documented above (`findFailRoutingGaps()` in `src/utils/pipeline-maps.ts`). `ledger_create_work_package` with `active_pipeline_stages: ["qa", "code-review"]` returns an error result and writes no WP. The creation-time rule does not retroactively validate on read, so a WP created before v2.6.0 that already holds such a chain keeps routing through the `resolveFailAgent()` fallback described above — unless and until the PM runs the repair below.
+
+**Repair for a pre-existing legacy chain (v2.9.0):** The PM can add `implementation` to a WP already stuck in the `["qa", "code-review"]` self-loop via `ledger_update_pipeline_stages` (see "`active_pipeline_stages` Mutation: PM-Only, Guarded" above) — `validateActiveStages()`'s fail-route guardrail accepts the corrected list since `implementation` now covers both verifiers' FAIL target, and the Developer's next `ledger_get_next_action` call recommends `IMPLEMENT` for the WP instead of skipping it.
 
 **Unfixable failures:** A failure the WP cannot fix in scope — such as a pre-existing test failure unrelated to the plan — is left to the existing rework-limit path: the start that would exceed the limit is refused and persists the counter at the maximum, the recommendation engine then emits `BLOCK_FOR_REWORK_LIMIT` (Developer) or `REVIEW_REWORK_LIMIT` (PM), and the WP goes to PM review. There is no "accept as out of scope" verdict, by decision.
 

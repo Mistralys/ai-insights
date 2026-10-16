@@ -310,7 +310,7 @@ async function createWorkPackage(args: ..., _ledgerRoot?: string) {
 }
 ```
 
-**Affected handlers (both layers applied):** `createWorkPackage`, `claimWorkPackage`, `updateWorkPackageStatus`, `resetReworkCount`, `updateAcceptanceCriteria` (all in `src/tools/work-package.ts`), and `completeSynthesis` (`src/tools/project-lifecycle.ts`).
+**Affected handlers (both layers applied):** `createWorkPackage`, `claimWorkPackage`, `updateWorkPackageStatus` (`src/tools/work-package.ts`); `resetReworkCount`, `reopenCancelledWp`, `updateAcceptanceCriteria` (`src/tools/work-package-admin.ts` — split out of `work-package.ts`); and `completeSynthesis` (`src/tools/project-lifecycle.ts`).
 
 **Why single-argument handlers are unaffected:** Handlers with only one parameter (`initializeProject`, `getProjectStatus`, etc.) silently ignore any surplus arguments passed by the SDK — `extra` is discarded before it can cause harm.
 

@@ -5,6 +5,12 @@ vs_file_name: ledger-doctor.agent.md
 id: standalone-ledger-doctor
 cc_file_name: ledger-doctor.md
 changelog: |
+  1.4.0 (2026-10-16): Added `ledger_update_pipeline_stages` to the Diagnostic Toolkit and a new Repair 11
+    (unstarted/IN_PROGRESS re-stage, COMPLETE reopen-then-restage, and the rework-limit caveat naming
+    `ledger_reset_rework_count`). Repair 3 step 4 gained a caveat that re-staging in place suits only a
+    WP with real authoring work, not a pure exit-gate WP. Pipeline Anomalies gained a "Stage-list drift"
+    bullet comparing `active_pipeline_stages` against `pipeline-configuration.md`, downgrading a
+    deliberate re-stage (a matching `pipeline_stages_updated` comment) to an informational note
   1.3.3 (2026-10-06): Repair 3 diagnoses legacy verifier-only WPs — a chain with `qa`, `security-audit`
     or `code-review` but no `implementation` cycles the same verifier until the rework limit. A reset
     only restarts the loop, so the fix is cancel-and-recreate with `implementation` and a gate AC worded

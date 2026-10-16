@@ -4,7 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { now } from '../../src/utils/timestamp.js';
-import { _internal } from '../../src/tools/work-package.js';
+import { _internal } from '../../src/tools/work-package-admin.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 

@@ -1,5 +1,24 @@
 # AI Insights Changelog
 
+## v2.16.0 - Pipeline Stage Correction and Rework-Limit Handling
+> mcp v2.13.0 · personas v3.39.0 · orchestrator v1.5.0
+
+**A work package's pipeline stage list can now be fixed after creation instead of staying wrong
+for good.** A PM-only `ledger_update_pipeline_stages` tool replaces a mis-transcribed stage list
+in place, and the Ledger Bootstrapper, Project Manager, and Ledger Doctor personas gained a
+stage-parity check that catches the mistake at registration time. This entry also surfaces two
+module releases not yet reflected in a root entry: mcp v2.12.0 (rework-limit refusals now leave
+a record) and orchestrator v1.5.0 (the supervisor handles rework-limit cancellation itself).
+
+- MCP: New PM-only `ledger_update_pipeline_stages` tool corrects a work package's stage list in
+  place, with guards against removing a stage with completed work.
+- Personas: Project Manager, Ledger Bootstrapper, and Ledger Doctor gained a stage-parity check
+  and drift-diagnosis path built on the new tool.
+- Docs: Workflow specification's mutability and operation sections describe the new tool.
+- MCP: A start refused by the rework limit now persists the counter that tripped it.
+- Orchestrator: The supervisor now cancels a rework-limited work package itself and re-polls the
+  Project Manager role, instead of routing through the `pm` node.
+
 ## v2.15.0 - Outcome Summaries and Safer Chains
 > mcp v2.11.0 · personas v3.38.0
 

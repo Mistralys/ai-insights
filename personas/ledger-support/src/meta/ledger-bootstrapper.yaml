@@ -7,6 +7,10 @@ cc_file_name: ledger-bootstrapper.md
 audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 changelog: |
+  1.5.0 (2026-10-16): Step 4 gained a stage-parity check — calls `ledger_list_work_packages` and diffs
+    each WP's `active_pipeline_stages` against its Per-WP Stage Configuration table row, correcting any
+    mismatch immediately via `ledger_update_pipeline_stages` rather than registering a WP with the wrong
+    stage list; the Step 5 report gained a mandatory Stage parity slot
   1.4.2 (2026-09-29): Removed `Edit`, `Write`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from
     `cc_tools` — the content explicitly writes nothing to disk and declares no web or todo instruction,
     so the Claude Code grant exceeded the VS Code list (`execute`, `read`, `search` only) without cause

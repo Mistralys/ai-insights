@@ -32,6 +32,10 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_claim_work_package | cwd_path or project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
 | ledger_begin_work | cwd_path or project_path, work_package_id, type, agent_role | Claim + start pipeline in one atomic call |
 | ledger_update_work_package_status | cwd_path or project_path, work_package_id, status, agent | Update WP status |
+| ledger_reset_rework_count | cwd_path or project_path, work_package_id, pipeline_type, agent_role, reason | PM-only: reset a pipeline type's rework counter to 0 |
+| ledger_reopen_cancelled_wp | cwd_path or project_path, work_package_id, agent_role, reason | PM-only: reopen a CANCELLED WP back to READY/BLOCKED |
+| ledger_update_acceptance_criteria | cwd_path or project_path, work_package_id, agent_role, operations | PM-only: remove or modify acceptance criteria text |
+| ledger_update_pipeline_stages | cwd_path or project_path, work_package_id, agent_role, stages, reason | PM-only: replace a WP's complete active_pipeline_stages list |
 | ledger_start_pipeline | cwd_path or project_path, work_package_id, type | Start a pipeline for a work package (ordering determined by WP's active_pipeline_stages) |
 | ledger_complete_pipeline | cwd_path or project_path, work_package_id, type, status, summary | Complete a pipeline |
 | ledger_cancel_pipeline | cwd_path or project_path, work_package_id, type, reason | Cancel a stale IN_PROGRESS pipeline (sets to FAIL) |
@@ -396,6 +400,74 @@ ${PROJECT_PATH_PARAM}
     "type": "technical",
     "description": "Missing API endpoint"
   }
+}
+\`\`\`
+`,
+
+  ledger_update_pipeline_stages: `
+# ledger_update_pipeline_stages
+
+PM-only: replaces a work package's **complete** \`active_pipeline_stages\` list — not an add/remove
+delta. Use this to correct a mis-transcribed stage list (e.g. a WP created with \`["qa", "code-review"]\`
+that should have included \`"implementation"\`) without having to recreate the work package.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): WP ID (format: WP-001)
+- **agent_role** (string): Must be "Project Manager"
+- **stages** (array of strings): The full replacement list — a non-empty subsequence of the canonical
+  ordering \`implementation → qa → security-audit → code-review → release-engineering → documentation\`
+- **reason** (string): Mandatory reason for the change (audit trail)
+
+## Guards (evaluated in this order)
+1. **PM-only** — any other \`agent_role\` is rejected before any disk access.
+2. **Structural validation** — \`stages\` is re-validated with the same rules as WP creation: non-empty,
+   every entry a known pipeline type, no duplicates, canonical order, and fail-route coverage (every
+   active stage's FAIL target must own a stage at or before it). Rejected before the WP is even read,
+   so this guard applies regardless of the WP's status.
+3. **CANCELLED** — a CANCELLED WP's stage list can never be revised.
+4. **COMPLETE** — a COMPLETE WP must be reopened first via \`ledger_update_work_package_status\`
+   (\`status: "IN_PROGRESS"\`, \`agent: "Project Manager"\`), then retried. This guard fires even when the
+   requested list only removes an already-passed stage, so you will see the reopen message rather than
+   a removal error.
+5. **No running pipeline** — rejected (naming the running pipeline type) while any pipeline on the WP
+   is IN_PROGRESS. Complete it or use \`ledger_cancel_pipeline\` first.
+6. **No removal of an executed stage** — a stage may only be removed if it has never produced a
+   pipeline record, or every record of that type was \`auto_cancelled\`. Removing a stage with a real
+   pipeline history is rejected, since the GUI's stage chips derive from this list and a removed
+   executed stage's pipelines would otherwise become invisible while remaining on disk.
+7. **assigned_to clean-up** — if a removed stage was never run and is currently owned (via
+   \`PIPELINE_AGENT_MAP\`) by the WP's \`assigned_to\`, that field (and the matching root-index summary
+   field) is nulled in the same write — otherwise the WP would be invisibly stranded from every role's
+   \`ledger_get_next_action\` view.
+
+Adding a stage carries none of guards 6–7's restrictions — it is always safe.
+
+## Recovery Sequence (reopen → restage)
+1. \`ledger_update_work_package_status\` (COMPLETE → IN_PROGRESS, \`agent: "Project Manager"\`)
+2. \`ledger_update_pipeline_stages\` with the corrected \`stages\` list
+3. \`ledger_get_next_action\` for the role that owns the newly added stage (e.g. Security Auditor) to
+   pick up the work the original stage list omitted
+
+## Rework-Limit Caveat
+This tool never touches \`rework_counts\` — a counter already at the limit for a pipeline type is left
+exactly as it was. If the response's \`next_step\` names a counter at or above the limit, pair this call
+with \`ledger_reset_rework_count\` before the affected stage can be started again.
+
+## Response Shape
+\`previous_stages\`, \`new_stages\` (both canonicalised), \`warnings\` (soft warnings from validation that
+do not block the write, e.g. a single-stage chain), and \`next_step\` (always names
+\`ledger_get_next_action\`; also names \`ledger_reset_rework_count\` when relevant).
+
+## Example — add a missing security-audit stage after reopening
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "agent_role": "Project Manager",
+  "stages": ["implementation", "qa", "security-audit", "code-review", "documentation"],
+  "reason": "Original stage list was mis-transcribed from the plan and omitted security-audit."
 }
 \`\`\`
 `,

@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.39.0 - Stage-Parity Checks Catch Mis-Transcribed Pipelines
+
+- Project Manager: Gained a stage-parity check and the new PM-only `ledger_update_pipeline_stages`
+  repair path for a work package whose stage list was mis-transcribed at creation.
+- Ledger Bootstrapper: Verifies a work package's registered stage list against its source
+  `pipeline-configuration.md` before claiming begins, instead of trusting the create call.
+- Ledger Doctor: Diagnoses pipeline-stage drift and applies the same repair path.
+
 ## v3.38.0 - Check-Only Chains Prevented, Handoffs Fixed
 
 **Planning personas no longer produce work packages that only run checks.** Sub-agent handoffs and

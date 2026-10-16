@@ -177,6 +177,8 @@ function validateActiveStages(stages):
 
 > **Rule 5 applies to every write path, not just creation:** Any present or future operation that sets `active_pipeline_stages` — not only `createWorkPackage` — must route through `validateActiveStages` so Rule 5 is enforced uniformly. Stored chains are never re-validated on read: a WP created before this rule existed keeps whatever chain it was given, and reading it back applies no check. See [§21.72](edge-cases.md#2172-unfixable-verifier-chain-rejection) for the full treatment of legacy chains.
 
+> **Since spec v2.9.0, this section's validation rules apply to `ledger_update_pipeline_stages` as well as to WP creation:** both the hard rejects and the soft guardrails above run, unchanged, as guard 2 of [§12.3c](#123c-updatepipelinestages) — no separate validation logic exists for the mid-flight case. See [§21.75](edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the operation's full guard sequence.
+
 ### 9b.3 Artifact Declaration Expectation
 
 Implementation agents **must** declare all files modified during a pipeline in `artifacts.files_modified` when completing a pipeline. This includes ancillary changes, minor out-of-scope improvements, and any file touched by the work — not just the primary deliverables.
@@ -888,6 +890,109 @@ function updateAcceptanceCriteria(wp, root, agentRole, operations):
 ```
 
 > **Scope:** This operation manages the criteria list structure — removing criteria or changing their text. Toggling `met` status during pipeline completion is handled by [§12.3](#123-acceptance-criteria-merge-semantics) merge semantics. Use this operation for PM corrections: removing accidentally appended criteria, fixing typos in criterion text, or updating outdated requirements.
+
+### 12.3c updatePipelineStages
+
+**Introduced:** spec v2.9.0. Replaces the whole `active_pipeline_stages` list in place, under seven ordered guards (the first six reject; the seventh is a companion mutation, not a rejection). See [§21.75](edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the reopen-then-restage recovery sequence and the downstream-replay behaviour this operation enables.
+
+```
+function updatePipelineStages(wp, root, agentRole, requestedStages, reason):
+  // Guard 1: PM only
+  if agentRole != "Project Manager":
+    ERROR("ledger_update_pipeline_stages is a PM-only tool. You are: {agentRole}")
+
+  // Guard 2: structural + fail-route validation (§9b.2) — unchanged, reused verbatim
+  { errors, warnings } = validateActiveStages(requestedStages)
+  if errors is not empty:
+    ERROR(errors[0])
+
+  newStages = getOrderedActiveStages(requestedStages)   // canonicalise to CANONICAL_PIPELINE_ORDERING order
+
+  // Guard 3: WP must not be CANCELLED
+  if wp.status == "CANCELLED":
+    ERROR("Cannot adjust pipeline stages on a CANCELLED WP")
+
+  // Guard 4: WP must not be COMPLETE (checked ahead of guard 6, the removal guard —
+  // see §21.75 for why this ordering matters)
+  if wp.status == "COMPLETE":
+    ERROR("Cannot adjust pipeline stages on a COMPLETE WP. Reopen it first via " +
+          "ledger_update_work_package_status (COMPLETE → IN_PROGRESS, agent: \"Project Manager\")")
+
+  // Guard 5: no pipeline currently IN_PROGRESS
+  runningPipeline = wp.pipelines.find(p => p.status == "IN_PROGRESS")
+  if runningPipeline is not null:
+    ERROR("Cannot adjust pipeline stages while a \"{runningPipeline.type}\" pipeline is IN_PROGRESS. " +
+          "Cancel it first via ledger_cancel_pipeline")
+
+  // Guard 6: no removal of a stage with a non-auto_cancelled pipeline record
+  removedStages = wp.active_pipeline_stages (or DEFAULT_PIPELINE_STAGES if absent) minus newStages
+  for each stage in removedStages:
+    hasExecutedRecord = wp.pipelines.some(p => p.type == stage AND p.auto_cancelled != true)
+    if hasExecutedRecord:
+      ERROR("Cannot remove stage \"{stage}\" — it has pipeline history. Only a stage that never ran " +
+            "may be removed")
+
+  // Guard 7 (companion mutation, not a rejection): clear a now-orphaned assigned_to
+  assignedToCleared = false
+  if removedStages is not empty:
+    assignedRole = wp.assigned_to
+    ownedStage = AGENT_PIPELINE_MAP reverse lookup for assignedRole   // PIPELINE_AGENT_MAP reversed
+    if ownedStage in removedStages:
+      wp.assigned_to = null
+      matching root summary assigned_to field = null
+      assignedToCleared = true
+
+  previousStages = wp.active_pipeline_stages (or DEFAULT_PIPELINE_STAGES if absent)
+  wp.active_pipeline_stages = newStages
+  matching root summary active_pipeline_stages field = newStages
+
+  // passed_stages / progress_pct are NOT recomputed here — updateWorkPackageWithSync
+  // derives both from the summary's new active_pipeline_stages in the same write (§21.75)
+  // rework_counts is NOT touched — see §21.74 and §21.75
+
+  root.project_comments.append({
+    type: "pipeline_stages_updated",
+    priority: "high",
+    agent: "Project Manager",
+    text: "active_pipeline_stages for {wp.work_package_id} changed from [{previousStages}] to " +
+          "[{newStages}]. Reason: {reason}." + (assignedToCleared ? " assigned_to was cleared." : "")
+  })
+  root.last_updated = now()
+
+  write wp
+  write root
+
+  return {
+    message: "...",
+    work_package_id: wp.work_package_id,
+    previous_stages: previousStages,
+    new_stages: newStages,
+    warnings: warnings,
+    // next-step guidance names ledger_get_next_action for the first not-yet-passed stage's
+    // owning agent, and additionally names ledger_reset_rework_count when any rework_counts
+    // entry is at or above MAX_REWORK_COUNT (§21.74, §21.75)
+  }
+```
+
+**Guards, in evaluation order:**
+
+| # | Guard | Rejects? | Rationale |
+|---|-------|----------|-----------|
+| 1 | `agentRole == "Project Manager"` | Yes | Restricts the capability to the role that owns pipeline composition; checked before any disk I/O, matching [§12.3b](#123b-acceptance-criteria-management) and `reopenCancelledWp`. |
+| 2 | `validateActiveStages(requestedStages).errors` is empty | Yes | Reuses [§9b.2](#9b2-active-pipeline-stages-validation) unchanged — non-empty, known names, no duplicates, canonical order, and Rule 5 (fail-route coverage). |
+| 3 | `wp.status != "CANCELLED"` | Yes | A terminal, abandoned WP has no pipeline left to configure. |
+| 4 | `wp.status != "COMPLETE"` | Yes | A COMPLETE WP must be reopened first; evaluated ahead of guard 6 so the reopen instruction is always reachable in one call (§21.75). |
+| 5 | No pipeline is `IN_PROGRESS` | Yes | Changing the chain under a running agent would change its downstream routing mid-flight; the PM cancels the pipeline first. |
+| 6 | No removed stage has a non-`auto_cancelled` pipeline record | Yes | A removed executed stage's history would stop rendering in the GUI (which derives its chips from the active list) while the pipeline record itself stays on disk — a hidden audit trail. Removal stays available for stages that never ran. |
+| 7 | *(companion mutation)* If `wp.assigned_to`'s role owns a stage in the removed set, null `wp.assigned_to` and the matching root-summary field in the same write | No — the removal proceeds | Without this, the WP would carry a stale `assigned_to` that matches no active stage, invisible to every role's `ledger_get_next_action` handler (each gates on both stage membership and `assigned_to == role`). Mirrors the precedent at `reopenCancelledWp` and the IN_PROGRESS → READY transition. |
+
+**Dual-document write:** Both `wp.active_pipeline_stages` (detail) and the matching root-index summary's `active_pipeline_stages` are written inside one `updateWorkPackageWithSync` call, which also recomputes the summary's `passed_stages` and re-syncs `.meta.json` `progress_pct` from the new list as a side effect of that shared write path — this operation performs no separate recomputation.
+
+**Audit comment:** Every successful call appends exactly one `pipeline_stages_updated` project comment (`priority: "high"`, `agent: "Project Manager"`) naming the previous list, the new list, the supplied `reason`, and whether `assigned_to` was cleared.
+
+**Response shape:** `message`, `work_package_id`, `previous_stages`, `new_stages`, `warnings` (soft guardrails from guard 2, surfaced without blocking the write), and next-step guidance pointing to `ledger_get_next_action` for the agent owning the first not-yet-passed stage — naming `ledger_reset_rework_count` as well whenever any `rework_counts` entry is at or above `MAX_REWORK_COUNT` (§21.74).
+
+**Never touches `rework_counts`.** A WP already at the rework limit for some pipeline type stays at that limit after re-staging; see [§21.74](edge-cases.md#2174-rework-limit-reached-through-a-refused-start) and [§21.75](edge-cases.md#2175-mid-flight-pipeline-stage-adjustment).
 
 ### 12.4 Agent Role Validation on Completion
 

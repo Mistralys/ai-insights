@@ -2,12 +2,20 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.8.0
-**Date:** 2026-10-09
+**Version:** 2.9.0
+**Date:** 2026-10-16
 
 ---
 
 ## Changelog
+
+### v2.9.0 - Mid-Flight Pipeline Stage Adjustment
+
+- **`active_pipeline_stages` becomes PM-mutable (§3.2, §3.3, new §12.3c, new §21.75):** The field is no longer write-once. A new PM-only operation, `ledger_update_pipeline_stages`, replaces the whole stage list in place under seven ordered guards — PM-only role, structural + fail-route validation (reusing [§9b.2](operations.md#9b2-active-pipeline-stages-validation) unchanged), not-CANCELLED, not-COMPLETE, no IN_PROGRESS pipeline, no removal of an executed stage, and a companion `assigned_to`-nulling mutation when a removed stage was the one `assigned_to`'s role owned. Every standing spec statement that the field is immutable after creation is revised.
+- **§21.55 revised:** The "No mid-flight stage addition" bullet is replaced with a bullet pointing to the new mutable-field behaviour and §21.75.
+- **New edge case §21.75 (Mid-Flight Pipeline Stage Adjustment):** Documents the reopen-then-restage recovery sequence for a COMPLETE WP, the reordered guard evaluation (COMPLETE checked ahead of the removal guard, so the reopen instruction is always reachable in one call), the downstream replay that re-engages `code-review` then `documentation` behind a newly-inserted stage's PASS, automatic `passed_stages`/`progress_pct` recomputation, the rule that a newly added stage needs no `rework_counts` initialisation, the rework-counter interaction with [§21.74](edge-cases.md#2174-rework-limit-reached-through-a-refused-start) (the operation never touches `rework_counts`), and the legacy-chain caveat (adding `implementation` alone is not a remedy for a decomposition defect, per §21.67/§21.72).
+- **§9b.2 cross-reference (operations.md):** A new sentence states that the validation rules in this section apply to `ledger_update_pipeline_stages` as well as to WP creation — no separate validation logic exists for the mid-flight case.
+- **`shared/workflow-manifest.json` `spec_version`** bumped to `2.9.0` to match.
 
 ### v2.8.0 - Rework Limit Persisted on Refused Start
 

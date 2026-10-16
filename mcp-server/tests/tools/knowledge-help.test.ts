@@ -52,6 +52,27 @@ describe('Knowledge tool help content — confidence wording (AC-13)', () => {
   });
 });
 
+describe('ledger_update_pipeline_stages help content', () => {
+  const toolName = 'ledger_update_pipeline_stages';
+
+  it(`TOOL_HELP has a non-empty entry for ${toolName}`, () => {
+    const helpText = TOOL_HELP[toolName];
+    expect(helpText, `Missing TOOL_HELP entry for ${toolName}`).toBeDefined();
+    expect(typeof helpText).toBe('string');
+    expect(helpText!.trim().length, `TOOL_HELP entry for ${toolName} is empty`).toBeGreaterThan(0);
+  });
+
+  it(`${toolName} help entry includes the tool name as a heading`, () => {
+    const helpText = TOOL_HELP[toolName]!;
+    expect(helpText).toContain(`# ${toolName}`);
+  });
+
+  it('help entry appears in the overview tool table', () => {
+    const overviewText = TOOL_HELP['overview']!;
+    expect(overviewText).toContain(toolName);
+  });
+});
+
 describe('ledger_get_repository_context help content', () => {
   const toolName = 'ledger_get_repository_context';
 

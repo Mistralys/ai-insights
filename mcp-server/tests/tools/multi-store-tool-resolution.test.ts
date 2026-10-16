@@ -26,6 +26,7 @@ import type { StoresConfig } from '../../src/schema/store-config.js';
 import type { RepositoryRegistry } from '../../src/schema/repository-registry.js';
 import { _internal as lifecycleInternal } from '../../src/tools/project-lifecycle.js';
 import { _internal as wpInternal } from '../../src/tools/work-package.js';
+import { _internal as wpAdminInternal } from '../../src/tools/work-package-admin.js';
 import { _internal as pipelineInternal } from '../../src/tools/pipeline.js';
 import { _internal as beginWorkInternal } from '../../src/tools/begin-work.js';
 import { _internal as observationsInternal } from '../../src/tools/observations.js';
@@ -43,10 +44,13 @@ const {
   createWorkPackage,
   claimWorkPackage,
   updateWorkPackageStatus,
+} = wpInternal;
+
+const {
   resetReworkCount,
   reopenCancelledWp,
   updateAcceptanceCriteria,
-} = wpInternal;
+} = wpAdminInternal;
 
 const {
   startPipeline,

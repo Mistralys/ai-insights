@@ -57,7 +57,7 @@ WorkPackageSummary {
 }
 ```
 
-> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by stage membership (e.g., agents only see WPs where their owned stage is active) without loading detail files. The value is set at WP creation time and is immutable thereafter (see [§21.55](edge-cases.md#2155-pipeline-stage-backward-compatibility)).
+> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by stage membership (e.g., agents only see WPs where their owned stage is active) without loading detail files. The value is set at WP creation time and is PM-mutable thereafter through exactly one gated operation, `ledger_update_pipeline_stages` (see [§12.3c](operations.md#123c-updatepipelinestages) and [§21.75](edge-cases.md#2175-mid-flight-pipeline-stage-adjustment)); every write to this field — at creation and through that operation — keeps the root-index summary and the WP detail in sync.
 ```
 
 ### 3.3 Work Package Detail
@@ -81,7 +81,7 @@ WorkPackageDetail {
 }
 ```
 
-> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction, subject to the fail-route coverage requirement (§9b.2 Rule 5). See §9b.2 for validation rules including soft guardrails.
+> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction, subject to the fail-route coverage requirement (§9b.2 Rule 5). See §9b.2 for validation rules including soft guardrails. The field is set at creation and is PM-mutable thereafter through exactly one gated operation, [§12.3c `ledger_update_pipeline_stages`](operations.md#123c-updatepipelinestages) — see [§21.75](edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the guard sequence and recovery sequences this enables.
 ```
 
 **WorkPackageStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED` | `CANCELLED`

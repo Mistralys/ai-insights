@@ -2153,3 +2153,69 @@ For detectProjectByCwd(cwdPath):
 - Store-order priority applies to both `getMergedRegistry()` and conflict detection: the first store in `stores.json` order is always `winner_store_id`.
 - All collation is read-only — no write occurs during a read collation pass.
 - `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).
+
+---
+
+## Flow R: Mid-Flight Pipeline Stage Adjustment
+
+**Entry Point:** Project Manager invokes `ledger_update_pipeline_stages` tool
+
+```
+PM → ledger_update_pipeline_stages(project_path/cwd_path, work_package_id, agent_role, stages, reason)
+  ↓
+Guard 1: agent_role must be "Project Manager"
+  → requirePmRole('ledger_update_pipeline_stages', agent_role)
+  → Error if not (checked before any disk I/O)
+  ↓
+Guard 2: validateActiveStages(stages) — same validation as WP creation (§9b.2), reused unchanged
+  → non-empty, known stage names, no duplicates, canonical order, Rule 5 fail-route coverage
+  → Error on errors[0] if any hard error (checked before project resolution/WP read)
+  → soft warnings (e.g. single-stage list) are carried through, not blocking
+  ↓
+resolveProjectPath() → projectPath
+newStages = getOrderedActiveStages(stages)   // canonicalise; no-op for an already-ordered list
+  ↓
+store.updateWorkPackageWithSync(work_package_id, (wp, root) => {
+  Guard 3: wp.status must not be "CANCELLED"
+    → Error if CANCELLED
+    ↓
+  Guard 4: wp.status must not be "COMPLETE"
+    → Error naming ledger_update_work_package_status (COMPLETE → IN_PROGRESS) as the required
+      first step — checked AHEAD of guard 6 so a COMPLETE WP always gets this message, even
+      when the requested list also removes an already-passed stage
+    ↓
+  Guard 5: no pipeline currently IN_PROGRESS
+    → Error naming the running pipeline type if found
+    ↓
+  previousStages = wp.active_pipeline_stages (or DEFAULT_PIPELINE_STAGES if absent)
+  removedStages = previousStages minus newStages
+    ↓
+  Guard 6: for each removed stage — reject if it has a non-auto_cancelled pipeline record
+    → Error naming the stage ("has pipeline history") if any removed stage ran for real
+    → a never-run stage may always be removed
+    ↓
+  Guard 7 (companion mutation, not a rejection): for each removed stage —
+    if PIPELINE_AGENT_MAP[stage] === wp.assigned_to, null wp.assigned_to
+    and the matching root-summary field in the same write
+    ↓
+  wp.active_pipeline_stages = newStages
+  matching root summary active_pipeline_stages field = newStages
+  (assigned_to nulled in root summary too, if cleared above)
+    ↓
+  root.project_comments.push({ type: 'pipeline_stages_updated', priority: 'high',
+    agent: 'Project Manager', note: '...from [previousStages] to [newStages]. Reason: ...' })
+  root.last_updated = now()
+})
+  ↓
+// updateWorkPackageWithSync recomputes passed_stages / progress_pct from the new
+// active_pipeline_stages as part of the same shared write path — no separate step here
+  ↓
+Read back rework_counts; for any entry >= MAX_REWORK_COUNT, name ledger_reset_rework_count
+in the response's next-step guidance (that counter is NOT reset or touched by this tool)
+  ↓
+Return { message, work_package_id, previous_stages, new_stages, warnings, next_step }
+```
+
+**Result:** A work package registered with the wrong stage list (e.g. a security-sensitive WP missing `security-audit`) can be corrected in place instead of being cancelled and recreated, which would orphan every WP depending on its ID. Guard ordering is deliberate: role → structural validation → terminal-state guards (CANCELLED, COMPLETE) → in-flight guard → removal-safety guard → the `assigned_to` clean-up companion mutation. `rework_counts` is never modified by this tool — reopening a COMPLETE WP via `ledger_update_work_package_status` already clears counters as part of that separate, pre-existing transition; a WP stuck at the rework limit for reasons unrelated to reopening needs its own `ledger_reset_rework_count` call, which the response surfaces when relevant.
+
+**Recovery sequence this enables (reopen-then-restage):** `ledger_update_work_package_status` (COMPLETE → IN_PROGRESS, "Project Manager") clears `rework_counts` and resets `synthesis_generated` → `ledger_update_pipeline_stages` adds the missing stage(s) to the now-IN_PROGRESS WP → the newly active stage's owning agent picks it up via `ledger_get_next_action` in the normal way, re-engaging downstream stages (e.g. a `security-audit` PASS re-triggers `code-review` and `documentation`) → the WP finalizes `COMPLETE` again once every active stage has a passing record.

@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-08
+> **Generated:** 2026-10-16
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.11.1)
+### Stage 2 — Project Manager (v3.12.0)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -434,7 +434,7 @@ Onboard and maintain development repositories for the AI Insights persona ecosys
 
 ## Ledger-Support Personas
 
-### Ledger Bootstrapper (v1.4.2)
+### Ledger Bootstrapper (v1.5.0)
 
 **Identity:** Technical Program Manager — Ledger Initialization Operator
 
@@ -467,7 +467,7 @@ Map dependencies between Work Packages, identify parallelization opportunities, 
 
 ---
 
-### Ledger Doctor (v1.3.3)
+### Ledger Doctor (v1.4.0)
 
 **Identity:** Senior Workflow Reliability Engineer
 

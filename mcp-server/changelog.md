@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.13.0 - PM-Only Pipeline Stage Correction
+
+**A work package's stage list can now be fixed in place instead of staying wrong for good.**
+A mis-transcribed `active_pipeline_stages` list used to be unfixable once a work package was
+created — it now has a guarded repair path.
+
+- Tools: New PM-only `ledger_update_pipeline_stages` tool replaces a work package's stage list
+  in place, with explicit safety guards against removing a stage with completed work.
+- Tools: Extracted a shared PM role guard used by the new tool and other PM-only admin tools.
+- Docs: Workflow specification's mutability and operation sections describe the new tool and
+  no longer assert that the stage list is immutable.
+- Docs: Manifest documentation covers the new tool and its module.
+
 ## v2.12.0 - Rework Limit Is Recorded on a Refused Start
 
 **A start refused by the rework limit now leaves a record, so a headless run can act on it.**

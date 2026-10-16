@@ -101,6 +101,7 @@ Key documents:
 | `ledger_complete_pipeline` | Complete a pipeline that an agent left incomplete | Agent crashed before completing its pipeline |
 | `ledger_add_project_comment` | Record diagnosis/repair notes | Always — document every intervention |
 | `ledger_update_acceptance_criteria` | Fix impossible or stale acceptance criteria | Criteria reference deleted files or impossible conditions |
+| `ledger_update_pipeline_stages` | Replace a WP's `active_pipeline_stages` in place (PM-only) | WP registered with a wrong or missing stage list (e.g. missing `security-audit`, or a pre-v2.6.0 verifier-only chain) — see Repair 11 |
 | `ledger_add_observation` | Add a finding to a specific pipeline's comment log | Document a code smell or issue at the pipeline level |
 | `ledger_update_pipeline_progress` | Record partial progress on an active pipeline without completing it | Long-running repair where intermediate state should be captured |
 | `ledger_complete_synthesis` | Mark synthesis done if it was generated but not recorded | Synthesis agent wrote the file but didn't call the tool |
@@ -142,6 +143,7 @@ Scan for these common failure patterns:
 - **Stale PASS:** A downstream pipeline passed before the most recent upstream pipeline started (freshness violation)
 - **Auto-cancelled accumulation:** Many `auto_cancelled: true` pipelines indicating repeated crashes
 - **Missing active stages:** WP has no `active_pipeline_stages` field (legacy ledger, should default to 4-stage)
+- **Stage-list drift:** Where `pipeline-configuration.md` exists for the project, compare each WP's `active_pipeline_stages` against its row in the Per-WP Stage Configuration table. Where the file is absent, record the check as skipped rather than treating every WP as drifted. On a mismatch, check `root.project_comments` for a matching `pipeline_stages_updated` comment — if found, the WP was deliberately re-staged after registration; downgrade the finding to an informational note quoting that comment's `reason`, not an anomaly. An unexplained mismatch — no such comment — points to Repair 11.
 
 #### Dependency Anomalies
 - **Circular dependency:** Detected at creation time, but verify no cycles exist in the current graph
@@ -209,7 +211,7 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 1. Review the pipeline history to understand *why* 5+ reworks occurred
 2. If the loop is due to transient failures: call `ledger_reset_rework_count` with `agent_role: "Project Manager"` and a clear `reason`
 3. If the loop is due to a genuine bug: recommend the user cancel the WP or restructure the acceptance criteria
-4. If the WP is verifier-only: a reset only restarts the loop, and no in-place repair exists. Recommend the user cancel the WP and recreate it with `implementation`, its ACs carrying the gate as "no new failures against a recorded baseline" — the same gate commands run at the plan's starting commit in a temporary git worktree
+4. If the WP is verifier-only: a reset only restarts the loop, and no in-place repair exists. Recommend the user cancel the WP and recreate it with `implementation`, its ACs carrying the gate as "no new failures against a recorded baseline" — the same gate commands run at the plan's starting commit in a temporary git worktree. Re-staging in place via `ledger_update_pipeline_stages` (Repair 11) suits only a WP that already has real authoring work in scope for `implementation` to do — a pure exit-gate WP has none, so cancel-and-recreate with a properly scoped AC remains the recommendation here
 5. Document the decision
 
 ### Repair 4: Handoff Depth Exhaustion
@@ -304,6 +306,26 @@ Also call `ledger_get_handoff_status` with the last known agent to see the hando
 5. Document the repair via `ledger_add_project_comment`
 
 > **Critical:** When repairing *any* project issue, always scan for stale IN_PROGRESS WPs across the entire project. A repaired WP that nobody can reach due to routing interference is not actually repaired.
+
+### Repair 11: Wrong or Missing Pipeline Stage List
+
+**Symptom:** A WP was registered with an `active_pipeline_stages` list that does not match what it actually needs — commonly a security-sensitive WP missing `security-audit`, a WP missing the `documentation`/`release-engineering` stage for a deliverable it must author, or a pre-v2.6.0 `["qa", "code-review"]` chain with no `implementation` upstream (see Repair 3 for that chain's self-loop symptom). Caught by the Stage-list drift anomaly above, or reported directly.
+
+**Diagnosis:** Confirm the correct stage list against `pipeline-configuration.md`'s Per-WP Stage Configuration table (if present) or against what the WP's scope actually requires. Check the WP's current status — the procedure differs for a WP that is unstarted/`IN_PROGRESS` versus one that is already `COMPLETE`.
+
+**Procedure — unstarted or `IN_PROGRESS` WP:**
+1. If the WP has a pipeline currently `IN_PROGRESS`, call `ledger_cancel_pipeline` first — `ledger_update_pipeline_stages` rejects a WP with a running pipeline
+2. Call `ledger_update_pipeline_stages` with `agent_role: "Project Manager"`, the corrected `stages` list, and a `reason` naming the source (the table row, or the specific gap found)
+3. Verify via `ledger_get_next_action` that the newly active stage's owning agent is now recommended to act
+
+**Procedure — `COMPLETE` WP:**
+1. Call `ledger_update_work_package_status` with `status: "IN_PROGRESS"`, `agent: "Project Manager"` to reopen it — this also clears `rework_counts` and resets `synthesis_generated`
+2. Call `ledger_update_pipeline_stages` with the corrected `stages` list and a `reason`
+3. Call `ledger_get_next_action` for the newly active stage's owning agent to confirm it picks up the WP, and continue monitoring until the WP re-finalizes `COMPLETE`
+
+**Rework-limit caveat:** `ledger_update_pipeline_stages` never touches `rework_counts`. If a `rework_counts` entry is already at `MAX_REWORK_COUNT` (5) for an unrelated reason, re-staging alone does not unstick it — the tool's response names `ledger_reset_rework_count` when this applies; call it as a separate, deliberate step before the affected stage can start again.
+
+**What this does not replace:** A WP with no real authoring work for `implementation` to do (a pure exit-gate WP) still has no in-place repair — see Repair 3 step 4.
 
 ---
 
