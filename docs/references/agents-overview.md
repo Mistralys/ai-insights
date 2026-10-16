@@ -180,13 +180,13 @@ Generate, update, and maintain AGENTS.md files — the operating manual for AI a
 
 ---
 
-### Changelog Curator (v1.5.1)
+### Changelog Curator (v1.6.0)
 
 **Identity:** Release Communications Editor
 
-Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style.
+Produce clean, scannable changelogs from Git history, rewrite verbose agent-generated entries into a concise house style, and archive older versions.
 
-- **Modes:** Generate (from Git history), Rewrite (clean up existing entries)
+- **Modes:** Generate (from Git history), Rewrite (clean up existing entries), Archive (move older versions to the changelog history)
 - **Use When:** Preparing a release, cleaning up verbose agent-generated changelog entries
 
 ---
@@ -410,13 +410,14 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.1.2)
+### WHATSNEW Curator (v1.2.0)
 
 **Identity:** Release Notes Editor
 
-Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only.
+Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only, and archive older versions in step with the changelog.
 
-- **Use When:** Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog
+- **Modes:** Generate (from the developer changelog), Rewrite (polish existing entries), Archive (move older versions alongside the changelog archive)
+- **Use When:** Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones
 
 ---
 
@@ -434,14 +435,14 @@ Onboard and maintain development repositories for the AI Insights persona ecosys
 
 ## Ledger-Support Personas
 
-### Ledger Bootstrapper (v1.5.0)
+### Ledger Bootstrapper (v1.6.0)
 
 **Identity:** Technical Program Manager — Ledger Initialization Operator
 
 Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete.
 
 - **Use When:** Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written
-- **Key Behavior:** Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
+- **Key Behavior:** Creates the project in the ledger, then registers each WP in ascending number order, stopping at the first failed call or ID mismatch — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
 
 ---
 
@@ -457,7 +458,7 @@ Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger 
 
 ---
 
-### Ledger Dependency Sequencer (v1.4.5)
+### Ledger Dependency Sequencer (v1.5.0)
 
 **Identity:** Technical Program Manager — Dependency Analyst
 

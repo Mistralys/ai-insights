@@ -162,11 +162,19 @@ modes: |
 ```yaml
 slug: changelog-curator
 name: "Changelog Curator"
-description: "Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style."
+description: "Produce clean, scannable changelogs from Git history, rewrite verbose agent-generated entries into a concise house style, and archive older versions."
 vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.6.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one file per series
+    under docs/changelog-history/v{MAJOR}/ (or a location the project's docs name), with the cut rules,
+    layout and verbatim-move rules in the new shared release-history-archiving partial so the WHATSNEW
+    Curator archives on the same boundary; an archive footer links the newest archive file and is
+    protected in Generate and Rewrite; Generate ends with a mechanical archive check (more than ten
+    release headings, or an older major present) that always reports its count and only recommends an
+    Archive session, never archives; the changelog path may also come from the
+    project's docs; added the A Story Stays In One Place principle behind the judgment-based size cut
   1.5.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -211,6 +219,7 @@ use_when: "Preparing a release, cleaning up verbose agent-generated changelog en
 modes: |
   Generate (from Git history)
   Rewrite (clean up existing entries)
+  Archive (move older versions to the changelog history)
 
 ```
 ###  Path: `/personas/standalone/src/meta/comms-curator.yaml`
@@ -328,6 +337,7 @@ vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
 changelog: |
+  1.3.4 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   1.3.3 (2026-08-27): Renamed "Minimal Viable Coverage" to the canonical "Every Artefact Earns Its Place" per the personas constraint C5c principle registry, resolving a name fork with the Workspace Architect
   1.3.2 (2026-08-26): Renamed "Counts Are a Maintenance Liability" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
   1.3.1 (2026-08-26): Rewrote three Operating Philosophy principles from imperative into indicative mood per design guide v3.0
@@ -357,6 +367,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
 
 # overview metadata
 identity: "Context Documentation Architect"
@@ -738,6 +750,7 @@ vs_file_name: module-intent-architect.agent.md
 id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 changelog: |
+  1.1.2 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   1.1.1 (2026-08-26): Tightened the 30-Second Rule principle - replaced weak "should" phrasing and added the consequence clause that makes the budget actionable
   1.1.0 (2026-08-25): Redesigned for Design Guide v2.8 compliance
   1.0.4 (2026-06-17): Added no-stale-counts philosophy to Operating Philosophy
@@ -755,7 +768,6 @@ tools:
   - agent
   - todo
 
-# cc_tools differs from default: module-intent-architect has no TodoRead/TodoWrite
 cc_tools:
   - Bash
   - Read
@@ -766,6 +778,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
@@ -945,6 +959,9 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.12.0 (2026-10-01): Baseline oracles check — a before/after diff-oracle AC with no early, dependency-
+    free capture step naming its storage location is a Major finding under Feasibility, added after the
+    Local dependencies check
   1.11.0 (2026-09-29): Local dependencies check — a multi-repository plan without a symlink switch or a
     step that releases is Critical, a step switching the symlinks back is Major
   1.10.0 (2026-09-29): Audits now check unattended execution — a step, dependency or AC waiting on a
@@ -1026,6 +1043,9 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.7.2 (2026-09-29): Removed `web` from VS Code `tools` — the persona's `cc_tools` already document
+    "no web access" and its content contains no fetch/URL instruction, so the VS Code grant exceeded
+    Claude Code's without cause
   1.7.1 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatches gained their own
     branch, and `1-planner` joined the `subagents` list.
@@ -1058,7 +1078,6 @@ tools:
   - read
   - edit
   - search
-  - web
   - agent
   - todo
 
@@ -1102,6 +1121,9 @@ vs_file_name: planner.agent.md
 id: standalone-planner
 cc_file_name: planner.md
 changelog: |
+  2.7.0 (2026-10-01): Added an Acceptance Oracles rule and a matching checklist item — a before/after
+    diff oracle now gets its own early, dependency-free capture step, ordered before any step that
+    mutates what it snapshots, with its storage location recorded in the plan; no path is prescribed
   2.6.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
     group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
     opens every multi-repository plan with a switch to local symlinks (the project's documented switch
@@ -1498,6 +1520,10 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.7.5 (2026-09-29): Added `tool_parity_exceptions: [web]` — VS Code's `browser` and Claude Code's
+    `WebFetch`/`WebSearch` are genuinely different capabilities with no shared counterpart, so the
+    cross-target parity check now needs an explicit, documented exception rather than treating the
+    difference as a mismatch
   1.7.4 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.7.3 (2026-09-23): Archive-to-ledger dispatch retargeted at the renamed `ledger-synthesis-maintainer` subagent (was `standalone-archiver`); behaviour unchanged
@@ -1523,6 +1549,14 @@ tools:
   - browser
   - agent
   - todo
+
+# VS Code web access comes from `browser` (live page rendering/interaction),
+# which has no Claude Code counterpart — Claude Code's web grant is
+# `WebFetch`/`WebSearch` instead. The two are genuinely different
+# capabilities, not a narrowing candidate, so `web` is an intentional,
+# documented parity exception rather than an oversight.
+tool_parity_exceptions:
+  - web
 
 insight_agent: Web GUI Specialist
 insight_report_target: "the **Interface Insights** section of `synthesis.md`"
@@ -1564,11 +1598,18 @@ use_when: "Building or improving a web interface with strong UX, accessibility, 
 ```yaml
 slug: whatsnew-curator
 name: "WHATSNEW Curator"
-description: "Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only."
+description: "Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only, and archive older versions in step with the changelog."
 vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.2.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one XML file per series,
+    on the boundary the developer changelog's archive already set (or, with no changelog archive, the
+    boundary the shared release-history-archiving cut rules produce, reported back so the Changelog
+    Curator can match it); series with no user-facing versions get no file, and WHATSNEW.xml carries no
+    archive link since the in-app panel renders it; Generate ends with a mechanical archive check (more
+    than ten versions, an older major, or a series the changelog already archived) that always reports
+    and only recommends; mode resolution now covers the mode, not just versions
   1.1.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -1606,7 +1647,11 @@ cc_tools:
 
 # overview metadata
 identity: "Release Notes Editor"
-use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog"
+use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones"
+modes: |
+  Generate (from the developer changelog)
+  Rewrite (polish existing entries)
+  Archive (move older versions alongside the changelog archive)
 
 ```
 ###  Path: `/personas/standalone/src/meta/workspace-architect.yaml`

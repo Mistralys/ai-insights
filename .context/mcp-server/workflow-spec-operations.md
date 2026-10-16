@@ -133,6 +133,7 @@ When `active_pipeline_stages` is provided during WP creation, validation enforce
 2. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
 3. **No duplicates** — each pipeline type may appear at most once
 4. **Non-empty** — at least one stage must be included
+5. **Fail-route coverage** — for every active stage `S`, let `R = FAIL_ROUTING_MAP[S]`. If `R` owns an active stage `F` (via `AGENT_PIPELINE_MAP`), then `F` must appear in `CANONICAL_PIPELINE_ORDERING` at or before `S`. A stage whose FAIL target owns no stage at all, or whose FAIL target owns the stage itself, satisfies the rule trivially. A stage whose FAIL target owns a stage that is absent from the active list, or present but ordered after `S`, fails the rule and blocks creation. This closes the gap left when a chain contains a verifier stage but no stage upstream of it that can act on a FAIL result.
 
 #### Soft Guardrails (emit warning project comments, do not block creation)
 
@@ -170,6 +171,12 @@ function validateActiveStages(stages):
   if stages.length == 0:
     ERROR("active_pipeline_stages must contain at least one stage")
 
+  // Rule 5: Fail-route coverage
+  gaps = findFailRoutingGaps(stages)   // reads FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP, CANONICAL_PIPELINE_ORDERING
+  if gaps is not empty:
+    ERROR("Pipeline chain cannot fix its own FAIL results: {gaps grouped by missing fix stage}")
+    return   // early return, same as rules 1-4 — soft guardrails below are never reached
+
   // Soft guardrail 5: Implementation without QA
   if "implementation" in stages AND "qa" not in stages:
     warnings.append("WP has implementation without QA — consider adding qa for quality assurance")
@@ -185,7 +192,9 @@ function validateActiveStages(stages):
   return warnings
 ```
 
-> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
+> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence, subject to Rule 5. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
+
+> **Rule 5 applies to every write path, not just creation:** Any present or future operation that sets `active_pipeline_stages` — not only `createWorkPackage` — must route through `validateActiveStages` so Rule 5 is enforced uniformly. Stored chains are never re-validated on read: a WP created before this rule existed keeps whatever chain it was given, and reading it back applies no check. See [§21.72](edge-cases.md#2172-unfixable-verifier-chain-rejection) for the full treatment of legacy chains.
 
 ### 9b.3 Artifact Declaration Expectation
 
@@ -193,12 +202,15 @@ Implementation agents **must** declare all files modified during a pipeline in `
 
 **Enforcement:** This is a process rule, not a hard validation gate.
 
-- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent **and** the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (see implementation in §12.1).
-- `ARTIFACT_EXPECTED_PIPELINE_TYPES` contains `implementation`, `code-review`, `release-engineering`, and `documentation` — pipeline types where agents may modify files.
-- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** from this warning because those agents verify but do not modify files.
+- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline's `artifacts.files_modified` declaration is unacceptable for its pipeline type **and** the call is not a PM override (see implementation in §12.1).
+- "Unacceptable" is decided per pipeline type by a `ARTIFACT_DECLARATION_POLICY: Record<PipelineType, ArtifactDeclarationPolicy>` map, where `ArtifactDeclarationPolicy` is one of three values:
+  - `'exempt'` — the field is never checked. `qa` and `security-audit` are `exempt`: those agents verify but do not modify files.
+  - `'non-empty'` — absent or an empty array is unacceptable; only a populated array is `ok`. `implementation` is `non-empty`: a PASS that modified nothing is almost certainly a missed declaration.
+  - `'declare'` — absent is unacceptable, but an explicit empty array `[]` is a valid, accepted declaration meaning "ran this stage, changed nothing." `code-review`, `release-engineering`, and `documentation` are `declare`: a Reviewer may legitimately find nothing to Fix-Forward, a Release Engineer may find nothing release-relevant, and the Documentation agent may find no gap — each of those is a real outcome, not a missed declaration, and `[]` is how the agent says so explicitly.
+- A pure evaluator, `evaluateArtifactDeclaration(policy, filesModified)`, maps a `(policy, filesModified)` pair to one of three outcomes: `'ok'`, `'undeclared'` (the field is absent or null), or `'empty'` (the field is present but `[]`, only reachable under `'non-empty'`). Only `'ok'` suppresses the soft warning.
 - `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared for traceability.
-- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline`.
-- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
+- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline` — and, for `'declare'`-policy stages, to pass an explicit `[]` rather than omitting the field when the pass modified nothing.
+- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge. Its note text keeps the pre-existing substring `artifacts.files_modified is empty or absent` for any caller matching on it, and adds a stage-specific sentence for `'declare'`-policy types: "Pass an explicit empty array when this pass modified nothing."
 
 **Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
 
@@ -697,8 +709,17 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
   pipeline.artifacts = opts.artifacts       // optional
   pipeline.metrics = opts.metrics           // optional
   pipeline.comments = opts.comments         // optional
-  
-  // Acceptance criteria updates (merge semantics)
+
+  isPmOverride = (agentRole == "Project Manager" AND agentRole != expectedRole)
+  notes = []                     // response.notes accumulator, replaces the former
+                                  // single artifactsWarning string; joined after
+                                  // `guidance` in the final response text, in push order
+  responsePayload = { wp, pipeline }   // base response shape; appended_criteria added below
+
+  // Acceptance criteria updates (merge semantics, §12.3) — matching stays exact-text;
+  // every unmatched update is still appended (the behaviour is unchanged), but it is
+  // now collected so the response and the audit trail can say so visibly.
+  appended = []
   if opts.acceptance_criteria_updates is provided:
     for each update in opts.acceptance_criteria_updates:
       existing = wp.acceptance_criteria.find(ac => ac.criterion == update.criterion)
@@ -708,6 +729,29 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
         wp.acceptance_criteria.append({     // Append new
           criterion: update.criterion,
           met: update.met
+        })
+        appended.append(update.criterion)
+
+    if appended is not empty:
+      responsePayload.appended_criteria = appended
+      notes.append(
+        "Note: " + appended.length + " acceptance_criteria_updates entr" +
+        (appended.length == 1 ? "y" : "ies") +
+        " matched no existing criterion and " +
+        (appended.length == 1 ? "was" : "were") +
+        " appended as new. Copy criterion text verbatim from ledger_get_work_package " +
+        "to update an existing one instead."
+      )
+      if agentRole != "Project Manager":
+        root.project_comments.append(ProjectComment {
+          type: "warning",
+          priority: "low",
+          timestamp: now(),
+          agent: agentRole,
+          note: "Pipeline " + pipelineType + " on " + wp.work_package_id +
+            " appended " + appended.length + " unmatched acceptance_criteria_updates " +
+            "entr" + (appended.length == 1 ? "y" : "ies") + " as new criteria: " +
+            appended.map(c => "\"" + c + "\"").join(", ")
         })
   
   // Handoff notes
@@ -732,18 +776,51 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
     }
     wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
   
-  // Artifact completeness soft warning (scoped to creative/modifying pipeline types)
-  if status == "PASS" AND pipelineType in ARTIFACT_EXPECTED_PIPELINE_TYPES AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
-    root.project_comments.append(ProjectComment {
-      type: "warning",
-      priority: "low",
-      timestamp: now(),
-      agent: agentRole,
-      note: "Pipeline {pipelineType} on {wp.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability"
-    })
+  // Artifact completeness soft warning — policy-driven per pipeline type (§9b.3), not a
+  // fixed set. isPmOverride callers are never warned (a PM-completed pipeline is an
+  // administrative override, not a creative agent's declaration).
+  if status == "PASS" AND NOT isPmOverride:
+    policy = ARTIFACT_DECLARATION_POLICY[pipelineType]
+    outcome = evaluateArtifactDeclaration(policy, opts.artifacts?.files_modified)
+    if outcome != "ok":
+      extraSentence = policy == "declare"
+        ? " Pass an explicit empty array when this pass modified nothing."
+        : ""
+      note = "Pipeline " + pipelineType + " on " + wp.work_package_id +
+        " completed with PASS but declared no artifacts.files_modified — " +
+        "consider declaring modified files for traceability." + extraSentence
+      root.project_comments.append(ProjectComment {
+        type: "warning",
+        priority: "low",
+        timestamp: now(),
+        agent: agentRole,
+        note: note
+      })
+      notes.append("Note: artifacts.files_modified is empty or absent." + extraSentence)
 
   root.last_updated = now()
 ```
+
+`evaluateArtifactDeclaration(policy, filesModified)` is a pure function with no side effects:
+
+```
+function evaluateArtifactDeclaration(policy, filesModified):
+  if policy == "exempt":
+    return "ok"
+  if filesModified is null:
+    return "undeclared"
+  if policy == "non-empty" AND filesModified.length == 0:
+    return "empty"
+  return "ok"   // policy == "declare" accepts [] as "ok"
+```
+
+The two `notes.append(...)` calls above (the criteria note from the acceptance-criteria block,
+then the artifact note) populate one ordered `notes: string[]` accumulator, replacing the
+former single `artifactsWarning` string. The response text is built by joining `guidance` with
+every entry in `notes`, in the fixed order they were pushed — criteria note first (it is
+computed earlier in the function, §12.1 lines 691–727), artifacts note second (§12.1 lines
+751–771) — so a caller or test can assert on exact response text instead of a free-form
+concatenation.
 
 ### 12.2 Handoff Note Routing Summary
 
@@ -774,7 +851,12 @@ On FAIL (fallback — standard target's stage not active):
 
 - Match by **exact** criterion text
 - Found → update the `met` flag
-- Not found → **append** as a new entry `{ criterion, met }`
+- Not found → **append** as a new entry `{ criterion, met }` — the match stays strict (no
+  whitespace/punctuation normalisation), but the append is no longer silent: every unmatched
+  update's text is collected and surfaced on the response as `appended_criteria: string[]`, with
+  a response note recommending a verbatim copy of the existing criterion text next time. For a
+  non-PM caller, a single low-priority `"warning"` project comment also names the WP and quotes
+  each appended text, giving the PM and Synthesis an audit trail without blocking completion.
 
 ### 12.3b Acceptance Criteria Management
 
@@ -913,7 +995,7 @@ Pipelines within a work package follow a **canonical ordering** of six stages. T
 Canonical:  implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-The PM may compose **any valid subsequence** of this ordering. Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
+The PM may compose **any valid subsequence** of this ordering that passes [§9b.2](operations.md#9b2-active-pipeline-stages-validation). Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
 
 ```
 Default:    implementation → qa → code-review → documentation
@@ -1172,9 +1254,9 @@ function resolveFailAgent(pipelineType, activeStages):
   return PIPELINE_AGENT_MAP[firstStage]
 ```
 
-In practice, this fallback only triggers for unusual compositions where the standard fail target's stage was omitted (e.g., a WP with `["qa", "code-review"]` where a `qa` FAIL would normally route to Developer, but `implementation` is not active — the fallback routes to QA itself for self-rework). For all standard compositions (including the default 4 stages and full 6 stages), the base FAIL_ROUTING_MAP applies directly.
+Since [§9b.2 Rule 5](operations.md#9b2-active-pipeline-stages-validation) (fail-route coverage, spec v2.6.0), this fallback is reachable **only for WPs created before v2.6.0**. Rule 5 rejects at creation time every chain that would otherwise trigger it — a WP with `["qa", "code-review"]`, for example, is no longer accepted, because `qa`'s FAIL target (Developer) owns `implementation`, which is absent. Pre-existing WPs with such a chain are not migrated and keep routing through the fallback exactly as before (e.g., a legacy `["qa", "code-review"]` WP's `qa` FAIL still routes to QA itself for self-rework). For every chain accepted by `validateActiveStages`, the base FAIL_ROUTING_MAP applies directly and the fallback branch is never taken. See [§21.72](edge-cases.md#2172-unfixable-verifier-chain-rejection) for the full treatment.
 
-> **Self-referential fallback:** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56).
+> **Self-referential fallback (legacy chains only — see §21.72):** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56). Since v2.6.0, only WPs created before that version can reach this path.
 
 > **Failure routing rationale:**
 > - **Security Auditor (`security-audit`)** failures route to Developer because security issues are typically code-level fixes, consistent with the QA and code-review failure routing pattern.
@@ -1824,7 +1906,7 @@ Inactive stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Create WP | Dependency not found | Referenced WP ID does not exist |
 | Create WP | Dependency cycle | Adding these dependencies would create a circular dependency |
 | Create WP | Empty criteria | At least one acceptance criterion required |
-| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
+| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, violates canonical ordering, or a stage's FAIL target owns no active stage at or before it (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
 | Claim WP | Wrong status | WP must be READY |
 | Claim WP | Dependencies not met | All deps must be terminal |
 | Claim WP | Assigned to other | Override required (PM or assignee only) |

@@ -62,6 +62,13 @@ cc_file_name: ledger-bootstrapper.md
 audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 changelog: |
+  1.5.0 (2026-10-15): Registers WPs in ascending number order instead of phase order, verifies in Step 1
+    that every dependency points to a lower number, and stops at the first failed call or ID mismatch
+    instead of continuing; phase-order registration let ledger IDs drift from the draft numbers while
+    descriptions kept the draft's cross-references, and only the `dependencies` array was translated
+  1.4.2 (2026-09-29): Removed `Edit`, `Write`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from
+    `cc_tools` — the content explicitly writes nothing to disk and declares no web or todo instruction,
+    so the Claude Code grant exceeded the VS Code list (`execute`, `read`, `search` only) without cause
   1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -86,21 +93,15 @@ tools:
 cc_tools:
   - Bash
   - Read
-  - Edit
-  - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata
 identity: "Technical Program Manager — Ledger Initialization Operator"
 use_when: "Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written"
 key_behavior: |
-  Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
+  Creates the project in the ledger, then registers each WP in ascending number order, stopping at the first failed call or ID mismatch — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-claude-coordinator.yaml`
@@ -212,6 +213,11 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.0 (2026-10-15): New Step 7 renumbers `work-packages-draft.md` by phase whenever a WP depends on a
+    higher-numbered one, translating every reference from one complete old → new mapping, and records the
+    mapping in a new Renumbering section; the ledger assigns IDs in registration order and copies
+    descriptions verbatim, so a draft numbered against the dependency order left the ledger's IDs and the
+    descriptions' cross-references disagreeing
   1.4.5 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
@@ -315,6 +321,9 @@ vs_file_name: ledger-knowledge-archiver.agent.md
 id: standalone-ledger-knowledge-archiver
 cc_file_name: ledger-knowledge-archiver.md
 changelog: |
+  1.9.2 (2026-09-29): Removed `Bash`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from `cc_tools`
+    — the content has no shell-command, web-fetch, or todo instruction, so the Claude Code grant
+    exceeded the VS Code list (`read`, `edit`, `search` only) without cause
   1.9.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -355,16 +364,11 @@ tools:
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
 cc_tools:
-  - Bash
   - Read
   - Edit
   - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata
@@ -385,6 +389,10 @@ vs_file_name: ledger-knowledge-curator.agent.md
 id: standalone-ledger-knowledge-curator
 cc_file_name: ledger-knowledge-curator.md
 changelog: |
+  1.4.2 (2026-09-29): Added `edit` to VS Code `tools`, and removed `Bash`, `WebFetch`, `WebSearch`,
+    `TodoRead` and `TodoWrite` from `cc_tools`, keeping `Edit`/`Write` on both targets — the persona
+    edits documents that mention specific insights, so both targets need that grant (user decision,
+    2026-09-29); the content has no shell-command, web-fetch, or todo instruction
   1.4.1 (2026-09-14): Added `cc_tools` override granting `mcp__central_pm` — the raw `central_pm/*`
     wildcard in `tools:` is VS Code-only syntax and never resolves under Claude Code `--agent`
     invocation, which requires the double-underscore `mcp__<server>` form; Task omitted since this
@@ -415,6 +423,7 @@ audit_date: "2026-08-28"
 tools:
   - vscode
   - read
+  - edit
   - search
   - central_pm/*
 
@@ -423,16 +432,11 @@ tools:
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
 cc_tools:
-  - Bash
   - Read
   - Edit
   - Write
   - Grep
   - Glob
-  - WebFetch
-  - WebSearch
-  - TodoRead
-  - TodoWrite
   - mcp__central_pm
 
 # overview metadata
@@ -492,6 +496,9 @@ id: standalone-ledger-orchestrator-runner
 cc_file_name: ledger-orchestrator-runner.md
 da_file_name: ledger-orchestrator-runner.md
 changelog: |
+  1.5.2 (2026-09-29): Removed `Task` from `cc_tools` — this persona declares no `subagents` and its
+    content contains no dispatch instruction, so the Claude Code grant exceeded the VS Code `agent`-less
+    grant without cause
   1.5.1 (2026-03-26): Troubleshooting table updated with --depth N flag for kill-orchestrator
   1.5.0 (2026-03-25): Replaced log monitoring with read-log.js; kill-orchestrator.js added
   1.4.1 (2026-03-25): Fixed terminal polling; JSONL schema reading; dry-run go/no-go decisions
@@ -514,7 +521,6 @@ cc_tools:
   - Read
   - Edit
   - Grep
-  - Task
   - TodoRead
   - TodoWrite
 
@@ -538,6 +544,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.4.0 (2026-10-08): Added a Baseline-Capture Chain — a WP whose deliverable is an early diff-oracle
+    snapshot always gets ["implementation", "qa"], never verification-only, cross-referenced from the
+    verification-only chain's state-changing-operations pre-requisite as an exception
   1.3.0 (2026-10-06): Verification-only chain withdrawn — a verifier with no `implementation` stage
     has nobody to fix what it flags, so the ledger loops the WP back to the same verifier (incident:
     hcp-editor WP-019, an exit gate on `["qa", "code-review"]`). New Decision Criteria block and
@@ -666,6 +675,9 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.10.0 (2026-10-08): No WP outruns its own baseline — a new constraint keeps a before/after diff
+    oracle's early capture step as its own WP, named in the Notes of every WP that mutates the files the
+    snapshot covers, so the Dependency Sequencer orders the capture first
   1.9.0 (2026-10-06): No verification-only WPs — a WP that only runs checks has no stage to fix a
     failure, so the ledger loops it on the same verifier (incident: hcp-editor WP-019 exit gate).
     Principle widened to "Verification Belongs With the Work It Verifies"; the test-WP exceptions now

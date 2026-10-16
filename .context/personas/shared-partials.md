@@ -36,6 +36,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── planner-research-brief-template.md
             └── pm-subagent-roster.md
             └── refinement-pass-label.md
+            └── release-history-archiving.md
             └── research-brief-protocol.md
             └── research-brief-reference.md
             └── summary-crafting-guide.md
@@ -391,6 +392,11 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 - Never leave a template placeholder unfilled in `plan.md`. Where a section genuinely does not apply, omit the whole section rather than shipping an empty heading or a literal `{…}` slot.
 - Never emit truncation markers (`// ... existing code ...`, `…`) in place of real content in either artifact.
 
+### Acceptance Oracles
+- Where an acceptance criterion is a before/after diff against generated or rendered output, give that oracle its own early capture step — a step with no dependencies, ordered before any step that mutates what it snapshots. Generated output is often gitignored and cannot be recovered once a later step has already changed the source that produces it, so the only reliable reference is one taken before the run touches anything.
+- Record where the snapshot goes: a location the run itself will not clean or overwrite. Either a gitignored directory inside the repository or a directory outside every repository the plan changes is valid — this principle holds for a single-repo project with no workspace root just as much as for a multi-repo one, so state the location without prescribing which kind of location it must be.
+- Name every step that consumes the snapshot as depending on the capture step, so the ordering survives even when other steps are reordered during review.
+
 ### Justified Structure
 - For every new abstraction, interface, base class, plugin hook, configuration knob, or dependency the plan introduces, name either a current consumer or the concrete growth it anticipates. An anticipated trajectory is a valid justification — an array that will hold behaviour within months is a class today. What is not valid is structure with neither a consumer nor a named trajectory: mark those as speculative in the Rationale or remove them.
 - Reach for an existing utility, helper, or module before proposing a new one, and cite the existing artefact by file path when you do. Duplicating a structure that already exists adds maintenance surface without adding capability.
@@ -598,6 +604,7 @@ Before handing off, verify:
 - [ ] Where the plan changes more than one repository, the first step switches each dependency between them to a local symlink, or `Assumptions` records that the user already did. No step publishes, tags, releases, or reverts the symlinks.
 - [ ] No section contains an unfilled `{…}` placeholder; inapplicable sections are omitted entirely.
 - [ ] In Synthesis Rework mode: every deferred item was either promoted into a step or recorded in the `Deferred Items` table.
+- [ ] Every before/after diff oracle in Acceptance Criteria has its own early, dependency-free capture step, ordered before any step that mutates what it snapshots, with its recorded storage location named in the plan.
 {{#if has_mcp}}
 - [ ] Every cited insight that shipping this plan would leave making a claim the codebase no longer supports appears in `Knowledge Base Reconciliation`, with the {{agent_ledger_knowledge_curator}} named as executor.
 {{/if}}
@@ -671,6 +678,40 @@ A plan is often refined more than once, by a different model each time. The `## 
 The section keeps its two lines however many passes run. A line grows only when a model new to the plan joins the tally.
 
 The **pass label** is the model driving the refinement session — the one the user selected when starting the refinement, not the models its sub-agents run under. Its form is the model family and its major version, with the host left out: `Sonnet 4.6`, `Opus 4.6`, `GPT-5.6`, `Gemini 3.6`. The same model reached through a different host carries the same label, so a Copilot-hosted Sonnet 4.6 pass and an Anthropic-hosted one share a tally.
+
+```
+###  Path: `/personas/shared/partials/release-history-archiving.md`
+
+```md
+The live file is the release history readers open first. The archive holds the releases that have left it, so the live file stays short enough to give an overview of recent work.
+
+### Archive Layout
+
+The archive has one folder per major version and one file per minor series inside it. `v2/v2.1.md` holds every 2.1.x release of a Markdown changelog, and `v2/v2.1.xml` those of an XML release-notes file. Inside a file, releases appear exactly as they left the live file, newest first.
+
+A new archive file copies the layout of the archive files already present. The first file in a project opens the same way the live file does, so it reads as a complete document on its own.
+
+### When to Suggest Archiving
+
+A cheap count decides whether an Archive session is worth suggesting. The live file qualifies when it holds more than ten releases, or any release of an older major version than its newest. The count only prompts the suggestion: the cut itself is still judged in the Archive session, and the user decides whether to run one.
+
+### Cut Rules
+
+These rules decide which minor series leave the live file. They apply in order, and an earlier rule outranks a later one.
+
+1. **Older major versions leave first.** Once the live file holds a release of a new major version, every release of an older major version moves to the archive. The count and the story play no part.
+2. **The current minor series stays.** The series of the newest release is never archived.
+3. **A minor series moves whole.** v2.1.0 through v2.1.x leave together or not at all. Where a size cut would land inside a series, the whole series stays.
+4. **About ten releases stay.** Ten is a guide, not a limit. Fewer stay when releases are long; more stay when a story needs them.
+5. **A story stays together.** A run of minor series that tells one continuous story stays in the live file while any part of it is still there. Its early chapters do not leave ahead of its later ones.
+
+Series leave oldest first. A patch released for a series that is already archived goes into that series' file, in version order.
+
+### Verbatim Moves
+
+An archive pass moves text and never edits it. Each archived release is character-identical to the text it replaces. A wording problem found along the way goes to the user as a candidate for a separate Rewrite session.
+
+The live file loses a release only after its archived copy is written and compared against the original.
 
 ```
 ###  Path: `/personas/shared/partials/research-brief-protocol.md`
