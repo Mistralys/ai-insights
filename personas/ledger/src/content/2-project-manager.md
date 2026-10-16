@@ -158,7 +158,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
-   Expected output: `dependency-analysis.md` written to the plan folder.
+   Expected output: `dependency-analysis.md` written to the plan folder, and `work-packages-draft.md` renumbered where its numbering did not follow the dependency order.
 8. **Invoke Pipeline Configurator sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
