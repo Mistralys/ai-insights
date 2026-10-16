@@ -19,7 +19,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
 ```json
 {
   "$schema": "./workflow-manifest.schema.json",
-  "spec_version": "2.4.1",
+  "spec_version": "2.6.0",
 
   "roles": [
     {

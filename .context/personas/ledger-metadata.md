@@ -37,6 +37,13 @@ id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
 changelog: |
+  2.13.0 (2026-10-01): Added an Acceptance Oracles rule and a matching checklist item — a before/after
+    diff oracle now gets its own early, dependency-free capture step, ordered before any step that
+    mutates what it snapshots, with its storage location recorded in the plan; no path is prescribed
+  2.12.0 (2026-09-29): Added `Task` to `cc_tools` — the planner dispatches ad-hoc sub-agents such as
+    the Researcher on Claude Code (no `subagents` list added: the content names no specific sub-agent,
+    and a declared slug the output never references would fail the rendered-reference check). Added
+    `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   2.11.0 (2026-09-29): Plans no longer depend on a release — a new Releases & Local Dependencies rule
     group keeps publishing, tagging and version-constraint bumps out of the steps as After-the-run rows,
     opens every multi-repository plan with a switch to local symlinks (the project's documented switch
@@ -99,10 +106,20 @@ tools:
   - todo
   - central_pm/*
 
+# `agent` (VS Code): this persona dispatches ad-hoc sub-agents (e.g. the
+# Researcher) it does not name in advance, so no `subagents` list is
+# declared here — a declared slug the rendered output never references
+# would fail the rendered-reference check (changelog 2.12.0). The grant is
+# kept on both targets deliberately; see the matching `Task` comment below.
+
 # cc_tools: explicit list required — the builder resolves cc_tools from
 # cc_tools → tools (never default_cc_tools), so the VS Code tools list
 # would be used otherwise, which carries `central_pm/*` (VS Code-only
 # syntax that Claude Code's `--agent` tool matcher never resolves).
+#
+# `Task` (Claude Code): the ad-hoc-dispatch counterpart of the `agent`
+# grant above — same rationale, same absence of a `subagents` list
+# (changelog 2.12.0).
 cc_tools:
   - Bash
   - Read
@@ -110,8 +127,11 @@ cc_tools:
   - Write
   - Grep
   - Glob
+  - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
@@ -159,6 +179,8 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.11.2 (2026-10-15): Dependency Sequencer's expected output now includes the renumbered draft
+  3.11.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the
     Pipeline Configurator's `Decomposition defect — no authoring work` flag and any chain with `qa`,
     `security-audit` or `code-review` but no `implementation`, sends hits back to the WP Decomposer's
@@ -220,6 +242,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:
@@ -266,6 +290,7 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.18.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
     no-release-cycles partial)
@@ -330,6 +355,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
@@ -399,6 +426,7 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
     with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
     pattern, and keys the focused protocol on the WP's most recent `qa` pipeline being FAIL; a WP
@@ -454,6 +482,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
@@ -505,6 +535,7 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.3 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
     general-purpose agent that re-briefed the successor with a composed prompt. The
@@ -551,6 +582,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
@@ -602,6 +635,9 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.12.0 (2026-10-01): Declare All Artifacts now states the field is never omitted — pass
+    `artifacts.files_modified: []` explicitly when nothing was reviewed and nothing changed
+  3.11.3 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
     general-purpose agent that re-briefed the successor with a composed prompt. The
@@ -655,6 +691,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 has_mcp: true
@@ -704,6 +742,7 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.8.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.8.0 (2026-09-29): Gained a Strict Constraints section — the release is prepared, never run
     (publishing, tagging and constraint bumps belong to the user), local dependency symlinks are expected
     state rather than a readiness defect, and Git writes including tags are ruled out
@@ -749,6 +788,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:
@@ -796,6 +837,9 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.11.0 (2026-10-01): Declare All Artifacts and Workflow step 6 now instruct an explicit
+    `artifacts.files_modified: []` when the gap analysis found nothing to update, instead of omitting the field
+  3.10.6 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.5 (2026-09-29): Gap Analysis searches the project's READMEs for each docblock the
     implementation changed and compares every match — a synthesis found three stale paragraphs in
     an adjacent module's README after WPs updated only the source docblocks, so the search is
@@ -850,6 +894,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:
@@ -908,6 +954,10 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.13.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
+  3.13.0 (2026-10-08): When the Knowledge Archiver dispatch cannot run (dispatch tool withheld at
+    the sub-agent depth limit, or the call fails), records a project comment and a Next Steps item
+    naming the pending manual run instead of skipping the step silently
   3.12.1 (2026-09-29): Claude Code Knowledge Archiver dispatch now passes `subagent_type` instead of
     describing the agent in `description`, which started a persona-less general-purpose agent.
     Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter
@@ -955,6 +1005,8 @@ cc_tools:
   - Task
   - WebFetch
   - WebSearch
+  - TodoRead
+  - TodoWrite
   - mcp__central_pm
 
 subagents:

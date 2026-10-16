@@ -682,6 +682,7 @@ _SOURCE: Top-level directory tree_
     │       └── whatsnew-curator.agent.md
     │       └── workspace-architect.agent.md
 └── scripts/
+    ├── audit-orchestrator.js
     ├── backfill-duration.js
     ├── build-personas.js
     ├── build-skills.js
@@ -699,7 +700,8 @@ _SOURCE: Top-level directory tree_
     ├── kill-orchestrator.js
     ├── launch-agent.js
     ├── lib/
-    │   ├── cc-tools-validation.js
+    │   ├── agent-slug-validation.js
+    │   ├── build-checks.js
     │   ├── changelog-size-check.js
     │   ├── claude-cli.js
     │   ├── frontmatter.js
@@ -708,6 +710,8 @@ _SOURCE: Top-level directory tree_
     │   ├── launch-agent-core.js
     │   ├── launch-toggles.js
     │   ├── ledger-dirs.js
+    │   ├── mcp-dist-freshness.js
+    │   ├── name-mapping.js
     │   ├── npm-link.js
     │   ├── original-cwd.js
     │   ├── persona-model-resolution.js
@@ -732,9 +736,10 @@ _SOURCE: Top-level directory tree_
     │   ├── notebooklm-bundle-header.md
     ├── tests/
     │   ├── README.md
+    │   ├── agent-slug-validation.test.js
     │   ├── backfill-duration.test.js
+    │   ├── build-checks.test.js
     │   ├── build-personas-model-resolution.test.js
-    │   ├── cc-tools-validation.test.js
     │   ├── changelog-size-check.test.js
     │   ├── claude-cli.test.js
     │   ├── cli-cmd-agent.test.js
@@ -742,11 +747,15 @@ _SOURCE: Top-level directory tree_
     │   ├── frontmatter.test.js
     │   ├── generate-agents-overview.test.js
     │   ├── health-checks.test.js
+    │   ├── helpers/
+    │   │   ├── timeouts.js
     │   ├── insight-validation.test.js
     │   ├── install-mcp.test.js
     │   ├── launch-agent.test.js
     │   ├── launch-toggles.test.js
     │   ├── ledger-plugin.test.js
+    │   ├── mcp-dist-freshness.test.js
+    │   ├── name-mapping.test.js
     │   ├── npm-link.test.js
     │   ├── original-cwd.test.js
     │   ├── philosophy-tone.test.js

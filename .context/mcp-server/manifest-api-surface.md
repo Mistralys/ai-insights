@@ -284,8 +284,8 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 - **Cycle detection:** `hasCycle()` (BFS) is called before creation. If the new WP's dependency chain would form a cycle, the call is rejected with `'Dependency cycle detected: WP X would create a circular dependency.'`
 - **Acceptance criteria validation:** Each criterion string is validated — empty strings and whitespace-only strings are rejected.
 - **`active_pipeline_stages`:** Optional array of pipeline types that defines which stages this WP will execute. When omitted, defaults to `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) for backward compatibility. Stored on both the WP detail file and the root index summary entry (`WorkPackageSummary.active_pipeline_stages`) as `PipelineType[]`. Summary and detail are guaranteed in sync at creation time by construction (same `resolvedActiveStages` value is written to both).
-  - **Hard guardrails (reject with error):** empty array; entries that are not valid `PIPELINE_TYPES`; duplicate entries; entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING`.
-  - **Soft guardrails (warning appended to success message):** `implementation` present without `qa`; single-stage chain.
+  - **Hard guardrails (reject with error):** empty array; entries that are not valid `PIPELINE_TYPES`; duplicate entries; entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING`; **fail-route coverage (v2.6.0)** — a stage's FAIL target must own an active stage at or before it (rejects, e.g., `['qa', 'code-review']` without `implementation`; see `findFailRoutingGaps()` below).
+  - **Soft guardrails (warning appended to success message):** `implementation` present without `qa`; single-stage chain; non-default custom composition.
   - Example: `active_pipeline_stages: ['implementation', 'qa', 'code-review']` — skips the documentation stage.
 
 #### `ledger_claim_work_package`
@@ -503,7 +503,7 @@ Starts a new pipeline for a work package. The `type` field is validated by `Pipe
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent. Sets status, completion timestamp, summary, optional fields, and automatically computes `duration_ms` from `started_at` to `completed_at` when `started_at` is present and the result is non-negative.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent (legacy-only since v2.6.0 — `validateActiveStages()`'s fail-route coverage guardrail rejects any new chain that would reach this fallback). Sets status, completion timestamp, summary, optional fields, and automatically computes `duration_ms` from `started_at` to `completed_at` when `started_at` is present and the result is non-negative.
 
 **`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize and PM Override handoff-note identity.
 
@@ -516,7 +516,9 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 2. **Agent role guard:** `agent_role` must match the `PIPELINE_AGENT_MAP` owner for the given pipeline `type`. 
    **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type. When PM override is active, the handoff note's `from_agent` is set to `'Project Manager (PM Override)'` instead of the standard map value.
 
-**`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
+**`acceptance_criteria_updates` merge semantics (§12.3):** Each item is matched by exact `criterion` string (`===`, no normalization). If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array — and the append is now visible: every unmatched text is collected and the response payload gains `appended_criteria: string[]`, the response text gains a verbatim-copy recommendation note, and (for a non-PM caller) a single low-priority `"warning"` project comment names the WP and quotes each appended text.
+
+**Artifact declaration policy (§9b.3):** On a non-PM PASS, `artifacts.files_modified` is evaluated against `ARTIFACT_DECLARATION_POLICY[type]` via `evaluateArtifactDeclaration()`. `qa`/`security-audit` are `'exempt'` (never checked); `implementation` is `'non-empty'` (absent or `[]` both warn); `code-review`/`release-engineering`/`documentation` are `'declare'` (absent warns, but an explicit `[]` is accepted as "ran this stage, changed nothing"). A non-`'ok'` outcome appends a project comment and a response note containing the substring `"artifacts.files_modified is empty or absent"`.
 
 **Auto-finalize:** When `status: 'PASS'` and the calling agent owns the WP's **last active stage** (terminal stage), the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`. The terminal stage is computed dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs this is `documentation` (Documentation agent); for custom-stage WPs it may be any stage.
 - **All criteria met** — WP is automatically transitioned to `COMPLETE` within the same lock scope. Response payload includes `auto_finalized: true`. `pending_work_packages` is decremented and the root summary is updated. After the lock is released, `propagateDependencyUnblock` is called to transition eligible BLOCKED dependents to READY (§6.3 compliance — see Gotcha 8 in constraints.md for lock-ordering details).
@@ -3351,6 +3353,30 @@ const AGENT_PIPELINE_MAP: Record<string, PipelineType>;
 const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>>;  // null = no prerequisite
 const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>>;
 const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>>;
+
+// Per-pipeline-type policy governing how strictly completePipeline evaluates a PASS
+// declaration of artifacts.files_modified (§9b.3). Replaces the former hand-maintained
+// ARTIFACT_EXPECTED_PIPELINE_TYPES set, which could only express "checked"/"not checked"
+// and could not distinguish an explicit [] from an absent field.
+type ArtifactDeclarationPolicy = 'exempt' | 'non-empty' | 'declare';
+
+// Exhaustive Record<PipelineType, ArtifactDeclarationPolicy> — every pipeline type has an
+// explicit policy, so adding a PipelineType is a compile error here until decided.
+// Values: qa/security-audit → 'exempt'; implementation → 'non-empty';
+// code-review/release-engineering/documentation → 'declare'.
+const ARTIFACT_DECLARATION_POLICY: Record<PipelineType, ArtifactDeclarationPolicy>;
+
+// Outcome of evaluating a declared files_modified value against a policy.
+// 'ok' — satisfies the policy, no warning. 'undeclared' — field absent/null.
+// 'empty' — field is [], only reachable under 'non-empty'.
+type ArtifactDeclarationOutcome = 'ok' | 'undeclared' | 'empty';
+
+// Pure evaluator mapping a (policy, filesModified) pair to one of the three outcomes above.
+// Used by completePipeline (step 4c) to decide whether to emit the soft artifact warning.
+function evaluateArtifactDeclaration(
+  policy: ArtifactDeclarationPolicy,
+  filesModified: string[] | null | undefined,
+): ArtifactDeclarationOutcome;
 ```
 
 ---
@@ -3663,6 +3689,10 @@ function resolveNextAgent(
 //   documentation → Documentation (self-rework)
 // Fallback: when the standard fail-target agent's stage is not present in activeStages,
 // routes to the agent that owns the first active stage.
+// LEGACY-ONLY since v2.6.0: validateActiveStages()'s fail-route coverage guardrail
+// (findFailRoutingGaps(), see below) rejects at creation every chain that would reach
+// this fallback. It remains reachable only for WPs created before v2.6.0 whose stored
+// chain predates the rule (active_pipeline_stages is never re-validated on read).
 // When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
 // Exported from src/utils/pipeline-maps.ts. Replaces the legacy static FAIL_ROUTING_MAP for
 // new-stage WPs.
@@ -3670,7 +3700,7 @@ function resolveNextAgent(
 // the base manifest fail-routing without the active-stage fallback can use it directly.
 // Examples:
 //   resolveFailAgent('qa')                      → 'Developer'      (Developer's stage is active)
-//   resolveFailAgent('qa', ['documentation'])   → 'Documentation'  (Developer's impl stage absent — fallback)
+//   resolveFailAgent('qa', ['documentation'])   → 'Documentation'  (fallback — legacy chain, pre-v2.6.0 only)
 //   resolveFailAgent('documentation')           → 'Documentation'  (self-rework)
 function resolveFailAgent(
   pipelineType: PipelineType,
@@ -3733,12 +3763,44 @@ function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
 
 // Validates a proposed active_pipeline_stages array against all hard and soft rules.
 // Returns { errors, warnings } — caller is responsible for acting on errors (typically throws errors[0]).
-// Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
-// Soft warnings: implementation without qa, single-stage chain.
+// Hard errors (5, §9b.2): empty array, unknown stage names, duplicates, out-of-canonical-order,
+// fail-route coverage (v2.6.0 — a stage's FAIL target owns no active stage at or before it;
+// see findFailRoutingGaps() below). The fail-route check runs after the canonical-order check
+// and returns early (same early-return pattern as the other hard errors) before any soft warning
+// is evaluated.
+// Soft warnings (3): implementation without qa, single-stage chain, non-default custom composition.
 // Exported from src/utils/pipeline-maps.ts. Used by createWorkPackage() to replace
 // the previous ~60-line inline validation block.
 // Note: accepts string[] rather than PipelineType[] — validated internally.
 function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] };
+
+// A single stage whose FAIL result cannot be fixed within its active chain — the
+// manifest-derived unit returned by findFailRoutingGaps() (v2.6.0, §9b.2 Rule 5).
+interface FailRoutingGap {
+  stage: PipelineType;
+  failAgent: string;    // FAIL_AGENT_MAP[stage]
+  fixStage: PipelineType; // AGENT_PIPELINE_MAP[failAgent]
+}
+
+// Finds every active stage whose FAIL target cannot act on the failure. For each active
+// stage S (canonical order), resolves FAIL_AGENT_MAP[S] → failAgent, then
+// AGENT_PIPELINE_MAP[failAgent] → fixStage. A target that owns no stage is exempt
+// (resolveFailAgent never needs its fallback for it). Otherwise fixStage must appear in
+// the active prefix ending at and including S; if not, S is reported as a gap. A stage
+// whose FAIL target owns the stage itself (fixStage === S, e.g. implementation,
+// release-engineering, documentation under the current manifest) always satisfies this
+// trivially and never appears in the result.
+// Reads only module-level manifest-derived maps (FAIL_AGENT_MAP, AGENT_PIPELINE_MAP,
+// getOrderedActiveStages) — no stage/role literals, no injectable parameters, matching
+// the sibling helper signature convention (getOrderedActiveStages, firstActiveStage,
+// lastActiveStage).
+// Exported from src/utils/pipeline-maps.ts. Backs validateActiveStages()'s Rule 5.
+// Examples:
+//   findFailRoutingGaps(['implementation', 'qa', 'code-review']) → []
+//   findFailRoutingGaps(['qa', 'code-review']) →
+//     [{ stage: 'qa', failAgent: 'Developer', fixStage: 'implementation' },
+//      { stage: 'code-review', failAgent: 'Developer', fixStage: 'implementation' }]
+function findFailRoutingGaps(stages: readonly PipelineType[]): FailRoutingGap[];
 
 // Filters an array of WorkPackageDetail to those whose active_pipeline_stages includes
 // the given stage. Falls back to DEFAULT_PIPELINE_STAGES when a WP has no explicit stages.
