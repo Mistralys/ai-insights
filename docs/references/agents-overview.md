@@ -180,13 +180,13 @@ Generate, update, and maintain AGENTS.md files — the operating manual for AI a
 
 ---
 
-### Changelog Curator (v1.5.1)
+### Changelog Curator (v1.6.0)
 
 **Identity:** Release Communications Editor
 
-Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style.
+Produce clean, scannable changelogs from Git history, rewrite verbose agent-generated entries into a concise house style, and archive older versions.
 
-- **Modes:** Generate (from Git history), Rewrite (clean up existing entries)
+- **Modes:** Generate (from Git history), Rewrite (clean up existing entries), Archive (move older versions to the changelog history)
 - **Use When:** Preparing a release, cleaning up verbose agent-generated changelog entries
 
 ---
@@ -410,13 +410,14 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.1.2)
+### WHATSNEW Curator (v1.2.0)
 
 **Identity:** Release Notes Editor
 
-Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only.
+Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only, and archive older versions in step with the changelog.
 
-- **Use When:** Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog
+- **Modes:** Generate (from the developer changelog), Rewrite (polish existing entries), Archive (move older versions alongside the changelog archive)
+- **Use When:** Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones
 
 ---
 
