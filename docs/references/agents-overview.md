@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-08
+> **Generated:** 2026-10-16
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.11.1)
+### Stage 2 — Project Manager (v3.11.2)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -434,14 +434,14 @@ Onboard and maintain development repositories for the AI Insights persona ecosys
 
 ## Ledger-Support Personas
 
-### Ledger Bootstrapper (v1.4.2)
+### Ledger Bootstrapper (v1.5.0)
 
 **Identity:** Technical Program Manager — Ledger Initialization Operator
 
 Mechanically initialize the project ledger: create all Work Package entries via MCP tools and verify the setup is complete.
 
 - **Use When:** Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written
-- **Key Behavior:** Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
+- **Key Behavior:** Creates the project in the ledger, then registers each WP in ascending number order, stopping at the first failed call or ID mismatch — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
 
 ---
 
@@ -457,7 +457,7 @@ Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger 
 
 ---
 
-### Ledger Dependency Sequencer (v1.4.5)
+### Ledger Dependency Sequencer (v1.5.0)
 
 **Identity:** Technical Program Manager — Dependency Analyst
 
