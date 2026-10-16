@@ -162,11 +162,19 @@ modes: |
 ```yaml
 slug: changelog-curator
 name: "Changelog Curator"
-description: "Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style."
+description: "Produce clean, scannable changelogs from Git history, rewrite verbose agent-generated entries into a concise house style, and archive older versions."
 vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.6.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one file per series
+    under docs/changelog-history/v{MAJOR}/ (or a location the project's docs name), with the cut rules,
+    layout and verbatim-move rules in the new shared release-history-archiving partial so the WHATSNEW
+    Curator archives on the same boundary; an archive footer links the newest archive file and is
+    protected in Generate and Rewrite; Generate ends with a mechanical archive check (more than ten
+    release headings, or an older major present) that always reports its count and only recommends an
+    Archive session, never archives; the changelog path may also come from the
+    project's docs; added the A Story Stays In One Place principle behind the judgment-based size cut
   1.5.1 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -211,6 +219,7 @@ use_when: "Preparing a release, cleaning up verbose agent-generated changelog en
 modes: |
   Generate (from Git history)
   Rewrite (clean up existing entries)
+  Archive (move older versions to the changelog history)
 
 ```
 ###  Path: `/personas/standalone/src/meta/comms-curator.yaml`
@@ -1589,11 +1598,18 @@ use_when: "Building or improving a web interface with strong UX, accessibility, 
 ```yaml
 slug: whatsnew-curator
 name: "WHATSNEW Curator"
-description: "Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only."
+description: "Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only, and archive older versions in step with the changelog."
 vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.2.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one XML file per series,
+    on the boundary the developer changelog's archive already set (or, with no changelog archive, the
+    boundary the shared release-history-archiving cut rules produce, reported back so the Changelog
+    Curator can match it); series with no user-facing versions get no file, and WHATSNEW.xml carries no
+    archive link since the in-app panel renders it; Generate ends with a mechanical archive check (more
+    than ten versions, an older major, or a series the changelog already archived) that always reports
+    and only recommends; mode resolution now covers the mode, not just versions
   1.1.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task
@@ -1631,7 +1647,11 @@ cc_tools:
 
 # overview metadata
 identity: "Release Notes Editor"
-use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog"
+use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones"
+modes: |
+  Generate (from the developer changelog)
+  Rewrite (polish existing entries)
+  Archive (move older versions alongside the changelog archive)
 
 ```
 ###  Path: `/personas/standalone/src/meta/workspace-architect.yaml`
