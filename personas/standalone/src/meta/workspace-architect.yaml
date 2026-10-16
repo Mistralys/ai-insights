@@ -5,6 +5,7 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.3.0 (2026-10-16): Stage 1 now carries the CTX triage decision, so the Manifest Curator records .context/ output in generated-artefacts.md before stage 4 creates it, and verification checks the document; Upgrade mode treats a manifest without it, in a project with a context.yaml, as stale
   1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.2.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools

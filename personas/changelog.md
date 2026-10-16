@@ -16,6 +16,9 @@ summaries and applies requested synthesis edits.
 - Developer: Never publishes or tags; Release Engineer prepares releases without running them.
 - Standalone: Plan Auditor flags release steps and person-gated steps as Critical.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
+- Standalone: Manifest Curator documents generated files in a new `generated-artefacts.md`.
+- Standalone: AGENTS.md Curator, CTX Architect, Workspace Architect route to that document.
+- Standalone: Git Committer classes feature-branch generated files via `generated-artefacts.md`.
 - Ledger, Standalone: Documentation personas check docblocks against README prose.
 - Deep Agents: Sub-agent dispatches pass the task in the correct field.
 - Build: Wrong-name sub-agent dispatches and tool-grant mismatches now fail the build.

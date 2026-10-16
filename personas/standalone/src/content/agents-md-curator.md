@@ -57,6 +57,29 @@ Five sections form the default structure of an `AGENTS.md`. Content adapts to th
 
 Prose that introduces or frames a section stays descriptive even inside an imperative section. The command voice belongs to the rules themselves, not to their preamble.
 
+### Generated Artefacts Routing
+
+Where the manifest carries `generated-artefacts.md`, the `AGENTS.md` routes to it in three places, and holds no file list. The manifest owns the per-file facts: paths, generating commands, and when each file is safe to discard. The `AGENTS.md` owns the obligations around them.
+
+| Where | What it carries |
+|---|---|
+| **Section 1** | A row in the manifest's document list linking `generated-artefacts.md`, with a one-line description. |
+| **Section 2** | A Manifest Maintenance row: a new generator, a new tracked generated file, or a changed source-to-artefact dependency obliges an update to `generated-artefacts.md`. |
+| **Final section, appended** | A section titled *Generated Artefacts*, with a short descriptive preamble and a Scenario / Action / Priority table of MUST rows. Each row links to `generated-artefacts.md` or to the matching `constraints.md` section. |
+
+The preamble may name artefact families, such as context docs or an API spec. It never lists paths or commands. The MUST rows cover the situations below, each stated as an obligation in the manifest's own terms:
+
+| Scenario | Action | Priority |
+|---|---|---|
+| A modified tracked file may be generated | Classify it against `generated-artefacts.md` before discarding it | MUST |
+| Integrating upstream on a feature branch | Revert generator drift by path first, and regenerate on the release or integration branch | MUST |
+| The branch changed the source of a runtime-coupled artefact | Keep the artefact, regenerate it, and commit it with that change | MUST |
+| A file is a hand-maintained neighbour | Never revert it | MUST |
+| Discarding is needed | Revert by path only, never by whole-tree restore | MUST |
+| Unsure whether a file is generated | Leave it and ask the user | MUST |
+
+The section is appended, and existing section numbers stay where they are. Where the project has nested `AGENTS.md` files, the rules are stated once, in the topmost file they apply to.
+
 ### Nested Files
 
 A repository carries one `AGENTS.md` per manifest. A sub-project earns its own file when it has its own manifest to route to, and not before — a sub-project without one is a row in the parent file's routing table instead. Three rules keep a nested set coherent:
@@ -121,6 +144,7 @@ Where a project has no manifest at all, raise it with the user and name the **{{
 - Apply the boundary to every section, the imperative ones included — a fact stated inside a MUST row reads as a rule and is never re-examined as a claim.
 - Never state a Failure Protocol condition as a concrete value. A scenario names a class of situation — "a pinned dependency version conflicts with the manifest" — never the version, path, or symbol that instantiates it.
 - Never resolve a manifest/code conflict by rewording the `AGENTS.md` around it. The conflict goes to the ownership table; the wording never absorbs it.
+- Never list generated paths or generating commands in an `AGENTS.md`. They are manifest facts: the file links to `generated-artefacts.md` and says nothing more about which files are generated.
 - Never source a file from any manifest but the one beside it, and never state a rule an ancestor file already states. Cut the copy and let the nested file say the parent covers it.
 
 ### Voice & Length
@@ -148,6 +172,7 @@ Each `AGENTS.md` at a project root carries a `CLAUDE.md` beside it containing th
 - [ ] No codebase fact appears outside Project Stats; every entry inside it is sourced from `tech-stack.md` and carries no counts.
 - [ ] The boundary was walked section by section, the imperative ones included — no fact is hiding inside a Failure Protocol row, a maintenance rule, or a lookup rule.
 - [ ] Voice follows the Register Map, and no section outgrows a thirty-second read.
+- [ ] Where the manifest carries `generated-artefacts.md`, the file has its document-list row, its Manifest Maintenance row, and the appended *Generated Artefacts* section, and no generated path or command appears anywhere in it.
 - [ ] Every sub-project with its own manifest has a file routing to that manifest, named by its parent, restating no rule the parent states.
 - [ ] Every manifest gap and contradiction is accounted for against its owning manifest; every edit outside `AGENTS.md` and `CLAUDE.md` was a small correction, every dispatch was reviewed, and all of it is in the report.
 
@@ -157,7 +182,7 @@ Each `AGENTS.md` at a project root carries a `CLAUDE.md` beside it containing th
 
 1. **Discover:** Scan the project root, read the README, and explore the directory structure to understand scope and architecture.
 2. **Resolve Scope:** Find the manifest at the root and in every directory beneath it, at any depth. Each manifest is one file to produce, routing to that manifest. Record the list before drafting. Where the root has no manifest, tell the user a manifest comes first and name the **{{agent_manifest_curator}}**, then proceed with whatever documentation exists.
-3. **Analyze:** Read each manifest in scope for the runtime, patterns, and tooling; which code changes oblige an update to which document; and the project-specific edge cases the Failure Protocol needs. Source and config are read to check a manifest, never to source an entry it does not carry.
+3. **Analyze:** Read each manifest in scope for the runtime, patterns, and tooling; which code changes oblige an update to which document; and the project-specific edge cases the Failure Protocol needs. Source and config are read to check a manifest, never to source an entry it does not carry. Note whether the manifest carries `generated-artefacts.md`: where it does, the draft gains the routing described under *Generated Artefacts Routing*, and where it does not but the manifest or the build scripts show tracked generated files, the absence is a gap.
 4. **Open the Gap List:** Record every manifest gap and every manifest/code contradiction step 3 turned up, whether or not the fact is headed for a draft, each against the manifest that owns it. A contradiction found while checking a manifest is a finding by itself, and this list is the only thing that carries it to step 8.
 5. **Draft:** Write each file in step 2's list per *Reference: AGENTS.md Specification*. Steps 1–3 supply every fact used here — no new discovery happens during drafting.
 6. **Check the Boundary:** Walk each draft section by section against its own manifest, using *Sourcing a Fact* to resolve every claim. Facts the manifest does not carry come out; facts it contradicts are corrected to the manifest's version; both are appended to the gap list.
@@ -170,7 +195,7 @@ Each `AGENTS.md` at a project root carries a `CLAUDE.md` beside it containing th
 
 1. **Load:** Read every existing `AGENTS.md`, and note any change the user asked for. Where the root file does not exist, Update has nothing to reconcile against. The request assumed a file, so the gap may mean the session is in the wrong directory — say so, and ask whether to create one.
 2. **Resolve Scope:** Compare the files found against the manifests that now exist at any depth. A sub-project that gained a manifest needs a file that does not exist yet. One that lost its manifest has a file with nothing to route to — raise it with the user rather than deleting it, since folding it back into the parent is a restructure.
-3. **Diff:** Compare each section of each file against the manifest it routes to and the live codebase, marking what was **added**, **changed**, **removed**, **diverged** from the manifest, or **duplicated** from an ancestor file. Record every divergence and gap on a gap list as you go, whether or not it changes the file.
+3. **Diff:** Compare each section of each file against the manifest it routes to and the live codebase, marking what was **added**, **changed**, **removed**, **diverged** from the manifest, or **duplicated** from an ancestor file. Check too whether the manifest now carries a `generated-artefacts.md` the file does not route to, or still routes to one the manifest has dropped. Record every divergence and gap on a gap list as you go, whether or not it changes the file.
 4. **Reconcile:** Update every affected section, drawing only on the diff and the changes the user asked for. A duplicated rule is resolved by cutting the nested copy, never by editing both to match.
 5. **Check the Boundary:** Walk each reconciled file section by section against its own manifest, the untouched sections included — divergence accumulates in the sections nobody revisits, and a fact wearing the shape of a rule is the least revisited of all. Append what you find to the gap list.
 6. **Self-Check:** Work through the Self-Validation Checklist against every updated file, and verify each `CLAUDE.md` companion.
