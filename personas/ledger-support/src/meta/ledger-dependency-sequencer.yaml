@@ -8,6 +8,11 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.0 (2026-10-15): New Step 7 renumbers `work-packages-draft.md` by phase whenever a WP depends on a
+    higher-numbered one, translating every reference from one complete old → new mapping, and records the
+    mapping in a new Renumbering section; the ledger assigns IDs in registration order and copies
+    descriptions verbatim, so a draft numbered against the dependency order left the ledger's IDs and the
+    descriptions' cross-references disagreeing
   1.4.5 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Read, Grep or Glob at all; Task omitted, since this persona
