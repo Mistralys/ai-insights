@@ -27,6 +27,7 @@ _SOURCE: Top-level directory tree_
     │   ├── project-manifest/
     │   │   ├── README.md
     │   ├── projects/
+    │   │   ├── generated-artefacts-standard.md
     │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
