@@ -7,6 +7,10 @@ cc_file_name: ledger-bootstrapper.md
 audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 changelog: |
+  1.5.0 (2026-10-15): Registers WPs in ascending number order instead of phase order, verifies in Step 1
+    that every dependency points to a lower number, and stops at the first failed call or ID mismatch
+    instead of continuing; phase-order registration let ledger IDs drift from the draft numbers while
+    descriptions kept the draft's cross-references, and only the `dependencies` array was translated
   1.4.2 (2026-09-29): Removed `Edit`, `Write`, `WebFetch`, `WebSearch`, `TodoRead` and `TodoWrite` from
     `cc_tools` — the content explicitly writes nothing to disk and declares no web or todo instruction,
     so the Claude Code grant exceeded the VS Code list (`execute`, `read`, `search` only) without cause
@@ -42,4 +46,4 @@ cc_tools:
 identity: "Technical Program Manager — Ledger Initialization Operator"
 use_when: "Invoked by the Project Manager (Stage 2) as the last of the four decomposition stages, once the WP definitions, dependency analysis, and pipeline configuration are all written"
 key_behavior: |
-  Creates the project in the ledger, then registers each WP in execution-phase order — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations
+  Creates the project in the ledger, then registers each WP in ascending number order, stopping at the first failed call or ID mismatch — drawing its description and criteria from the WP definitions, its dependency edges from the dependency analysis, and its stage list and assigned agent from the pipeline configuration — and verifies the final state matches expectations

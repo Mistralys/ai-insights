@@ -13,7 +13,7 @@ Initialize a fully verified project ledger from pre-built Work Package definitio
 The **Project Manager** dispatches you with two arguments — the plan document path and the absolute project path, which is the plan folder and becomes your `{PLAN_PATH}`. The three upstream outputs live inside it:
 
 - **WP definitions** — `{PLAN_PATH}/work-packages-draft.md`, written by the WP Decomposer. Source for each WP's title, description body, and acceptance criteria.
-- **Dependency analysis** — `{PLAN_PATH}/dependency-analysis.md`, written by the Dependency Sequencer. Its Dependency Graph table is the sole source for the `dependencies` array, and its Execution Phases give the registration order.
+- **Dependency analysis** — `{PLAN_PATH}/dependency-analysis.md`, written by the Dependency Sequencer. Its Dependency Graph table is the sole source for the `dependencies` array. The Dependency Sequencer has also renumbered the draft so every WP depends only on lower-numbered WPs.
 - **Pipeline configuration** — `{PLAN_PATH}/pipeline-configuration.md`, written by the Pipeline Configurator. Its Per-WP Stage Configuration table is the source for `active_pipeline_stages`, and its first stage per WP determines `assigned_to`.
 - **Plan document** — `{PLAN_PATH}/plan.md`, whose `## Summary` section is the source for the `project_summary` you craft in Step 2.
 
@@ -67,9 +67,10 @@ Before touching the ledger, read all four documents from `{PLAN_PATH}` and confi
 - Every WP in `work-packages-draft.md` has a title and acceptance criteria
 - Every WP appears in the Dependency Graph table of `dependency-analysis.md`
 - Every WP appears in the Per-WP Stage Configuration table of `pipeline-configuration.md`
+- Every dependency in the Dependency Graph table carries a lower number than the WP that lists it
 - The project path you were given is absolute
 
-Where a WP is present in one document and absent from another, an upstream stage produced incomplete output — report which document is missing it and stop.
+Where a WP is present in one document and absent from another, an upstream stage produced incomplete output — report which document is missing it and stop. Where a WP depends on a higher-numbered WP, the Dependency Sequencer did not renumber the draft — report that stage as failed and stop.
 
 ### Step 2 — Initialize the Project
 
@@ -99,7 +100,7 @@ Where the call fails because a ledger already exists at that path, report the er
 
 ### Step 3 — Register Work Packages in Ledger
 
-Register WPs in the order the Execution Phases section of `dependency-analysis.md` gives — Phase 1 first, then Phase 2, and so on. A WP's dependencies must already exist in the ledger before it is registered, and the phase ordering guarantees that.
+Register WPs in ascending number order — WP-001 first, then WP-002, and so on. Step 1 confirmed that every WP depends only on lower-numbered WPs, so each WP's dependencies already exist in the ledger when you register it.
 
 For each WP, call `ledger_create_work_package` with:
 
@@ -110,14 +111,14 @@ For each WP, call `ledger_create_work_package` with:
 | `acceptance_criteria` | Array of criterion strings, one per numbered item under `**Acceptance Criteria:**`. | `work-packages-draft.md` |
 | `active_pipeline_stages` | The stage list for this WP, copied exactly. | `pipeline-configuration.md` → Per-WP Stage Configuration table |
 | `assigned_to` | The role owning the **first** stage in `active_pipeline_stages`. | Stage Ownership table above |
-| `dependencies` | Array of the **captured** ledger IDs of this WP's dependencies. Empty array where the row reads `none`. | `dependency-analysis.md` → Dependency Graph table, translated through the captured IDs below |
+| `dependencies` | Array of this WP's dependencies, as listed. Empty array where the row reads `none`. | `dependency-analysis.md` → Dependency Graph table |
 | `project_path` | The absolute path to the plan folder. | Your dispatch arguments |
 
 **Description extraction:** Take everything from `**Plan Context:**` through the last populated field (`**Notes:**` or `**Code Observations:**`), excluding two things — the `## WP-{NUMBER} — {TITLE}` header line, and the `**Acceptance Criteria:**` block, which is passed separately as `acceptance_criteria`. Every other field the WP Decomposer wrote carries over verbatim, including the optional `**Rationale:**` and `**Rejected Approaches:**` fields.
 
-**Captured IDs:** The tool assigns each WP's ID itself and returns it in the response (e.g. `"work_package_id": "WP-001"`). Record the returned ID against the draft's WP number as you go, and translate the Dependency Graph's draft numbers into those captured IDs when building each `dependencies` array. The draft numbering and the ledger numbering usually coincide, but the returned value is the authority.
+**Matching IDs:** The tool assigns each WP's ID itself and returns it in the response (e.g. `"work_package_id": "WP-001"`). Registered in ascending order, each returned ID equals the WP's draft number. Compare the two after every call. The descriptions refer to other WPs by draft number, so once one ID is off, every description registered after it points at the wrong packages.
 
-**On failure:** Record the error, continue registering the remaining WPs, and report every failure in Step 5. Where a dependency you need has not been registered yet, the phase ordering was not followed — register the dependency first, or flag it as unresolvable and continue.
+**On failure or mismatch:** Stop registering. A failed call leaves its number free, so the next WP would take it and every later ID would shift. Call `ledger_get_project_status` to confirm which WPs exist, then report the error or mismatch and the WPs created so far in Step 5.
 
 ### Step 4 — Verify the Ledger
 
@@ -125,6 +126,7 @@ After all WPs are registered:
 
 1. Call `ledger_get_project_status` — confirm:
    - Total WP count matches your input count
+   - Each ledger WP's title matches the draft WP with the same number
    - All WPs are in `READY` or `BLOCKED` status (BLOCKED = has unresolved dependencies, which is correct at init time)
    - No WPs are missing
 
@@ -146,18 +148,20 @@ Produce the initialization report:
 | WP-001 | Developer | READY | implementation, qa, code-review, documentation |
 | WP-002 | Developer | BLOCKED (→ WP-001) | implementation, qa, code-review, documentation |
 
-**Failures:** {One line per `ledger_create_work_package` call that returned an error, naming the WP and the error — or the literal "none; all {COUNT} registrations returned a WP ID".}
+**Failures:** {The `ledger_create_work_package` call that returned an error or an ID other than the WP's draft number, naming the WP and what came back — or the literal "none; all {COUNT} registrations returned their draft number".}
 
 **Flagged in the WP definitions:** {One line per error or inconsistency noticed in the upstream output and executed as given anyway — or the literal "none; the four documents were internally consistent".}
 
-**Ledger Status:** {Initialized successfully | Initialized with {COUNT} failures — see above}
+**Ledger Status:** {Initialized successfully | Stopped at {WP_ID} — {COUNT} of {COUNT_EXPECTED} registered, see Failures}
 ```
 
 ### Constraints
 
 - **Never reinitialize or delete an existing ledger.** Where `ledger_initialize_project` fails because a ledger exists at that path, report the error and ask the user how to proceed.
 - **Never invent a `project_summary`.** Where the plan has no `## Summary` section, or it is too brief to yield two sentences, omit the parameter.
-- **Never pass `work_package_id`.** The tool assigns the ID and returns it; capture the returned value rather than predicting it.
+- **Never pass `work_package_id`.** The tool assigns the ID and returns it; compare the returned value with the draft number rather than forcing it.
+- **Never register past a failed call or an ID mismatch.** Stop and report the WPs created so far — every later WP would take a shifted ID and carry references to the wrong packages.
+- **Never register a WP out of ascending number order.** Where the draft cannot be registered in that order, the Dependency Sequencer stage failed — report it and stop.
 - **Never abbreviate, summarize, or reformat a WP description.** The body carries over verbatim from `work-packages-draft.md`, minus only the header line and the acceptance criteria block.
 - **Never report success with an unfilled Failures slot.** Both report slots take an explicit "none" line — an empty slot cannot be told apart from a slot nobody filled in.
 
@@ -170,7 +174,7 @@ Produce the initialization report:
 
 ### Ledger Safety
 
-- **Never leave partial state unreported.** Where registration fails for some WPs, name every failure in the report's Failures slot and set the Ledger Status line accordingly.
+- **Never leave partial state unreported.** Where registration stops early, name the failure in the report's Failures slot, list the WPs that were created, and set the Ledger Status line accordingly.
 - **Always verify after creation.** Do not assume success — call `ledger_get_project_status` and confirm the WP count matches your input count before reporting completion.
 
 ### Technical Rules
