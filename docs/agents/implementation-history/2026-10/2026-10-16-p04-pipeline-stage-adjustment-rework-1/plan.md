@@ -1,8 +1,8 @@
 # Plan
 
 ## Plan Audit Cycles
-- Audits: none — Plan Auditor v1.12.0
-- Architectural Reviews: none — Plan Architect Reviewer v2.3.4
+- Audits: 1 (Sonnet 5.5 ×1) — Plan Auditor v1.12.0
+- Architectural Reviews: 1 (Sonnet 5.5 ×1) — Plan Architect Reviewer v2.3.4
 
 ## Prior Project Context
 
@@ -21,7 +21,7 @@ Insights that shaped the design:
 
 | Insight ID | Title | What the plan overtakes | Executed by |
 |------------|-------|-------------------------|-------------|
-| a7adbb64-4f57-42ac-9b27-25913bde3815 | scripts/cli.js ctx-generate: an unsupported flag like --check destructively wipes .context/ before erroring | Step 9 adds a real `--check` mode, validates arguments before any filesystem change, and only replaces `.context/` after a successful generation. The insight's claims that there is no check mode, that the clean runs before argument parsing, and its advice to "always invoke it with no flags" all stop holding. | Ledger Knowledge Curator v1.4.2 (Targeted Reconciliation) |
+| a7adbb64-4f57-42ac-9b27-25913bde3815 | scripts/cli.js ctx-generate: an unsupported flag like --check destructively wipes .context/ before erroring | Step 9 adds a real `--check` mode, rejects the command-owned `-w`/`--work-dir` before any filesystem change, and only replaces `.context/` after a successful generation, so an unsupported flag now fails inside `ctx` with `.context/` untouched. The insight's claims that there is no check mode, that the clean runs before argument parsing, and its advice to "always invoke it with no flags" all stop holding. | Ledger Knowledge Curator v1.4.2 (Targeted Reconciliation) |
 
 ## Summary
 
@@ -32,7 +32,7 @@ This plan addresses the actionable items in `docs/agents/plans/2026-10-15-p04-pi
 3. **Tests.** `requirePmRole()` gets its own unit test, and `beginWork` gets the missing READY-at-MAX case.
 4. **Start-guard extraction.** The duplicated start-guard chain in `pipeline.ts` and `begin-work.ts` moves into one helper.
 5. **Test tidy.** `rework-limit.test.ts` loses its loose casts and its duplicated setup.
-6. **`ctx-generate`.** The command gains a non-destructive `--check` mode, rejects unknown flags before touching anything, and no longer deletes `.context/` when generation fails. `build-maintain` stops passing its own flags to `ctx`.
+6. **`ctx-generate`.** The command gains a non-destructive `--check` mode, rejects the output-directory flag it owns before touching anything, recovers from an interrupted earlier swap, and no longer deletes `.context/` when generation fails, whatever flags are passed. `build-maintain` stops passing its own flags to `ctx`.
 7. **Orchestrator:**
    - The halted sweep stops re-cancelling a WP that was already cancelled in the same iteration.
    - Live-LLM tests skip by default and on invalid credentials.
@@ -115,7 +115,7 @@ The four entries:
 - `ledger_update_acceptance_criteria`: including the rule that zero criteria may not remain, and the exact-text matching caveat.
 - `ledger_detect_project`: `cwd_path` only; NOT_FOUND / AMBIGUOUS outcomes; note that every other tool accepts `cwd_path` directly.
 
-The overview table gains a `ledger_detect_project` row. The existing `knowledge-help.test.ts` keeps its content-specific assertions; its per-tool presence checks are now redundant but harmless and stay as they are.
+The overview table gains a `ledger_detect_project` row. The existing `knowledge-help.test.ts` keeps its content-specific assertions and gains structure assertions for the four new entries (see Test Plan); its existing per-tool presence checks are now redundant but harmless and are not removed.
 
 ### 4. `requirePmRole()` unit test
 
@@ -153,18 +153,21 @@ The one ordering difference disappears: `beginWork` currently checks duplicates 
 
 A dependency-injected module that never prints or exits; the caller owns presentation and the exit code, as in `scripts/lib/mcp-dist-freshness.js`.
 
-- `parseCtxArgs(args: string[]) → { ok: true, check: boolean, passthrough: string[] } | { ok: false, error: string }`. It allowlists `--check` (ours) plus the `ctx generate` options this workspace forwards: `-q`/`--quiet`, `-v`/`-vv`/`-vvv`/`--verbose`, `--no-ansi`/`--ansi`, `-n`/`--no-interaction`. Anything else, including `-w`/`--work-dir` (which the command owns), returns an error naming the flag and the supported set.
+- `parseCtxArgs(args: string[]) → { ok: true, check: boolean, passthrough: string[] } | { ok: false, error: string }`. It consumes `--check` (ours) and rejects only the flags the command itself owns: the output directory, in the forms `-w`, `-w<value>`, `--work-dir` and `--work-dir=<value>`. The error names the flag and states that `ctx-generate` sets the output directory itself. Every other argument passes through to `ctx generate` unchanged. There is deliberately no allowlist of `ctx`'s own options: staging already makes a bad flag harmless (`ctx` exits non-zero, 255 for an unknown option, and `.context/` is untouched), so mirroring an external CLI's option set would add a hand-maintained list without adding safety.
 - `generateContext({ workspaceRoot, outDir, passthrough, spawn, normalize }) → { ok: true } | { ok: false, reason: 'ctx-missing' | 'ctx-failed', status }`. It runs `ctx generate -w <outDir> …passthrough` with `cwd: workspaceRoot` and `shell` on Windows, then normalises paths in `outDir`. `ctx-missing` covers a spawn `ENOENT`.
 - `runCtxGenerate({ workspaceRoot, args, deps }) → { ok, mode: 'generate' | 'check', … }`:
   1. Parse args. On error, return before any filesystem access.
   2. Generate into a fresh staging directory from `fs.mkdtempSync(path.join(os.tmpdir(), 'ai-insights-ctx-'))`.
   3. In **generate** mode, on success: write `generated-at.txt` into staging, then swap it in.
+     0. Recover from an interrupted earlier swap (`recoverInterruptedSwap(root, fs)`, exported for tests). If `.context` is absent and `.context.previous` exists, the previous run died between sub-steps 2 and 3, so rename `.context.previous` back to `.context` first. Then remove any leftover `.context.incoming` and `.context.previous`. Without this, `cpSync` would merge new output into a stale `.context.incoming`, and the sub-step 2 rename would fail against an existing `.context.previous`.
      1. Copy staging to `<root>/.context.incoming` (`fs.cpSync`, recursive). A rename from the OS temp dir is not portable across devices.
      2. Rename `<root>/.context` → `<root>/.context.previous` when it exists.
      3. Rename `<root>/.context.incoming` → `<root>/.context`.
      4. Remove `.context.previous`.
 
      If any of sub-steps 1–3 fails, restore `.context.previous` to `.context` when it was moved, remove `.context.incoming`, and return `{ ok: false, reason: 'replace-failed', error }`. On success, regenerate `CLAUDE.md` from `AGENTS.md`. Both transient names are added to the root `.gitignore`, so an interrupted swap is never committed.
+
+     Windows file locks (an editor or indexer holding a file under `.context/`) are handled with bounded retries: every removal uses `fs.rmSync(…, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })`, whose built-in retry covers `EBUSY`/`EPERM`/`ENOTEMPTY`, and the two renames go through a file-local `renameWithRetry(from, to, fs)` that retries `EPERM`/`EBUSY`/`EACCES` up to five times at 100 ms before rethrowing into the rollback path. Recovery is limited to generate mode; check mode never writes, so it compares against `.context` as found.
   4. In **check** mode: compare the staging tree with `<root>/.context`, excluding `generated-at.txt`, and compare the expected `CLAUDE.md` content with the file on disk. Return `{ fresh: boolean, added: string[], removed: string[], changed: string[], claudeMdStale: boolean }`. Nothing under the workspace is written.
   5. Always remove the staging directory (`finally`).
   6. On generation failure, return the failure. `.context/` is untouched in both modes.
@@ -186,7 +189,11 @@ A dependency-injected module that never prints or exits; the caller owns present
   - `live_selected(markexpr: str) -> bool`: true when the `-m` expression names `live` as a positive term. The check tokenises on whitespace and parentheses and rejects a `live` preceded by `not`.
   - `probe_credentials(env: Mapping[str, str], opener=urllib.request.urlopen, timeout=5.0) -> tuple[bool, str]`: no key → `(False, "no key")`. Anthropic `GET https://api.anthropic.com/v1/models` with `x-api-key` and `anthropic-version: 2023-06-01`; Google `GET https://generativelanguage.googleapis.com/v1beta/models?key=…`. HTTP 401/403 → `(False, "invalid key")`. Network error → `(False, "unreachable")`. 200 → `(True, provider)`. This mirrors `scripts/preflight-orchestrator.js` L228–L280 and consumes no tokens.
 
-  `orchestrator/tests/conftest.py` adds a `pytest_collection_modifyitems` hook. When `live_selected(config.option.markexpr)` is false, it adds a skip marker to every `live` item ("live tests run only with -m live"). When it is true, it probes once per session (cached on `config`) and adds a skip marker with the probe's reason when the probe fails. The existing in-test `pytest.skip` calls stay as a second line.
+  `orchestrator/tests/conftest.py` adds two hooks, each a few lines:
+  - `pytest_collection_modifyitems`: when `live_selected(config.option.markexpr)` is false, it adds a skip marker to every `live` item ("live tests run only with -m live"). It does no I/O, so collection stays side-effect free, `--collect-only -m live` included.
+  - `pytest_runtest_setup(item)`: for an item carrying the `live` marker (only reached when `-m` selected it), it calls `probe_credentials(os.environ)` lazily on the first live item and caches the result on `item.config.stash` under a module-level `StashKey`, so the probe runs at most once per session and only when a live test actually runs. On a failed probe it calls `pytest.skip` with the probe's reason.
+
+  The existing in-test `pytest.skip` calls stay as a second line.
 
 ### 8. Documentation and versions
 
@@ -203,12 +210,12 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 - **Help coverage as a test, not a review habit.** The P04 reviewers flagged the missing entries four times and nobody acted. A registry-derived test makes the next omission a build failure.
 - **Extract the start-guard chain now.** P03 deferred it to P04, and P04 deferred it again. Every limit-related change since P02 has edited both copies. The parity suite stays as an end-to-end guard on the claim + start composition.
 - **Staged generation for `ctx-generate`.** Validating arguments first fixes the reported defect. Generating into a staging directory also fixes the wider one: any `ctx` failure currently deletes tracked output. It also makes `--check` the same code path as a real run (insight `b37db114-…`), so the two cannot drift.
-- **Probe credentials instead of catching provider errors.** The live tests run the stage node, which catches exceptions and reports failure through state, so a 401 shows up as an assertion failure deep inside the test. A pre-collection probe, using the same endpoints `preflight-orchestrator.js` already trusts, decides once and reports a clear skip reason.
+- **Probe credentials instead of catching provider errors.** The live tests run the stage node, which catches exceptions and reports failure through state, so a 401 shows up as an assertion failure deep inside the test. A probe using the same endpoints `preflight-orchestrator.js` already trusts decides once and reports a clear skip reason. It runs lazily at setup time for the first live item, not during collection, so collection stays free of network I/O and the probe cost is paid only when a live test actually runs.
 - **Manifest-derived constant.** The test's "mirror" comment already lies (3 vs 5). Deriving it is the only form that cannot diverge again (insight `d56f4e19-…`).
 - **No speculative structure.**
   - `ToolModule.id` has a consumer: diagnostics in `registerAllTools` errors and test failure messages.
   - `PipelineStartOutcome`'s `tripped` variant has two consumers.
-  - `compareTrees` and `parseCtxArgs` are exported for tests and used by `runCtxGenerate`.
+  - `compareTrees`, `parseCtxArgs` and `recoverInterruptedSwap` are exported for tests and used by `runCtxGenerate`.
 
 ## Considered Alternatives
 
@@ -221,7 +228,10 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 | Helper failure signalling | Throw for rejections, return `tripped` for a persisted trip | Return a full result union for every guard | Both callers already rely on throw-to-abort inside `updateWorkPackageWithSync`. Only the trip needs a commit-then-error path, so only it is a return value. |
 | `ctx-generate` safety | Validate args, generate into staging, replace on success; `--check` compares staging to `.context/` | Only reorder validation before the clean; implement `--check` as an mtime/heuristic comparison | Reordering alone still deletes `.context/` when `ctx` fails mid-run. A heuristic check would differ from what a real run produces. |
 | Staging location | `os.tmpdir()` via `fs.mkdtempSync` | A gitignored directory inside the workspace | A temp dir cannot be picked up by `ctx`'s own source globs, which scan the workspace (e.g. the `**/module-context.yaml` import). |
-| Live-test default | Skip unless `-m` selects `live`, plus a credential probe when selected | `addopts = "-m 'not live'"` in `pyproject.toml`; env var opt-in | `addopts` overrides are fragile when the CLI passes its own `-m` (`cli.js` L903 does). An env var adds a second opt-in mechanism next to the documented `-m live`. |
+| Swap choreography | Copy to `.context.incoming`, two same-directory renames with rollback, preceded by recovery of stale transient directories and backed by bounded Windows retries | `rmSync(.context)` then `cpSync(staging, .context)`, relying on git to restore tracked output; overwrite in place and prune with `compareTrees` | The rm-then-copy shape leaves `.context/` missing or partial after a mid-copy failure. This plan runs unattended, and the run itself regenerates `.context/` before the user commits, so "git restores it" means a manual recovery step outside the run. AC-12's non-destruction guarantee needs the rollback. In-place overwrite plus prune has the same mid-write window. The swap's real gap, a poisoned next run after an interruption, is closed by the recovery sub-step and its test. |
+| `ctx-generate` flag handling | Consume `--check`, reject only the owned `-w`/`--work-dir` forms, pass everything else through | A strict allowlist of `ctx generate` options | With staging in place an unknown flag already fails inside `ctx` (exit 255) with `.context/` untouched, so an allowlist buys only a friendlier error. It would be a hand-maintained mirror of an external CLI's option set, rejecting any new `ctx` option until edited, which is the drift class this plan removes elsewhere. |
+| Live-test default | Skip unless `-m` selects `live`, plus a credential probe when selected | `addopts = "-m 'not live'"` in `pyproject.toml`; env var opt-in | A CLI `-m` replaces the `addopts` expression, so a combined run such as `-m integration` would include items marked both `integration` and `live` with no gating. The hook gates the `live` marker itself, whatever expression selected the item. An env var adds a second opt-in mechanism next to the documented `-m live`. |
+| Credential probe timing | Lazy, in `pytest_runtest_setup` for the first live item, cached on `config.stash` | Probe inside `pytest_collection_modifyitems`; catch the 401 in the stage node and convert it to a skip | Collection-time probing performs network I/O during collection, including `--collect-only` runs. Catching the error in the node changes product code for a test need and fights its report-through-state contract. Setup-time probing keeps the same helper and skip reasons. |
 | Halted-sweep dedupe | Iteration-scoped cancelled-ID set shared by intercept and sweep | Re-fetch `ledger_list_work_packages` before the sweep | A re-fetch costs an MCP round-trip per WAIT iteration to recover a fact the supervisor already holds. |
 
 ## Pattern Alignment
@@ -233,7 +243,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 - Follows "structured result, caller owns the exit" with injected `spawn` for root scripts (`scripts/lib/mcp-dist-freshness.js` L14–L19), and static source assertions for `cli.js` wiring (`scripts/tests/cli-cmd-agent.test.js`).
 - Follows manifest-derived constants in `orchestrator/src/config.py`.
 - Follows test helpers in `orchestrator/tests/helpers/`.
-- **Departure:** the orchestrator test suite gains its first collection hook in `conftest.py`, which has held config stubs only. Justified because marker-based default skipping can only be implemented at collection time. The decision logic lives in the testable helper module, and the hook stays a few lines.
+- **Departure:** the orchestrator test suite gains its first pytest hooks in `conftest.py`, which has held config stubs only: a collection hook and a setup hook. Justified because marker-based default skipping can only be implemented at collection time, and environment gating belongs at setup time so collection stays free of I/O. The decision logic lives in the testable helper module, and each hook stays a few lines.
 - **Departure:** `applyPipelineStart` unifies guard order on `startPipeline`'s sequence, changing `beginWork`'s order for one unreachable-through-tools state. Justified because a shared helper must have one order, and the parity suite pins it.
 
 ## Structural Improvements
@@ -249,7 +259,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 | `mcp-server/tests/tools/start-path-parity.test.ts` header | Describes "two copies" | Promoted to step 7 | The header must describe the shared helper; the suite stays. |
 | `mcp-server/tests/integration/rework-limit.test.ts` | Duplicated setup, seven `as any` casts | Promoted to step 8 | P03 Follow-up 9, carried by P04. |
 | `scripts/cli.js` `cmdCtxGenerate` (L556–L585) | Destructive clean before validation and before generation | Promoted to step 9 | Synthesis Deferred 2; bit two pipelines. |
-| `scripts/cli.js` `cmdBuildMaintain` (L511) | Forwards build args to `ctx` | Promoted to step 9 | Found during verification. It would turn into an argument error once step 9 validates arguments, so it must be fixed in the same step. |
+| `scripts/cli.js` `cmdBuildMaintain` (L511) | Forwards build args to `ctx` | Promoted to step 9 | Found during verification. `ctx` rejects persona-build flags, so `build-maintain` run with any of its own flags fails at the CTX step. Step 9 rewires that step, so the fix belongs there. |
 | `orchestrator/src/supervisor.py` (L703–L723, L828–L870) | Handled-ID set scoped narrower than the iteration | Promoted to step 11 | P03 Follow-up 5. |
 | `orchestrator/tests/test_integration.py` (L53–L54) | Hardcoded mirror constant already wrong | Promoted to step 10 | P03 Follow-up 7. |
 | `orchestrator/tests/conftest.py`, `orchestrator/pyproject.toml` markers | Documented "skipped by default" not implemented | Promoted to step 12 | P03 Follow-up 6. |
@@ -270,6 +280,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
    - Create `mcp-server/src/tools/registry.ts` (new) with `ToolModule`, `TOOL_MODULES` (twelve modules, today's order, `Object.freeze`d) and `registerAllTools(server)` as described in Approach §1, with JSDoc on each export.
    - In `mcp-server/src/index.ts`, replace the twelve tool-module imports and `register` calls with `registerAllTools(server)`, keep the returned names, and print `[project-ledger-mcp] Registered tools: ${names.join(', ')}` at the current log position.
    - Remove both "kept in sync manually" NOTE comments.
+   - Create `mcp-server/tests/tools/registry.test.ts` (new) with the cases listed in the Test Plan: forwarding of every call to the real `registerTool` with the original arguments and its result returned, names returned in registration order, the `Duplicate tool registration: <name>` throw on a repeated name, `TOOL_MODULES` frozen, and unique `id`s. Use a mock `McpServer` per the intercept pattern in `mcp-server/docs/agents/project-manifest/constraints-testing.md`, and small fake `ToolModule`s for the order and duplicate cases.
    - Run `npx tsc --noEmit` in `mcp-server/`.
 
 3. **Derive the registration tests from the registry.**
@@ -282,6 +293,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
    - Add `TOOL_HELP` entries for `ledger_reset_rework_count`, `ledger_reopen_cancelled_wp`, `ledger_update_acceptance_criteria` and `ledger_detect_project` to `mcp-server/src/tools/help-content.ts`, structured per Approach §3. Derive guard order and messages from `mcp-server/src/tools/work-package-admin.ts` and `mcp-server/src/tools/project-lifecycle.ts`, cross-checked against `mcp-server/docs/agents/project-manifest/api-surface.md`. Where code and manifest disagree, the code's current behaviour is documented and the disagreement is reported as a pipeline observation.
    - Add a `ledger_detect_project` row to the overview table.
    - Create `mcp-server/tests/tools/help-content-coverage.test.ts` (new) per Approach §3.
+   - Extend `mcp-server/tests/tools/knowledge-help.test.ts` with content assertions for the four new entries, as listed in the Test Plan: `## Required Parameters`, `## Example`, and, for the three PM tools, `## Guards` and `PM-only` wording. Existing assertions stay unchanged.
 
 5. **Unit-test `requirePmRole()`.** Create `mcp-server/tests/utils/pm-role-guard.test.ts` (new) per Approach §4.
 
@@ -307,7 +319,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
    - Assertions are unchanged.
 
 9. **Make `ctx-generate` safe and add `--check`.**
-   - Create `scripts/lib/ctx-generate.js` (new, ESM) with `parseCtxArgs`, `generateContext`, `compareTrees` and `runCtxGenerate`, per Approach §6, with a module header in the style of `scripts/lib/mcp-dist-freshness.js`.
+   - Create `scripts/lib/ctx-generate.js` (new, ESM) with `parseCtxArgs`, `generateContext`, `compareTrees`, `recoverInterruptedSwap` and `runCtxGenerate`, per Approach §6, including the file-local `renameWithRetry` and the `maxRetries`/`retryDelay` options on every removal, with a module header in the style of `scripts/lib/mcp-dist-freshness.js`.
    - Replace the body of `cmdCtxGenerate` in `scripts/cli.js` with a call to `runCtxGenerate` and the result-to-message/exit mapping from Approach §6.
    - Change `cmdBuildMaintain` to call `cmdCtxGenerate([])`.
    - Add `.context.incoming/` and `.context.previous/` to the root `.gitignore`.
@@ -317,7 +329,8 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
    - Manually verify against the real `ctx` binary:
      1. `node scripts/cli.js ctx-generate` succeeds.
      2. An immediate `node scripts/cli.js ctx-generate --check` exits 0.
-     3. `node scripts/cli.js ctx-generate --bogus` exits 2 with `.context/` untouched (`git status .context` unchanged).
+     3. `node scripts/cli.js ctx-generate --bogus` exits non-zero (`ctx`'s own status) with `.context/` untouched (`git status .context` unchanged).
+     4. `node scripts/cli.js ctx-generate -w /some/dir` exits 2 with `.context/` untouched.
 
      Record the outputs in the pipeline summary.
 
@@ -337,9 +350,9 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 
 12. **Gate live tests by default and on invalid credentials.**
     - Create `orchestrator/tests/helpers/live_gating.py` (new) with `live_selected` and `probe_credentials`, per Approach §7, stdlib only.
-    - Add the `pytest_collection_modifyitems` hook to `orchestrator/tests/conftest.py`, with a module-docstring paragraph describing it.
+    - Add the `pytest_collection_modifyitems` and `pytest_runtest_setup` hooks to `orchestrator/tests/conftest.py`, per Approach §7, with a module-docstring paragraph describing both.
     - Create `orchestrator/tests/test_live_gating.py` (new) for the helper functions, with the opener injected so no network is used.
-    - Verify that a default `python -m pytest tests/` reports the `live` tests as skipped. With `-m live` and a deliberately invalid key in the environment, they should skip with "invalid key".
+    - Verify that a default `python -m pytest tests/` reports the `live` tests as skipped. With `-m live` and a deliberately invalid key in the environment, they should skip with "invalid key". `python -m pytest tests/ -m live --collect-only` lists the live tests; `probe_credentials` must be called only from `pytest_runtest_setup`, which a collect-only run never reaches.
 
 13. **Update documentation and manifests.** Depends on steps 2–12. Apply every entry under Documentation Updates. Write counts nowhere: describe test suites by scope, not by number.
 
@@ -380,14 +393,14 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 - New: `orchestrator/tests/helpers/live_gating.py`
 - New: `orchestrator/tests/test_live_gating.py`
 - Modified: `mcp-server/src/index.ts`, `mcp-server/src/tools/help-content.ts`, `mcp-server/src/tools/pipeline.ts`, `mcp-server/src/tools/begin-work.ts`
-- Modified: `mcp-server/tests/startup/tool-log-sync.test.ts`, `mcp-server/tests/tools/schema-integrity.test.ts`, `mcp-server/tests/tools/start-path-parity.test.ts`, `mcp-server/tests/tools/begin-work.test.ts`, `mcp-server/tests/integration/rework-limit.test.ts`
+- Modified: `mcp-server/tests/startup/tool-log-sync.test.ts`, `mcp-server/tests/tools/schema-integrity.test.ts`, `mcp-server/tests/tools/knowledge-help.test.ts`, `mcp-server/tests/tools/start-path-parity.test.ts`, `mcp-server/tests/tools/begin-work.test.ts`, `mcp-server/tests/integration/rework-limit.test.ts`
 - Modified: `scripts/cli.js`, root `.gitignore` (`.context.incoming/`, `.context.previous/`)
 - Modified: `orchestrator/src/supervisor.py`, `orchestrator/src/config.py`, `orchestrator/tests/conftest.py`, `orchestrator/tests/test_integration.py`, `orchestrator/tests/test_supervisor.py`, `orchestrator/tests/test_config.py`
 - Documentation files listed under Documentation Updates
 
 ## Assumptions
 
-- The P04 working-tree changes (uncommitted `.context/`, changelogs, the plan-folder rename) are the baseline this plan builds on. The user commits them; this plan does not depend on their commit state.
+- The committed P04 state is the baseline: commit `ef236985` (MCP v2.13.0, plan-folder rename included), followed by the merge of `origin/main` in `091bb438` on branch `feature-pipeline-adjustments`. The merge brought persona sources and regenerated `.context/` only. It touched none of the code or documentation files this plan edits, and every line reference in this plan was re-verified against it.
 - The `docs/agents/plans/2026-09-22-p04-pipeline-stage-adjustment/` deletion is the intentional rename to `2026-10-15-…`. Verified: `request.md` is byte-identical, and the new folder holds the evolved plan and brief.
 - An archiver pass for P04 already ran (insight `a7adbb64-4f57-42ac-9b27-25913bde3815` carries P04 as `origin_plan`).
 - `ctx generate` output is deterministic for identical inputs. Step 9's manual generate-then-check verification proves it. If it is not, the check reports the differing files, and the step records them instead of masking them.
@@ -415,7 +428,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 
 | # | Action | When | Why an agent cannot do it |
 |---|--------|------|---------------------------|
-| 1 | Commit the P04 working-tree state, including the plan-folder rename from `2026-09-22-…` to `2026-10-15-…`, and this plan's changes. | After the run | Version control is managed by the user. |
+| 1 | Commit this plan's changes. | After the run | Version control is managed by the user. |
 | 2 | Restart or reinstall the stable workspace's MCP server so the running instance serves the new help entries and registry. | After the run | The stable workspace runs the workflow executing this plan; replacing its server mid-run would stop the run. |
 | 3 | Publish and tag the root releases (v2.15.0, v2.16.0 and v2.17.0 are unreleased; the latest tag is 2.14.1). | After the run | Releases and tags belong to the user. The run only prepares changelogs and version fields. |
 | 4 | Optionally run the belated security audit on the project from P04's `request.md` incident. | After the run | It needs the user's choice of project and a live ledger. |
@@ -432,8 +445,8 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 - AC-08: A `beginWork` call on a READY WP whose stored count is already at `MAX_REWORK_COUNT` is refused and persists nothing: status, assignment, root summary and `last_updated` are unchanged.
 - AC-09: `startPipeline` and `beginWork` both apply the start guards through `applyPipelineStart` in `src/utils/pipeline-start.ts`. No guard logic is duplicated between the two files, and all pre-existing guard and circuit-breaker tests pass with unchanged assertions.
 - AC-10: `rework-limit.test.ts` has one shared temp-ledger setup. Each remaining `as any` cast has an explanatory comment, and the file has no uncommented `as any`.
-- AC-11: `node scripts/cli.js ctx-generate` with an unsupported flag exits 2 without modifying `.context/` or `CLAUDE.md`.
-- AC-12: A failed `ctx` run, or a failed swap, leaves `.context/` with its previous content. A successful generate replaces `.context/` with the new output, `generated-at.txt` and the `CLAUDE.md` sync.
+- AC-11: `node scripts/cli.js ctx-generate` with a command-owned output-directory flag (`-w`, `--work-dir`, or either with a value) exits 2 before any filesystem access. With any flag `ctx` rejects, it exits non-zero. Neither case modifies `.context/` or `CLAUDE.md`.
+- AC-12: A failed `ctx` run, or a failed swap, leaves `.context/` with its previous content. A successful generate replaces `.context/` with the new output, `generated-at.txt` and the `CLAUDE.md` sync. A generate run that finds `.context.incoming` or `.context.previous` left by an interrupted earlier run restores `.context/` from `.context.previous` when `.context/` is missing, removes both transient directories, and completes normally.
 - AC-13: `node scripts/cli.js ctx-generate --check` exits 0 when `.context/` and `CLAUDE.md` match a fresh generation, and 1 with the differing paths otherwise. It writes nothing in the workspace in either case.
 - AC-14: `node scripts/cli.js build-maintain` passes no arguments to the CTX step.
 - AC-15: `orchestrator/src/config.py` exports `MAX_REWORK_COUNT` equal to the manifest's `constants.max_rework_count`, and `test_integration.py` uses it with no hardcoded limit.
@@ -447,7 +460,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 
 - **Characterization before refactor.** Step 6 adds the missing READY-at-MAX case before step 7 moves the guard chain. The unchanged guard-message, circuit-breaker and parity suites then prove the extraction is behaviour-preserving.
 - **Baseline first.** Step 1 records failing test IDs before any change, so the exit gate can tell a regression from a pre-existing environmental failure.
-- **Unit tests for every new module.** These cover `registerAllTools` (through the startup and schema suites), `applyPipelineStart` (in-memory fixtures, no disk), `ctx-generate.js` (fake `spawn` + temp directories) and `live_gating.py` (injected opener, no network).
+- **Unit tests for every new module.** These cover `registerAllTools` (directly in `registry.test.ts`, and through the startup and schema suites), `applyPipelineStart` (in-memory fixtures, no disk), `ctx-generate.js` (fake `spawn` + temp directories) and `live_gating.py` (injected opener, no network).
 - **Derived-set tests with synthetic failure fixtures** (insight `48607cdb-…`). Each registry-derived suite includes a case proving it fails on a planted violation: a `.refine()` schema, a fake module missing from a list, a `TOOL_HELP` key with no tool.
 - **Static source assertions** for `cli.js` wiring, which cannot be imported.
 - **Manual end-to-end check** of `ctx-generate` against the real `ctx` binary in step 9, and dogfooded in the exit gate (`--check` after `build-maintain`).
@@ -486,13 +499,17 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 - Existing `mcp-server/tests/tools/start-pipeline-guards.test.ts`, `mcp-server/tests/tools/rework-circuit-breaker.test.ts`, `mcp-server/tests/tools/begin-work.test.ts`, `mcp-server/tests/integration/rework-limit.test.ts` — pass with unchanged assertions — AC-09
 - `mcp-server/tests/integration/rework-limit.test.ts` — refactored setup and typed arguments, same assertions, suite passes — AC-10
 - `scripts/tests/ctx-generate.test.js` (new):
-  - `parseCtxArgs` accepts `--check` and each allowlisted passthrough flag, and rejects `--bogus` and `-w`.
-  - `runCtxGenerate` with an invalid flag performs no filesystem access (fake `fs` spies, or an untouched temp workspace).
+  - `parseCtxArgs` consumes `--check`, passes `-q`, `-vv` and `--bogus` through unchanged and in order, and rejects `-w`, `-wout`, `--work-dir` and `--work-dir=out`.
+  - `runCtxGenerate` with `-w` performs no filesystem access (fake `fs` spies, or an untouched temp workspace).
+  - `runCtxGenerate` with `--bogus` forwards it to the fake `spawn`, which exits 255, and returns `ctx-failed` with status 255 and `.context/` byte-identical.
   - A failing fake `spawn` leaves an existing `.context/` byte-identical.
   - A succeeding fake `spawn` replaces `.context/`, writes `generated-at.txt`, and regenerates `CLAUDE.md` with the header.
   - Check mode reports fresh for identical trees (ignoring `generated-at.txt`), and reports added, removed and changed files plus a stale `CLAUDE.md` correctly, writing nothing.
   - The staging directory is removed after success, failure and check.
   - An injected failure during the copy or the second rename returns `replace-failed`, leaves the original `.context/` content in place, and leaves no `.context.incoming` or `.context.previous` behind.
+  - `recoverInterruptedSwap`: with a stale `.context.incoming` holding an extra file, a generate run completes and the extra file is absent from the new `.context/`. With `.context` missing and `.context.previous` present, `.context.previous` is renamed back to `.context` before the swap. With `.context` and a stale `.context.previous` both present, the stale one is removed and the swap succeeds. No transient directory remains in any case.
+  - Check mode with stale transient directories present writes nothing and leaves them in place.
+  - A rename that throws `EPERM` twice and then succeeds completes the swap; one that throws `EPERM` on every attempt returns `replace-failed` with the original `.context/` restored.
   - A spawn `ENOENT` maps to `ctx-missing`.
 
   Covers AC-11, AC-12, AC-13.
@@ -506,7 +523,7 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
   - The Anthropic request carries the `x-api-key` and `anthropic-version` headers.
 
   Covers AC-17.
-- Manual, step 12 — a default `python -m pytest tests/` run shows the three `live` tests skipped; `-m live` with an invalid key shows them skipped with "invalid key" — AC-17
+- Manual, step 12 — a default `python -m pytest tests/` run shows the three `live` tests skipped; `-m live` with an invalid key shows them skipped with "invalid key"; `-m live --collect-only` lists them without reaching the probe — AC-17
 - Step 13 review against Documentation Updates, plus `grep -nE "[0-9]{3,} tests"` over `orchestrator/README.md` and `orchestrator/docs/agents/project-manifest/` returning nothing — AC-18, AC-19
 - Step 15 exit gate commands — AC-19, AC-20
 
@@ -534,14 +551,14 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
   - L376: replace "1107 tests — …" with a count-free description.
   - L514 and the marks table (L560–L562): live tests are skipped unless selected with `-m live`, and are skipped with a reason when the key is missing or rejected.
   - L529: same wording for the two live smoke tests.
-- `orchestrator/tests/README.md` Marks Reference (L157–L163): describe the collection hook and the credential probe; add `helpers/live_gating.py` to the helpers table.
+- `orchestrator/tests/README.md` Marks Reference (L157–L163): describe the collection hook (default skip) and the setup-time credential probe; add `helpers/live_gating.py` to the helpers table.
 - `orchestrator/docs/agents/project-manifest/README.md` L15 and L116: remove "374 tests".
 - `orchestrator/docs/agents/project-manifest/file-tree.md`: add `tests/helpers/live_gating.py` and `tests/test_live_gating.py`, and update the L75 live-test description.
 - `orchestrator/docs/agents/project-manifest/api-surface.md`: add `config.MAX_REWORK_COUNT`.
 - `orchestrator/docs/supervisor-routing.md` circuit-breaker / halted-WP section (L79–L89 per P05 brief): state that the sweep skips WPs already cancelled by the supervisor in the same iteration.
 - Root `AGENTS.md`:
   - Add a `scripts/lib/ctx-generate.js` row to the Root-Level Tooling table.
-  - In Generated Context Docs (L167), add "`node scripts/cli.js ctx-generate --check` verifies freshness without writing; unsupported flags are rejected before anything changes."
+  - In Generated Context Docs (L167), add "`node scripts/cli.js ctx-generate --check` verifies freshness without writing; `.context/` is replaced only after a successful generation, so a failed run or a flag `ctx` rejects leaves it untouched."
   - Update the `context.yaml` row (L435).
   - `CLAUDE.md` is regenerated from `AGENTS.md` by the step 14 `build-maintain` run.
 - `docs/references/development.md` L79 and `docs/references/menu-guide.md` L80, L119: document `--check`, and that `build-maintain` runs CTX generation without forwarding its own flags.
@@ -565,8 +582,9 @@ The workflow specification is unchanged: no state machine, routing or edge-case 
 | **Guard extraction changes an error text or persist-on-trip behaviour** | Step 6 pins the one uncovered case first. Messages are moved verbatim. All existing guard, breaker, parity and integration suites must pass with unchanged assertions (AC-09). |
 | **The recording view breaks if the SDK's `registerTool` signature changes** | It forwards `...rest` untouched and returns the SDK's result. `registry.test.ts` asserts forwarding, and `tsc` checks the `McpServer` type. |
 | **`ctx generate` is not deterministic, making `--check` report false staleness** | Step 9 verifies generate-then-check against the real binary. A diff is reported with paths rather than hidden, and the step records any non-deterministic file for follow-up. |
-| **Replacing `.context/` fails halfway (e.g. a file lock on Windows)** | Generation completes in staging before `.context/` is touched. The swap copies to a sibling directory and uses two same-directory renames, restoring `.context.previous` on failure. Both transient names are gitignored. Tested with an injected failing copy and a failing second rename. |
-| **The live-test probe hits the network during a normal run** | The probe runs only when `-m` selects `live`; default runs never probe. Unit tests inject the opener. |
+| **Replacing `.context/` fails halfway (e.g. a file lock on Windows)** | Generation completes in staging before `.context/` is touched. The swap copies to a sibling directory and uses two same-directory renames with bounded retries on `EPERM`/`EBUSY`/`EACCES`, restoring `.context.previous` on failure. Both transient names are gitignored. Tested with an injected failing copy, a failing second rename and a transiently failing rename. |
+| **An interrupted swap (killed process, power loss) poisons the next run** | Every generate run starts the swap with `recoverInterruptedSwap`, which restores a missing `.context/` from `.context.previous` and removes leftover transient directories before copying. Tested for each leftover combination (AC-12). |
+| **The live-test probe hits the network during a normal run or during collection** | The probe runs only in `pytest_runtest_setup` for an item `-m` selected as `live`; default runs and `--collect-only` runs never probe. Unit tests inject the opener. |
 | **Collision with P05's supervisor changes** | The change keeps `_handle_rework_limit`'s name and signature and widens only the set's scope, which P05's executor also needs. P05 locates code by function. |
 | **`build-maintain` users relied on flags reaching `ctx`** | No documented flag of `build-maintain` targets `ctx`. Its args are persona-build and sync-version flags, which `ctx` already rejected. |
 | **Help text drifts from implementation** | Step 4 derives the guard order from the code and reports any manifest disagreement as an observation. The coverage suite guarantees presence; the `knowledge-help.test.ts` additions pin structure. |
