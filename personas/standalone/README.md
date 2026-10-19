@@ -100,7 +100,6 @@ For detailed build commands, template syntax, and sync conventions, see:
 
 - [personas/docs/agents/project-manifest/README.md](../docs/agents/project-manifest/README.md) — Quick reference
 - [personas/docs/agents/project-manifest/api-surface.md](../docs/agents/project-manifest/api-surface.md) — Build script functions and template syntax
-- [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints
 - [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints (includes directory layout table)
 
 **Quick commands:**
