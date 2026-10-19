@@ -29,13 +29,51 @@ _DeepAgentFakeConfig(model)
     returns it from ``resolve_model_for_stage()``.  Required for Deep Agent
     integration tests where ``create_stage_node`` must receive a real model object
     rather than a string, to avoid triggering real LLM provider resolution.
+
+Live-test gating hooks
+-----------------------
+Two collection/setup hooks make the documented "``@pytest.mark.live`` tests
+are skipped by default" behavior real, and turn a set-but-invalid API key
+into a clear skip instead of a 401 failure deep inside a test. Both delegate
+their actual logic to ``tests/helpers/live_gating.py`` (pure, stdlib-only,
+independently unit-tested in ``tests/test_live_gating.py``) — this file only
+wires pytest's hook protocol to that logic.
+
+``pytest_collection_modifyitems(config, items)``
+    Runs at collection time (so ``--collect-only`` never touches the
+    network). When ``live_selected(config.option.markexpr)`` is ``False`` —
+    i.e. the current ``-m`` expression (or its absence) would not select a
+    ``live``-only-marked item — every collected item carrying the ``live``
+    marker gets an additional ``pytest.mark.skip`` applied, with a reason
+    naming the opt-in (``-m live``). An ``addopts = "-m 'not live'"`` default
+    was rejected for this same purpose because a caller's own ``-m`` flag
+    replaces ``addopts`` entirely rather than combining with it, which would
+    silently stop gating ``live`` tests the moment someone ran e.g.
+    ``-m integration`` — this hook gates the marker itself, independent of
+    whatever expression actually selected the item.
+
+``pytest_runtest_setup(item)``
+    Runs once, lazily, at setup time for the *first* ``live``-marked item
+    that was not skipped by the hook above (i.e. ``-m live`` was explicitly
+    given) — cached for the rest of the session via a module-level flag, so
+    the credential probe's single HTTP request happens at most once per run
+    regardless of how many live tests execute. Calls
+    ``probe_credentials(os.environ)``; on ``(False, reason)`` it calls
+    ``pytest.skip(reason)`` for every subsequent live item too (the cached
+    failure), so an invalid or missing key skips cleanly instead of letting
+    the first live test's own HTTP call surface the 401.
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
+
+import pytest
+
+from tests.helpers.live_gating import live_selected, probe_credentials
 
 
 class _StreamCaptureConfig:
@@ -143,3 +181,40 @@ class _DeepAgentFakeConfig(_FakeConfig):
     def resolve_model_for_stage(self, stage: str) -> Any:  # type: ignore[override]
         """Return the injected model instance for any stage."""
         return self._model
+
+
+# ---------------------------------------------------------------------------
+# Live-test gating hooks (see module docstring)
+# ---------------------------------------------------------------------------
+
+_LIVE_SKIP_REASON = "live tests are skipped by default; run with -m live"
+
+# Cached across the session: (checked, ok, reason). `checked` starts False;
+# the first live item that reaches pytest_runtest_setup runs the probe once
+# and every subsequent live item reuses the cached result.
+_live_credential_check: dict[str, Any] = {"checked": False, "ok": True, "reason": ""}
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
+    """Skip every ``live``-marked item unless ``-m`` explicitly selects it."""
+    if live_selected(config.option.markexpr or ""):
+        return
+    skip_live = pytest.mark.skip(reason=_LIVE_SKIP_REASON)
+    for item in items:
+        # Checks the item's actual markers (get_closest_marker), not
+        # `item.keywords` — the latter also contains tokens derived from the
+        # test's own name/parametrize ID (e.g. a test literally named or
+        # parametrized with the string "live"), which would false-positive.
+        if item.get_closest_marker("live") is not None:
+            item.add_marker(skip_live)
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Lazily probe LLM credentials once per session, before the first live test runs."""
+    if item.get_closest_marker("live") is None:
+        return
+    if not _live_credential_check["checked"]:
+        ok, reason = probe_credentials(dict(os.environ))
+        _live_credential_check.update(checked=True, ok=ok, reason=reason)
+    if not _live_credential_check["ok"]:
+        pytest.skip(f"Live credential probe failed: {_live_credential_check['reason']}")

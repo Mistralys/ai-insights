@@ -373,7 +373,7 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
 | `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`), raw-chunk JSONL writer (`chunk_writer.py`), run-queue manager (`run_queue.py`) |
-| `tests/` | 1107 tests — unit, integration (ScriptedLedger), and live marks |
+| `tests/` | Unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 | `dist/stage-prompts/` | Gitignored build output — rendered stage prompt previews written by `scripts/preview-prompts.py` |
 
@@ -560,6 +560,8 @@ Integration tests run the real LangGraph supervisor against scripted MCP-tool mo
 | `@pytest.mark.integration` | ScriptedLedger tests (fast, no external services) | `-m integration` |
 | `@pytest.mark.deepagent` | Real `create_deep_agent` pipeline tests (no API key) | `-m deepagent` |
 | `@pytest.mark.live` | Real MCP server + LLM — skipped by default | `-m live` |
+
+> **Default skip is enforced, not just documented:** `conftest.py`'s `pytest_collection_modifyitems` hook adds a skip marker to every `@pytest.mark.live` item unless the run's `-m` expression explicitly selects `live` (via `tests/helpers/live_gating.py`'s `live_selected()`). Passing `-m live` alone is not enough to actually run them, though: `pytest_runtest_setup` then lazily probes whichever LLM API key is present (a single no-token request to the Anthropic or Google models endpoint, cached for the rest of the session) and skips with a clear reason — `"no key"` or `"invalid key"` — instead of letting a real `401` surface as an assertion failure deep inside the first live test. See `tests/helpers/live_gating.py` for `probe_credentials()`.
 
 > **`LIVE_TEST_MODEL`:** Override the model slug used by `@pytest.mark.live` tests. When
 > unset, live tests default to `claude-sonnet-4-6` (Anthropic) or `gemini-2.0-flash`

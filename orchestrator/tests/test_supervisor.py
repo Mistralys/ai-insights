@@ -1195,11 +1195,44 @@ class TestReworkLimitCancellation:
         state["consecutive_failures"] = {"WP-001": 3}
         cmd = await make_supervisor_node(tools)(state)
 
-        # The halted sweep may repeat the (idempotent) cancel from its stale
-        # status snapshot; the limit handler itself must have cancelled first.
-        assert calls["update"]
+        # The limit handler cancels the WP; the halted sweep's stale status
+        # snapshot would otherwise still show it as IN_PROGRESS and re-cancel
+        # it, but cancelled_this_iteration (shared between the intercept and
+        # the sweep) makes the sweep skip a WP it already handled — exactly
+        # one ledger_update_work_package_status(CANCELLED) call, and no
+        # halted_wp_cancelled sweep entry for the same WP.
+        assert len(calls["update"]) == 1
         assert calls["update"][0]["status"] == "CANCELLED"
+        assert calls["update"][0]["work_package_id"] == "WP-001"
         assert self._entries(cmd, "rework_limit_wp_cancelled")
+        assert not self._entries(cmd, "halted_wp_cancelled")
+
+    async def test_halted_wp_not_cancelled_by_intercept_in_same_iteration_is_still_swept(self):
+        """A companion case: a halted WP the PM intercept did NOT cancel this
+        iteration (a different WP id) must still be cancelled by the sweep."""
+        calls: dict = {}
+        tools = self._tools([_limit_action("WP-001"), {"action": "WAIT"}], calls=calls)
+        # Add WP-002 to the wp_list so the sweep has a second, untouched WP to
+        # consider alongside WP-001 (which make_mcp_tools_with_actions seeds by default).
+        for t in tools:
+            if t.name == "ledger_list_work_packages":
+                t.ainvoke = AsyncMock(return_value=json.dumps([
+                    {"work_package_id": "WP-001", "status": "IN_PROGRESS"},
+                    {"work_package_id": "WP-002", "status": "IN_PROGRESS"},
+                ]))
+        state = base_state()
+        state["consecutive_failures"] = {"WP-001": 3, "WP-002": 3}
+        cmd = await make_supervisor_node(tools)(state)
+
+        cancelled_wp_ids = {c.get("work_package_id") for c in calls["update"]}
+        # WP-001: cancelled once by the intercept, not re-cancelled by the sweep.
+        assert cancelled_wp_ids == {"WP-001", "WP-002"}
+        wp001_calls = [c for c in calls["update"] if c.get("work_package_id") == "WP-001"]
+        assert len(wp001_calls) == 1
+        # WP-002 was never touched by the intercept, so the sweep must cancel it.
+        halted_entries = self._entries(cmd, "halted_wp_cancelled")
+        assert any(e.get("wp_id") == "WP-002" for e in halted_entries)
+        assert not any(e.get("wp_id") == "WP-001" for e in halted_entries)
 
     async def test_fall_through_clears_stale_current_wp_id(self):
         tools = self._tools([_limit_action(), {"action": "WAIT"}])

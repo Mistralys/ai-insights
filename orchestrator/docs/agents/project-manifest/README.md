@@ -12,7 +12,7 @@
 | **Runtime** | CPython |
 | **Architecture** | LangGraph StateGraph + Deep Agents |
 | **Package Manager** | pip (setuptools) |
-| **Test Framework** | pytest (374 tests) |
+| **Test Framework** | pytest |
 | **Entry Point** | `orchestrate` CLI (`src/cli.py`) |
 
 ### Development Commands
@@ -113,6 +113,6 @@ orchestrator/
 │   ├── mcp_client.py           # MCP server subprocess lifecycle
 │   ├── nodes/                  # Stage node factories (8 stages)
 │   └── utils/                  # Tool wrappers, persona loader, logger, filelock
-├── tests/                      # 374 tests (unit, integration, live)
+├── tests/                      # Unit, integration, live
 └── checkpoints/                # SQLite checkpoint storage
 ```

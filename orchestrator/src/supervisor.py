@@ -690,6 +690,14 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         extra_log_entries: list = []
         extra_errors: list = []
 
+        # Iteration-wide (not per-role, not per-PM-intercept-block) set of WP
+        # IDs cancelled by the supervisor-owned-action intercept below during
+        # this iteration. The halted-WP sweep near the end of this function
+        # reads this same set so it never re-cancels (and never logs a
+        # misleading halted_wp_cancelled warning for) a WP the intercept
+        # already cancelled earlier in the same iteration.
+        cancelled_this_iteration: set[str] = set()
+
         for role in _ROLES:
             action_data = await _query_next_action(project_path, role)
             if action_data is None:
@@ -701,13 +709,12 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
             # Supervisor-owned actions (spec §16.3c): cancel, then re-poll the
             # PM role so a following PM action is not masked.
             if role == _PM_ROLE and action in _SUPERVISOR_OWNED_ACTIONS:
-                cancelled_ids: set[str] = set()
                 skip_role = False
                 while action in _SUPERVISOR_OWNED_ACTIONS:
                     if not await _handle_rework_limit(
                         project_path=project_path,
                         action_data=action_data,
-                        cancelled_ids=cancelled_ids,
+                        cancelled_ids=cancelled_this_iteration,
                         log_entries=extra_log_entries,
                         errors=extra_errors,
                         run_logger=run_logger,
@@ -834,9 +841,14 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         for _wp in wp_summaries:
             _wp_id_h = _wp.get("work_package_id", "")
             _wp_status_h = _wp.get("status", "")
-            # Only act on non-terminal WPs that hit the circuit-breaker threshold.
+            # Only act on non-terminal WPs that hit the circuit-breaker threshold,
+            # skipping any WP the supervisor-owned-action intercept already
+            # cancelled earlier in this same iteration (cancelled_this_iteration) —
+            # re-cancelling it here would be a redundant call producing a
+            # misleading halted_wp_cancelled warning for an already-CANCELLED WP.
             if (
                 _wp_id_h
+                and _wp_id_h not in cancelled_this_iteration
                 and _wp_status_h not in _TERMINAL_STATUSES
                 and cf.get(_wp_id_h, 0) >= 3
             ):

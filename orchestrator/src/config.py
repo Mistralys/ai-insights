@@ -162,6 +162,13 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
     _MANIFEST["statuses"]["terminal_work_package"]
 )
 
+#: Maximum per-type rework count before the circuit breaker trips.
+#: Derived from ``constants.max_rework_count`` in
+#: ``shared/workflow-manifest.json`` — the same value the MCP server's
+#: ``MAX_REWORK_COUNT`` (``mcp-server/src/utils/workflow-helpers.ts``) derives
+#: from, so the two can never silently diverge.
+MAX_REWORK_COUNT: int = _MANIFEST["constants"]["max_rework_count"]
+
 
 # ---------------------------------------------------------------------------
 # API key validation helper

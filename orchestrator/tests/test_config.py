@@ -8,6 +8,7 @@ remain valid if the manifest gains new roles or pipeline types in the future.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,7 @@ import pytest
 
 from src.config import (
     FAIL_ROUTING_AGENT_MAP,
+    MAX_REWORK_COUNT,
     PERSONA_FILES,
     PIPELINE_AGENT_MAP,
     PIPELINE_ROLE_NAMES,
@@ -39,6 +41,21 @@ class TestWPTerminalStatuses:
 
     def test_contains_cancelled(self):
         assert "CANCELLED" in WP_TERMINAL_STATUSES
+
+
+class TestMaxReworkCount:
+    def test_is_positive_int(self):
+        assert isinstance(MAX_REWORK_COUNT, int)
+        assert MAX_REWORK_COUNT > 0
+
+    def test_matches_manifest_constant(self):
+        # Loads the manifest independently (not via src.config's own parsing)
+        # so this test fails if the derivation breaks, not just if the
+        # manifest value changes.
+        manifest_path = Path(__file__).resolve().parents[2] / "shared" / "workflow-manifest.json"
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        assert MAX_REWORK_COUNT == manifest["constants"]["max_rework_count"]
 
 
 class TestValidStages:

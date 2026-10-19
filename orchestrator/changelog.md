@@ -1,5 +1,19 @@
 # Orchestrator Changelog
 
+## v1.6.0 - **WIP; UNRELEASED** - Supervisor Re-Cancellation Fix and Live-Test Gating
+
+**Fixed the halted-work-package sweep re-cancelling, and misleadingly warning about, a work
+package the rework limit had already cancelled in the same pass.** Live LLM tests are now
+properly gated by default, skipping with a clear reason instead of surfacing a raw
+authentication error, and the rework limit now derives from the shared workflow manifest
+instead of a hardcoded value.
+
+- Supervisor: Fixed halted-WP sweep from re-cancelling an already-cancelled work package.
+- Tests: Live LLM tests now gate by default, skipping with a clear reason instead of a raw error.
+- Config: Rework limit now derives from the shared manifest instead of a hardcoded value.
+- Docs: Removed stale hardcoded test-count mentions from orchestrator documentation.
+- Tests: Added coverage for the supervisor fix, live-test gating, and manifest/config parity.
+
 ## v1.5.0 - Supervisor Rework-Limit Cancellation
 
 - Supervisor: `REVIEW_REWORK_LIMIT` is now handled by the supervisor per spec §16.3c: the WP is cancelled, an audit project comment is recorded, and the PM role is re-polled instead of routing to the `pm` node.

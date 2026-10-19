@@ -41,6 +41,7 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from src.config import MAX_REWORK_COUNT
 from src.state import WorkflowState
 from src.supervisor import make_supervisor_node
 
@@ -49,9 +50,6 @@ from src.supervisor import make_supervisor_node
 # ---------------------------------------------------------------------------
 
 pytestmark = pytest.mark.integration
-
-# Mirrors the MCP server's MAX_REWORK_COUNT.
-REWORK_LIMIT = 3
 
 
 # ---------------------------------------------------------------------------
@@ -124,13 +122,13 @@ class ScriptedLedger:
                 wp_id = wp_summary.get("work_package_id", "")
                 detail = wp_details.get(wp_id, wp_summary)
                 for ptype, count in (detail.get("rework_counts") or {}).items():
-                    if isinstance(count, int) and count >= REWORK_LIMIT:
+                    if isinstance(count, int) and count >= MAX_REWORK_COUNT:
                         return {
                             "action": "REVIEW_REWORK_LIMIT",
                             "work_package_id": wp_id,
                             "pipeline_type": ptype,
                             "rework_count": count,
-                            "max_rework_count": REWORK_LIMIT,
+                            "max_rework_count": MAX_REWORK_COUNT,
                         }
 
         # All non-terminal WPs BLOCKED → PM handles repair.
@@ -764,7 +762,7 @@ async def test_rework_limit_cancels_wp_and_reaches_synthesis():
         wp1,
         "IN_PROGRESS",
         pipelines=[_pipeline("implementation", "PASS"), _pipeline("qa", "FAIL")],
-        rework_counts={"implementation": REWORK_LIMIT},
+        rework_counts={"implementation": MAX_REWORK_COUNT},
     )
     dependent = _wp(wp2, "BLOCKED", dependencies=[wp1])
     steps = [

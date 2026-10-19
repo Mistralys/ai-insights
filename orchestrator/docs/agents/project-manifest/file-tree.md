@@ -67,8 +67,8 @@ orchestrator/
 │       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
 │       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
 │
-└── tests/                      # pytest test suite (1107 collected)
-    ├── conftest.py                  # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
+└── tests/                      # pytest test suite (unit, integration, and live marks)
+    ├── conftest.py                  # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig; pytest_collection_modifyitems (skips every @pytest.mark.live item unless -m selects live, via helpers/live_gating.py's live_selected()) and pytest_runtest_setup (lazy, once-per-session probe_credentials() check before the first live test, skipping with a clear "no key"/"invalid key"/"unreachable" reason instead of a real 401)
     ├── test_chunk_writer.py         # ChunkWriter JSONL write contract
     ├── test_cli.py                  # Argument parsing, interrupt mapping, exit codes, TestRunQueueIntegration (run-queue CLI integration)
     ├── test_config.py               # Manifest-derived config constants
@@ -78,6 +78,7 @@ orchestrator/
     ├── test_filelock.py             # Cross-platform file locking (acquire, contention, double-unlock)
     ├── test_graph.py                # Graph topology, edges, compilation
     ├── test_integration.py          # End-to-end graph execution (ScriptedLedger)
+    ├── test_live_gating.py          # Unit tests for helpers/live_gating.py: live_selected() marker-expression evaluation (and/or/not/parens), probe_credentials() with an injected opener (no real network) covering no-key, Anthropic/Google 200, 401/403 invalid-key, URLError-unreachable, and header assertions
     ├── test_logging.py              # WorkflowLogger: format helpers, all 8 event-type console format patterns
     ├── test_mcp_parse.py            # parse_tool_response helper
     ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result, middleware wiring
@@ -100,6 +101,7 @@ orchestrator/
     ├── helpers/                     # Shared test helpers (no pytest discovery)
     │   ├── __init__.py              # Empty package marker
     │   ├── fake_chat_model.py       # ToolCallableFakeChatModel — scripted fake chat model preserving tool_calls through streaming; used by deepagent integration tests
+    │   ├── live_gating.py           # live_selected(markexpr) — stdlib-only and/or/not/() boolean-expression evaluator deciding whether a pytest -m expression would select a live-only-marked item; probe_credentials(env, opener, timeout) — single no-token GET to the Anthropic or Google models endpoint (mirrors scripts/preflight-orchestrator.js's checkAnthropicKey/checkGoogleKey), returns (ok, reason) with reason in {"no key","anthropic","google","invalid key","unreachable","HTTP <code>"}; both consumed by conftest.py's live-test gating hooks
     │   └── mock_tools.py            # _MockTool / make_mock_tool / make_ledger_tools — plain Python mock tools compatible with inject_project_path / restrict_to_wp / log_tool_calls wrappers (NOT BaseTool — not for create_deep_agent)
     └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```

@@ -162,6 +162,8 @@ See `test_deep_agent_integration.py` for complete examples of both patterns.
 
 All three marks are registered in `pyproject.toml` under `[tool.pytest.ini_options] markers` to suppress unknown-mark warnings.
 
+**`live`'s default skip is enforced by `conftest.py`'s hooks, not just documented here.** `pytest_collection_modifyitems` adds a skip marker to every `live`-marked item unless `-m` explicitly selects `live` (`tests/helpers/live_gating.py`'s `live_selected()` evaluates the `-m` expression without depending on pytest internals). When `-m live` *is* given, `pytest_runtest_setup` then lazily probes the environment's LLM API key once per session (`live_gating.py`'s `probe_credentials()` — a single no-token GET to the Anthropic or Google models endpoint, mirroring `scripts/preflight-orchestrator.js`'s key checks) and skips with a clear `"no key"` / `"invalid key"` / `"unreachable"` reason instead of letting a real `401` surface as a test failure. `tests/test_live_gating.py` unit-tests both helpers directly with an injected opener — no real network I/O.
+
 ---
 
 ## Running Tests
