@@ -12,6 +12,17 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: root `CLAUDE.md` no longer described as generated (`generated-artefacts.md`, `constraints.md`, `README.md`), the `api-surface.md` Sync Script section, and one pointer in `file-tree.md`. Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:**
+- Root `CLAUDE.md` is a hand-maintained one-line `@AGENTS.md` import, and `cmdCtxGenerate()` in `scripts/cli.js` contains no reference to it. Removed its row from the tracked table, dropped the overwrite from the `ctx-generate` and `build-maintain` command rows, listed it under Hand-maintained Neighbours, and updated the `constraints.md` Generated Artefacts preamble and two bullets.
+- `api-surface.md`: path helpers and `parseFrontmatter` moved from the function table to an Imported Helpers note (they come from `scripts/publish-locations.js` and `scripts/lib/frontmatter.js`); `validateVSCodeFrontmatter` lists `role`, `name`, `vs_file_name`, `id` and `model`; the `KNOWN_ROLES` snippet shows the ESM `JSON.parse(fs.readFileSync(...))` form. Verified against `scripts/sync-personas.js`.
+- `file-tree.md`: `scripts/` section points to the hub's `root-tooling.md`.
+
+**Notes:** This closes the four observations the 2026-10-16 entry left open on the Sync Script section. The 2026-10-16 History entry above still describes `CLAUDE.md` as generated; it is a dated record and stays as written. Wording elsewhere in this log's older entries is untouched.
+
 ### 2026-10-16 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by fact: the persona build, check and sync facts of the caller's brief, in `api-surface.md` (build Exit code paragraph, Sync Script functions table and CLI Behaviour), `constraints-build-system.md` (entries 9 and 14), and the root manifest hub `docs/agents/project-manifest/README.md` (Cross-System Dependencies → Agent name mapping row, Validation Scripts → `build-personas.js --check` row). Each file was searched whole for the brief's facts. No other section was reconciled.

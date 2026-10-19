@@ -588,17 +588,20 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 ## Sync Script (`scripts/sync-personas.js`)
 
+### Imported Helpers
+
+The script does not define these; it imports them.
+
+- `getVSCodePromptsDir()`, `getClaudeCodeAgentsDir()`, `getClaudeCodeSkillsDir()` from `scripts/publish-locations.js` — platform-specific publish directories (VS Code User prompts, `~/.claude/agents/`, `~/.claude/skills/`).
+- `parseFrontmatter(filePath) → Object | null` from `scripts/lib/frontmatter.js` — reads all top-level YAML frontmatter fields into a plain object.
+
 ### Functions
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `getVSCodePromptsDir` | `() → string` | Returns platform-specific VS Code User prompts directory (win32/darwin/linux) |
-| `getClaudeCodeAgentsDir` | `() → string` | Returns `~/.claude/agents/` (cross-platform via `os.homedir()`) |
-| `getClaudeCodeSkillsDir` | `() → string` | Returns `~/.claude/skills/` (cross-platform via `os.homedir()`) |
 | `extractVSFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `vs_file_name` field or null |
 | `extractCCFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `name` field (trimmed) + `.md`, or null |
-| `parseFrontmatter` | `(filePath: string) → Object \| null` | Reads all top-level YAML frontmatter fields into a plain object |
-| `validateVSCodeFrontmatter` | `(dir: string) → void` | Validates `role`, `name`, `vs_file_name`, and `id` fields in ledger VS Code persona frontmatter; warns (non-blocking) when `id:` is missing |
+| `validateVSCodeFrontmatter` | `(dir: string) → void` | Warns (non-blocking) when ledger VS Code persona frontmatter lacks `role` (or carries one outside `KNOWN_ROLES`), `name`, `vs_file_name`, `id`, or `model` |
 | `validateSlugModeVSCodeFrontmatter` | `(dir: string, suiteLabel: string) → void` | Validates slug-mode VS Code persona frontmatter for the standalone and ledger-support suites: requires `name`, `vs_file_name`, and `id`; no `role` required; `suiteLabel` names the suite in console output; warns on failures (including missing `id:`) but does not block sync |
 | `validateCCFrontmatter` | `(dir: string) → void` | Validates `name` (kebab-case with numeric prefix), `role`, `permissionMode`, `model`, `memory` in CC persona frontmatter |
 | `syncFromDir` | `(sourceDir, targetDir, extractFileNameFn, label, dryRun?) → void` | Generic copy helper: reads all `.md` files from sourceDir, extracts deployment name via `extractFileNameFn`, copies to targetDir |
@@ -618,10 +621,12 @@ This table is the **normative reference** for which MCP tools belong in each per
 ### `KNOWN_ROLES` Constant
 
 ```javascript
-const KNOWN_ROLES = require('../shared/workflow-manifest.json').roles.map(r => r.name);
+const KNOWN_ROLES = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, '../shared/workflow-manifest.json'), 'utf-8')
+).roles.map(r => r.name);
 ```
 
-Derived at runtime from the shared workflow manifest. Always in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts` (both are manifest-derived).
+Derived at runtime from the shared workflow manifest, read in ESM through `JSON.parse(fs.readFileSync(...))` rather than `require`. Always in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts` (both are manifest-derived).
 
 ---
 
