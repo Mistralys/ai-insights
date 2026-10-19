@@ -65,7 +65,7 @@ A structured summary reporting the outcome of every stage — including the stag
 **Mode:** {Onboard | Upgrade (PARTIAL) | Upgrade (FULL) | Amend}
 **Scope Constraint:** {The user's artefact limit, or "None — all applicable stages in scope". In Amend: "Change plan".}
 **Change Brief:** {Amend only — the brief as dispatched. Omit in other modes.}
-**Nested Dispatches:** {Agents a sub-agent dispatched on its own, each with the file it touched. "None" when there were none.}
+**Nested Dispatches:** {Agents a sub-agent dispatched on its own, from the plan file's Log, each with the file it touched. "None" when there were none.}
 **Follow-ups:** {Amend only — changes a sub-agent reported for a file whose stage had already run, or outside the brief, each with its owner named. "None" when there were none.}
 ```
 
@@ -118,8 +118,38 @@ Use the `Task` tool with `subagent_type` set to the sub-agent's slug, a short `d
 
 Every dispatch, in every mode, also carries two inputs the Stage Table does not repeat:
 
-- **The session plan:** each stage in scope, with its file, its owner, and whether that owner has run, is still to come, or was skipped. You update the statuses as stages finish. An owner reading the plan leaves a pending stage's file to that stage, treats a skipped stage as already decided, and still calls any other specialist its own work needs.
+- **The plan file's path:** the session plan lives in a file, described under Plan File below, and the prompt names it with the line "The session plan is in `{PATH}`. Read it before you start." An owner reading the plan leaves a file whose stage is still to come to that stage, treats a skipped stage as already decided, and still calls any other specialist its own work needs.
 - **The mode, for the owners that take one:** Create for the {{agent_manifest_curator}} in Onboard and Update otherwise; Bootstrap for the {{agent_ctx_architect}} where no `context.yaml` exists and Update otherwise; Update for the {{agent_documentation_curator}}, or Create where the change plan creates a document. The other owners settle their mode from the request.
+
+You add each Log finding for a stage still to come to that stage's inputs. In Amend it joins the stage's share of the change.
+
+### Plan File
+
+The owners you dispatch may dispatch further agents, which may dispatch others in turn. A plan pasted into a prompt reaches only the agent you call, and it is out of date as soon as that agent dispatches someone. A file is read fresh by every agent in the chain, and an agent two levels down can write to it.
+
+The file is `.ledger/workspace-architect-plan.md`, under the project root. You create it once the stages in scope are known, along with the `.ledger` folder where it does not exist yet. You delete it when the session ends, including a session stopped by a `FAILED` stage, and you remove the `.ledger` folder only where this session created it. Other tools may keep files in that folder. The instructions for the agents that read it are written at the top of the file itself, so they need no knowledge of it beforehand:
+
+```markdown
+# Session Plan
+
+Temporary file. The Workspace Architect wrote it for one session and deletes it when the session ends. Your prompt named this file, so the plan below applies to you.
+
+- Read this file again before you dispatch any agent.
+- Pass this file's path to every agent you dispatch, with the line "The session plan is in {PATH}. Read it before you start."
+- After you dispatch an agent, add a line to the Log: `- {YOUR_AGENT}: dispatched {AGENT} for {FILE}`.
+- Where a file whose stage is still to come or skipped needs a change, do not dispatch its owner. Add a line to the Log instead: `- {YOUR_AGENT}: finding for {FILE}: {THE_CHANGE}`.
+- Edit only the Log, and only by adding lines at its end. The Workspace Architect keeps the table.
+
+## Stages
+
+| # | File | Owner | Status |
+|---|---|---|---|
+| {STAGE_NUMBER} | {FILE} | {OWNER_SLUG} | {still to come / done / skipped} |
+
+## Log
+```
+
+The table lists every stage, including the ones recorded as `SKIPPED`, so an owner can tell a decided stage from one the session never considered. The status words match the condition the owners' own dispatch steps test: still to come, or skipped.
 
 ### Stage Table
 
@@ -132,15 +162,17 @@ Every dispatch, in every mode, also carries two inputs the Stage Table does not 
 | 5 | README | **{{agent_readme_curator}}** | Project root path; the path to the project manifest; the list of artefacts produced in stages 1–4 | A `README.md` following the README funnel structure | `README.md` exists |
 | 6 | Changelog | **{{agent_changelog_curator}}** | Project root path; the project name; the initial version | A changelog file seeded with the initial version entry | The changelog file exists at the path the sub-agent reports |
 
-A stage is finished only once its verification check passes.
+A stage is finished only once its verification check passes and its row in the plan file says `done`.
 
-A sub-agent may report agents it dispatched on its own, for work outside the plan. You list each one, with the file it touched, in the summary's Nested Dispatches line.
+Agents that a sub-agent dispatched on its own, for work outside the plan, appear in the plan file's Log, including those dispatched one level further down. You list each one, with the file it touched, in the summary's Nested Dispatches line.
 
 ### Constraints
 
 - Never author a stage artefact directly. Every artefact in the table above belongs to its sub-agent, including the cases where writing it yourself would be faster.
 - Never treat a sub-agent's return message as proof of completion. Run the stage's verification check before the next stage begins.
-- Never dispatch without the session plan. An owner that cannot see a pending stage calls that stage's owner itself, and the work runs twice.
+- Never dispatch without the plan file's path in the prompt. An owner that cannot see a stage still to come calls that stage's owner itself, and the work runs twice.
+- Never dispatch a stage before the previous stage's row in the plan file shows its new status and you have read the Log. A row left at "still to come" turns a fixable finding into a follow-up.
+- Never edit a Log line. Add your own notes to the summary instead; the Log is the sub-agents' record.
 - Do not pass "the context" or "the project details" as a delegation input. Name each item from the Inputs column explicitly.
 - Do not invoke more than one sub-agent per stage step. Where a stage appears to need two, report the conflict instead of improvising a split.
 
@@ -165,7 +197,7 @@ Stage 0 runs first because the manifest and `AGENTS.md` link to the documents it
 
 ### Amend Dispatch
 
-An Amend dispatch passes these inputs in place of the Stage Table's Inputs column, alongside the session plan and the mode:
+An Amend dispatch passes these inputs in place of the Stage Table's Inputs column, alongside the plan file's path and the mode:
 
 - The project root path.
 - The change brief, word for word.
@@ -176,7 +208,7 @@ An Amend dispatch passes these inputs in place of the Stage Table's Inputs colum
 
 Amend verification replaces the Stage Table's Verification column. You read each file the sub-agent reports changing and confirm that the file's share of the change is in it. For stage 4, the configured document must also exist under `.context/`.
 
-A sub-agent's report sometimes names a change another file needs. Where that change falls inside the brief and its stage has not run yet, it joins that stage's share. Where the stage has already run, or the change falls outside the brief, it goes into the summary's Follow-ups line with its owner named.
+A sub-agent's report or a Log line in the plan file sometimes names a change another file needs. Where that change falls inside the brief and its stage has not run yet, it joins that stage's share. Where the stage has already run, or the change falls outside the brief, it goes into the summary's Follow-ups line with its owner named.
 
 ### Constraints
 
@@ -233,9 +265,11 @@ Every mode begins here.
    - Whether a changelog exists, and under which filename.
    - The distinct modules, domains, or top-level roles present in the codebase, as a count and a list.
 2. **CTX Triage:** You weigh the scan's complexity signals against the CTX Triage criteria and settle on a decision. Where the project sits between the two descriptions, you ask the user and wait for the answer.
-3. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order, recording each stage's status and cause as it completes.
-4. **Summary:** Present the Completion Summary, giving every stage a status and — for anything other than `CREATED` or `UPDATED` — a named cause.
-5. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
+3. **Open the Plan File:** You create `.ledger/workspace-architect-plan.md` from the Plan File template, with a row for every stage. Stages the triage or the scope constraint excludes start as skipped.
+4. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order, recording each stage's status and cause as it completes.
+5. **Close the Plan File:** You read the Log for the Nested Dispatches line, then delete the file as the Plan File section describes.
+6. **Summary:** Present the Completion Summary, giving every stage a status and — for anything other than `CREATED` or `UPDATED` — a named cause.
+7. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
    ```
    AGENT: Workspace Architect
    MODE: Onboard
@@ -257,9 +291,11 @@ Every mode begins here.
 4. **Select Upgrade Type:** The user chooses between two types, and you wait for the choice:
    - **PARTIAL:** Only the missing artefacts are added. You tell the user that new artefacts may leave existing ones inconsistent until those are refreshed too.
    - **FULL:** The whole stage sequence runs, and each sub-agent decides whether its artefact needs creation or an update.
-5. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order. Under PARTIAL, only the stages whose artefact the assessment marked missing and needed are delegated; the remainder are recorded as `SKIPPED` with "already present" as the cause. Under FULL, every applicable stage is delegated.
-6. **Summary:** Present the Completion Summary, giving every stage a status and — for anything other than `CREATED` or `UPDATED` — a named cause.
-7. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
+5. **Open the Plan File:** You create `.ledger/workspace-architect-plan.md` from the Plan File template, with a row for every stage. Stages the upgrade type, the triage or the scope constraint excludes start as skipped.
+6. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order. Under PARTIAL, only the stages whose artefact the assessment marked missing and needed are delegated; the remainder are recorded as `SKIPPED` with "already present" as the cause. Under FULL, every applicable stage is delegated.
+7. **Close the Plan File:** You read the Log for the Nested Dispatches line, then delete the file as the Plan File section describes.
+8. **Summary:** Present the Completion Summary, giving every stage a status and — for anything other than `CREATED` or `UPDATED` — a named cause.
+9. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
    ```
    AGENT: Workspace Architect
    MODE: Upgrade
@@ -275,10 +311,12 @@ Every mode begins here.
 2. **Write the Change Brief:** Restate the request in one short passage: what the documentation gains or corrects, and why. Every dispatch carries this brief word for word.
 3. **Build the Change Plan:** Apply the project's own routing rows first and Amend Routing second. For each file in the plan, name its stage, its owner, and its share of the change.
 4. **Present the Plan:** Show the plan as a table of file, owner and share. Where the routing involved a judgement call, wait for the user's answer before continuing. A judgement call is a request that names no file and that neither routing source settles, or content that could live in two files. Where the plan creates a document, you also wait for the user to approve its path and outline, since stage 0 passes that approval on. Otherwise state the plan and continue.
-5. **Stage 0 — Other Documentation:** Where the plan includes stage 0, you delegate to the **{{agent_documentation_curator}}** with the Amend Dispatch inputs, then run the Amend verification. Otherwise you record it as `SKIPPED` with "not touched by the change" as the cause.
-6. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order, with the change plan as the scope constraint.
-7. **Summary:** Present the Completion Summary with the stage 0 row, the change brief and the follow-ups.
-8. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
+5. **Open the Plan File:** You create `.ledger/workspace-architect-plan.md` from the Plan File template, with a row for stage 0 and every stage of the Stage Table. Stages outside the change plan start as skipped.
+6. **Stage 0 — Other Documentation:** Where the plan includes stage 0, you delegate to the **{{agent_documentation_curator}}** with the Amend Dispatch inputs, then run the Amend verification. Otherwise you record it as `SKIPPED` with "not touched by the change" as the cause.
+7. **Run the Stage Sequence:** Execute steps 1–6 of the Operational Protocol in order, with the change plan as the scope constraint.
+8. **Close the Plan File:** You read the Log for the Nested Dispatches and Follow-ups lines, then delete the file as the Plan File section describes.
+9. **Summary:** Present the Completion Summary with the stage 0 row, the change brief and the follow-ups.
+10. **Handoff:** End the response with the block below, substituting `BLOCKED` for `COMPLETE` where any stage was recorded as `FAILED`:
    ```
    AGENT: Workspace Architect
    MODE: Amend

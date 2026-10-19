@@ -19,7 +19,7 @@ summaries and applies requested synthesis edits.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
 - Standalone: Manifest Curator documents generated files in a new `generated-artefacts.md`.
 - Standalone: AGENTS.md Curator, CTX Architect, Workspace Architect route to that document.
-- Standalone: Workspace Architect gained Amend mode, shares its plan, handles existing artefacts.
+- Standalone: Workspace Architect gained Amend mode, a shared plan file, existing-artefact handling.
 - Standalone: Documentation curators leave work to a caller's plan and may still call specialists.
 - Standalone: WHATSNEW Curator writes self-contained items and completes existing versions.
 - Standalone: Git Committer classes feature-branch generated files via `generated-artefacts.md`.
