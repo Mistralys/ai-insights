@@ -207,9 +207,9 @@ These are set in per-persona YAML and used in content templates with `{{#if}}` c
 | Scenario | Result |
 |----------|--------|
 | Variable found in context | Replaced with `String(value)` |
-| Variable not found | Warning emitted to stderr; marker preserved as-is in output |
+| Variable not found | `[WARN] Unresolved variable` printed via `console.warn`; marker preserved as-is in output |
 | Escaped variable (`\{{name}}`) | Output is literal `{{name}}` — no substitution, no warning |
-| `--strict` flag and unresolved variable | Build exits with code 1 |
+| `--strict` flag and unresolved variable | Same as without the flag — the `[WARN]` line is not a validation result, so the build does not fail |
 
 ---
 

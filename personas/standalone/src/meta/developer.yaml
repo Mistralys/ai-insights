@@ -5,6 +5,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.17.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
+    `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   1.16.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
     no-release-cycles partial)

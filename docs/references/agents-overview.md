@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-16
+> **Generated:** 2026-10-19
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.18.1)
+### Stage 3 — Developer (v3.19.0)
 
 **Identity:** Staff Software Engineer
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.8.1)
+### Stage 7 — Release Engineer (v3.9.0)
 
 **Identity:** Release Engineer
 
@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.3.0)
+### AGENTS.md Curator (v2.4.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -180,7 +180,7 @@ Generate, update, and maintain AGENTS.md files — the operating manual for AI a
 
 ---
 
-### Changelog Curator (v1.6.0)
+### Changelog Curator (v1.7.1)
 
 **Identity:** Release Communications Editor
 
@@ -234,7 +234,7 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.16.0)
+### Developer — Standalone (v1.17.0)
 
 **Identity:** Staff Software Engineer
 
@@ -246,7 +246,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.3.3)
+### Documentation — Standalone (v1.4.0)
 
 **Identity:** Technical Writing Manager
 
@@ -268,7 +268,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.7.0)
+### Manifest Curator (v1.8.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -290,7 +290,7 @@ Infers and documents the purpose, role, and dependencies of specific code module
 
 ---
 
-### Persona Curator (v1.17.0)
+### Persona Curator (v1.17.1)
 
 **Identity:** Agent Design Architect
 
@@ -346,7 +346,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.6.2)
+### README Curator (v1.7.0)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -368,7 +368,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.3.2)
+### Researcher (v1.3.3)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -410,26 +410,26 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.2.0)
+### WHATSNEW Curator (v1.5.1)
 
 **Identity:** Release Notes Editor
 
 Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only, and archive older versions in step with the changelog.
 
-- **Modes:** Generate (from the developer changelog), Rewrite (polish existing entries), Archive (move older versions alongside the changelog archive)
+- **Modes:** Generate (from the developer changelog, or completing an existing version), Rewrite (polish existing entries), Archive (move older versions alongside the changelog archive)
 - **Use When:** Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones
 
 ---
 
-### Workspace Architect (v1.3.0)
+### Workspace Architect (v1.5.0)
 
 **Identity:** Workspace Infrastructure Architect
 
-Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog.
+Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog, and to carry a documentation change into every file it touches.
 
-- **Modes:** Onboard, Upgrade
-- **Use When:** Setting up a new repository for the AI Insights ecosystem, or upgrading an existing repo's infrastructure
-- **Sub-agents:** Manifest Curator, AGENTS.md Curator, Composer Curator, CTX Architect, README Curator, Changelog Curator
+- **Modes:** Onboard, Upgrade, Amend
+- **Use When:** Setting up a new repository for the AI Insights ecosystem, upgrading an existing repo's infrastructure, or making a documentation change that spans the manifest, AGENTS.md, CTX config and other docs
+- **Sub-agents:** Documentation (Standalone), Manifest Curator, AGENTS.md Curator, Composer Curator, CTX Architect, README Curator, Changelog Curator
 
 ---
 

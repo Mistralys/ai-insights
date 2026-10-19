@@ -1,10 +1,10 @@
 # Ledger Personas Build System
 
-A Node.js template engine that assembles **120 generated AI agent persona files** (40 personas × 3 output targets) from structured YAML metadata and Markdown content templates. The generated personas define the behaviour of AI agents across three distinct suites:
+A Node.js template engine that assembles **generated AI agent persona files** for three output targets from structured YAML metadata and Markdown content templates. The generated personas define the behaviour of AI agents across three distinct suites:
 
-- **Ledger Suite** (`ledger/`) — 9 personas for the multi-agent software development workflow backed by the [Project Ledger MCP Server](../mcp-server/README.md). Each persona maps to a pipeline stage (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation → Synthesis).
-- **Standalone Suite** (`standalone/`) — 21 single-purpose personas that operate independently of the ledger workflow. Includes the PM sub-agent cluster (WP Decomposer, Dependency Sequencer, Pipeline Configurator, Ledger Bootstrapper) and general-purpose specialists (README Curator, Changelog Curator, CTX Architect, Git Committer, etc.).
-- **Ledger-Support Suite** (`ledger-support/`) — 10 specialist sub-agent personas used within the ledger workflow as delegates from primary ledger agents (e.g., WP Decomposer, Bootstrapper, CTX Architect, Changelog Curator).
+- **Ledger Suite** (`ledger/`) — Personas for the multi-agent software development workflow backed by the [Project Ledger MCP Server](../mcp-server/README.md). Each persona maps to a pipeline stage (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation → Synthesis).
+- **Standalone Suite** (`standalone/`) — Single-purpose personas that operate independently of the ledger workflow. Includes the PM sub-agent cluster (WP Decomposer, Dependency Sequencer, Pipeline Configurator, Ledger Bootstrapper) and general-purpose specialists (README Curator, Changelog Curator, CTX Architect, Git Committer, etc.).
+- **Ledger-Support Suite** (`ledger-support/`) — Specialist sub-agent personas used within the ledger workflow as delegates from primary ledger agents (e.g., WP Decomposer, Bootstrapper, CTX Architect, Changelog Curator).
 
 Each suite produces output for three targets — **VS Code** (`.agent.md`), **Claude Code** (plain `.md`), and **Deep Agents** (`.md`).
 
@@ -21,71 +21,71 @@ Each suite produces output for three targets — **VS Code** (`.agent.md`), **Cl
 personas/
 ├── package.json                    # Build tooling package (js-yaml dependency)
 ├── changelog.md                    # Persona system changelog
-├── docs/agents/project-manifest/   # Authoritative project manifest (6 documents)
+├── docs/agents/project-manifest/   # Authoritative project manifest
 ├── model-registry/                 # File-based model registry
 │   ├── README.md                   # Schema, seed/working-copy lifecycle, and UUID convention
 │   ├── default.json                # Shipped seed models (tracked in Git)
 │   ├── local.json                  # User model list — auto-initialized from default.json (gitignored)
 │   └── assignments.json            # Per-persona model assignments (gitignored)
-├── shared/partials/                # Cross-suite Markdown partials (20+ files)
+├── shared/partials/                # Cross-suite Markdown partials
 ├── ledger/
 │   ├── README.md                   # Ledger workflow user guide
 │   ├── src/
-│   │   ├── meta/                   # YAML metadata (_shared.yaml + 9 per-persona)
-│   │   ├── content/                # Markdown content templates (9 files)
+│   │   ├── meta/                   # YAML metadata (_shared.yaml + per-persona YAML)
+│   │   ├── content/                # Markdown content templates
 │   │   └── partials/               # Ledger-only partials (MCP blocks, handoffs)
-│   ├── vs-code/                    # Generated VS Code output (9 .agent.md files)
-│   ├── claude-code/                # Generated Claude Code output (9 .md files)
-│   └── deep-agents/                # Generated Deep Agents output (9 .md files)
+│   ├── vs-code/                    # Generated VS Code output (.agent.md)
+│   ├── claude-code/                # Generated Claude Code output (.md)
+│   └── deep-agents/                # Generated Deep Agents output (.md)
 ├── standalone/
 │   ├── README.md                   # Standalone personas user guide
 │   ├── src/
-│   │   ├── meta/                   # YAML metadata (_shared.yaml + 21 per-persona)
-│   │   └── content/                # Markdown content templates (21 files)
-│   ├── vs-code/                    # Generated VS Code output (21 .agent.md files)
-│   ├── claude-code/                # Generated Claude Code output (21 .md files)
-│   └── deep-agents/                # Generated Deep Agents output (21 .md files)
+│   │   ├── meta/                   # YAML metadata (_shared.yaml + per-persona YAML)
+│   │   └── content/                # Markdown content templates
+│   ├── vs-code/                    # Generated VS Code output (.agent.md)
+│   ├── claude-code/                # Generated Claude Code output (.md)
+│   └── deep-agents/                # Generated Deep Agents output (.md)
 └── ledger-support/
     ├── src/
-    │   ├── meta/                   # YAML metadata (_shared.yaml + 10 per-persona)
-    │   └── content/                # Markdown content templates (10 files)
-    ├── vs-code/                    # Generated VS Code output (10 .agent.md files)
-    ├── claude-code/                # Generated Claude Code output (10 .md files)
-    └── deep-agents/                # Generated Deep Agents output (10 .md files)
+    │   ├── meta/                   # YAML metadata (_shared.yaml + per-persona YAML)
+    │   └── content/                # Markdown content templates
+    ├── vs-code/                    # Generated VS Code output (.agent.md)
+    ├── claude-code/                # Generated Claude Code output (.md)
+    └── deep-agents/                # Generated Deep Agents output (.md)
 ```
 
 ## Build Commands
 
+Suite and target selection lives in `personas/persona-build.config.js`. The build script takes no `--suite` or `--target` flag, so every command below builds every suite and target defined there.
+
 ```bash
-# Build ledger suite (default)
+# Build all suites and targets
 node scripts/build-personas.js
 
-# Build standalone suite
-node scripts/build-personas.js --suite standalone
-
-# Build all suites
-node scripts/build-personas.js --suite all
-
-# Check for stale output (CI-friendly)
+# Render in memory and write nothing; fails only on error-severity validation results
+# (does not compare against files on disk)
 node scripts/build-personas.js --check
 
-# Validate no unresolved markers
-node scripts/build-personas.js --strict --suite all
+# Also fail on warning-severity validation results; add --check to keep the run write-free
+node scripts/build-personas.js --strict --check
 
-# Build + deploy to VS Code / Claude Code
+# Build everything, then deploy to VS Code / Claude Code
+# (--target vscode | claude-code | all selects only which deploy steps run)
 node scripts/sync-personas.js
 ```
+
+Unresolved `{{…}}` markers print a `[WARN]` line and do not fail the build, even under `--strict`. See [Build-system constraints](docs/agents/project-manifest/constraints-build-system.md#b6) for details.
 
 ## Integration Points
 
 - **MCP Server:** Ledger personas reference MCP tools exposed by `mcp-server/`. The server name is configured in `ledger/src/meta/_shared.yaml` → `mcp_server_name`.
 - **Workflow Manifest:** Persona `role` fields (ledger suite) are validated against role names in `shared/workflow-manifest.json` during the build.
-- **Sync Script:** `scripts/sync-personas.js` deploys generated output to the VS Code User prompts directory and/or Claude Code's `~/.claude/agents/`.
+- **Sync Script:** `scripts/sync-personas.js` rebuilds every suite, then deploys the output to the VS Code User prompts directory and/or Claude Code's `~/.claude/agents/`. Its `--target` flag (`vscode`, `claude-code`, or `all`, the default) selects only which deploy steps run; the `claude-code` and `all` targets also sync skills from `.claude/skills/` to `~/.claude/skills/`.
 
 ## Further Reading
 
-- [Ledger Workflow Guide](ledger/README.md) — Step-by-step usage for the 9-agent pipeline
+- [Ledger Workflow Guide](ledger/README.md) — Step-by-step usage for the ledger agent pipeline
 - [Ledger Workflow Visual Guide](../docs/agents/references/ledger-workflow-visual-guide.md) — Diagram-first reference for stages, handoffs, sub-agents, and ledger knowledge flow
-- [Standalone Personas Guide](standalone/README.md) — Catalog and usage for all 21 standalone personas
-- [Ledger-Support Personas Guide](ledger-support/README.md) — Catalog and usage for all 10 ledger-support sub-agent personas
+- [Standalone Personas Guide](standalone/README.md) — Catalog and usage for the standalone personas
+- [Ledger-Support Personas Guide](ledger-support/README.md) — Catalog and usage for the ledger-support sub-agent personas
 - [Project Manifest](docs/agents/project-manifest/README.md) — Authoritative technical reference (API surface, constraints, data flows)

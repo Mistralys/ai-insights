@@ -7511,13 +7511,6 @@ const AMBIGUOUS_HEADS = new Set([
   'test', 'trust', 'use', 'value', 'view', 'work',
 ]);
 
-/**
- * Separators forming a comparison idiom ("Show Over Describe", "Merge Before
- * Multiply", "Verify, Not Trust"). The guide permits comparisons as titles, so
- * a bare verb on each side is aphorism rather than instruction.
- */
-const COMPARISON_SEPARATORS = new Set(['over', 'before', 'not', 'beats', 'than']);
-
 /** Determiners that mark the following token as the object of a verb. */
 const DETERMINERS = new Set([
   'a', 'all', 'an', 'any', 'each', 'every', 'her', 'his', 'its', 'my', 'no',
@@ -7582,21 +7575,11 @@ function isDeclarative(words) {
   return false;
 }
 
-/**
- * "Show Over Describe" is an aphorism; "Show the Reader Everything" is a
- * command. A comparison separator immediately after the head verb, with no
- * intervening object, marks the former.
- */
-function isComparisonIdiom(words) {
-  return words.length > 1 && COMPARISON_SEPARATORS.has(words[1]);
-}
-
 function isImperative(text) {
   const words = tokens(text);
   if (words.length === 0) return false;
   if (!IMPERATIVE_VERBS.has(words[0])) return false;
   if (isDeclarative(words)) return false;
-  if (isComparisonIdiom(words)) return false;
 
   // A bare noun phrase ("Value Over Volume") needs a determiner to read as a
   // command; an unambiguous verb ("Prefer X") does not.
@@ -9237,9 +9220,11 @@ const version = parseVersion();
 log(`Version: ${version}`);
 
 if (!SKIP_BUILD) {
-  log('\nBuilding standalone personas...');
+  // build-personas.js always builds every suite in persona-build.config.js;
+  // the TARGETS list below is what restricts the ZIPs to standalone output.
+  log('\nBuilding personas (all suites)...');
   try {
-    execSync('node scripts/build-personas.js --suite standalone --target all --strict', {
+    execSync('node scripts/build-personas.js --strict', {
       cwd: WORKSPACE_ROOT,
       stdio: 'inherit',
     });

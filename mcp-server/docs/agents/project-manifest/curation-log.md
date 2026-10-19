@@ -12,6 +12,17 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-19 · Update · Curator v1.6.2
+
+**Scope:** Partial upgrade, addition only: new `generated-artefacts.md`, its row in the `README.md` Manifest Sections table, and a matching Generated Artefacts section appended to `constraints.md`. No other document or section was reconciled or verified.
+**Commit:** 1ced4e17
+**Changes:**
+- Created `generated-artefacts.md` for this module, cross-linking the hub's document instead of repeating repo-wide rows. Rows checked against `mcp-server/package.json` scripts, `scripts/sync-version.js`, `vitest.config.ts`, `tsconfig.json`, the root `.gitignore`, and `git ls-files`.
+- Settled the hub's open question: `npm run test:coverage` does write `mcp-server/coverage/`. `vitest.config.ts` has no `coverage` block, so Vitest's default reporters and directory apply, which match the tracked files. The tracked copy was last committed 2026-04-11 while `src/` has changed since, so it is a stale one-off snapshot; nothing references it. Whether it should stay tracked is unasked, so the row says ask the user before wholesale deletion or commit.
+- `constraints.md` gained a Generated Artefacts section; `README.md` gained an index row.
+
+**Notes:** The reverted-decision search and changed-code intersection were not run (partial pass by instruction). Observed but untouched: `README.md` Development Commands omits `test:coverage`, `build`, `gui` and the `check:roles` script; the `README.md` still contains the section list without the `constraints-*` files in its main table (as logged earlier). The working tree state was not inspected beyond the paths above. `.context/mcp-server/manifest-readme.md`, `manifest-constraints.md` need `node scripts/cli.js ctx-generate`. The adjacent-document check was out of scope for this dispatch.
+
 ### 2026-10-06 · Update · Curator v1.6.2
 
 **Scope:** `constraints-workflow.md` (Pipelines section; the FAIL bullet of "Handoff Notes Are Routed via `resolveNextAgent` / `resolveFailAgent`") and `data-flows.md` (Flows 4 and 5). Driven by integrating the durable findings of the retired plan `2026-10-01-verifier-only-rework-routing` — not a whole-manifest pass; every other document and section was left unverified.

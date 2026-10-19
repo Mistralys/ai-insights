@@ -5,6 +5,31 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.5.2 (2026-10-19): Re-audit polish — Generate drops a same-release fix once its commits are read;
+    Generate gains a findings step and Rewrite's Present lists unclear, contradicted and uncovered
+    entries, each with a "none" form; plainer wording in Gathering Change Context and the archive check
+  1.5.1 (2026-10-19): Design Guide v3.7 audit fixes — the commit-gathering procedure moves into its own
+    Gathering Change Context section shared by Generate and Rewrite; Rewrite reads the changelog and
+    gathers context for every item before diagnosing; the v20.0.4 worked example shows filtering and
+    structure only, with placeholder item text instead of terse items; completed blocks place an item
+    with no related feature at the end; the glossary input is marked optional
+  1.5.0 (2026-10-19): Generate completes a version that already has a block — it adds items for
+    uncovered changelog entries next to related items, leaving existing items untouched
+  1.4.2 (2026-10-19): Excludes bugs introduced and fixed within the same release; line length counts
+    characters, not bytes; Category Mapping gains CoMa, LiveIndex and Tenants; Translation Guide maps
+    Publish to Freischalten
+  1.4.1 (2026-10-19): Findings from a v26 test run — commit range runs tag to tag and survives a
+    consolidated changelog; Rewrite may merge items and correct facts the code contradicts but only
+    lists uncovered entries; items may run to about four sentences; untranslated labels stay English
+    in German items, with a note on hash-keyed translation files; added Übersteuerung terms and fixed
+    the worked example's German; line length counts indentation
+  1.4.0 (2026-10-19): Items are self-contained — each names where the change shows up, what changed,
+    a concrete example where the change is abstract, and any action the user must take; Generate and
+    Rewrite gain a context-gathering step that reads the commits behind each changelog line and the
+    project glossary; new principle, constraint against guessed context, two cold-reader checklist
+    items, and a worked example expanding a terse entry
+  1.3.0 (2026-10-16): Refuses to write release notes for a `**WIP; UNRELEASED**` changelog entry — Generate
+    checks the marker in step 1 and routes the user to a Changelog Curator Rewrite to finalize it first
   1.2.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one XML file per series,
     on the boundary the developer changelog's archive already set (or, with no changelog archive, the
     boundary the shared release-history-archiving cut rules produce, reported back so the Changelog
@@ -20,8 +45,8 @@ changelog: |
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-25): Initial release — bilingual WHATSNEW.xml release note generation
 
-audit_guide_version: "3.3"
-audit_date: "2026-08-27"
+audit_guide_version: "3.7"
+audit_date: "2026-10-19"
 
 tools:
   - vscode
@@ -51,6 +76,6 @@ cc_tools:
 identity: "Release Notes Editor"
 use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones"
 modes: |
-  Generate (from the developer changelog)
+  Generate (from the developer changelog, or completing an existing version)
   Rewrite (polish existing entries)
   Archive (move older versions alongside the changelog archive)

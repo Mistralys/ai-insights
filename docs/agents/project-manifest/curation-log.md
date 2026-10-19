@@ -1,0 +1,60 @@
+# Curation Log
+
+Why this manifest looks the way it does, and when it was last verified.
+Read freely — Standing Decisions explains the deliberate gaps and conventions.
+Written by the Manifest Curator only; no other agent edits this file.
+
+This log covers the workspace hub manifest (`docs/agents/project-manifest/`) only. Each module manifest keeps its own log beside it.
+
+## Standing Decisions
+
+| Date | Decision | Rationale |
+|---|---|---|
+| 2026-10-16 | The workspace hub manifest is treated as its own tool and keeps its own `curation-log.md`, separate from the personas manifest's log. Before this log existed, hub edits were recorded in the personas log. | Decided by the user (recorded in `docs/agents/projects/personas-snapshot.md`). The hub spans every sub-project, so its verification history cannot be inferred from any one module's log. |
+
+## History
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: one wording defect in the hub `README.md` Navigation table. Not a full reconcile, and it does not certify the rest of the hub as verified. The README was searched for other hard-coded "9-stage" / "9-agent" / "nine" wording.
+**Commit:** 1ced4e17
+**Changes:** The Navigation row "Understand the 9-stage ledger pipeline" now reads "Understand the ledger agent workflow", link target unchanged. The earlier entry's "9-stage ledger pipeline" wording was wrong: the per-work-package pipeline has six stages (four by default), and the nine roles include Planner, PM and Synthesis, which sit outside it (`shared/workflow-manifest.json`, `personas/ledger/README.md`). No other such wording was found in the README.
+**Notes:** The working tree held uncommitted changes at scan time, so the scan read 1ced4e17 plus that working tree. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: moving the Cross-System Dependencies and Root-Level Tooling inventories out of root `AGENTS.md` into two new hub documents, and the hub `README.md` fixes that go with it. Not a full reconcile, and it does not certify the rest of the hub as verified. Rows were checked against `orchestrator/src/config.py`, `scripts/install-mcp-global.js`, `personas/ledger/README.md`, `scripts/` and a sample of the named symbols.
+**Commit:** 1ced4e17
+**Changes:**
+- Created `cross-system-dependencies.md` (dependency table with its validation scripts) and `root-tooling.md` (script and shared-file table, merged with the former README "Shared Infrastructure" rows). Both are linked from the README index.
+- Hub `README.md`: the dependency table, validation scripts and Shared Infrastructure tables were replaced by links to the new documents. This removed the stale "Orchestrator persona files" row (it named `personas/ledger/claude-code/`; the orchestrator reads `personas/ledger/deep-agents/`) and the "MCP server name" row that pointed at a nonexistent `.mcp.json` (the registration code is `scripts/install-mcp-global.js`, hardcoding `central_pm`). "9-agent pipeline" became "9-stage ledger pipeline".
+- `cross-system-dependencies.md`: the `stores.json location` row, which was split from the table in `AGENTS.md` by a blank line, sits inside it. The "Orchestrator MCP server command" row said the command comes from `orchestrator/.env` → `MCP_SERVER_CMD`; no such variable exists, and `load_config()` hardcodes `node <workspace>/mcp-server/dist/index.js`, so the row now says that.
+- `root-tooling.md`: added rows for `scripts/generate-persona-audit.js`, `scripts/lib/yaml-utils.js`, `scripts/lib/persona-model-resolution.js` and `scripts/templates/`, which existed on disk and were in no table, plus a row for `docs/agents/deferred-topics.md`, carried over from the README.
+
+**Notes:** The working tree held uncommitted changes at scan time, so the scan read 1ced4e17 plus that working tree. The reverted-decision search and changed-code intersection were not run, by the brief's scope. Root `AGENTS.md` still carries both inventories until its own pass removes them, and the adjacent-document check was not run here. The Standing Decision on the personas manifest's treatment of root `CLAUDE.md` is unchanged: the hub already lists it as hand-maintained.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: add `curation-log.md` and `generated-artefacts.md` to the hub manifest and link both from the hub `README.md`. No other hub section was reconciled, and this entry is an initial log: it does not certify the rest of the hub as verified. Generator facts in the new `generated-artefacts.md` were checked against `scripts/cli.js`, the build scripts, `.gitignore`, `.githooks/pre-commit` and `git ls-files`.
+**Commit:** 1ced4e17
+**Changes:**
+- Created `generated-artefacts.md` for the whole repository: tracked runtime-coupled and documentation-style artefacts, ignored generated output, hand-maintained neighbours, commands with side effects, and known contradictions. It cross-links the personas manifest's document for the persona-build rows instead of duplicating them.
+- Created this log.
+- Hub `README.md`: added a "Hub Documents" index section linking both new documents; removed the `**Version:**` and `**Last Updated:**` fields, which the log supersedes.
+
+**Notes:** The working tree held uncommitted changes at scan time (a modified `personas/name-mapping.json` and untracked plan and project folders under `docs/agents/`), so the scan read 1ced4e17 plus that working tree. The reverted-decision search and changed-code intersection were not run: the brief limited this pass to the two additions, and no earlier hub log exists to supply a floor. The next full pass has no floor either and should take a bounded slice of recent history.
+
+Judgement calls:
+- `mcp-server/coverage/**` is tracked, and `npm run test:coverage` is its only plausible generator, but no vitest config setting confirms the output directory. The row carries a verify marker and tells readers to ask the user. Whether it should be tracked at all is unsettled.
+- `docs/presentation/dist/ai-insights-slides.html` is a tracked, runtime-style deliverable, and the pre-commit hook only warns when it is stale.
+- Root `CLAUDE.md` holds `@AGENTS.md` and `cmdCtxGenerate` no longer writes it, so the hub lists it as hand-maintained. The personas manifest still calls it generated.
+- `personas/name-mapping.json` is listed as tracked. A pending plan (`docs/agents/plans/2026-10-15-untrack-name-mapping/`) would untrack it; the row needs revisiting if that plan lands.
+- The hub has no `constraints.md`, so the binding Generated Artefacts rules are not yet written there. Creating that document would be a structural addition and was not part of this pass.
+
+Observed but untouched, outside this pass's scope:
+- Hub `README.md` Personas document list omits the personas manifest's `file-tree.md`, `generated-artefacts.md`, `curation-log.md` and `variables.md`.
+- Hub `README.md` "Orchestrator persona files" row names `personas/ledger/claude-code/` filenames; the deep-agents output directory is the one the orchestrator reads (per the pending Amend plan, citing `orchestrator/src/config.py`). Not re-verified here.
+- Hub `README.md` "MCP server name" row points at a `.mcp.json` the pending Amend plan reports as nonexistent. Not re-verified here.
+- Hub `README.md` overview says "three sub-projects"; root `AGENTS.md` says two in places. Counts of this kind go stale and are queued in the pending Amend plan.
+- Personas `generated-artefacts.md`, `README.md` and `constraints.md` still describe root `CLAUDE.md` as generated.
+- Adjacent documents: root `AGENTS.md` does not link the hub's two new documents and still describes generated agent-instruction mirrors, so it routes readers to the personas copy of the artefact table. Owner: AGENTS.md Curator v2.4.0. Root `README.md` was not read for this pass.

@@ -41,6 +41,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── research-brief-reference.md
             └── summary-crafting-guide.md
             └── title-crafting-guide.md
+            └── wip-changelog-version.md
 
 ```
 ###  Path: `/personas/shared/partials/agent-roster.md`
@@ -132,12 +133,15 @@ Use the `task` tool with `subagent_type` set to the owning agent's slug, passing
 
 Read what the agent returns before you continue. A delegation is reviewed, never passed through.
 
+**When a caller passes a plan.** An orchestrating agent may hand you the plan for a wider change: each document, its owner, and whether that owner has run yet. A document whose owner is still to come is already settled, and so is one the plan marks skipped: the caller has decided it. You leave either to the plan and name your finding for it in your report, so the caller can add it to that owner's share. Every other finding follows the size rule above, including a dispatch to an agent the plan never mentions.
+
 **Constraints**
 
 - Report every edit you made outside your own territory and every agent you dispatched, naming the file in each case. An unreported edit in someone else's document is indistinguishable from drift.
 - Never restructure a document you do not own. Dispatch its owner — the shape of the file is what that owner's format rules govern.
 - Never dispatch an agent for a typo. A subagent costs more tokens than a one-word correction saves.
 - Never edit a document with no owner in the table. Report it and let the user place it.
+- Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped. Report the finding for that document to the caller instead.
 - Never send a dispatch without the evidence behind the finding. The receiving agent acts on a brief as established fact.
 {{/if}}
 
@@ -761,4 +765,9 @@ When a `research-brief.md` exists alongside the plan, it supplies pre-verified c
 - **Rework/phase separator** — append ` - Rework {N}` or ` - Phase {N}` when the slug contains those suffixes (e.g., `-rework-1`, `-phase-2`), using a space-hyphen-space separator
 - **Slug-derived** — expand the slug's kebab-case words into readable words; never invent a title that contradicts the slug
 - **Plain text only** — no Markdown formatting (no bold, backticks, or brackets)
+```
+###  Path: `/personas/shared/partials/wip-changelog-version.md`
+
+```md
+**WIP Changelog Version:** Never open a changelog version based on the newest heading alone — several runs then stack up versions that were never released. Before writing an entry, read the changelog's topmost version heading. Where it reads `## v{VERSION} - **WIP; UNRELEASED**`, add your changes to that entry and never open a second one. Otherwise find the last release tag with `git describe --tags --abbrev=0` and read the changelog as it stood at that tag with `git show {TAG}:{CHANGELOG_PATH}`: its newest entry is the last released version, which also covers a module changelog that has no tags of its own. Open `## v{NEXT} - **WIP; UNRELEASED**` above the existing entries, where `{NEXT}` is that version plus the bump your change needs. Raise the WIP version when a later change needs a larger bump — v2.4.1 becomes v2.5.0 once a feature lands — and never lower it. Keep the project's version fields, such as a manifest `version`, at the WIP version, so the version works like any other in the interim. Where the project has no tags, or the changelog did not exist at the tag, base the version on the newest unmarked entry and say so in your report. Where the WIP entry already appears in the changelog as it stood at the last tag, that release shipped unfinalized: leave the entry as it is, open a new WIP entry above it, and report the stale marker. Leave the marker in place — it comes off only when the user has the Changelog Curator finalize the entry for release.
 ```

@@ -131,8 +131,18 @@ describe('checkPhilosophyTone', () => {
     expect(warnings[0]).toMatch(/^p\.md:9:/);
   });
 
-  it('exempts bare-verb comparison idioms, which the guide permits as titles', () => {
+  it('flags bare-verb comparison idioms, since the guide makes no exception for them', () => {
     for (const title of ['Show Over Describe', 'Merge Before Multiply', 'Quantify Over Qualify', 'Exhaust Before Inventing']) {
+      const warnings = checkPhilosophyTone(
+        persona(`- **${title}:** A working example earns more trust.`),
+        'p.md',
+      );
+      expect(warnings, title).toHaveLength(1);
+    }
+  });
+
+  it('still passes a noun-headed comparison', () => {
+    for (const title of ['Value Over Volume', 'Structure Before Content', 'Delegation Over Duplication']) {
       const warnings = checkPhilosophyTone(
         persona(`- **${title}:** A working example earns more trust.`),
         'p.md',

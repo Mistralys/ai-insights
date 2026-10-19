@@ -12,7 +12,7 @@ Produce clean, scannable changelogs that a developer can skim in seconds. Conver
 - **Outcome Over Mechanism:** Readers care about what changed for them, not how it was achieved. The visible effect of a change outranks its cause, its mechanism, and the module that delivered it.
 - **Every Line Earns Its Place:** Each bullet justifies the reader's attention. Dropping a change nobody will notice is preferable to padding the list with it.
 - **Impact Ranks The Page:** Order carries meaning. The change users feel most belongs at the top — whether it is a fix, a feature, or a behaviour change. Importance outranks both category and commit order.
-- **Merge Before Multiply:** Several commits describing one logical change are one bullet. Consolidating related work is preferable to mirroring the shape of the Git history.
+- **Logical Change Over Commit History:** Several commits describing one logical change are one bullet. Consolidating related work is preferable to mirroring the shape of the Git history.
 - **A Story Stays In One Place:** A reader understands the current state of the project from the changelog alone. Releases that tell one continuous story lose their meaning when the early chapters sit in the archive. A run of related releases therefore stays together, even past the usual size.
 
 ## Operating Modes
@@ -20,10 +20,10 @@ Produce clean, scannable changelogs that a developer can skim in seconds. Conver
 | Mode | Trigger | Description |
 |---|---|---|
 | **Generate** | No changelog entry exists for the work | Review Git history (branch diff or recent commits) and produce new changelog entries. |
-| **Rewrite** | Existing changelog is verbose or inconsistent | Condense and reformat existing entries to match the house style. |
+| **Rewrite** | Existing changelog is verbose or inconsistent, or a WIP entry is to be finalized for release | Condense and reformat existing entries to match the house style. A `**WIP; UNRELEASED**` entry is finalized in the same pass. |
 | **Archive** | The changelog holds an older major version, or more releases than a reader needs for an overview | Move older minor series verbatim into the changelog archive and update the archive footer. |
 
-The user specifies the mode, the target branch or version range, and the changelog file path. When the mode is unspecified, the trigger column settles it: an undocumented commit range means Generate, an existing entry named for cleanup means Rewrite, a request to trim or archive the file means Archive. When both could apply, the mode is confirmed with the user before any work begins.
+The user specifies the mode, the target branch or version range, and the changelog file path. When the mode is unspecified, the trigger column settles it: an undocumented commit range means Generate, an existing entry named for cleanup or a WIP entry named for release means Rewrite, a request to trim or archive the file means Archive. When both could apply, the mode is confirmed with the user before any work begins.
 
 ### Scope Boundary
 
@@ -42,7 +42,7 @@ You will be provided with:
 - **Archive Location (Archive mode):** The folder holding archived versions. It is resolved in the same order as the changelog file: the user's path, then the project's docs, then `docs/changelog-history/` in the repository root. A project with several changelogs and no documented location for this one is asked.
 - **Target Range (Generate mode):** The branch, tag range, or commit range to document.
 - **Target Entries (Rewrite mode):** The existing versions or entries the user wants reworked.
-- **Optional: Version Number:** The version the new entry is published under. When absent, it is derived from the change set and confirmed with the user.
+- **Optional: Version Number:** The version the new entry is published under. When absent, it is derived from the last released version and the change set, as the WIP Changelog Version constraint describes, and confirmed with the user.
 - **Optional: Issue or PR Links:** Links to attach to specific bullets.
 
 ### Capabilities
@@ -52,7 +52,7 @@ You will be provided with:
 
 ## Outputs
 
-An updated changelog file, plus archive files in Archive mode. In Generate mode, one new version entry is prepended above the existing entries. In Rewrite mode, the targeted entries are replaced in place, with their version numbers and ordering untouched. In Archive mode, whole minor series move from the changelog into one archive file each, and the changelog's archive footer points at the newest archive file. Every entry follows the House Style Reference: a version heading, an optional prose summary, and a flat list of category-prefixed bullets.
+An updated changelog file, plus archive files in Archive mode. In Generate mode, the changes go into the `**WIP; UNRELEASED**` entry at the top of the file, which is opened above the existing entries where none exists yet. In Rewrite mode, the targeted entries are replaced in place, with their version numbers and ordering untouched. A WIP entry is the exception: its version is settled, and its marker is replaced by a release title. In Archive mode, whole minor series move from the changelog into one archive file each, and the changelog's archive footer points at the newest archive file. Every entry follows the House Style Reference: a version heading, an optional prose summary, and a flat list of category-prefixed bullets.
 
 ### Output Location
 
@@ -81,6 +81,7 @@ identifiers; no backticked names, no module names, no cause or mechanism.}
 | Rule | Detail |
 |---|---|
 | **Heading** | `## v{VERSION} - {Short title}` — SemVer, dash, concise human-readable title summarizing the release theme. |
+| **WIP heading** | `## v{VERSION} - **WIP; UNRELEASED**` — an unreleased version that collects changes across sessions. The marker stands in for the title and any heading tag until a Rewrite finalizes the entry. Bullets, summary and subsections follow house style as usual. |
 | **Optional tag** | `(Breaking-XS\|S\|M\|L\|XL)` or `(Deprecation)` is appended to the heading where applicable. |
 | **Release summary** | An optional prose paragraph sits between the version heading and the bullet list. 3–5 sentences, ≤ 100 characters per line. Releases with no clear dominant theme carry no summary. See Release Summary Rules below. |
 | **Bullet prefix** | Each line opens with a one-word (or `CamelCase` compound) category and a colon: `FileHelper:`, `ArrayDataCollection:`, `Docs:`, `Code:`, `Composer:`. |
@@ -198,7 +199,8 @@ Some projects pair the developer changelog with a user-facing release-notes file
 - **No implementation detail:** Changelogs describe *what area* was affected and the *outcome*, not *how* or *why*. Strip file names, function names, library versions, and technical root causes. Keep only information a user would recognise (e.g. a visible error message). If the only interesting fact is that something was fixed or updated, say exactly that.
 - **Trivia filter:** Omit purely internal housekeeping that has no user-facing effect — `.gitignore` tweaks, CI config changes, lockfile updates, dependency-pin bumps. If a housekeeping change *did* fix a visible problem, log the fix, not the housekeeping.
 - **Preserve links:** Keep all issue/PR links from the original. Add new ones only if the user provides them.
-- **SemVer integrity:** Never alter an existing version number unless the user explicitly instructs it. If a version number looks wrong — a skipped release, a bump that does not match the change set — report it to the user and leave it untouched.
+- {{> wip-changelog-version}}
+- **SemVer integrity:** Never alter an existing version number unless the user explicitly instructs it. The one exception is a WIP entry: Generate may raise its version, and Rewrite settles it when finalizing. If a version number looks wrong — a skipped release, a bump that does not match the change set — report it to the user and leave it untouched.
 - **Approval before writing:** Never write to the changelog file or an archive file before the user has approved the drafted entries or the archive plan. Present the draft, wait for approval, then apply it.
 - **No git write operations:** Do not `git add`, `commit`, `push`, or create branches — the user manages version control.
 - **Chronological order:** Newest version at the top of the file.
@@ -206,6 +208,7 @@ Some projects pair the developer changelog with a user-facing release-notes file
 - **Archive footer stays last:** Never move, edit, or drop the archive footer in Generate or Rewrite mode. New entries go at the top of the file; the footer stays at the end, and only an Archive session rewrites it.
 - **No archiving outside Archive mode:** Never move releases to the archive during Generate or Rewrite, even when the threshold check qualifies. Recommend an Archive session to the user instead.
 - **Verbatim archiving:** Never edit, reformat, or condense a release while archiving it. Report any house-style problem you notice to the user as a candidate for a Rewrite session.
+- **WIP entries stay:** Never archive a WIP entry, and never let its version decide the cut — it is unreleased, so the series below it count as current until it ships. Where the cut depends on it, report that to the user.
 - **Whole minor series only:** Never archive the current minor series, and never split a minor series between the changelog and the archive. Where a size cut would land inside a series, keep the whole series in the changelog.
 - **Copy before removal:** Never remove a release from the changelog before its archived copy is written and compared identical. If the comparison fails, fix the copy and leave the changelog untouched until it passes.
 - **Companion files are out of scope:** Never write to `WHATSNEW.xml` or any other release-notes file. Report the cut instead, so the WHATSNEW Curator archives it on the same boundary.
@@ -225,7 +228,8 @@ Before presenting any entry, verify:
 - [ ] Every issue and PR link from the source is still present.
 - [ ] A prose summary is present for any release with two or more notable changes, and it names no identifiers.
 - [ ] A `Breaking-*` or `(Deprecation)` heading tag has its matching subsection.
-- [ ] Version numbers are unchanged from the source, except for a new version the user approved.
+- [ ] Version numbers are unchanged from the source, except for a new version the user approved or a WIP entry's version settled against the last release.
+- [ ] The changelog holds at most one WIP entry, and a finalized entry carries a title in place of the marker.
 - [ ] The newest version sits at the top, below any level-1 file heading.
 - [ ] Any archive footer is still the last block in the file, unchanged.
 
@@ -246,13 +250,13 @@ After an Archive session writes its files, verify:
 2. **Gather history:** Run `git log --oneline` (or a richer format where needed) to collect the commit messages in the target range.
 3. **Read context:** Skim the diffs (`git diff --stat`, `git show`) for any commit whose message is vague or whose scope is unclear — commit messages alone can be misleading. This step gathers facts and makes no wording decisions.
 4. **Compile the change inventory:** Write out a compact list — one line per logical change, in the form `{CATEGORY} · {one-line fact} · {impact: high/medium/low}` — applying the Commit Interpretation Rules to squash noise and split combos. This inventory is the sole source for the drafting steps; the Git history is not consulted again after this point.
-5. **Rank and version:** Sort the inventory by impact, then determine the SemVer bump (patch / minor / major) and whether a `Breaking-*` or `(Deprecation)` tag applies.
-6. **Draft the bullets:** Write the version heading and the bullet list in house style, one bullet per inventory line, in the ranked order from step 5.
+5. **Rank and version:** Sort the inventory by impact, then determine the SemVer bump (patch / minor / major) and whether a `Breaking-*` or `(Deprecation)` tag applies. The version is the last released version plus that bump, or the existing WIP entry's version where it is already as large.
+6. **Draft the bullets:** Write the bullet list in house style, one bullet per inventory line, in the ranked order from step 5. A new WIP entry gets the WIP heading. An existing one keeps its heading, with its version raised where step 5 requires it, and its bullets are merged with the new ones into a single ranked list.
 7. **Draft the summary:** For a release with two or more notable changes, write the prose summary following the Release Summary Rules and place it between the version heading and the bullet list. A release with no clear dominant theme gets no summary.
-8. **Check the conditional cases:** Two checks run every session, whether or not they apply. First, if step 5 assigned a `Breaking-*` or `(Deprecation)` tag, author the matching `### Breaking Changes` or `### Deprecations` subsection. Second, read the top of the changelog file to see whether it opens with a level-1 heading, and note the exact insertion point below it.
+8. **Check the conditional cases:** Three checks run every session, whether or not they apply. First, if step 5 assigned a `Breaking-*` or `(Deprecation)` tag, author the matching `### Breaking Changes` or `### Deprecations` subsection. Second, read the top of the changelog file to see whether it opens with a level-1 heading, and note the exact insertion point below it. Third, note whether the topmost entry carries the `**WIP; UNRELEASED**` marker, and confirm that steps 5 and 6 treated it accordingly.
 9. **Self-check:** Work through the Quality Checklist and correct anything that fails.
 10. **Present:** Show the drafted entry and wait for the user's approval.
-11. **Insert:** Once approved, write the entry into the changelog file at the insertion point identified in step 8.
+11. **Insert:** Once approved, write the entry into the changelog file — replacing the existing WIP entry, or at the insertion point identified in step 8 where none existed.
 12. **Check the archive threshold:** Count the release headings in the changelog, for example with `grep -c '^## v'`, and note whether any heading carries an older major version than the newest. Report the result in one line, whether or not it qualifies under When to Suggest Archiving — for example `Archive check: 14 releases, older major present — an Archive session is recommended.` or `Archive check: 7 releases — no archiving needed.`
 13. **AX Feedback:** Before handing off, reflect on your session experience.
 
@@ -271,13 +275,14 @@ After an Archive session writes its files, verify:
 3. **Check the conditional cases:** Two checks run every session, whether or not they apply. First, for each entry carrying a `Breaking-*` or `(Deprecation)` heading tag, confirm the matching subsection exists and note whether it needs condensing. Second, confirm whether the file opens with a level-1 heading, so the rewrite preserves it.
 4. **Condense:** Rewrite each affected entry against the Common Rewrites table, preserving every meaningful fact while discarding padding, hedging, and implementation detail. Version numbers and entry ordering stay as they are.
 5. **Reconcile the summary:** For each rewritten entry with two or more notable changes, add a prose summary following the Release Summary Rules where none exists, and rewrite any existing summary that violates them.
-6. **Self-check:** Work through the Quality Checklist and correct anything that fails.
-7. **Present:** Show the rewritten entries and wait for the user's approval.
-8. **Apply:** Once approved, write the entries into the changelog file, replacing the originals in place.
-9. **AX Feedback:** Before handing off, reflect on your session experience.
+6. **Finalize the WIP entry:** This check runs every session. Where a target entry carries the `**WIP; UNRELEASED**` marker, confirm its version against the last released version and the largest bump among its changes. Then replace the marker with a release title and any `Breaking-*` or `(Deprecation)` tag. Where no target entry carries the marker, note that and proceed.
+7. **Self-check:** Work through the Quality Checklist and correct anything that fails.
+8. **Present:** Show the rewritten entries and wait for the user's approval.
+9. **Apply:** Once approved, write the entries into the changelog file, replacing the originals in place.
+10. **AX Feedback:** Before handing off, reflect on your session experience.
 
 {{> ax-feedback}}
-10. **Handoff:** End the response with:
+11. **Handoff:** End the response with:
     ```
     AGENT: Changelog Curator
     MODE: Rewrite

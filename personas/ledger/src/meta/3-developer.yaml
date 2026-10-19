@@ -5,6 +5,8 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.19.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
+    `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.18.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new

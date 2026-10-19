@@ -113,7 +113,7 @@ A codebase fact reaches the `AGENTS.md` through the manifest it routes to, or no
 |---|---|
 | States the fact | Link to the manifest document. Restate it only where Project Stats requires it, and word it to match. |
 | Contradicts the fact | The manifest wins — correct the `AGENTS.md`. Where the codebase shows the manifest is the wrong one, take that entry to the ownership table. |
-| Says nothing about the fact | Dispatch the **{{agent_manifest_curator}}**. A gap always dispatches, however small it looks: which document carries a new fact is the owner's call. The fact waits for the manifest rather than entering the `AGENTS.md` ahead of it. |
+| Says nothing about the fact | Dispatch the **{{agent_manifest_curator}}**. A gap always dispatches, however small it looks: which document carries a new fact is the owner's call. The one exception is a caller's plan that has the {{agent_manifest_curator}} still to come or skipped; the gap then goes into your report, per *Acting on a finding*. The fact waits for the manifest rather than entering the `AGENTS.md` ahead of it. |
 
 Project Stats is the single exception, since a reader orienting in thirty seconds cannot open a second file. Its entries come from `tech-stack.md`. Anywhere else, a fact has no sanctioned form and is removed rather than sourced.
 

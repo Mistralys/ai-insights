@@ -18,7 +18,7 @@ The following persona suites are available:
 
 | Suite | Description | Docs |
 |-------|-------------|------|
-| **Ledger** | Full 9-stage workflow (Planner → PM → Developer → QA → Security → Reviewer → Release → Docs → Synthesis) with persistent state via the MCP server | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger** | Full workflow (Planner → PM → Developer → QA → Security → Reviewer → Release → Docs → Synthesis) with persistent state via the MCP server | [personas/ledger/README.md](personas/ledger/README.md) |
 | **Ledger Support** | Utility agents that extend the ledger workflow — PM sub-agents, ledger doctor, orchestrator runner, and more | [personas/ledger-support/README.md](personas/ledger-support/README.md) |
 | **Standalone** | Drop-in agents with no dependencies — pick one and go | [personas/standalone/](personas/standalone/) |
 
@@ -47,7 +47,7 @@ The ledger supports **multi-store mode**: point the server at multiple independe
 
 ### The Orchestrator
 
-Run the entire 9-stage pipeline from the command line — no IDE required. Built on **LangGraph** + **Deep Agents**, the orchestrator executes the same MCP-backed workflow headlessly. Useful for automation, CI integration, or when you want to kick off a pipeline and walk away.
+Run the entire pipeline from the command line — no IDE required. Built on **LangGraph** + **Deep Agents**, the orchestrator executes the same MCP-backed workflow headlessly. Useful for automation, CI integration, or when you want to kick off a pipeline and walk away.
 
 → [orchestrator/README.md](orchestrator/README.md)
 
@@ -86,7 +86,7 @@ Once you've linked the CLI globally (`npm link`, see the [Developer Guide](docs/
 | Resource | Description |
 |----------|-------------|
 | [Project Overview](docs/references/project-overview.md) | Philosophy, workflow design, and architecture |
-| [Ledger Workflow Guide](personas/ledger/README.md) | The 9-stage pipeline: setup, stages, best practices |
+| [Ledger Workflow Guide](personas/ledger/README.md) | The ledger pipeline: setup, stages, best practices |
 | [Visual Workflow Guide](docs/agents/references/ledger-workflow-visual-guide.md) | End-to-end diagrams: handoffs, sub-agents, knowledge flow |
 
 **Going deeper:**

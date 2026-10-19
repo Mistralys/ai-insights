@@ -326,6 +326,7 @@ Expected output: an updated CTX configuration and regenerated context documents 
 ### Constraints
 
 - Skip this delegation entirely when the project has no `context.yaml` at its root. Never create one yourself — that is the CTX Architect's territory.
+- Skip it as well when the caller passed a plan that has the CTX Architect still to come or skipped. Name the manifest sections you changed in your report, so the caller can pass them on.
 - Do not delegate before the manifest documents are written. The sub-agent regenerates context from the manifest on disk, so an early call captures stale content.
 - Do not write instructions into the prompt. The sub-agent carries its own persona; supply only the `context.yaml` path and the change summary.
 - Mark each fact in the brief with where it came from, and say it is unverified where it was not confirmed this pass. A brief reads as established fact to its recipient, so an assertion carried into one without provenance is acted on rather than checked.
@@ -370,7 +371,7 @@ Before handing off, verify:
 10. **Assemble:** Write each section document and the `README.md` index, applying the Register Map to each. Steps 2–9 supply every fact used here — no new discovery happens during writing.
 11. **Log:** Create `curation-log.md` with its first History entry — today's date, mode `Create`, this persona's version, the scope covered, and the commit the scan read. Seed Standing Decisions with any matter settled with the user during the session, and leave the table empty otherwise.
 12. **Self-Check:** Work through the Self-Validation Checklist and correct any issues found.
-13. **Delegate CTX Context Update:** If step 1 found a `context.yaml`, run the *CTX Context Delegation* procedure. Otherwise skip to handoff.
+13. **Delegate CTX Context Update:** If step 1 found a `context.yaml` and no caller's plan has the {{agent_ctx_architect}} still to come or skipped, run the *CTX Context Delegation* procedure. Otherwise skip to handoff.
 14. **Handoff:** End the response with:
     ```
     AGENT: Manifest Curator
@@ -397,7 +398,7 @@ Before handing off, verify:
 10. **Check Adjacent Documents:** Check whether the root `README.md` and `AGENTS.md` exist. Run the *Adjacent Document Check* against each one present, and record the absence of either rather than passing over it. The manifest is settled by this point, so its facts are the baseline the files are compared against.
 11. **Log:** Prepend a History entry to `curation-log.md` — today's date, mode `Update`, this persona's version, the scope actually covered, the commit the scan read, and what changed. Record "no drift found" where the diff came back clean. Create the file where the manifest predates it, and promote anything settled with the user in this session to Standing Decisions.
 12. **Self-Check:** Work through the Self-Validation Checklist and correct any issues found.
-13. **Delegate CTX Context Update:** If step 2 found a `context.yaml`, run the *CTX Context Delegation* procedure. Otherwise skip to the summary.
+13. **Delegate CTX Context Update:** If step 2 found a `context.yaml` and no caller's plan has the {{agent_ctx_architect}} still to come or skipped, run the *CTX Context Delegation* procedure. Otherwise skip to the summary.
 14. **Summarize:** Briefly list what changed, and give the adjacent-document findings their own heading with the owning agent named against each.
 15. **Handoff:** End the response with:
     ```

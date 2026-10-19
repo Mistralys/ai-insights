@@ -18,6 +18,7 @@ This document codifies established rules, conventions, and non-obvious gotchas f
 - [Sub-Agent Delegation Constraints](#sub-agent-delegation-constraints)
 - [Storage Layout](#storage-layout)
 - [Queue Entry Schema](#queue-entry-schema)
+- [Generated Artefacts](#generated-artefacts)
 
 ### Constraint Entry Format
 
@@ -451,7 +452,7 @@ ledger_log_dir = (
 **Sync note:** The `STORAGE_VERSION` constant in `mcp-server/src/storage/migrate-namespaced.ts`
 is the authoritative version-tracking source for the storage layout. Any change to the layout
 must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
-See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
+See the hub manifest's [Cross-System Dependencies → Dependency Table](../../../../docs/agents/project-manifest/cross-system-dependencies.md#dependency-table), "Storage layout version" row.
 
 ---
 
@@ -696,3 +697,17 @@ again would be incorrect.
 **Rationale:** This decouples tool governance per target: VS Code tools are declared in `tools:`, Claude Code in `cc_tools:`, and Deep Agents tools are a runtime concern of `create_deep_agent()`. A plan that assumes `da_tools:` restricts or configures Deep Agents tooling will produce incorrect instructions.
 
 **Source:** `orchestrator/src/nodes/__init__.py` → `create_deep_agent()` call site; `deepagents` library → `graph.py` built-in tool merge.
+
+---
+
+## Generated Artefacts
+
+The orchestrator has no build step of its own. Its generated files are the version field synchronised into `pyproject.toml`, the `.context/orchestrator/**` output, and the run state a pipeline writes. [generated-artefacts.md](generated-artefacts.md) records which is which and when each can be discarded. Repository-wide generated files are covered by the hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md).
+
+- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- On a feature branch, revert generator drift by path (`.context/orchestrator/**`, a `pyproject.toml` diff limited to `version`) before integrating upstream, and regenerate `.context/` on the default branch.
+- Keep a `pyproject.toml` `version` change when the branch edited `changelog.md`; commit it with that change.
+- Never revert a hand-maintained neighbour such as `module-context.yaml` or `requirements.txt` as build noise.
+- Never commit or delete run state (`checkpoints/`, `logs/`, `.orchestrator-run.json`). It is ignored, written by runs, and cannot be regenerated on demand.
+- Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
+- When unsure whether a file is generated, leave it and ask the user.

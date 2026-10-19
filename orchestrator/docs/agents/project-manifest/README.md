@@ -46,6 +46,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 | **Design Decisions** | [project-manifest/decisions.md](decisions.md) | Rejected and not-adopted alternatives, and IDE/orchestrator divergences that look like bugs but are deliberate |
+| **Generated Artefacts** | [project-manifest/generated-artefacts.md](generated-artefacts.md) | Which tracked and ignored files the orchestrator's commands and runs write, and when discarding each is safe |
 | **Curation Log** | [project-manifest/curation-log.md](curation-log.md) | Standing decisions about this manifest and the dated trail of curation passes |
 
 ---

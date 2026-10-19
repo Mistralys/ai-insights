@@ -5,6 +5,13 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.7.2 (2026-10-19): Plainer wording for the archive-suggestion count in the shared archiving section
+  1.7.1 (2026-10-16): Retitled "Merge Before Multiply" to "Logical Change Over Commit History" — the Design Guide allows no verb-initial philosophy titles
+  1.7.0 (2026-10-16): Generate collects changes in a single `**WIP; UNRELEASED**` entry whose version is based
+    on the changelog as it stood at the last release tag (shared wip-changelog-version partial); Rewrite
+    finalizes a WIP entry for release — settles the version, replaces the marker with a title — via a new
+    every-session checkpoint; SemVer integrity and the checklist allow the WIP version to move; Archive
+    never archives a WIP entry or cuts on its version
   1.6.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one file per series
     under docs/changelog-history/v{MAJOR}/ (or a location the project's docs name), with the cut rules,
     layout and verbatim-move rules in the new shared release-history-archiving partial so the WHATSNEW

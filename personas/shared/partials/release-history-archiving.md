@@ -8,7 +8,7 @@ A new archive file copies the layout of the archive files already present. The f
 
 ### When to Suggest Archiving
 
-A cheap count decides whether an Archive session is worth suggesting. The live file qualifies when it holds more than ten releases, or any release of an older major version than its newest. The count only prompts the suggestion: the cut itself is still judged in the Archive session, and the user decides whether to run one.
+The agent suggests an Archive session when a quick count of the live file qualifies it. The live file qualifies when it holds more than ten releases, or any release of an older major version than its newest. The count only prompts the suggestion: the cut itself is still judged in the Archive session, and the user decides whether to run one.
 
 ### Cut Rules
 

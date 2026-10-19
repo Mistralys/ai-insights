@@ -5,14 +5,28 @@
  *
  * Configuration for @mistralys/persona-builder CLI.
  *
- * Runs a shadow build of both persona suites using the library, producing
- * output that must be byte-identical to the currently committed persona files
- * in personas/ledger/ and personas/standalone/.
+ * Defines the three persona suites (ledger, standalone, ledger-support) and
+ * the per-target output directories they render into: vs-code/, claude-code/
+ * and deep-agents/ under each suite folder.
  *
- * Usage (from the workspace root):
- *   npx persona-build --config personas/persona-build.config.js
- *   npx persona-build --config personas/persona-build.config.js --check
- *   npx persona-build --config personas/persona-build.config.js --strict
+ * The rendered persona files are build output, not source: the *.md files in
+ * those directories are gitignored (Git tracks nothing there beyond a few
+ * .gitkeep placeholders) and are regenerated from the YAML + Markdown
+ * sources under each suite's src/. There is no committed copy to compare
+ * the output against.
+ *
+ * Usage (from the workspace root) — always through the wrapper script, which
+ * clears stale *.md output before a real build and runs the workspace's own
+ * validation checks on top of the library CLI:
+ *   node scripts/build-personas.js            # clean + build + post-build steps
+ *   node scripts/build-personas.js --check    # render in memory, write nothing
+ *   node scripts/build-personas.js --strict   # also fail on library warnings
+ *
+ * --check (alias --dry-run) renders every persona without writing files and
+ * fails on any error-severity validation result. It validates the sources;
+ * it does not diff the rendered output against the files on disk, so it does
+ * not detect output that is merely out of date. The .githooks/pre-commit hook
+ * runs this check mode.
  */
 
 const path         = require('path');

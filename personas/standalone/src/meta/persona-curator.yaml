@@ -13,6 +13,7 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.17.1 (2026-10-16): Philosophy Tone Pass no longer exempts verb-initial comparison idioms ("Merge Before Multiply"), which the Design Guide never permitted
   1.17.0 (2026-09-18): Gained a Command Execution capability, closing a contradiction the tool grant had
     hidden — Core Rules required running the build after every source change while Capabilities
     authorised filesystem access and nothing else, so the build-and-read step was handed back to the
