@@ -99,11 +99,11 @@ Individual personas that require specific MCP tool access (e.g., `central_pm/*`)
 
 ## Build & Sync
 
-Build the ledger-support suite:
+Build the personas (the build always covers all suites and targets):
 
 ```bash
 # From workspace root
-node scripts/build-personas.js --suite ledger-support --target all
+node scripts/build-personas.js
 ```
 
 Sync to VS Code and Claude Code:

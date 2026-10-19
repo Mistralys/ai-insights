@@ -106,12 +106,11 @@ For detailed build commands, template syntax, and sync conventions, see:
 **Quick commands:**
 
 ```bash
-# Build standalone suite only
-node scripts/build-personas.js --suite standalone
-
-# Build all suites
-node scripts/build-personas.js --suite all
+# Build all suites and targets
+node scripts/build-personas.js
 
 # Build + deploy to VS Code and Claude Code
-node scripts/sync-personas.js --suite standalone
+node scripts/sync-personas.js
 ```
+
+> Neither script selects a single suite: every build and sync covers all three suites (ledger, standalone, ledger-support). See the [build CLI interface](../docs/agents/project-manifest/api-surface.md#scriptsbuild-personasjs--cli-interface) for the available flags.

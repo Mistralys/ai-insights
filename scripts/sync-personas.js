@@ -4,12 +4,13 @@
  * sync-personas.js
  *
  * Builds persona files from source templates and copies them to each IDE's
- * agent/prompt directory.
+ * agent/prompt directory. The build always covers every suite and target;
+ * --target only selects which IDE's built files are copied.
  *
  * Usage:
  *   node scripts/sync-personas.js
- *   node scripts/sync-personas.js --target vscode         # VS Code only
- *   node scripts/sync-personas.js --target claude-code    # Claude Code only
+ *   node scripts/sync-personas.js --target vscode         # Deploy VS Code files only
+ *   node scripts/sync-personas.js --target claude-code    # Deploy Claude Code files only
  *   node scripts/sync-personas.js --dry-run               # Preview without copying
  *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code prompts dir
  */
@@ -545,15 +546,18 @@ ${colors.bright}Examples:${colors.reset}
   }
 
   try {
-    // Build personas from source templates, forwarding --target and --dry-run
+    // Build personas from source templates. build-personas.js always builds
+    // every suite and target declared in personas/persona-build.config.js —
+    // it has no suite or target selection — so only --dry-run is forwarded.
+    // The --target option of this script selects which built files are
+    // copied below; it does not narrow the build.
     const buildScript = path.join(import.meta.dirname, 'build-personas.js');
-    const buildArgs = ['--suite', 'ledger,standalone,ledger-support'];
+    const buildArgs = [];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the
     // existing output directories. On a clean checkout where output dirs
     // don't exist yet, a dry-run will report stale or empty content.
     if (dryRun) buildArgs.push('--dry-run');
-    if (target !== 'all') buildArgs.push('--target', target);
 
     console.log(`${colors.bright}${colors.cyan}=== Building Personas ===${colors.reset}\n`);
     execFileSync(process.execPath, [buildScript, ...buildArgs], { stdio: 'inherit' });

@@ -187,9 +187,11 @@ const version = parseVersion();
 log(`Version: ${version}`);
 
 if (!SKIP_BUILD) {
-  log('\nBuilding standalone personas...');
+  // build-personas.js always builds every suite in persona-build.config.js;
+  // the TARGETS list below is what restricts the ZIPs to standalone output.
+  log('\nBuilding personas (all suites)...');
   try {
-    execSync('node scripts/build-personas.js --suite standalone --target all --strict', {
+    execSync('node scripts/build-personas.js --strict', {
       cwd: WORKSPACE_ROOT,
       stdio: 'inherit',
     });
