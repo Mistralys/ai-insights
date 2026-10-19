@@ -10,9 +10,11 @@ summaries and applies requested synthesis edits.
 - Ledger: Claude Code handoffs and sub-agent dispatches start the intended agent.
 - Ledger: QA re-engages when requested and narrows its run only after a failed QA pipeline.
 - Ledger-Support: Synthesis Maintainer composes outcome summaries and applies requested edits.
+- Standalone: Changelog and WHATSNEW Curators gained Archive mode for older releases.
 - Ledger, Standalone: Synthesis records archival failures and writes an Outcome Summary section.
 - Planning: Releases stay out of plans; gates on a person count as dependencies.
 - Planning: Baseline-capture guidance now runs through the whole planning chain.
+- Ledger: Project Manager, Bootstrapper and Dependency Sequencer keep WP numbering in step.
 - Developer: Never publishes or tags; Release Engineer prepares releases without running them.
 - Standalone: Plan Auditor flags release steps and person-gated steps as Critical.
 - Ledger, Standalone: Changelog writers collect changes in one WIP version based on the last tag.

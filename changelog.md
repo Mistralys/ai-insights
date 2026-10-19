@@ -14,6 +14,8 @@ launch with permission prompts skipped.
 - Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
 - Personas: Claude Code handoffs and sub-agent dispatches start the intended agent.
 - Personas: Releases stay out of plans; developers and release engineers never publish or tag.
+- Personas: Changelog and WHATSNEW Curators can now archive older releases.
+- Personas: Work-package renumbering and ordering are handled consistently across planning.
 - CLI: Claude agent picker gained a toggle to launch with permission prompts skipped.
 - CLI: New `audit-orchestrator` command scans the orchestrator venv for security advisories.
 - MCP: Artifact-declaration warnings now follow each pipeline type's policy.
