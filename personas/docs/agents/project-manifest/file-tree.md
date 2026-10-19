@@ -146,6 +146,8 @@ personas/
 
 Only the persona-build–related scripts are annotated here.
 
+For the full inventory of root-level scripts, see the hub's [root-tooling.md](../../../../docs/agents/project-manifest/root-tooling.md).
+
 ```
 scripts/
 ├── build-personas.js                  # Thin wrapper: delegates build to @mistralys/persona-builder

@@ -110,7 +110,7 @@ documents:
       - type: text
         content: |
           # AI Insights - Agent Operating System
-          Root AGENTS.md: workspace architecture, manifest maintenance rules, efficiency rules, failure protocol, cross-system dependencies, cross-platform policy, and changelog convention.
+          Root AGENTS.md: workspace architecture, manifest maintenance rules, efficiency rules, failure protocol, pointers to the cross-system dependency and root-tooling hub documents, cross-platform policy, and changelog convention.
       - type: file
         description: "Root AGENTS.md (agent operating system for the workspace)"
         sourcePaths:
