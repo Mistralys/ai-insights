@@ -5,6 +5,8 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.7.0 (2026-10-16): Shared documentation-ownership partial honours a caller's plan: a document whose owner the plan still has to run is left to it and reported to the caller; a stage the plan marks skipped counts as already decided
+  1.6.3 (2026-10-16): Retitled "Show Over Describe" to "Demonstration Over Description" — the Design Guide allows no verb-initial philosophy titles
   1.6.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
     with the owner's slug — the shared ownership partial put the name in `description`, which
     starts a persona-less general-purpose agent.

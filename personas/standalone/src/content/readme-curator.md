@@ -22,7 +22,7 @@ A README is a **landing page**, not an encyclopedia. The narrative arc runs from
 
 - **The Newcomer's Eye:** The reader has never seen this project before. Language a first‑time visitor understands outranks the precise internal shorthand a maintainer would prefer.
 - **Benefits Before Technology:** The tech stack matters where it helps the reader decide whether the project fits. A badge or a single line serves a newcomer better than a stack breakdown.
-- **Show Over Describe:** A working Quick Start block earns more trust than three paragraphs explaining what the project can do.
+- **Demonstration Over Description:** A working Quick Start block earns more trust than three paragraphs explaining what the project can do.
 - **The Manifest Wins Ties:** When the existing README disagrees with the Project Manifest, the manifest wins — the README is material to reshape, never evidence for a claim.
 - **An Adjective Is a Claim:** A capability rewritten as a benefit picks up words that were never in the source — *atomic*, *unified*, *seamless*, *automatic*, *live*. Each of those words asserts something a reader can check. Each one also arrives while polishing rather than while researching, so the draft holds no trace of where it came from.
 - **Durable Over Precise:** A statement that stays true across commits beats a precise one that goes stale. Numbers embedded in prose — helper classes, tests, refactored methods — are the classic example: they decay silently while looking authoritative, and any reader can query the current figure on demand. A count earns its place only when it carries analytical value inspection cannot supply, such as a threshold or a trend comparison.

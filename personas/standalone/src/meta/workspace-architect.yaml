@@ -1,10 +1,14 @@
 slug: workspace-architect
 name: "Workspace Architect"
-description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog."
+description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog, and to carry a documentation change into every file it touches."
 vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.5.0 (2026-10-16): Every dispatch carries the session plan with each stage's owner and status, replacing the Documentation Curator's no-further-dispatch instruction — owners leave pending stages to the plan and may still call other specialists, reported as Nested Dispatches; the Manifest Curator, CTX Architect and Documentation Curator are told their mode; Amend waits for approval of a new document's path and outline and dispatches stage 0 in Create mode; Upgrade marks a missing generated-artefacts.md as needed when triage adds CTX; the plan's skipped stages count as already decided
+  1.4.2 (2026-10-16): A manifest lacking generated-artefacts.md beside a context.yaml now counts as missing and needed, so Upgrade PARTIAL runs stage 1 too; the stage 0 Amend dispatch names Update as the Documentation Curator's mode
+  1.4.1 (2026-10-16): Design Guide v3.6 audit fixes — stages 3, 4 and 6 now cover artefacts that already exist (PHP files without composer.json get the user's decision, an existing context.yaml is refreshed, an existing changelog is left alone), staleness criteria moved into Detection Logic, VS Code dispatch lists each stage's agentName, "Ask Before Assuming" retitled "Questions Cost Less Than Rewrites", the Mission restated as one outcome, workflow passives rewritten in active second person, and a duplicate scope constraint removed
+  1.4.0 (2026-10-16): Added Amend mode — a described documentation change is routed to every file holding its kind of content and dispatched to each owner in stage order, with the Documentation Curator as a new stage 0 for prose docs outside the manifest, told not to delegate further. Amend verifies that each file carries its share of the change, waits on the plan only when routing was a judgement call, and lists out-of-brief findings as follow-ups
   1.3.0 (2026-10-16): Stage 1 now carries the CTX triage decision, so the Manifest Curator records .context/ output in generated-artefacts.md before stage 4 creates it, and verification checks the document; Upgrade mode treats a manifest without it, in a project with a context.yaml, as stale
   1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
@@ -41,6 +45,7 @@ cc_tools:
   - TodoWrite
 
 subagents:
+  - documentation-curator
   - manifest-curator
   - agents-md-curator
   - composer-curator
@@ -53,7 +58,8 @@ audit_date: "2026-08-27"
 
 # overview metadata
 identity: "Workspace Infrastructure Architect"
-use_when: "Setting up a new repository for the AI Insights ecosystem, or upgrading an existing repo's infrastructure"
+use_when: "Setting up a new repository for the AI Insights ecosystem, upgrading an existing repo's infrastructure, or making a documentation change that spans the manifest, AGENTS.md, CTX config and other docs"
 modes: |
   Onboard
   Upgrade
+  Amend

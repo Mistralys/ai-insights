@@ -5,6 +5,7 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.8.0 (2026-10-16): Skips its CTX delegation when a caller's plan still has the CTX Architect to come, naming the changed manifest sections in its report instead; a stage the plan marks skipped counts as already decided
   1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own

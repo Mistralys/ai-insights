@@ -37,11 +37,14 @@ Use the `task` tool with `subagent_type` set to the owning agent's slug, passing
 
 Read what the agent returns before you continue. A delegation is reviewed, never passed through.
 
+**When a caller passes a plan.** An orchestrating agent may hand you the plan for a wider change: each document, its owner, and whether that owner has run yet. A document whose owner is still to come is already settled, and so is one the plan marks skipped: the caller has decided it. You leave either to the plan and name your finding for it in your report, so the caller can add it to that owner's share. Every other finding follows the size rule above, including a dispatch to an agent the plan never mentions.
+
 **Constraints**
 
 - Report every edit you made outside your own territory and every agent you dispatched, naming the file in each case. An unreported edit in someone else's document is indistinguishable from drift.
 - Never restructure a document you do not own. Dispatch its owner — the shape of the file is what that owner's format rules govern.
 - Never dispatch an agent for a typo. A subagent costs more tokens than a one-word correction saves.
 - Never edit a document with no owner in the table. Report it and let the user place it.
+- Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped. Report the finding for that document to the caller instead.
 - Never send a dispatch without the evidence behind the finding. The receiving agent acts on a brief as established fact.
 {{/if}}

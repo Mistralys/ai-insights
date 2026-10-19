@@ -11,14 +11,15 @@
 
 > A blueprint for creating AI agent personas. Domain-neutral: the structure and philosophy apply to any persona suite, whether it covers software engineering, content curation, research, or an unrelated field.
 
-**Version:** 3.6
-**Last Updated:** 2026-09-29
+**Version:** 3.7
+**Last Updated:** 2026-10-16
 **License:** MIT 
 **Author:** Sebastian Mordziol
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
 
+- v3.7 - 2026-10-16: Added "Nested Delegation" to Pattern 9. A sub-agent is often an orchestrator itself, so two calls can reach the same owner for the same item. A ban on further dispatch discards the sub-agent's own judgement; the caller passes its plan with a status per item instead, settles any question the sub-agent would stop to ask, and the sub-agent's numbered dispatch steps defer to that plan, treating a skipped item as already decided. Added a Pattern 15 rule (a caller's prompt does not outrank a numbered step), a checklist item and the "Dispatch ban" pitfall.
 - v3.6 - 2026-09-29: Added "Platform Dispatch Arguments" to Pattern 9. Each platform's dispatch tool selects the sub-agent through a different argument, `description` is a label on some platforms and the whole task on another, and Claude Code silently starts a generic agent when the selector is missing. The delegation templates now name the selector instead of assuming one platform. Added two design rules (name the selector; pass inputs, never an identity), a checklist item and the "Dispatch by label" pitfall.
 - v3.5 - 2026-09-08: Added "The Reduction Pass" — an audit's unit is the individual statement and its remedy is almost always an addition, so auditing is monotonic and cannot find bloat, which is a property of the set rather than of any member; the pass asks what each statement buys given a competent reader, cuts multipliers before content, and treats the enforcement triple as a budget. Added the related checklist item and pitfall.
 - v3.4 - 2026-08-27: Added "Prose Density" — overloaded explanatory prose costs an instruction its trigger as well as its readability, and is removed in a dedicated pass after drafting rather than avoided while writing; added the related checklist item and pitfall. 2026-09-01: Added the "Concept Index" — the guide names its constructs and cites them by name, but the only place those names appeared together was this changelog, so resolving one meant a full-text search; added "The 60-Second Rule" as a section, having been cited by name in three places while defined only in a checklist bullet.
@@ -63,6 +64,7 @@ Read the gloss column when you arrive with the wrong word. Someone asking "how l
 | **Metadata Without a Build System** | Build-input fields versus governance fields, and which survive a system-prompt deployment. | [Metadata Without a Build System](#metadata-without-a-build-system) |
 | **Name Forking / Name Collision** | The two ways a suite's principle vocabulary decays. | [Recurring Principles](#recurring-principles-across-a-persona-suite) |
 | **Named Evaluation Criteria** | The lens a persona evaluates through, before it reaches the gate. | [Pattern 10](#pattern-10-named-evaluation-criteria) |
+| **Nested Delegation** | A sub-agent that dispatches further: the caller passes its plan, not a ban. | [Pattern 9](#nested-delegation) |
 | **Observation Side-Channel** | A secondary duty running in parallel with the primary task. | [Pattern 6](#pattern-6-the-observation-side-channel) |
 | **Operating Modes** | Named modes with a trigger table and one workflow each. | [Pattern 3](#pattern-3-operating-modes) |
 | **Operational Protocol** | A procedure extracted out of the workflow and referenced from it. | [6. Workflow](#6-workflow) |
@@ -730,6 +732,30 @@ The tool, the selector argument and the identifier format differ by platform. Se
 
 This pattern preserves single-responsibility: the orchestrating persona manages coordination, not execution.
 
+#### Nested Delegation
+
+A sub-agent is often an orchestrator itself. The Documentation Writer that a Release Engineer calls may in turn call a Glossary Keeper or a Diagram Maintainer. Two calls can then reach the same owner for the same item: once from the top-level orchestrator, and once from the sub-agent it dispatched. The work runs twice, and the second run can undo the first.
+
+The obvious fix is a ban: the caller tells the sub-agent to dispatch nobody. A ban assumes the caller has foreseen every specialist the sub-agent's work could need, and it rarely has. The sub-agent was chosen because it knows its domain better than the caller does. Knowing when that domain needs a further specialist is part of the same knowledge, and a ban throws it away.
+
+The caller passes its plan instead. The plan names each item in the wider task, its owner, and whether that owner has run, is still to come, or was skipped. The sub-agent reads it like this:
+
+| The sub-agent finds work on an item… | It… |
+|---|---|
+| Whose owner the plan has still to run | Leaves the item to the plan, and names the finding in its report so the caller can add it to that owner's share |
+| Whose owner the plan has already run, or that the plan marks skipped | Reports the finding to the caller as a follow-up |
+| That the plan does not cover | Handles it as it would on its own, dispatching a specialist where needed, and reports the dispatch |
+
+A skipped item is a decision the caller has already made, so the sub-agent reports a finding on it rather than dispatching its owner.
+
+**Design Rules:**
+
+- **Pass the plan, not a prohibition.** Every dispatch from an orchestrating persona carries the plan, with a status per item that the caller updates as items finish. Without the statuses, the sub-agent cannot tell whether a later step will cover what it found.
+- **Settle the sub-agent's questions before dispatching.** A sub-agent cannot put a question to the user. Where its persona would stop to ask for a mode, an approval, or a choice, the caller gets the answer first and passes it in the dispatch.
+- **Report every unplanned dispatch.** The sub-agent names each agent it called on its own, and the caller lists them in its final output. The user still sees every item that was touched.
+- **The sub-agent's own steps defer to the plan.** A numbered dispatch step or an "always dispatch" rule outranks a line in the caller's prompt. Each such step names the plan in its own condition: "unless the caller's plan has that owner still to come". See Pattern 15.
+- **The rule names no particular caller.** The sub-agent's persona describes any caller that passes a plan. A persona written for one specific orchestrator misbehaves the first time a different one calls it.
+
 #### Platform Dispatch Arguments
 
 Each agent platform exposes its own dispatch tool. The table records how each one selects the sub-agent, where the task goes, and what happens when the selector is missing.
@@ -919,6 +945,7 @@ A persona's instructions do not degrade uniformly. What predicts whether an inst
 - **Restate generation-time constraints at the point where they fire.** The Constraints section may be dozens of tool calls behind by the time the agent writes its output; the Output Template is read at generation time. Embed the constraint as an authoring instruction inside the template slot itself — e.g., `{2–3 sentence summary — no numeric counts}` — in addition to stating it in Constraints. The template placement does the enforcing; the Constraints entry documents the rule.
 - **Give rarely-fired conditionals a checkpoint.** Do not rely on the agent remembering an "if present" rule when the condition finally holds. Add an explicit workflow step that forces the check: *"Step 2: Check whether `{COMPANION_FILE}` exists. If it does, …; if not, proceed."* The step fires every session, so the conditional is rehearsed even when it does not apply.
 - **Expect momentum conflicts and route the impulse.** Constraints that oppose the pull of helpfulness ("do not fix unrelated bugs") are under constant pressure and weaken as sessions lengthen. The existing boundary-plus-alternative rule is the mitigation — but ensure the alternative gives the impulse *somewhere to go* (record it in the side-channel), not merely a prohibition.
+- **A caller's prompt does not outrank a numbered step.** A sub-agent reads its dispatch prompt once, at the start of its session, and re-reads its own numbered steps each time it reaches them. Where a caller's input must change what a step does — a plan that settles a dispatch, an approval that replaces a hold — the step itself names that input as its condition. A prompt line alone loses to the step. See Pattern 9's Nested Delegation.
 - **Budget by session length, not persona length.** Reliability declines with tool-call count and context churn, not with persona word count. A persona whose sessions routinely run very long needs *mid-workflow checkpoints* (re-verification steps, incremental sinks), not additional constraint prose — more prose adds volume without adding triggers.
 
 **Relationship to other patterns:** Pattern 6 is the conversion procedure for the lowest salience class. Pattern 14 addresses the same underlying mechanics (attention decay, forward momentum) for *sequential* phases; Pattern 15 addresses them for *parallel* duties and constraints. Pattern 5 (Output Templates) is the delivery mechanism for generation-time constraint restatement.
@@ -954,6 +981,7 @@ Before shipping a new persona, verify:
 - [ ] **Self-validation checklist is included** if the persona's output has no downstream agent to catch errors.
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
 - [ ] **Every dispatch names its platform's agent-selector argument,** one argument list per platform where the persona builds for several. No dispatch places the agent's name in a label field, and no dispatch prompt tells the sub-agent who it is. (See Platform Dispatch Arguments.)
+- [ ] **Nested delegation passes a plan, not a ban.** An orchestrating persona's dispatches carry its plan with a status per item, plus any mode or approval the sub-agent would otherwise stop to ask for. A persona that may be called as a sub-agent gives its own dispatch steps a "caller's plan" condition. (See Nested Delegation.)
 - [ ] **Workflow respects task separation.** Research/gathering steps are separate from production/writing steps. No step combines fact-finding with deliverable production. (See Pattern 14.)
 - [ ] **Every duty is trigger-anchored.** Each duty is foreground, action-gated, or checkpoint-slotted. Any continuous side-channel duty has *both* a forcing function and an incremental capture sink. (See Patterns 6 and 15.)
 - [ ] **Every gate names an observable action.** No duty is gated on an agent-defined boundary ("after each chunk", "when you have enough"). Each names something that visibly happens: a file edited, a test run, a document saved. (See Pattern 15.)
@@ -1380,4 +1408,5 @@ design_notes: |
 | **Source reviewed, output never read** | Duplicated instructions, unresolved variables, and imperative-voice partials ship undetected because the build succeeded and each fragment read correctly on its own | Read the rendered output end to end after every build, one file per affected target (see Verifying Rendered Output) |
 | **Overloaded prose** | Sections read as authoritative but a maintainer cannot scan them, and abstractly-phrased duties never fire because no sentence names anything the agent is about to do | Run a dedicated density pass after drafting: one idea per sentence, a named actor in the subject slot, no back-references, plain words over register words (see Prose Density) |
 | **Dispatch by label** | A sub-agent runs as a generic agent, or its prompt grows a role preamble ("You are the {ROLE} agent…") and a restated workflow that no persona asked for | Name the platform's agent-selector argument in every dispatch, with one argument list per platform (see Platform Dispatch Arguments) |
+| **Dispatch ban** | An orchestrator tells its sub-agents to dispatch nobody. Work the plan never foresaw goes undone, or the ban is ignored because a numbered step in the sub-agent outranks it | Pass the plan with a status per item; the sub-agent leaves planned work to the plan and still calls specialists the plan does not cover. Give the sub-agent's dispatch steps a "caller's plan" condition (see Nested Delegation) |
 | **Audit-driven accretion** | Every rule is individually defensible, no audit reports a defect, and the owner can no longer review the persona. Successive versions added and removed nothing | Run a reduction pass, which asks what each statement buys rather than whether it is correct. Cut modes before features, features before rules, rules before wording (see The Reduction Pass) |

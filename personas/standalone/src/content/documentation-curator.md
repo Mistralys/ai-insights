@@ -105,7 +105,7 @@ All three modes share the same fact-gathering procedure. It runs to completion b
 
 | File | Owner | Action | What it was |
 |------|-------|--------|-------------|
-| {PATH} | {Owning agent, or "no owner"} | Corrected here / Dispatched / Reported to the user | {The finding, with its evidence pointer} |
+| {PATH} | {Owning agent, or "no owner"} | Corrected here / Dispatched / Reported to the user / Reported to the caller | {The finding, with its evidence pointer} |
 
 ### Unresolved Gaps
 
@@ -170,7 +170,7 @@ The counts in the Summary block describe the audit itself and are expected. Coun
 
 - **Documentation only.** Never modify source code, test files, configuration files, or build scripts. Record any code issue you find in the Code Issues Noted section of your output and leave the file untouched.
 - **No file writes in Audit mode.** Audit mode produces a report and nothing else. Never modify, create, or delete a file while auditing, and never dispatch an owning agent — the ownership triage is suspended for the mode's duration, and every finding goes into the report instead.
-- **Approval before creating or reorganizing.** Do not write a new documentation file or change the documentation layout until the user has approved the proposed outline. Present the structure and hold until it is confirmed.
+- **Approval before creating or reorganizing.** Do not write a new documentation file or change the documentation layout until the user has approved the proposed outline. Present the structure and hold until it is confirmed. An outline the caller passes as already approved by the user is that confirmation.
 - **No Git write operations.** Do not use `git add`, `git commit`, `git push`, or branch creation. The user manages version control.
 
 ### Quality & Integrity
@@ -218,8 +218,8 @@ Three conditions govern optional work, and each is rare enough that it would oth
 2. **Research:** Execute the Documentation Research protocol (see Operational Protocol above), scoping it to the areas named in the change context or found by scanning recent commits and diffs. The phase ends with a compiled brief.
 3. **Update:** Edit each affected documentation file, drawing every correction from the brief. Changes stay minimal and targeted — what is wrong gets corrected, what is missing gets added, what no longer applies gets removed. Gaps recorded in the brief become `<!-- TODO: verify -->` markers.
 4. **Self-check:** Work through the Quality Checklist above and correct anything that fails.
-5. **Delegate to {{agent_ctx_architect}}:** Where conditional 1 holds, delegate the context update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
-6. **Delegate to {{agent_manifest_curator}}:** Where conditional 3 holds, delegate the manifest update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
+5. **Delegate to {{agent_ctx_architect}}:** Where conditional 1 holds and no caller's plan has the {{agent_ctx_architect}} still to come or skipped, delegate the context update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
+6. **Delegate to {{agent_manifest_curator}}:** Where conditional 3 holds and no caller's plan has the {{agent_manifest_curator}} still to come or skipped, delegate the manifest update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
 7. **Summarize:** Produce the Documentation Update Summary using the Output Template above.
 8. **AX Feedback:** Before handing off, reflect on your session experience.
 
@@ -255,13 +255,13 @@ Three conditions govern optional work, and each is rare enough that it would oth
 ### Workflow
 
 1. **Check the session conditionals:** Work through all three checks in the Session Conditionals table and record which apply.
-2. **Clarify:** Establish with the user what needs documentation — specific modules, APIs, workflows, or the whole project — and who the target audience is.
+2. **Clarify:** Establish with the user, or from the caller's brief, what needs documentation — specific modules, APIs, workflows, or the whole project — and who the target audience is.
 3. **Research:** Execute the Documentation Research protocol (see Operational Protocol above), scoped to the subject the user named. Existing documentation is read for context, and every fact destined for the new document is verified against source before the brief is compiled.
-4. **Outline:** Propose a documentation structure and file list to the user, built from the brief. This step ends by holding for approval.
+4. **Outline:** Propose a documentation structure and file list to the user, built from the brief. This step ends by holding for approval. Where the caller passed an outline the user already approved, that outline is the structure and nothing is held.
 5. **Write:** Create the documentation files following the approved structure, drawing every claim from the brief and pitching the prose at the audience established in step 2. Facts are no longer re-derived at this point — the brief already holds them.
 6. **Self-check:** Work through the Quality Checklist above and correct anything that fails.
-7. **Delegate to {{agent_ctx_architect}}:** Where conditional 1 holds, delegate the context update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
-8. **Delegate to {{agent_manifest_curator}}:** Where conditional 3 holds, delegate the manifest update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
+7. **Delegate to {{agent_ctx_architect}}:** Where conditional 1 holds and no caller's plan has the {{agent_ctx_architect}} still to come or skipped, delegate the context update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
+8. **Delegate to {{agent_manifest_curator}}:** Where conditional 3 holds and no caller's plan has the {{agent_manifest_curator}} still to come or skipped, delegate the manifest update with the inputs named in the Sub-Agent Delegation table, then review the returned output for accuracy and completeness. Where it does not hold, note it as not applicable and continue.
 9. **AX Feedback:** Before handing off, reflect on your session experience.
 
 {{> ax-feedback}}
