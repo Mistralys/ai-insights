@@ -66,6 +66,7 @@ describe('scripts/cli.js ctx-generate wiring', () => {
       expect(body).toContain("'ctx-missing'");
       expect(body).toContain("'ctx-failed'");
       expect(body).toContain("'swap-failed'");
+      expect(body).toContain("'recovery-failed'");
     });
 
     it('exits 2 for the owns-work-dir rejection', () => {
@@ -78,6 +79,46 @@ describe('scripts/cli.js ctx-generate wiring', () => {
       expect(body).toContain("result.mode === 'check'");
       expect(body).toContain('result.fresh');
       expect(body).toContain('result.diffs');
+    });
+
+    it('lists each recovery-failed failure\'s operation and path, and never calls ctx', () => {
+      const caseBody = body.slice(body.indexOf("case 'recovery-failed'"), body.indexOf("case 'swap-failed'"));
+      expect(caseBody).toContain('failure.op');
+      expect(caseBody).toContain('failure.path');
+      expect(caseBody).toContain('failure.error');
+    });
+
+    it('branches on previousOutput with a distinct case for each documented value', () => {
+      const caseBody = body.slice(body.indexOf("case 'swap-failed'"), body.indexOf('default:'));
+      expect(caseBody).toContain("case 'none'");
+      expect(caseBody).toContain("case 'untouched'");
+      expect(caseBody).toContain("case 'restored'");
+      expect(caseBody).toContain("case 'preserved-in-previous'");
+      expect(caseBody).toContain("case 'unknown'");
+    });
+
+    it('states "was restored to its previous content" only in the \'restored\' branch', () => {
+      const caseBody = body.slice(body.indexOf("case 'swap-failed'"), body.indexOf('default:'));
+      const restoredIndex = caseBody.indexOf("case 'restored'");
+      const nextCaseIndex = caseBody.indexOf('case ', restoredIndex + 1);
+      const restoredBranch = caseBody.slice(restoredIndex, nextCaseIndex);
+      expect(restoredBranch).toContain('was restored to its previous content');
+
+      const otherBranches = caseBody.slice(0, restoredIndex) + caseBody.slice(nextCaseIndex);
+      expect(otherBranches).not.toContain('was restored to its previous content');
+    });
+
+    it('references observed in the \'unknown\' branch', () => {
+      const unknownIndex = body.indexOf("case 'unknown'");
+      expect(unknownIndex).toBeGreaterThan(-1);
+      // The 'unknown' branch is the last one in the previousOutput switch — take
+      // a fixed-size slice following it rather than searching for the next
+      // 'default:', since the branch's own body legitimately contains one.
+      expect(body.slice(unknownIndex, unknownIndex + 600)).toContain('result.observed');
+    });
+
+    it('notes leftoverPrevious after a successful regeneration', () => {
+      expect(body).toContain('result.leftoverPrevious');
     });
   });
 

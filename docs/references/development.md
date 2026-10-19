@@ -47,13 +47,14 @@ Since the menu itself only becomes reachable as the global `ai-insights` command
 
 ## CI — Automated Quality Gate
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request to `main`. It runs five independent jobs:
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request to `main`. It runs six independent jobs:
 
 | Job | What it checks |
 |-----|---------------|
 | `mcp-server-tests` | MCP server Vitest suite (Node.js 20) |
+| `root-scripts-tests` | Root scripts Vitest suite (Node.js 20), including the `ctx-generate` regression suites |
 | `orchestrator-tests` | Orchestrator pytest suite (Python 3.11) |
-| `ruff` | Orchestrator source linting (`ruff check src/`) |
+| `ruff` | Orchestrator source and test linting (`ruff check src/ tests/`) |
 | `manifest-validation` | `shared/workflow-manifest.json` schema + semantic checks |
 | `persona-build-check` | Detects stale generated persona output (`build-personas.js --check`) |
 

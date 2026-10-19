@@ -59,6 +59,12 @@ async function resetReworkCount(
   args: z.infer<typeof ResetReworkCountSchema>,
   _ledgerRoot?: string
 ) {
+  // PM-only guard — reject before any disk I/O
+  const pmGuard = requirePmRole('ledger_reset_rework_count', args.agent_role);
+  if (pmGuard) {
+    return pmGuard;
+  }
+
   let projectPath: string;
   try {
     projectPath = await resolveProjectPath(args);
@@ -70,12 +76,6 @@ async function resetReworkCount(
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
-    // PM-only guard
-    const pmGuard = requirePmRole('ledger_reset_rework_count', args.agent_role);
-    if (pmGuard) {
-      return pmGuard;
-    }
-
     // Reason guard — Zod .trim().min(1) already rejects empty/whitespace-only strings;
     // this branch remains unreachable but is kept as a belt-and-suspenders safety net.
 
@@ -346,17 +346,17 @@ async function updateAcceptanceCriteria(
   args: z.infer<typeof UpdateAcceptanceCriteriaSchema>,
   _ledgerRoot?: string
 ) {
+  // PM-only guard — reject before any disk I/O
+  const pmGuard = requirePmRole('ledger_update_acceptance_criteria', args.agent_role);
+  if (pmGuard) {
+    return pmGuard;
+  }
+
   let projectPath: string;
   try {
     projectPath = await resolveProjectPath(args);
   } catch (err) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
-  }
-
-  // PM-only guard
-  const pmGuard = requirePmRole('ledger_update_acceptance_criteria', args.agent_role);
-  if (pmGuard) {
-    return pmGuard;
   }
 
   const ledgerRoot = await resolveMultiStoreLedgerRoot(projectPath, _ledgerRoot);

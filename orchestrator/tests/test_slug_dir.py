@@ -45,7 +45,9 @@ def patch_store_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     default single-store path (workspace_root / "mcp-server" / "storage" /
     "ledger"), equivalent to the behaviour when no stores.json is present.
     """
-    def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+    def _default(
+        repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None
+    ) -> Path:
         return workspace_root / "mcp-server" / "storage" / "ledger"
 
     monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)

@@ -41,6 +41,34 @@ jobs:
       - name: Run MCP server tests
         run: cd mcp-server && npm test
 
+  root-scripts-tests:
+    name: Root Scripts Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            personas/package-lock.json
+            mcp-server/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install personas dependencies (required by several root tests)
+        run: cd personas && npm ci
+
+      - name: Install MCP server dependencies (required to rebuild its dist/ via ensureMcpDistFresh)
+        run: cd mcp-server && npm ci
+
+      - name: Run root scripts tests
+        run: npm test
+
   orchestrator-tests:
     name: Orchestrator Tests
     runs-on: ubuntu-latest
@@ -87,7 +115,7 @@ jobs:
         run: cd orchestrator && pip install -e '.[dev]'
 
       - name: Run ruff
-        run: cd orchestrator && ruff check src/
+        run: cd orchestrator && ruff check src/ tests/
 
   manifest-validation:
     name: Manifest Validation

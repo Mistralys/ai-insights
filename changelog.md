@@ -3,18 +3,21 @@
 ## v2.17.0 - **WIP; UNRELEASED** - Tool Registry, Supervisor Fix, and Safer Context Generation
 > mcp v2.14.0 · orchestrator v1.6.0
 
-**`ctx generate` no longer deletes `.context/` before even validating its arguments — a failed
-run or swap now leaves it exactly as it was.** The command also gained a real `--check` mode that
-reports staleness without writing anything. The MCP server's tool registry is now derived rather
-than hand-maintained, closing a schema-coverage gap, and the orchestrator no longer re-cancels an
-already-cancelled work package during its halted-WP sweep.
+**`ctx generate` no longer deletes `.context/` before even validating its arguments, and
+every failure now reports exactly what happened on disk instead of guessing.** The command's
+`--check` mode stays strictly read-only while reporting staleness, the MCP server's tool registry
+is now derived rather than hand-maintained, closing a schema-coverage gap, and the orchestrator no
+longer re-cancels an already-cancelled work package during its halted-WP sweep.
 
 - Scripts: `ctx generate` is now non-destructive, swapping into place only after a successful run.
-- Scripts: Added a real `--check` mode reporting staleness without writing anything.
+- Scripts: `--check` mode is strictly read-only, reporting staleness without touching any state.
+- Scripts: Swap and post-run cleanup failures now report what's actually on disk, not a guess.
+- Scripts: Failed crash recovery now aborts generation before `ctx` runs, avoiding stale writes.
 - MCP: Tool registry is now derived, closing a schema-coverage gap on three tools.
 - MCP: Completed tool help documentation for every registered tool.
 - Orchestrator: Fixed the halted-WP sweep re-cancelling an already-cancelled work package.
 - Orchestrator: Live LLM tests are now gated by default as documented.
+- CI: New Root Scripts Tests job now covers root-level scripts, including the ctx-generate suite.
 - Docs: Updated root, MCP server, and orchestrator documentation accordingly.
 
 ## v2.16.0 - Pipeline Stage Correction and Rework-Limit Handling

@@ -118,7 +118,9 @@ class TestChunkFileCreation:
         """
         from pathlib import Path as _Path
 
-        def _default(repo_name: str, workspace_root: _Path, _stores_config_path: _Path | None = None) -> _Path:
+        def _default(
+            repo_name: str, workspace_root: _Path, _stores_config_path: _Path | None = None
+        ) -> _Path:
             return workspace_root / "mcp-server" / "storage" / "ledger"
 
         monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
@@ -147,7 +149,8 @@ class TestChunkFileCreation:
         slug = "2026-04-10-streaming-test"
         # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights"
+            / slug / "orchestrator" / "chunks"
         )
         assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
         jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
@@ -170,7 +173,8 @@ class TestChunkFileCreation:
         slug = "2026-04-10-streaming-test"
         # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights"
+            / slug / "orchestrator" / "chunks"
         )
         jsonl_files = list(chunks_dir.glob("*.jsonl"))
         assert jsonl_files
@@ -200,7 +204,8 @@ class TestChunkFileCreation:
         slug = "2026-04-10-streaming-test"
         # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights"
+            / slug / "orchestrator" / "chunks"
         )
         jsonl_file = next(chunks_dir.glob("WP-001-developer-r*.jsonl"))
         lines = [json.loads(ln) for ln in jsonl_file.read_text().splitlines() if ln]
@@ -253,7 +258,8 @@ class TestChunkFileCreation:
         assert result["stage_success"] is True
         slug = "2026-04-10-streaming-test"
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights"
+            / slug / "orchestrator" / "chunks"
         )
         assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
         jsonl_files = list(chunks_dir.glob("project-synthesis-r*.jsonl"))
@@ -279,7 +285,8 @@ class TestChunkFileCreation:
         assert result["stage_success"] is True
         slug = "2026-04-10-streaming-test"
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights"
+            / slug / "orchestrator" / "chunks"
         )
         assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
         jsonl_files = list(chunks_dir.glob("project-pm-r*.jsonl"))
@@ -298,7 +305,9 @@ class TestStreamAccumulation:
     @pytest.fixture(autouse=True)
     def patch_store_resolution(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Prevent _derive_slug_dir() from writing to the real store."""
-        def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+        def _default(
+            repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None
+        ) -> Path:
             return workspace_root / "mcp-server" / "storage" / "ledger"
 
         monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)
@@ -446,7 +455,9 @@ class TestDialogueCapturedChunkEvent:
     @pytest.fixture(autouse=True)
     def patch_store_resolution(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Prevent _derive_slug_dir() from writing to the real store."""
-        def _default(repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None) -> Path:
+        def _default(
+            repo_name: str, workspace_root: Path, _stores_config_path: Path | None = None
+        ) -> Path:
             return workspace_root / "mcp-server" / "storage" / "ledger"
 
         monkeypatch.setattr("src.nodes.resolve_store_for_repo", _default)

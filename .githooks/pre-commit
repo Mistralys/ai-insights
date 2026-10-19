@@ -17,7 +17,7 @@ node scripts/build-personas.js --check || exit 1
 node scripts/check-version-sync.js || exit 1
 
 # Run ruff on staged orchestrator Python files
-STAGED_PY=$(git diff --cached --name-only | grep '^orchestrator/src/.*\.py$')
+STAGED_PY=$(git diff --cached --name-only | grep -E '^orchestrator/(src|tests)/.*\.py$')
 if [ -n "$STAGED_PY" ]; then
   # Resolve ruff: venv (Unix/Windows layouts), .exe variant, then PATH
   RUFF=""
@@ -36,7 +36,7 @@ if [ -n "$STAGED_PY" ]; then
     echo "  Install it with: pip install ruff  (inside orchestrator/.venv)"
   else
     echo "Running ruff on staged orchestrator files..."
-    "$RUFF" check orchestrator/src/ || exit 1
+    "$RUFF" check orchestrator/src/ orchestrator/tests/ || exit 1
   fi
 fi
 

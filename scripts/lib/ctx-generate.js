@@ -167,14 +167,27 @@ export async function removeWithRetry(
  * remove it. `.context.incoming/`, if present, is always removed: its
  * content is never partially valid to keep.
  *
+ * In `mode: 'check'`, only a stale `.context.incoming/` is removed (staging
+ * is about to be reused) — `.context.previous/` and `.context/` are never
+ * renamed or removed, since `--check` exists only to observe and must not
+ * change state a concurrent or later generate run relies on.
+ *
+ * Every `{ ok: false }` result returned by an injected retry helper is
+ * recorded in `failures` with the operation it was attempting
+ * (`'restore'`, `'remove-previous'` or `'remove-incoming'`) and the path
+ * involved, so the caller can abort generation rather than proceed with a
+ * staging directory it could not fully clear.
+ *
  * @param {object} options
  * @param {string} options.workspaceRoot
+ * @param {'generate' | 'check'} [options.mode]
  * @param {(from: string, to: string, opts?: object) => Promise<{ ok: true } | { ok: false, error: Error }>} [options.renameWithRetryFn]
  * @param {(dir: string, opts?: object) => Promise<{ ok: true } | { ok: false, error: Error }>} [options.removeWithRetryFn]
- * @returns {Promise<{ recovered: boolean, restoredOutput: boolean }>}
+ * @returns {Promise<{ recovered: boolean, restoredOutput: boolean, failures: Array<{ op: 'restore' | 'remove-previous' | 'remove-incoming', path: string, error: Error }> }>}
  */
 export async function recoverInterruptedSwap({
   workspaceRoot,
+  mode = 'generate',
   renameWithRetryFn = renameWithRetry,
   removeWithRetryFn = removeWithRetry,
 }) {
@@ -184,23 +197,55 @@ export async function recoverInterruptedSwap({
 
   let recovered = false;
   let restoredOutput = false;
+  const failures = [];
 
-  if (fs.existsSync(previousDir)) {
+  if (mode !== 'check' && fs.existsSync(previousDir)) {
     recovered = true;
     if (!fs.existsSync(outputDir)) {
-      await renameWithRetryFn(previousDir, outputDir);
-      restoredOutput = true;
+      const restored = await renameWithRetryFn(previousDir, outputDir);
+      if (restored.ok) {
+        restoredOutput = true;
+      } else {
+        failures.push({ op: 'restore', path: previousDir, error: restored.error });
+      }
     } else {
-      await removeWithRetryFn(previousDir);
+      const removedPrevious = await removeWithRetryFn(previousDir);
+      if (!removedPrevious.ok) {
+        failures.push({ op: 'remove-previous', path: previousDir, error: removedPrevious.error });
+      }
     }
   }
 
   if (fs.existsSync(incomingDir)) {
     recovered = true;
-    await removeWithRetryFn(incomingDir);
+    const removedIncoming = await removeWithRetryFn(incomingDir);
+    if (!removedIncoming.ok) {
+      failures.push({ op: 'remove-incoming', path: incomingDir, error: removedIncoming.error });
+    }
   }
 
-  return { recovered, restoredOutput };
+  return { recovered, restoredOutput, failures };
+}
+
+/**
+ * Classifies a `swap-failed` result's `previousOutput` value from the
+ * *observed* existence of `.context/` and `.context.previous/` after the
+ * failing branch's own cleanup — never from the failing rename's reported
+ * result, since a rename reported as failed may still have taken effect.
+ *
+ * @param {'move-aside' | 'move-in'} branch
+ * @param {{ output: boolean, previous: boolean }} observed
+ * @returns {'untouched' | 'restored' | 'preserved-in-previous' | 'unknown'}
+ */
+function classifySwapFailure(branch, observed) {
+  const { output, previous } = observed;
+  if (branch === 'move-aside') {
+    return output && !previous ? 'untouched' : 'unknown';
+  }
+  // branch === 'move-in'
+  if (output && !previous) return 'restored';
+  if (!output && previous) return 'preserved-in-previous';
+  return 'unknown';
 }
 
 /**
@@ -208,6 +253,13 @@ export async function recoverInterruptedSwap({
  * content. Returns the sorted list of relative paths (POSIX-separated) that
  * differ — present in only one tree, or present in both with different
  * content.
+ *
+ * A missing directory (either argument) is treated as empty rather than
+ * throwing: every path collected from the other tree is then reported as a
+ * diff. This is what lets `--check` report `.context/` as entirely stale
+ * when `.context.previous/` exists but `.context/` is missing (an
+ * interrupted swap check never restores it — see `recoverInterruptedSwap`'s
+ * `'check'` mode).
  *
  * @param {string} dirA
  * @param {string} dirB
@@ -306,8 +358,9 @@ export function computeClaudeMdContent(workspaceRoot) {
  *   | { ok: false, reason: 'owns-work-dir', flag: string }
  *   | { ok: false, reason: 'ctx-missing' }
  *   | { ok: false, reason: 'ctx-failed', status: number | null }
- *   | { ok: false, reason: 'swap-failed', error: Error }
- *   | { ok: true, mode: 'generate', agentsMdMissing: boolean }
+ *   | { ok: false, reason: 'recovery-failed', failures: Array<{ op: 'restore' | 'remove-previous' | 'remove-incoming', path: string, error: Error }> }
+ *   | { ok: false, reason: 'swap-failed', error: Error, previousOutput: 'none' | 'untouched' | 'restored' | 'preserved-in-previous' | 'unknown', restoreError?: Error, observed?: { output: boolean, previous: boolean } }
+ *   | { ok: true, mode: 'generate', agentsMdMissing: boolean, leftoverPrevious?: true }
  *   | { ok: true, mode: 'check', fresh: true }
  *   | { ok: true, mode: 'check', fresh: false, diffs: string[] }
  * } RunCtxGenerateResult
@@ -345,7 +398,15 @@ export async function runCtxGenerate({
     return parsed;
   }
 
-  await recoverInterruptedSwap({ workspaceRoot, renameWithRetryFn, removeWithRetryFn });
+  const recovery = await recoverInterruptedSwap({
+    workspaceRoot,
+    mode: parsed.check ? 'check' : 'generate',
+    renameWithRetryFn,
+    removeWithRetryFn,
+  });
+  if (recovery.failures.length > 0) {
+    return { ok: false, reason: 'recovery-failed', failures: recovery.failures };
+  }
 
   const outputDir = path.join(workspaceRoot, OUTPUT_DIR_NAME);
   const incomingDir = path.join(workspaceRoot, INCOMING_DIR_NAME);
@@ -390,7 +451,15 @@ export async function runCtxGenerate({
     const movedAside = await renameWithRetryFn(outputDir, previousDir);
     if (!movedAside.ok) {
       await removeWithRetryFn(incomingDir);
-      return { ok: false, reason: 'swap-failed', error: movedAside.error };
+      // Classify from what's actually on disk after cleanup — the failing
+      // rename's own result is not trusted to describe the effect it had.
+      const observed = { output: fs.existsSync(outputDir), previous: fs.existsSync(previousDir) };
+      const previousOutput = classifySwapFailure('move-aside', observed);
+      const result = { ok: false, reason: 'swap-failed', error: movedAside.error, previousOutput };
+      if (previousOutput === 'unknown') {
+        result.observed = observed;
+      }
+      return result;
     }
   }
 
@@ -398,15 +467,37 @@ export async function runCtxGenerate({
   if (!movedIn.ok) {
     // Restore the original .context/ (if there was one) and leave no
     // transient directories behind.
+    let restoreError;
     if (outputExisted) {
-      await renameWithRetryFn(previousDir, outputDir);
+      const restored = await renameWithRetryFn(previousDir, outputDir);
+      if (!restored.ok) {
+        restoreError = restored.error;
+      }
     }
     await removeWithRetryFn(incomingDir);
-    return { ok: false, reason: 'swap-failed', error: movedIn.error };
+
+    if (!outputExisted) {
+      return { ok: false, reason: 'swap-failed', error: movedIn.error, previousOutput: 'none' };
+    }
+
+    const observed = { output: fs.existsSync(outputDir), previous: fs.existsSync(previousDir) };
+    const previousOutput = classifySwapFailure('move-in', observed);
+    const result = { ok: false, reason: 'swap-failed', error: movedIn.error, previousOutput };
+    if (restoreError) {
+      result.restoreError = restoreError;
+    }
+    if (previousOutput === 'unknown') {
+      result.observed = observed;
+    }
+    return result;
   }
 
+  let leftoverPrevious = false;
   if (outputExisted) {
-    await removeWithRetryFn(previousDir);
+    const removedPrevious = await removeWithRetryFn(previousDir);
+    if (!removedPrevious.ok) {
+      leftoverPrevious = true;
+    }
   }
 
   const agentsMdContent = computeClaudeMdContent(workspaceRoot);
@@ -415,5 +506,7 @@ export async function runCtxGenerate({
     fs.writeFileSync(claudeMdPath, agentsMdContent, 'utf8');
   }
 
-  return { ok: true, mode: 'generate', agentsMdMissing };
+  return leftoverPrevious
+    ? { ok: true, mode: 'generate', agentsMdMissing, leftoverPrevious: true }
+    : { ok: true, mode: 'generate', agentsMdMissing };
 }

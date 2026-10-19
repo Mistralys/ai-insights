@@ -589,22 +589,22 @@ The command exits 0 when no vulnerabilities are found and 1 when any are found o
 
 ## Linting
 
-[ruff](https://docs.astral.sh/ruff/) is the linter and formatter for `orchestrator/src/`. It is included in the `dev` extras.
+[ruff](https://docs.astral.sh/ruff/) is the linter and formatter for `orchestrator/src/` and `orchestrator/tests/`. It is included in the `dev` extras.
 
 ```bash
 cd orchestrator
 
 # Check for linting issues (zero warnings expected)
-ruff check src/
+ruff check src/ tests/
 
 # Auto-fix safe issues
-ruff check --fix src/
+ruff check --fix src/ tests/
 
 # Format source files
-ruff format src/
+ruff format src/ tests/
 ```
 
 The project maintains a zero-warning `ruff` baseline. The active rule set is defined in `pyproject.toml` under `[tool.ruff.lint]`.
 
-> **CI enforcement:** Both `pytest` and `ruff check src/` run on every push and pull request to `main` via `.github/workflows/ci.yml`. All tests must pass and `ruff` must exit 0 before a PR can be merged.
+> **CI enforcement:** Both `pytest` and `ruff check src/ tests/` run on every push and pull request to `main` via `.github/workflows/ci.yml`. All tests must pass and `ruff` must exit 0 before a PR can be merged.
 

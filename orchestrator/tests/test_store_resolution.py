@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from src.utils.store_resolution import resolve_store_for_repo
 from src.cli import _derive_ledger_log_dir
 from src.nodes import _derive_slug_dir
+from src.utils.store_resolution import resolve_store_for_repo
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,7 +113,7 @@ class TestResolveStoreForRepo:
         assert result == store_secondary
 
     def test_malformed_stores_json_returns_default(self, tmp_path: Path) -> None:
-        """A stores.json that is not valid JSON is silently ignored; the default path is returned."""
+        """A stores.json that is not valid JSON is silently ignored; the default is returned."""
         config_path = tmp_path / "stores.json"
         config_path.write_text("{ this is not valid json }", encoding="utf-8")
 
@@ -203,9 +203,12 @@ class TestDeriveLedgerLogDirMultiStore:
 class TestLoadJsonDebugLogging:
     """_load_json() emits a debug log entry on failure."""
 
-    def test_debug_logged_when_file_absent(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    def test_debug_logged_when_file_absent(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A missing file triggers a debug log from _load_json."""
         import logging
+
         from src.utils.store_resolution import _load_json  # noqa: PLC0415
 
         missing = tmp_path / "nonexistent.json"
@@ -215,9 +218,12 @@ class TestLoadJsonDebugLogging:
         assert result is None
         assert any("store_resolution: could not load" in r.message for r in caplog.records)
 
-    def test_debug_logged_when_json_malformed(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    def test_debug_logged_when_json_malformed(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A malformed JSON file triggers a debug log from _load_json."""
         import logging
+
         from src.utils.store_resolution import _load_json  # noqa: PLC0415
 
         bad_json = tmp_path / "bad.json"

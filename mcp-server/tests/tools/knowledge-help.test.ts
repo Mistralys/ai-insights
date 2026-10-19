@@ -123,6 +123,23 @@ describe('Newly completed TOOL_HELP entries (help-content-coverage follow-up)', 
   });
 });
 
+describe('PM-only guard order (unified — pm-only-guard-order rework)', () => {
+  const ALL_PM_ONLY_TOOLS = [
+    'ledger_reset_rework_count',
+    'ledger_reopen_cancelled_wp',
+    'ledger_update_acceptance_criteria',
+    'ledger_update_pipeline_stages',
+  ] as const;
+
+  for (const toolName of ALL_PM_ONLY_TOOLS) {
+    it(`${toolName}'s Guards list names the PM-only check as guard 1`, () => {
+      const helpText = TOOL_HELP[toolName]!;
+      const guardsSection = helpText.slice(helpText.indexOf('## Guards'));
+      expect(guardsSection).toMatch(/1\.\s+\*\*PM-only\*\*/);
+    });
+  }
+});
+
 describe('ledger_get_repository_context help content', () => {
   const toolName = 'ledger_get_repository_context';
 

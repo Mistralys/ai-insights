@@ -7,14 +7,14 @@ validation.** Every registered tool's help documentation is now complete, and a 
 pipeline-start guard chain has been consolidated into one shared, fully-tested helper.
 
 - Tools: New derived tool registry replaces the hand-maintained tool list and startup log.
-- Tools: Schema and startup-log tests now derive expectations from the registry, closing a
-  coverage gap that had let three tools skip schema validation.
-- Tools: Completed help documentation for four previously undocumented tools, including the
-  guard order for PM-only operations.
+- Tools: Schema and startup-log tests now derive expectations from the registry, closing a gap.
+- Tools: Completed help documentation for four previously undocumented tools.
 - Tools: Consolidated the duplicated pipeline-start guard chain into one shared helper.
+- Tools: Unified the PM-only guard order across all four work-package-admin tools before I/O.
 - Tests: Added a registry-derived suite that fails automatically when a tool lacks help coverage.
 - Tests: Added coverage for the registry, the shared start-guard helper, and the PM role guard.
 - Tests: Removed duplicated setup code and unsafe type casts from the rework-limit test suite.
+- Tests: Added a derived-completeness suite proving every PM-only tool rejects before I/O.
 - Docs: Manifest and agent guide updated to describe the registry and shared guard helper.
 
 ## v2.13.0 - PM-Only Pipeline Stage Correction

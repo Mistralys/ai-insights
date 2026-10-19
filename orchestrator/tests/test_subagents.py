@@ -52,7 +52,7 @@ def _make_workspace(
     pm_subagents: list[str] | None = None,
     standalone_yaml: dict[str, str] | None = None,       # slug → description (None = omit field)
     deep_agents: dict[str, str] | None = None,             # slug → file content
-    ledger_support_yaml: dict[str, str] | None = None,    # slug → description (ledger-support suite)
+    ledger_support_yaml: dict[str, str] | None = None,    # slug → description (ledger-support)
     ledger_support_deep_agents: dict[str, str] | None = None,  # slug → file content
     manifest: dict | None = None,
 ) -> Path:

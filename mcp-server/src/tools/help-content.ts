@@ -535,9 +535,9 @@ ${PROJECT_PATH_PARAM}
 - **reason** (string): Mandatory, non-empty reason for the reset (audit trail)
 
 ## Guards (evaluated in this order)
-1. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project; an
-   unresolvable path errors before any role check runs.
-2. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`; any other value is rejected.
+1. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`; any other value is rejected
+   before any disk I/O.
+2. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project.
 3. **No-op guard** — if \`rework_counts[pipeline_type]\` is already \`0\` or absent, the call is a
    no-op and returns a message without writing anything to disk.
 4. **Reset + audit** — the counter is zeroed and an audit comment (\`type: "rework_reset"\`,
@@ -624,8 +624,8 @@ ${PROJECT_PATH_PARAM}
   - \`{ "action": "modify_text", "old_criterion": "<exact text>", "new_criterion": "<non-empty text>" }\`
 
 ## Guards (evaluated in this order)
-1. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project.
-2. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`.
+1. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`; rejected before any disk I/O.
+2. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project.
 3. **CANCELLED guard** — rejects any update targeting a \`CANCELLED\` work package.
 4. **Per-operation application** — operations are applied sequentially on a cloned criteria array:
    \`remove\` deletes the first criterion whose text exactly matches \`criterion\`; \`modify_text\`

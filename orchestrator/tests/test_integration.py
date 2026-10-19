@@ -965,5 +965,9 @@ def test_live_happy_path_with_real_mcp():
     document path and expected outcomes once environment is configured.
     """
     import os
-    if not (os.environ.get("ANTHROPIC_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()):
-        pytest.skip("No LLM API key found — set ANTHROPIC_API_KEY or GOOGLE_API_KEY to run live tests")
+    has_anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    has_google_key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    if not (has_anthropic_key or has_google_key):
+        pytest.skip(
+            "No LLM API key found — set ANTHROPIC_API_KEY or GOOGLE_API_KEY to run live tests"
+        )

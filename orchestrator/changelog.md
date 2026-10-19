@@ -13,6 +13,8 @@ instead of a hardcoded value.
 - Config: Rework limit now derives from the shared manifest instead of a hardcoded value.
 - Docs: Removed stale hardcoded test-count mentions from orchestrator documentation.
 - Tests: Added coverage for the supervisor fix, live-test gating, and manifest/config parity.
+- Tests: Fixed all 22 `ruff` findings under `tests/` — no `# noqa` or per-file ignores added.
+- CI: Widened the `ruff` gate (CI job and pre-commit hook) to cover `tests/` alongside `src/`.
 
 ## v1.5.0 - Supervisor Rework-Limit Cancellation
 

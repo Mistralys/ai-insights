@@ -18,8 +18,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from src.utils.persona_models import extract_persona_model_slugs
 
 # ---------------------------------------------------------------------------
@@ -45,8 +43,18 @@ _FIXTURE_MANIFEST = {
 _DEFAULT_LOCAL_JSON = [
     {"id": _UUID_INHERIT, "name": "Inherit / Auto", "slug": "inherit", "cc_model": "inherit"},
     {"id": _UUID_OPUS, "name": "Claude Opus 4.6", "slug": "claude-opus-4-6", "cc_model": "inherit"},
-    {"id": _UUID_SONNET, "name": "Claude Sonnet 4.6", "slug": "claude-sonnet-4-6", "cc_model": "inherit"},
-    {"id": _UUID_GEMINI, "name": "Gemini 3.5 Flash", "slug": "gemini-3-5-flash", "cc_model": "gemini-3-5-flash"},
+    {
+        "id": _UUID_SONNET,
+        "name": "Claude Sonnet 4.6",
+        "slug": "claude-sonnet-4-6",
+        "cc_model": "inherit",
+    },
+    {
+        "id": _UUID_GEMINI,
+        "name": "Gemini 3.5 Flash",
+        "slug": "gemini-3-5-flash",
+        "cc_model": "gemini-3-5-flash",
+    },
 ]
 
 
@@ -504,7 +512,8 @@ class TestPriorityChain:
           per-persona assignment > YAML model_slug > default_model_uuid > shared default
 
         persona 1 (planner): assignment → claude-opus-4-6  (beats YAML & default)
-        persona 2 (developer): no assignment, YAML slug → claude-opus-4-6  (beats default_uuid & shared)
+        persona 2 (developer): no assignment, YAML slug → claude-opus-4-6
+            (beats default_uuid & shared)
         persona 3 (synthesis): no assignment, no YAML slug → default_uuid → gemini-3-5-flash
         """
         ws = _build_workspace(

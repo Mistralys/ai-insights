@@ -333,6 +333,7 @@ The `agent` field is required because the server checks which persona is attempt
 
 **PM-only tool (§16.3b).** Resets the `rework_counts[pipeline_type]` counter on the specified work package to `0`. Records an audit project comment with `type: 'rework_reset'` and `priority: 'high'` on the root index.
 
+- **PM-only guard first:** `requirePmRole` is the handler's first statement, rejecting a non-PM caller before `resolveProjectPath` or any disk I/O — the order shared by all four PM-only tools in this module.
 - **No-op guard:** If the counter is already `0` or absent, the tool returns a no-op message — no file is written.
 - **Reason required:** `reason` must be a non-empty, non-whitespace string; enforced entirely by the Zod schema (`.trim().min(1)`) — whitespace-only strings are trimmed then rejected before reaching the handler.
 - **Audit trail:** On reset, appends `{ type: 'rework_reset', priority: 'high', agent: 'Project Manager', note: 'Reset rework count for <type> on <WP-###> from <N> to 0. Reason: <reason>' }` to `root.project_comments`.
@@ -352,6 +353,7 @@ The `agent` field is required because the server checks which persona is attempt
 
 **PM-only administrative bypass tool (§16.3d, §21.1a).** Recovers a CANCELLED work package to READY or BLOCKED, bypassing the normal terminal state machine. Mirrors the `ledger_reset_rework_count` pattern: targeted escape hatch with mandatory audit trail.
 
+- **PM-only guard first:** `requirePmRole` runs before `resolveProjectPath` or any disk I/O.
 - **Precondition guard:** Target WP must be in `CANCELLED` status. Non-CANCELLED WPs return an error without modifying state (checked atomically inside the write lock — no TOCTOU).
 - **Dep-aware initial status:** Inside the atomic write, `canStartWorkPackage` determines the recovery status. If all upstream dependencies are `COMPLETE`, WP transitions to `READY`; otherwise `BLOCKED` with a `dependency` blocker.
 - **Atomic side effects (inside `updateWorkPackageWithSync`):**
@@ -388,11 +390,11 @@ The `agent` field is required because the server checks which persona is attempt
 - **Supported operations:**
   - `remove` — removes the first criterion whose `criterion` field exactly matches `criterion`. Throws if not found.
   - `modify_text` — replaces the `criterion` text of the first match for `old_criterion` with `new_criterion`. Preserves the existing `met` value (only the text changes, not the evaluation state). Throws if not found or if `new_criterion` is empty/whitespace.
-- **Guards:**
-  - Rejects `CANCELLED` work packages.
-  - Rejects any operation batch that would leave zero criteria after all operations are applied.
-  - Rejects non-PM callers (guard fires before acquiring the file lock).
-  - Each `new_criterion` string must be non-empty and non-whitespace.
+- **Guards (evaluated in this order):**
+  1. Rejects non-PM callers — `requirePmRole` is the handler's first statement, before `resolveProjectPath` or any disk I/O.
+  2. Rejects `CANCELLED` work packages.
+  3. Rejects any operation batch that would leave zero criteria after all operations are applied.
+  4. Each `new_criterion` string must be non-empty and non-whitespace.
 
 #### `ledger_update_pipeline_stages`
 
@@ -4282,27 +4284,32 @@ export const _internal: {
 
 PM-only escape hatches for correcting ledger state that the normal WP lifecycle (claim → pipelines → status transitions, owned by `work-package.ts`) has no path to fix on its own. None of the normal WP flow touches this module. Imports `propagateDependencyReblock` from `work-package.ts` rather than duplicating it — the only shared logic between the two modules.
 
+All four tools below reject a non-PM `agent_role` via `requirePmRole()` as the handler's first
+statement, before `resolveProjectPath` or any other disk I/O — a unified guard order (the
+`pm-only-guard-order` rework). `requirePmRole`'s rejection text is unaffected by this ordering.
+
 ```typescript
 export const _internal: {
-  // Core implementation of ledger_reset_rework_count (PM-only). Same _ledgerRoot
-  // guard as createWorkPackage (§58).
+  // Core implementation of ledger_reset_rework_count (PM-only). requirePmRole()
+  // runs first; resolveProjectPath() and the createWorkPackage-style _ledgerRoot
+  // guard (§58) follow.
   resetReworkCount: (
     args: ResetReworkCountArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
-  // Core implementation of ledger_reopen_cancelled_wp (PM-only). Rejects via
-  // requirePmRole() before any disk I/O (role guard runs first in this handler,
-  // unlike the other two in this module, which resolve projectPath first).
-  // Requires a CANCELLED precondition; transitions to READY or BLOCKED depending
-  // on canStartWorkPackage(); clears assigned_to and rework_counts; invalidates
-  // synthesis; fires propagateDependencyReblock() post-write to cascade-reblock
-  // downstream dependents.
+  // Core implementation of ledger_reopen_cancelled_wp (PM-only). requirePmRole()
+  // runs first, before any disk I/O. Requires a CANCELLED precondition;
+  // transitions to READY or BLOCKED depending on canStartWorkPackage(); clears
+  // assigned_to and rework_counts; invalidates synthesis; fires
+  // propagateDependencyReblock() post-write to cascade-reblock downstream
+  // dependents.
   reopenCancelledWp: (
     args: ReopenCancelledWpArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
-  // Core implementation of ledger_update_acceptance_criteria (PM-only). Same
-  // _ledgerRoot guard as createWorkPackage (§58).
+  // Core implementation of ledger_update_acceptance_criteria (PM-only).
+  // requirePmRole() runs first; resolveProjectPath() and the createWorkPackage-
+  // style _ledgerRoot guard (§58) follow.
   updateAcceptanceCriteria: (
     args: UpdateAcceptanceCriteriaArgs,
     _ledgerRoot?: string

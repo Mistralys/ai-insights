@@ -585,10 +585,42 @@ async function cmdCtxGenerate(args) {
         log('\n\u2717 ctx generate exited with code ' + result.status + '. .context/ was not touched.', 'red');
         process.exit(result.status ?? 1);
         return;
-      case 'swap-failed':
-        log('\u2717 Failed to swap the generated context into place: ' + result.error.message + '. .context/ was restored to its previous content.', 'red');
+      case 'recovery-failed': {
+        log('\u2717 Could not clear leftover state from an interrupted prior run \u2014 nothing was generated:', 'red');
+        for (const failure of result.failures) {
+          log(`  ${failure.op} (${failure.path}): ${failure.error.message}`, 'dim');
+        }
         process.exit(1);
         return;
+      }
+      case 'swap-failed': {
+        const baseMsg = '\u2717 Failed to swap the generated context into place: ' + result.error.message + '.';
+        switch (result.previousOutput) {
+          case 'none':
+            log(baseMsg + ' No .context/ existed before this run \u2014 nothing to restore.', 'red');
+            break;
+          case 'untouched':
+            log(baseMsg + ' .context/ was not changed.', 'red');
+            break;
+          case 'restored':
+            log(baseMsg + ' .context/ was restored to its previous content.', 'red');
+            break;
+          case 'preserved-in-previous':
+            log(baseMsg + ' .context/ is missing \u2014 its previous content is preserved in .context.previous/ (restore error: ' + result.restoreError.message + '). The next ctx-generate run restores it automatically.', 'red');
+            break;
+          case 'unknown':
+          default: {
+            const observedMsg = result.observed
+              ? `.context/ ${result.observed.output ? 'exists' : 'does not exist'}, .context.previous/ ${result.observed.previous ? 'exists' : 'does not exist'}.`
+              : 'The state of .context/ and .context.previous/ could not be determined.';
+            const restoreMsg = result.restoreError ? ` (restore error: ${result.restoreError.message})` : '';
+            log(baseMsg + ` The recovery outcome is unclear${restoreMsg} \u2014 ${observedMsg} Inspect both directories before rerunning.`, 'red');
+            break;
+          }
+        }
+        process.exit(1);
+        return;
+      }
       default:
         log('\u2717 ctx-generate failed for an unrecognized reason.', 'red');
         process.exit(1);
@@ -613,6 +645,9 @@ async function cmdCtxGenerate(args) {
     log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
   } else {
     log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
+  }
+  if (result.leftoverPrevious) {
+    log('\u26a0 .context.previous/ could not be removed \u2014 it will be cleared automatically on the next run.', 'dim');
   }
 }
 

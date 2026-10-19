@@ -211,7 +211,7 @@ describe('recoverInterruptedSwap', () => {
   it('is a no-op when neither transient directory exists', async () => {
     const workspace = makeTempWorkspace();
     const result = await recoverInterruptedSwap({ workspaceRoot: workspace });
-    expect(result).toEqual({ recovered: false, restoredOutput: false });
+    expect(result).toEqual({ recovered: false, restoredOutput: false, failures: [] });
   });
 
   it('restores .context/ from .context.previous/ when .context/ is missing', async () => {
@@ -220,7 +220,7 @@ describe('recoverInterruptedSwap', () => {
 
     const result = await recoverInterruptedSwap({ workspaceRoot: workspace });
 
-    expect(result).toEqual({ recovered: true, restoredOutput: true });
+    expect(result).toEqual({ recovered: true, restoredOutput: true, failures: [] });
     expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME, 'a.md'))).toBe(true);
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
   });
@@ -232,7 +232,7 @@ describe('recoverInterruptedSwap', () => {
 
     const result = await recoverInterruptedSwap({ workspaceRoot: workspace });
 
-    expect(result).toEqual({ recovered: true, restoredOutput: false });
+    expect(result).toEqual({ recovered: true, restoredOutput: false, failures: [] });
     expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'a.md'), 'utf8')).toBe('current content');
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
   });
@@ -243,7 +243,7 @@ describe('recoverInterruptedSwap', () => {
 
     const result = await recoverInterruptedSwap({ workspaceRoot: workspace });
 
-    expect(result).toEqual({ recovered: true, restoredOutput: false });
+    expect(result).toEqual({ recovered: true, restoredOutput: false, failures: [] });
     expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
   });
 
@@ -254,10 +254,72 @@ describe('recoverInterruptedSwap', () => {
 
     const result = await recoverInterruptedSwap({ workspaceRoot: workspace });
 
-    expect(result).toEqual({ recovered: true, restoredOutput: true });
+    expect(result).toEqual({ recovered: true, restoredOutput: true, failures: [] });
     expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME, 'a.md'))).toBe(true);
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
     expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
+  });
+
+  it('reports a failing restore in failures with op "restore", and does not mark restoredOutput', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'a.md'), 'old content');
+    const failingRename = async () => ({ ok: false, error: new Error('locked') });
+
+    const result = await recoverInterruptedSwap({ workspaceRoot: workspace, renameWithRetryFn: failingRename });
+
+    expect(result.recovered).toBe(true);
+    expect(result.restoredOutput).toBe(false);
+    expect(result.failures).toEqual([
+      { op: 'restore', path: path.join(workspace, PREVIOUS_DIR_NAME), error: expect.any(Error) },
+    ]);
+  });
+
+  it('reports a failing stale-previous removal in failures with op "remove-previous"', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'a.md'), 'current content');
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'a.md'), 'stale content');
+    const failingRemove = async (dirPath) => ({ ok: false, error: new Error('locked: ' + dirPath) });
+
+    const result = await recoverInterruptedSwap({ workspaceRoot: workspace, removeWithRetryFn: failingRemove });
+
+    expect(result.failures).toEqual([
+      { op: 'remove-previous', path: path.join(workspace, PREVIOUS_DIR_NAME), error: expect.any(Error) },
+    ]);
+  });
+
+  it('reports a failing incoming removal in failures with op "remove-incoming"', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, INCOMING_DIR_NAME, 'a.md'), 'half-generated');
+    const failingRemove = async (dirPath) => ({ ok: false, error: new Error('locked: ' + dirPath) });
+
+    const result = await recoverInterruptedSwap({ workspaceRoot: workspace, removeWithRetryFn: failingRemove });
+
+    expect(result.failures).toEqual([
+      { op: 'remove-incoming', path: path.join(workspace, INCOMING_DIR_NAME), error: expect.any(Error) },
+    ]);
+  });
+
+  it('mode: "check" only removes a stale .context.incoming/, leaving .context/ and .context.previous/ untouched', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'a.md'), 'orphaned previous');
+    writeFileAt(path.join(workspace, INCOMING_DIR_NAME, 'a.md'), 'half-generated');
+
+    const result = await recoverInterruptedSwap({ workspaceRoot: workspace, mode: 'check' });
+
+    expect(result).toEqual({ recovered: true, restoredOutput: false, failures: [] });
+    expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
+    expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(true);
+    expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME))).toBe(false);
+  });
+
+  it('mode: "check" is a no-op when only .context.previous/ is present (no incoming to clear)', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'a.md'), 'orphaned previous');
+
+    const result = await recoverInterruptedSwap({ workspaceRoot: workspace, mode: 'check' });
+
+    expect(result).toEqual({ recovered: false, restoredOutput: false, failures: [] });
+    expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(true);
   });
 });
 
@@ -298,6 +360,15 @@ describe('compareTrees', () => {
     writeFileAt(path.join(a, 'nested', 'deep.md'), 'x');
     fs.mkdirSync(b, { recursive: true });
     expect(compareTrees(a, b)).toEqual(['nested/deep.md']);
+  });
+
+  it('treats a wholly missing second directory as empty, reporting every file from the first as a diff', () => {
+    const workspace = makeTempWorkspace();
+    const a = path.join(workspace, 'a');
+    const bNeverCreated = path.join(workspace, 'does-not-exist');
+    writeFileAt(path.join(a, 'x.md'), 'content');
+    writeFileAt(path.join(a, 'nested', 'deep.md'), 'content');
+    expect(compareTrees(a, bNeverCreated)).toEqual(['nested/deep.md', 'x.md']);
   });
 });
 
@@ -484,6 +555,230 @@ describe('runCtxGenerate — real run', () => {
     expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
   });
+
+  it('move-in failure with a successful restore reports previousOutput "restored" (no restoreError)', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    let renameCallCount = 0;
+    const renameWithRetryFn = async (from, to) => {
+      renameCallCount++;
+      if (renameCallCount === 2) {
+        return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) };
+      }
+      fs.renameSync(from, to);
+      return { ok: true };
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('swap-failed');
+    expect(result.previousOutput).toBe('restored');
+    expect(result.restoreError).toBeUndefined();
+    expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('original content');
+    expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
+  });
+
+  it('move-in failure with no prior .context/ reports previousOutput "none"', async () => {
+    const workspace = makeTempWorkspace();
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+    const failingRename = async () => ({ ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) });
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: failingRename });
+
+    expect(result).toEqual({ ok: false, reason: 'swap-failed', error: expect.any(Error), previousOutput: 'none' });
+    expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME))).toBe(false);
+  });
+
+  it('move-aside failure reports previousOutput "untouched" — .context/ holds the original bytes, no .context.previous/', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+    const failingRename = async () => ({ ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) });
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: failingRename });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('swap-failed');
+    expect(result.previousOutput).toBe('untouched');
+    expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('original content');
+    expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
+  });
+
+  it('move-in failure with a failing restore reports previousOutput "preserved-in-previous" with restoreError, and a following run restores and completes', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    let renameCallCount = 0;
+    const alwaysFailMoveInAndRestore = async (from, to) => {
+      renameCallCount++;
+      if (renameCallCount === 1) {
+        // move-aside succeeds for real
+        fs.renameSync(from, to);
+        return { ok: true };
+      }
+      // move-in (call 2) and the restore attempt (call 3) both fail
+      return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) };
+    };
+
+    const result = await runCtxGenerate({
+      workspaceRoot: workspace,
+      args: [],
+      spawn,
+      normalizeFn: () => {},
+      renameWithRetryFn: alwaysFailMoveInAndRestore,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('swap-failed');
+    expect(result.previousOutput).toBe('preserved-in-previous');
+    expect(result.restoreError).toBeInstanceOf(Error);
+    expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME))).toBe(false);
+    expect(fs.readFileSync(path.join(workspace, PREVIOUS_DIR_NAME, 'README.md'), 'utf8')).toBe('original content');
+
+    // A following run with working renames restores .context.previous/ through
+    // recovery and completes normally.
+    const { spawn: secondSpawn } = makeSucceedingSpawn({ 'README.md': 'second run content' });
+    const secondResult = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn: secondSpawn, normalizeFn: () => {} });
+
+    expect(secondResult.ok).toBe(true);
+    expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('second run content');
+    expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
+  });
+
+  it('observation beats the reported result: a restore rename that moves the directory but reports { ok: false } yields "restored" with restoreError set', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    let renameCallCount = 0;
+    const fakeRename = async (from, to) => {
+      renameCallCount++;
+      if (renameCallCount === 1) {
+        fs.renameSync(from, to); // move-aside succeeds
+        return { ok: true };
+      }
+      if (renameCallCount === 2) {
+        // move-in fails
+        return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) };
+      }
+      // restore attempt (call 3): actually moves the directory but reports failure
+      fs.renameSync(from, to);
+      return { ok: false, error: new Error('reported failure despite success') };
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: fakeRename });
+
+    expect(result.previousOutput).toBe('restored');
+    expect(result.restoreError).toBeInstanceOf(Error);
+    expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('original content');
+  });
+
+  it('observation beats the reported result: a restore rename that reports { ok: true } without moving yields "preserved-in-previous"', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    let renameCallCount = 0;
+    const fakeRename = async (from, to) => {
+      renameCallCount++;
+      if (renameCallCount === 1) {
+        fs.renameSync(from, to); // move-aside succeeds
+        return { ok: true };
+      }
+      if (renameCallCount === 2) {
+        return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) }; // move-in fails
+      }
+      // restore attempt (call 3): reports success but never actually moves anything
+      return { ok: true };
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: fakeRename });
+
+    expect(result.previousOutput).toBe('preserved-in-previous');
+    expect(result.restoreError).toBeUndefined();
+  });
+
+  it('a fake leaving both .context/ and .context.previous/ present after a move-in failure reports "unknown" with observed', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    let renameCallCount = 0;
+    const fakeRename = async (from, to) => {
+      renameCallCount++;
+      if (renameCallCount === 1) {
+        // move-aside: copy instead of move, so both directories end up present
+        fs.cpSync(from, to, { recursive: true });
+        return { ok: true };
+      }
+      if (renameCallCount === 2) {
+        return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) }; // move-in fails
+      }
+      // restore attempt (call 3): no-op, .context/ already exists from the copy above
+      return { ok: false, error: new Error('restore also fails') };
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: fakeRename });
+
+    expect(result.previousOutput).toBe('unknown');
+    expect(result.observed).toEqual({ output: true, previous: true });
+  });
+
+  it('a move-aside failure whose fake actually moves .context/ to .context.previous/ reports "unknown", not "preserved-in-previous"', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'original content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+
+    const fakeRename = async (from, to) => {
+      // move-aside: actually move the directory, but report failure anyway —
+      // pins that "preserved-in-previous" is reachable only from the move-in branch.
+      fs.renameSync(from, to);
+      return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) };
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: fakeRename });
+
+    expect(result.reason).toBe('swap-failed');
+    expect(result.previousOutput).toBe('unknown');
+    expect(result.observed).toEqual({ output: false, previous: true });
+  });
+
+  it('aborts with recovery-failed before calling ctx when recovery cannot clear leftover state', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'a.md'), 'orphaned previous');
+    const { spawn, calls } = makeSucceedingSpawn({ 'README.md': 'x' });
+    const failingRename = async () => ({ ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) });
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, renameWithRetryFn: failingRename });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('recovery-failed');
+    expect(result.failures).toEqual([
+      { op: 'restore', path: path.join(workspace, PREVIOUS_DIR_NAME), error: expect.any(Error) },
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it('reports leftoverPrevious: true when the post-swap .context.previous/ removal fails, while still succeeding', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'old content');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
+    const removeWithRetryFn = async (dirPath) => {
+      if (dirPath.endsWith(PREVIOUS_DIR_NAME)) {
+        return { ok: false, error: Object.assign(new Error('locked'), { code: 'EPERM' }) };
+      }
+      return removeWithRetry(dirPath, { sleepFn: noSleep });
+    };
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, removeWithRetryFn });
+
+    expect(result).toEqual({ ok: true, mode: 'generate', agentsMdMissing: true, leftoverPrevious: true });
+    expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('new content');
+  });
 });
 
 // ─── runCtxGenerate — check mode ─────────────────────────────────────────────
@@ -555,6 +850,24 @@ describe('runCtxGenerate — check mode', () => {
 
     await runCtxGenerate({ workspaceRoot: workspace, args: ['--check'], spawn, normalizeFn: () => {} });
 
+    expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
+  });
+
+  it('with .context.previous/ present and .context/ missing: reports stale, lists .context, and leaves both directories exactly as before (AC-07)', async () => {
+    const workspace = makeTempWorkspace();
+    writeFileAt(path.join(workspace, PREVIOUS_DIR_NAME, 'README.md'), 'orphaned previous');
+    const { spawn } = makeSucceedingSpawn({ 'README.md': 'staged content' });
+
+    const result = await runCtxGenerate({ workspaceRoot: workspace, args: ['--check'], spawn, normalizeFn: () => {} });
+
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('check');
+    expect(result.fresh).toBe(false);
+    expect(result.diffs).toContain('README.md');
+    // Check mode never restores or removes .context.previous/, and never
+    // creates .context/.
+    expect(fs.readFileSync(path.join(workspace, PREVIOUS_DIR_NAME, 'README.md'), 'utf8')).toBe('orphaned previous');
+    expect(fs.existsSync(path.join(workspace, OUTPUT_DIR_NAME))).toBe(false);
     expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
   });
 });

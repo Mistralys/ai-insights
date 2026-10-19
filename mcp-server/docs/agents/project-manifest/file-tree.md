@@ -257,12 +257,13 @@ mcp-server/
     │   ├── complete-pipeline-guards.test.ts
     │   ├── enrichment-resilience.test.ts
     │   ├── help-content-coverage.test.ts  # Registry-derived TOOL_HELP completeness suite: derives registered tool names from registerAllTools()/TOOL_MODULES and cross-checks against TOOL_HELP entries and overview table rows (ledger_help exempt); synthetic fixtures prove the checks catch a missing TOOL_HELP entry, a missing overview row, and an orphaned TOOL_HELP key naming no registered tool
-    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool; also asserts Required Parameters/Example/Guards/"PM-only" structure for the ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, and ledger_detect_project TOOL_HELP entries
+    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool; also asserts Required Parameters/Example/Guards/"PM-only" structure for the ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, and ledger_detect_project TOOL_HELP entries, plus a dedicated guard-order block asserting all four PM-only tools' Guards sections open with "1. **PM-only**"
     │   ├── knowledge.test.ts        # Tests for ledger_add_insight, ledger_search_insights, ledger_update_insight tools
     │   ├── knowledge-multi-store.test.ts  # 10 integration tests for multi-store knowledge routing (cross-device ledger sync plan, WP-009): addInsight global scope writes to default store (AC2), addInsight repository scope routes to claiming store (AC1), unregistered repo error (AC1), searchInsights cross-store merge with dedup (AC3), listInsights cross-store merge (AC4), updateInsight and deleteInsight iterate stores to locate insight (AC5)
     │   ├── list-projects.test.ts
     │   ├── meta-enrichment.test.ts
     │   ├── observations.test.ts
+    │   ├── pm-only-guard-order.test.ts  # Unifies the PM-only guard order across work-package-admin.ts: derives the guarded-tool inventory by scanning every src/tools/ file importing pm-role-guard (plain, aliased, and multi-line requirePmRole() calls) and cross-checks it against a hand-maintained PM_ONLY_TOOLS table (fails on an undeclared or a stale entry); also exercises all four PM-only tools with a non-PM agent_role and a syntactically valid but non-existent project_path, asserting the exact requirePmRole rejection and that no file is written under the ledger root
     │   ├── pipeline-duration.test.ts
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
