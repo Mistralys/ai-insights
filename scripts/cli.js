@@ -570,16 +570,6 @@ function cmdCtxGenerate(args) {
   }
   sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
   fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
-  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
-  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
-  if (fs.existsSync(agentsMd)) {
-    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
-    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
-    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
-    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
-  } else {
-    log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
-  }
 }
 
 function cmdGitHooks() {
