@@ -44,7 +44,7 @@
    | `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments (base layer; no MCP content) |
 
 <a name="c3"></a>
-4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` / `--target deep-agents` for a single target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild all three suites (ledger, standalone, ledger-support) in one pass.
+4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. The build wrapper takes only `--check`, `--dry-run` (an alias for `--check`) and `--strict`; it builds every suite and target defined in `personas/persona-build.config.js` (ledger, standalone and ledger-support, each for vscode, claude-code and deep-agents) in one pass. Change suite or target selection in that config, never by passing `--suite` or `--target` to the build wrapper, which ignores them.
 
 ---
 
@@ -135,6 +135,22 @@
    | The persona build command | `node scripts/build-personas.js` ([C3](#c3) covers the full edit → build → sync workflow) |
 
    An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
+
+<a name="c4f"></a>
+<a name="nested-delegation"></a>
+5f. **Nested delegation between documentation personas follows the caller's plan.** The principle is stated in the [Persona Design Guide](../../persona-design-guide.md#nested-delegation), Pattern 9 → "Nested Delegation", and is not restated here. This entry records where this suite implements it. The guide is a published artifact (C5d), so these project-specific locations belong here rather than in the guide.
+
+   | Part | Where it lives | What it does |
+   |---|---|---|
+   | Shared rule | `personas/shared/partials/documentation-ownership.md` → the **When a caller passes a plan** paragraph and the constraint "Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped". Included by the Documentation Curator, README Curator and AGENTS.md Curator (see the [Shared Partials](api-surface.md#shared-partials-personassharedpartials) row). | A document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided: it is left to the plan and the finding is reported to the caller. Dispatches to agents outside the plan stay allowed. |
+   | Inline deferrals | **Manifest Curator:** step 13 (*Delegate CTX Context Update*) in Mode: Create and Mode: Update, and the matching skip rule in *CTX Context Delegation* → Constraints. **AGENTS.md Curator:** the "a gap always dispatches" rule in *The Manifest Boundary* → *Sourcing a Fact*. **Documentation Curator:** the CTX Architect and Manifest Curator delegation steps in Mode: Update and Mode: Create; in Create mode, an outline the caller passes as already approved by the user replaces the outline hold (step 4 and the *Approval before creating or reorganizing* rule). | Each numbered dispatch step names "no caller's plan has the owner still to come or skipped" as its own condition. |
+   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the "Never dispatch without the session plan" constraint. | Every dispatch, in every mode, carries the session plan with a status per stage (run, still to come, skipped), plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. Dispatches a sub-agent made outside the plan are listed in the summary's **Nested Dispatches** line. |
+
+   - Link to the guide's Nested Delegation section for the principle. Never copy it into this entry or into a persona.
+   - Change the caller's-plan rule for the partial's includers in the partial, never inline in one of them.
+   - Give a new dispatch step in a persona the Workspace Architect calls its own caller's-plan condition inside the step, worded like the existing ones. A line in the caller's prompt alone does not override a numbered step.
+   - Keep dispatches to agents outside the plan allowed. A deferral covers only owners the plan has still to run or marks skipped; it never becomes a ban on further dispatch.
+   - Update this table in the same change when a persona gains or loses a caller's-plan deferral, or when the Workspace Architect changes what its dispatches carry.
 
 ---
 
@@ -283,7 +299,7 @@
 
    > **Suite-wide changes:** If a single change affects multiple personas (e.g., editing a shared partial), update each affected persona's `changelog:` field individually and document all of them in one `personas/changelog.md` entry. For changes affecting every persona in a suite, prefer bumping `default_version` in `_shared.yaml` with a dated entry rather than updating every YAML file individually.
 
-   Omitting any of these steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata in the `changelog:` field.
+   Omitting any of these steps is a defect — downstream agents and `personas/name-mapping.json` (whose `version` is derived from it) depend on accurate version metadata in the `changelog:` field.
 
 ---
 
@@ -310,10 +326,28 @@
 ## Pre-Commit Guard
 
 <a name="c46"></a>
-26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, stale generated output can be committed silently.
+26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check || exit 1` before every commit. Without this step, persona sources with error-severity validation results can be committed unchecked. The check renders in memory, writes nothing, and never compares against files on disk.
 
 <a name="c47"></a>
-27. **`.githooks/pre-commit` enforces persona freshness at commit time.** The hook exits non-zero if any generated persona file is stale, blocking the commit. This closes the gap where a developer editing only `personas/src/` would never trigger the freshness check via `mcp-server/` tests.
+27. **`.githooks/pre-commit` validates persona sources at commit time; it is not a freshness guard.** The hook blocks the commit when `node scripts/build-personas.js --check` fails, which happens only on error-severity validation results. Do not rely on it to catch stale generated output — it never compares rendered output with the files on disk. Rebuild after editing persona sources. The hook catches source errors even when a developer edits only `personas/` and never runs the `mcp-server/` tests.
+
+---
+
+<a name="generated-artefacts"></a>
+## Generated Artefacts
+
+Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, root `CLAUDE.md`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. [Generated Artefacts](generated-artefacts.md) records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+
+- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
+- Commit `.context/` output only on `main`, as its own `CTX: Updated docs` commit. On a feature branch, treat every `.context/` change as drift.
+- Never commit a generated file whose diff is only a timestamp or date.
+- Keep a runtime-coupled artefact when the branch changed its source. Regenerate `personas/name-mapping.json` with `node scripts/build-personas.js` and commit it with the persona change, since the MCP server loads it at startup.
+- Treat a `personas/name-mapping.json` diff confined to `model`, `model_slug` and `cc_model` as machine-local drift from the gitignored model registry, not as a change to commit.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml`, root `AGENTS.md` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
+- Run `node scripts/cli.js ctx-generate` only with root `AGENTS.md` in its intended state: it deletes `.context/` and overwrites root `CLAUDE.md` from `AGENTS.md`. Re-run it after correcting `AGENTS.md` to repair `CLAUDE.md`.
+- When unsure whether a file is generated, leave it and ask the user.
 
 ---
 
@@ -343,10 +377,10 @@
 32. **`identity` is required in every persona YAML.** All personas across all three suites (ledger, standalone, ledger-support) must have a top-level `identity:` field whose value matches the role title in the `**Identity: {{identity}}.**` mission header. This field is the single source of truth for the persona's role label and is used by `scripts/generate-agents-overview.js`.
 
 <a name="c55"></a>
-33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/generate-agents-overview.js` (or `node scripts/cli.js build-maintain`) to regenerate `docs/agents-overview.md`.
+33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/generate-agents-overview.js` (or `node scripts/cli.js build-maintain`) to regenerate `docs/references/agents-overview.md`.
 
 <a name="c56"></a>
-34. **Do not edit `docs/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.
+34. **Do not edit `docs/references/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.
 
 ---
 

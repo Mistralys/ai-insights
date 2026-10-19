@@ -33,6 +33,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
+| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, `CLAUDE.md`, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---
@@ -46,29 +47,29 @@ node scripts/build-personas.js
 
 > Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all three suites (`ledger`, `standalone`, `ledger-support`) for all three targets (`vscode`, `claude-code`, `deep-agents`).
 
-**Check for stale output (CI-friendly):**
+**Validate sources without writing (CI-friendly; renders in memory, fails on validation errors, does not compare against files on disk):**
 ```bash
 node scripts/build-personas.js --check
 ```
 
-**Preview without writing:**
+**Same as `--check` (alias):**
 ```bash
 node scripts/build-personas.js --dry-run
 ```
 
-**Validate generated output for unresolved markers (strict mode):**
+**Also fail on library warnings (strict mode):**
 ```bash
 node scripts/build-personas.js --strict
 ```
 
-Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers.
+Exits 1 on the library's warning-severity validation results as well as its errors. Unresolved `{{variable}}` or `{{> partial}}` markers only print a `[WARN]` line and never fail the build, even under `--strict`; the wrapper's own warn-severity checks stay non-fatal too. Add `--check` to run it without writing.
 
 **Build + sync to both IDEs (VS Code + Claude Code):**
 ```bash
 node scripts/sync-personas.js
 ```
 
-**Build + sync to a specific IDE only:**
+**Build everything + sync to a specific IDE only (`--target` selects deploy steps, not what is built; `claude-code` also syncs `.claude/skills/`):**
 ```bash
 node scripts/sync-personas.js --target vscode
 node scripts/sync-personas.js --target claude-code

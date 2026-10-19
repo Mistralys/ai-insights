@@ -35,28 +35,28 @@ The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/pe
 |------|-----------|---------|
 | `build-personas.js` | `node scripts/build-personas.js` | Thin wrapper: resolves paths to `personas/persona-build.config.js` and the library CLI binary, then delegates the full build to `@mistralys/persona-builder` |
 | `persona-build.config.js` | *(loaded by the library CLI)* | Config file in `personas/persona-build.config.js` — declares suite directories, output paths, and the `ledgerPlugin` that validates persona role names against the workflow manifest |
-| `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs build, copies output to VS Code prompts dir and/or Claude Code agents dir, validates frontmatter |
+| `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs the full build, copies output to VS Code prompts dir and/or Claude Code agents dir (plus skills to `~/.claude/skills/`), validates frontmatter |
 
 ### CLI Flags (`build-personas.js`)
 
-The thin wrapper recognises three flags and forwards the relevant ones to the library CLI. Suite and target selection are defined in `personas/persona-build.config.js`.
+The thin wrapper accepts only `--check`, `--dry-run` and `--strict`, and forwards them to the library CLI; it takes no `--suite` or `--target`. Suite and target selection are defined in `personas/persona-build.config.js`, and every build covers all of them.
 
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate build to `@mistralys/persona-builder` for all suites and targets declared in the config |
-| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--check` | Forward `--check` to the library CLI — render every persona in memory and write nothing; exit 1 only on error-severity validation results. Does not compare against files on disk |
 | `--dry-run` | Treated as `--check` by the wrapper (no disk writes) |
-| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
+| `--strict` | Forward `--strict` to the library CLI — also exit 1 on the library's warning-severity validation results. Unresolved `{{variable}}` / `{{> partial}}` markers only print a `[WARN]` line and never fail the build; the wrapper's own warn-severity checks stay non-fatal |
 
 ### CLI Flags (`sync-personas.js`)
 
 | Flag | Effect |
 |------|--------|
-| *(none)* | Build + copy to both VS Code prompts dir and `~/.claude/agents/` |
-| `--target vscode` | Build + copy VS Code output only |
-| `--target claude-code` | Build + copy Claude Code output only |
-| `--target all` | Explicit default — same as no `--target` |
-| `--dry-run` | Build dry-run + preview copy targets; no writes |
+| *(none)* | Build every suite and target, then run every deploy step (same as `--target all`) |
+| `--target vscode` | Build every suite and target, then copy all three suites to the VS Code prompts dir only |
+| `--target claude-code` | Build every suite and target, then copy all three suites to `~/.claude/agents/` and sync `.claude/skills/` to `~/.claude/skills/` |
+| `--target all` | Explicit default — both deploy steps |
+| `--dry-run` | Runs the build with `--dry-run` (nothing regenerated) and previews ("Would copy") from the existing output; nothing is copied |
 | `--custom-path <dir>` | Override the VS Code prompts directory (vscode target only) |
 
 ---

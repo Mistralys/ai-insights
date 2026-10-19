@@ -112,6 +112,7 @@ personas/
         ├── ax-feedback.md
         ├── developer-dual-role.md
         ├── developer-philosophy.md
+        ├── documentation-ownership.md
         ├── incident-logging.md
         ├── insight-capture.md
         ├── insight-compilation.md
@@ -120,7 +121,9 @@ personas/
         ├── insight-scope-and-types.md
         ├── knowledge-ownership.md
         ├── mcp-insight-capture.md
+        ├── no-release-cycles.md
         ├── no-stale-counts.md
+        ├── outcome-summary-crafting-guide.md
         ├── planner-core-rules.md
         ├── planner-operating-modes.md
         ├── planner-output-template.md
@@ -128,8 +131,13 @@ personas/
         ├── planner-quality-checklist.md
         ├── planner-research-brief-template.md
         ├── pm-subagent-roster.md
+        ├── refinement-pass-label.md
+        ├── release-history-archiving.md
         ├── research-brief-protocol.md
-        └── summary-crafting-guide.md
+        ├── research-brief-reference.md
+        ├── summary-crafting-guide.md
+        ├── title-crafting-guide.md
+        └── wip-changelog-version.md
 ```
 
 ---

@@ -60,7 +60,7 @@ The primary data flow: transform source templates into final persona Markdown fi
   └──────────────────────────────────────────┘
 ```
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files and `_shared.yaml`, computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`; each entry: `role`, `number`, `id`, `version`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs; (2) `scripts/lib/name-mapping.js` reads the persona YAML of all three suites (ledger `N-*.yaml` plus `_shared.yaml`; `standalone/` and `ledger-support/` `src/meta/`, each with an optional `_shared.yaml`) and the model registry in `personas/model-registry/`, computes per-target agent names, and writes `personas/name-mapping.json` (ledger entries sorted by `number`, then non-ledger entries sorted by suite and role; each entry: `number`, `id`, `role`, `version`, `suite`, `model`, `model_slug`, `cc_model`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
 
 ### Template Engine Detail (inside the library)
 
@@ -173,8 +173,10 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--target] [--dry-run]
-  │                          │  Always rebuilds all three suites (ledger, standalone, ledger-support) before syncing.
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js [--dry-run]
+  │                          │  Every sync builds every suite and target in personas/persona-build.config.js.
+  │                          │  --target selects only which deploy steps below run. Under --dry-run nothing is
+  │                          │  regenerated or copied: the steps below only preview ("Would copy") existing output.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐
@@ -200,6 +202,8 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
                                          model, memory)       model, memory;
                                                               no role)
 ```
+
+The diagram shows the ledger and standalone columns. Each target also has a matching ledger-support step (`syncLedgerSupportVSCode()` reads `ledger-support/vs-code/`, `syncLedgerSupportClaudeCode()` reads `ledger-support/claude-code/`), so every deploy covers all three suites. The Claude Code target ends with `syncSkills()`, copying `.claude/skills/` to `~/.claude/skills/`. `--custom-path` overrides the VS Code prompts dir.
 
 ---
 
