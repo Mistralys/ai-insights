@@ -16,6 +16,7 @@
 | [ui-components.md](ui-components.md) | CSS component library: theme tokens, buttons, badges, cards, tables, forms, and all view-specific classes. |
 | [data-flows.md](data-flows.md) | Request lifecycle, SPA routing, polling, theme initialization. |
 | [constraints.md](constraints.md) | Architectural invariants, naming conventions, security rules. |
+| [curation-log.md](curation-log.md) | Standing decisions settled with the user, and the dated history of manifest curation passes. |
 
 ---
 

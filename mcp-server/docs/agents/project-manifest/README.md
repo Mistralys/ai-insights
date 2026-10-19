@@ -22,6 +22,7 @@ The server manages two types of JSON files:
 | [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | MCP tools, classes, types, and public methods |
 | [Key Data Flows](data-flows.md) | Main interaction paths through the system |
+| [Generated Artefacts](generated-artefacts.md) | Which tracked and ignored files this module's build and test commands write, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions about this manifest's shape, and the dated trail of verification passes |
 
 ### Constraints
