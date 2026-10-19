@@ -24,10 +24,11 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   ├── insights/
     │   │   ├── 2026-09-28-synthesis-parser-section-boundary-fix.jsonl
+    │   │   ├── 2026-10-16-package-personas-build-flags.jsonl
+    │   │   ├── 2026-10-16-persona-build-config-header-comment.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
     │   ├── projects/
-    │   │   ├── generated-artefacts-standard.md
     │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
@@ -606,6 +607,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── research-brief-reference.md
     │   │   └── summary-crafting-guide.md
     │   │   └── title-crafting-guide.md
+    │   │   └── wip-changelog-version.md
     ├── standalone/
     │   └── README.md
     │   └── claude-code/

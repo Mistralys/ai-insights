@@ -72,6 +72,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.4.0 (2026-10-16): A manifest gap goes into the report instead of a dispatch when a caller's plan still has the Manifest Curator to come; shared documentation-ownership partial honours a caller's plan; a stage the plan marks skipped counts as already decided
   2.3.0 (2026-10-16): Routes to the manifest's generated-artefacts.md where one exists — a document-list row, a Manifest Maintenance row, and an appended Generated Artefacts section of MUST rows; the file never lists generated paths or commands, which stay manifest facts; Create and Update check whether the manifest carries the document, and an absence next to tracked generated files joins the gap list
   2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
     follows from the request and whether the file exists, rather than being asked for before anything is
@@ -168,6 +169,12 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.7.1 (2026-10-16): Retitled "Merge Before Multiply" to "Logical Change Over Commit History" — the Design Guide allows no verb-initial philosophy titles
+  1.7.0 (2026-10-16): Generate collects changes in a single `**WIP; UNRELEASED**` entry whose version is based
+    on the changelog as it stood at the last release tag (shared wip-changelog-version partial); Rewrite
+    finalizes a WIP entry for release — settles the version, replaces the marker with a title — via a new
+    every-session checkpoint; SemVer integrity and the checklist allow the WIP version to move; Archive
+    never archives a WIP entry or cuts on its version
   1.6.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one file per series
     under docs/changelog-history/v{MAJOR}/ (or a location the project's docs name), with the cut rules,
     layout and verbatim-move rules in the new shared release-history-archiving partial so the WHATSNEW
@@ -454,6 +461,8 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.17.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
+    `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   1.16.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
     no-release-cycles partial)
@@ -552,6 +561,7 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.4.0 (2026-10-16): Honours a caller's plan for a wider change — a document whose owner the plan still has to run is left to it and reported to the caller, through the shared documentation-ownership partial and the CTX and manifest delegation steps; Create mode accepts an outline the caller passes as user-approved; used by the Workspace Architect's Amend mode; a stage the plan marks skipped counts as already decided
   1.3.3 (2026-09-29): Research Verify phase looks up each changed docblock across the project's
     READMEs and compares every matching paragraph, with a matching Quality Checklist item — a
     ledger synthesis found stale prose in an adjacent module's README after WPs updated only the
@@ -682,6 +692,7 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.8.0 (2026-10-16): Skips its CTX delegation when a caller's plan still has the CTX Architect to come, naming the changed manifest sections in its report instead; a stage the plan marks skipped counts as already decided
   1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
@@ -811,6 +822,7 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.17.1 (2026-10-16): Philosophy Tone Pass no longer exempts verb-initial comparison idioms ("Merge Before Multiply"), which the Design Guide never permitted
   1.17.0 (2026-09-18): Gained a Command Execution capability, closing a contradiction the tool grant had
     hidden — Core Rules required running the build after every source change while Capabilities
     authorised filesystem access and nothing else, so the build-and-read step was handed back to the
@@ -1207,6 +1219,8 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.7.0 (2026-10-16): Shared documentation-ownership partial honours a caller's plan: a document whose owner the plan still has to run is left to it and reported to the caller; a stage the plan marks skipped counts as already decided
+  1.6.3 (2026-10-16): Retitled "Show Over Describe" to "Demonstration Over Description" — the Design Guide allows no verb-initial philosophy titles
   1.6.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
     with the owner's slug — the shared ownership partial put the name in `description`, which
     starts a persona-less general-purpose agent.
@@ -1358,6 +1372,7 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.3.3 (2026-10-16): Retitled "Exhaust Before Inventing" to "Proven Patterns Before Invention" and "Quantify Over Qualify" to "Numbers Over Adjectives" — the Design Guide allows no verb-initial philosophy titles
   1.3.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep, Glob or Task, leaving research with no way to
@@ -1607,6 +1622,8 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.3.0 (2026-10-16): Refuses to write release notes for a `**WIP; UNRELEASED**` changelog entry — Generate
+    checks the marker in step 1 and routes the user to a Changelog Curator Rewrite to finalize it first
   1.2.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one XML file per series,
     on the boundary the developer changelog's archive already set (or, with no changelog archive, the
     boundary the shared release-history-archiving cut rules produce, reported back so the Changelog
@@ -1663,11 +1680,15 @@ modes: |
 ```yaml
 slug: workspace-architect
 name: "Workspace Architect"
-description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog."
+description: "Onboard and maintain development repositories for the AI Insights persona ecosystem — orchestrates specialist sub-agents to establish project manifests, AGENTS.md, CTX docs, README, and changelog, and to carry a documentation change into every file it touches."
 vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.5.0 (2026-10-16): Every dispatch carries the session plan with each stage's owner and status, replacing the Documentation Curator's no-further-dispatch instruction — owners leave pending stages to the plan and may still call other specialists, reported as Nested Dispatches; the Manifest Curator, CTX Architect and Documentation Curator are told their mode; Amend waits for approval of a new document's path and outline and dispatches stage 0 in Create mode; Upgrade marks a missing generated-artefacts.md as needed when triage adds CTX; the plan's skipped stages count as already decided
+  1.4.2 (2026-10-16): A manifest lacking generated-artefacts.md beside a context.yaml now counts as missing and needed, so Upgrade PARTIAL runs stage 1 too; the stage 0 Amend dispatch names Update as the Documentation Curator's mode
+  1.4.1 (2026-10-16): Design Guide v3.6 audit fixes — stages 3, 4 and 6 now cover artefacts that already exist (PHP files without composer.json get the user's decision, an existing context.yaml is refreshed, an existing changelog is left alone), staleness criteria moved into Detection Logic, VS Code dispatch lists each stage's agentName, "Ask Before Assuming" retitled "Questions Cost Less Than Rewrites", the Mission restated as one outcome, workflow passives rewritten in active second person, and a duplicate scope constraint removed
+  1.4.0 (2026-10-16): Added Amend mode — a described documentation change is routed to every file holding its kind of content and dispatched to each owner in stage order, with the Documentation Curator as a new stage 0 for prose docs outside the manifest, told not to delegate further. Amend verifies that each file carries its share of the change, waits on the plan only when routing was a judgement call, and lists out-of-brief findings as follow-ups
   1.3.0 (2026-10-16): Stage 1 now carries the CTX triage decision, so the Manifest Curator records .context/ output in generated-artefacts.md before stage 4 creates it, and verification checks the document; Upgrade mode treats a manifest without it, in a project with a context.yaml, as stale
   1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
@@ -1704,6 +1725,7 @@ cc_tools:
   - TodoWrite
 
 subagents:
+  - documentation-curator
   - manifest-curator
   - agents-md-curator
   - composer-curator
@@ -1716,9 +1738,10 @@ audit_date: "2026-08-27"
 
 # overview metadata
 identity: "Workspace Infrastructure Architect"
-use_when: "Setting up a new repository for the AI Insights ecosystem, or upgrading an existing repo's infrastructure"
+use_when: "Setting up a new repository for the AI Insights ecosystem, upgrading an existing repo's infrastructure, or making a documentation change that spans the manifest, AGENTS.md, CTX config and other docs"
 modes: |
   Onboard
   Upgrade
+  Amend
 
 ```

@@ -21,6 +21,7 @@ _SOURCE: Project manifest (tech stack, constraints, API surface, data flows, fil
                 └── curation-log.md
                 └── data-flows.md
                 └── file-tree.md
+                └── generated-artefacts.md
                 └── tech-stack.md
                 └── variables.md
 
@@ -63,6 +64,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
+| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, `CLAUDE.md`, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---
@@ -76,7 +78,7 @@ node scripts/build-personas.js
 
 > Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all three suites (`ledger`, `standalone`, `ledger-support`) for all three targets (`vscode`, `claude-code`, `deep-agents`).
 
-**Check for stale output (CI-friendly):**
+**Validate sources without writing (CI-friendly; renders in memory, fails on validation errors, does not compare against files on disk):**
 ```bash
 node scripts/build-personas.js --check
 ```
@@ -128,13 +130,13 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate full build to `@mistralys/persona-builder` for all suites and targets in the config |
-| `--check` | Forward `--check` to the library CLI — compare generated output against existing files |
+| `--check` | Forward `--check` to the library CLI, which renders every persona in memory and writes nothing. Fails only on error-severity validation results; it does not compare the rendered output against files on disk |
 | `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
 | `--strict` | Forward `--strict` to the library CLI — unresolved `{{variable}}` or `{{> partial}}` markers remaining in output count as an error-severity result |
 
 **Exit code:** the wrapper captures the library CLI's own exit status (`libraryStatus`) instead of exiting immediately on failure, runs every wrapper-side check (below) and both post-build steps regardless of that status, then calls `process.exit()` exactly once via `resolveExitCode(libraryStatus, { errorCount })` (`scripts/lib/build-checks.js`): the library's own non-zero status wins if present, else `1` when any check reported an error-severity result, else `0`. A failing library CLI call no longer skips the post-build steps or any of the five checks — see **Unconditional** below.
 
-Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally regardless of the library CLI's exit status. The wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
+Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally regardless of the library CLI's exit status. The wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) calls `generateNameMapping()` in `scripts/lib/name-mapping.js`, which reads the ledger `src/meta/` (`N-*.yaml` plus `_shared.yaml`, for `default_version` and the default model), the `standalone/` and `ledger-support/` `src/meta/` directories (each with an optional `_shared.yaml` supplying `default_model_slug`), and the model registry in `personas/model-registry/`, then writes `personas/name-mapping.json` via `writeNameMapping()`. Ledger entries come first, sorted by `number`, followed by non-ledger entries sorted by suite and then role; a non-ledger YAML without `id` or `cc_file_name` is skipped. Each entry shape: `number` (`null` outside the ledger suite), `id`, `role` (the YAML `role` for ledger personas; for the others, `name` with its `(Standalone)` / `(Ledger Support)` suffix removed by `deriveRole()`), `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), `suite`, the model fields `model`, `model_slug` and `cc_model`, and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
 
 **Unconditional (both real builds and `--check`):** These validation steps run after every build. Steps 1–5 fail the build; step 6 only warns:
 
@@ -737,6 +739,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | Partial | Used By | Embeds Variables / Notes |
 |---------|---------|-------------------------|
 | `agent-roster.md` | All 9 agents | `{{roster_rendered}}` |
+| `ax-feedback.md` | Agent 3, Agent 9, Standalone Developer, Web GUI Specialist, Documentation Curator, README Curator, Changelog Curator, Comms Curator, Dependency Curator, Unit Test Auditor | *(none)*. Emits its own `## AX Feedback` heading, followed by the instruction to report genuine friction with tooling, instructions, context, handoff data or the target codebase (zero friction being the expected case) and the output block emitted immediately before the handoff status block. Included directly after an **AX Feedback** workflow step, once per mode workflow in multi-mode personas, so it sits just before the handoff step. |
 | `planner-philosophy.md` | Agent 1, Planner (Standalone) | *(none)* — the three canonical principles registered in [C5c](constraints.md#c4c) |
 | `planner-operating-modes.md` | Agent 1, Planner (Standalone) | *(none)* — mode table, detection rule, and deferred-item triage |
 | `planner-research-brief-template.md` | Agent 1, Planner (Standalone) | Gates `## Strategic Context` behind `{{#if has_mcp}}` |
@@ -745,13 +748,17 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `planner-core-rules.md` | Agent 1, Planner (Standalone) | `{{planner_implementer_ref}}` — who receives the plan (`"TPM and Engineer"` for ledger, `"implementer"` for standalone). The insight-routing rule under Scope & Boundaries is gated on `{{#if has_mcp}}` |
 | `planner-quality-checklist.md` | Agent 1, Planner (Standalone) | *(none)* for the shared items; the reconciliation item is gated on `{{#if has_mcp}}` and embeds `{{agent_ledger_knowledge_curator}}` |
 | `knowledge-ownership.md` | Agent 1, Agent 9, Standalone Developer | `{{agent_ledger_knowledge_archiver}}`, `{{agent_ledger_knowledge_curator}}`. Emits its own `## Knowledge Base Ownership` heading — consumers include it at top level, never under a wrapper heading. Answers *who to ask* via a need→custodian routing table, and points an overtaken entry at the Curator's Targeted Reconciliation mode. Deliberately names no MCP tools: the tool grants belong to the custodians, and a consuming persona holds none of them, so listing them describes capabilities the reader cannot use. Carries one constraint (report an overtaken entry) — the prohibitions it once repeated were dropped as redundant with naming the owner. Agent 9 and the Standalone Developer follow it with one paragraph naming where their dispatch happens; Agent 1 adds none, since its own workflow step and the plan template state the duty at the point it fires. |
+| `documentation-ownership.md` | Documentation Curator, README Curator, AGENTS.md Curator (standalone) | `{{agent_agents_md_curator}}`, `{{agent_documentation_curator}}`, `{{agent_readme_curator}}`, `{{agent_changelog_curator}}`, `{{agent_manifest_curator}}`, `{{agent_ctx_architect}}` and their `{{agent_slug_*}}` counterparts; `{{#if ownership_read_only}}`; `{{#if target_vscode}}` / `{{else if target_claude_code}}` / `{{else}}` (deep-agents) for the dispatch call shape. Carries no heading of its own; each includer supplies the lead-in. A document → owning-agent routing table covering the whole documentation set. Under `ownership_read_only` it renders a report-only rule; otherwise it renders the small/large/no-owner triage (small edits made in place, large ones dispatched to the owner), the per-target dispatch instructions, the **When a caller passes a plan** paragraph and the dispatch constraints. **Caller's-plan rule:** a document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided — it is left to the plan and reported to the caller, never dispatched; dispatches to agents the plan does not mention stay allowed. None of the current includers sets `ownership_read_only`, so each renders the dispatch branch, which is the only one carrying the caller's-plan rule. Each includer declares every owner but itself in its YAML `subagents` list. The suite's wider nested-delegation implementation is recorded in [C5f](constraints.md#nested-delegation). |
 | `pm-output-format.md` | Agent 2 | *(none)* |
+| `pm-subagent-roster.md` | Ledger WP Decomposer, Ledger Dependency Sequencer, Ledger Pipeline Configurator, Ledger Bootstrapper | `{{agent_ledger_wp_decomposer}}`, `{{agent_ledger_dependency_sequencer}}`, `{{agent_ledger_pipeline_configurator}}`, `{{agent_ledger_bootstrapper}}`. Carries no heading of its own; included in each sub-agent's Mission section. States that the persona is a sub-agent of the Project Manager and lists the decomposition pipeline in its order of work, each stage building on the ones before it. |
 | `developer-operational-protocol.md` | Agent 3 | *(none)* |
 | `developer-strict-constraints.md` | Agent 3 | Embeds `{{> incident-logging}}` — resolves via ledger override layer; requires a stub in `shared/` for non-ledger suites |
 | `developer-dual-role.md` | Agent 3, Standalone Developer | `{{dev_work_unit}}` (the unit of work — Work Package vs. scoped plan document), `{{dev_work_scope}}` (what the parallel duties span — `"every work package"` vs. `"the plan"`). The numbered Implementation / Code Insight Observer pair in the Mission section. |
+| `developer-philosophy.md` | Agent 3, Standalone Developer | *(none)*. Emits its own `## Operating Philosophy` heading and the principles both developers share: Long-Term Stability Over Expediency, Growth Is the Default, Completeness Over Deferral, and The Practitioner's Eye. Included at top level in the Mission area, after the dual-role pair (and, for Agent 3, the agent roster). |
 | `insight-observer-intro.md` | Agent 3, Standalone Developer | *(none)* — mechanism-neutral by design: says observations "get recorded" without naming the sink or the ledger, so both suites share one paragraph. |
 | `no-stale-counts.md` | Agent 3, Standalone Developer | `{{stale_counts_targets}}` (the surfaces the rule covers — `"documentation, summaries, or pipeline comments"` vs. `"documentation, summaries, or synthesis output"`). Rendered as a single `* {{> no-stale-counts}}` bullet inside a Strict Constraints list; the partial emits no leading bullet marker of its own. |
 | `no-release-cycles.md` | Agent 3, Standalone Developer | *(none)*. The user runs every release cycle and reverts local dependency symlinks; the developer never publishes, tags, or reverts them, and links an unlinked sibling itself. Rendered as a single `* {{> no-release-cycles}}` bullet inside a Strict Constraints list; the partial emits no leading bullet marker of its own. |
+| `wip-changelog-version.md` | Agent 3, Agent 7, Standalone Developer, Changelog Curator | *(none)*. Changelog writers base a new version on the changelog as it stood at the last release tag and collect every change in a single `## v{VERSION} - **WIP; UNRELEASED**` entry, raising its version but never lowering it; only a Changelog Curator Rewrite removes the marker. Rendered as a single bullet inside a Strict Constraints list (`* ` or `- `); the partial emits no leading bullet marker of its own. |
 | `insight-reporting-rules.md` | Agent 3, Standalone Developer | `{{insight_reporting_intro}}` (lead-in naming where the summary lands), `{{insight_compile_source}}` (what rule 1 compiles from — ledger observations vs. `insights.jsonl`), `{{insight_nothing_found}}` (the nothing-found form for rule 4). Six numbered rules shared verbatim. |
 | `insight-scope-and-types.md` | Agent 3, Standalone Developer | `{{insight_reviewer_ref}}` (who owns the out-of-scope column — `"the Reviewer agent"` / `"a formal reviewer"`), `{{insight_routing}}` (one sentence naming where recorded observations travel: Synthesis → rework plan for ledger, `synthesis.md` Code Insights → Planner for standalone), `{{insight_type_context}}` (lead-in above the type table — pipeline comments vs. sink append). Carries the Scope & Boundaries table, the out-of-scope-routing rationale, the five `type` values, and the priority guidelines. **Not** used by the Web GUI Specialist, which has a UI-specific scope table and its own `type` vocabulary (`visual-bug`, `ux-friction`, `accessibility-gap`, …). |
 | `insight-capture.md` | Standalone Developer, Web GUI Specialist | `{{insight_agent}}`; placement: inside the observation section, after type/priority definitions. Contains the two-rung sink location ladder (resolve-once), flat JSONL schema with a concrete example line, append-only rules, non-blocking fallback, and retention note. |
@@ -771,6 +778,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
 | `synthesis-output-format.md` | Agent 9 | *(none)* |
 | `summary-crafting-guide.md` | Ledger Bootstrapper, Synthesis Maintainer | *(none)* |
+| `outcome-summary-crafting-guide.md` | Agent 9, Synthesis Maintainer | *(none)*. The rule list for an `outcome_summary` (two to three sentences, plain text, past tense, result over route, honest about what did not land), plus the distinction from `project_summary`. Carries no heading and no lead-in: each includer ends its own sentence with "must be:" and includes the partial at column 0, since the engine does not indent partial content to match a surrounding list item. Agent 9 uses it for `ledger_complete_synthesis`; the Synthesis Maintainer composes the summary from `synthesis.md`. |
 | `release-history-archiving.md` | Changelog Curator, WHATSNEW Curator (standalone) | *(none)* | Archive layout, ordered cut rules, and verbatim-move rules for archiving a release history by minor series. Rendered inside each persona's `## Archive Reference`; format-specific parts (the changelog's archive footer, the WHATSNEW changelog-boundary rule) stay inline. |
 | `research-brief-reference.md` | Standalone Developer, Web GUI Specialist — and, nested, `research-brief-protocol.md` | `{{brief_orientation}}`, `{{brief_purpose}}`, `{{brief_authority}}`. **Reader-facing half:** what a `research-brief.md` is, which entries to orient on, and the three don't-trust / don't-assume-complete / don't-reconstruct constraints. Carries no heading of its own — the including persona supplies `## Research Brief` — and says nothing about appending, since a reader never writes to the brief. Consumers supply the three variables, place the section anywhere after Outputs and before the protocol step that references it, carry a **Research brief** status line in their output template, and reference the brief from the protocol step that opens their codebase-discovery phase. |
 | `research-brief-protocol.md` | Plan Auditor, Plan Architect Reviewer | Nests `research-brief-reference.md`, then adds a `### Contributing Back` section. Adds `{{brief_contribution_point}}`, `{{brief_contributor}}`, `{{brief_report_file}}` on top of the reference partial's three, so authoring consumers supply all six. **Author-facing half:** the 5,000-token size guard, the `[added by: …, unverified]` append format, and the two do-not-append constraints. Reserved for personas that write back to a brief whose plan is not yet implemented — implementers must not include it, because a brief is deleted at archival and anything they append has no reader. Authoring consumers additionally carry a brief-existence workflow checkpoint, a contribute-back step gated on `{{brief_contribution_point}}`, and a **Research brief** line in `{{brief_report_file}}`. The size guard is defined here only — never restate it in a persona. |
@@ -977,11 +985,7 @@ template change (`node scripts/build-personas.js`).
 
 <a name="c10"></a>
 <a name="b6"></a>
-6. **`--strict` mode converts unresolved markers into a hard failure.** When `--strict` is passed, a post-build scan runs on every generated file using the regex `/\{\{>?\s*[\w-]+\}\}/g`. If any markers remain, the script emits `[STRICT] Unresolved marker(s) in <suite>/<target>/<file>: <markers>` to stderr, increments a `strictFailures` counter, and exits with code 1 after the full build completes. The base build output (written files) is unaffected; `--strict` only controls the exit code. Use `node scripts/build-personas.js --strict --suite all` in CI pipelines or pre-commit hooks to gate on zero unresolved markers.
-
-   > **GN-4 — Code-fence false-positive risk:** The `--strict` regex scans the full assembled text and would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block. **Mitigation active (WP-002):** The build script strips fenced blocks (`/```[\s\S]*?```/g`) from a copy of the output before scanning, eliminating this false-positive risk.
-
-   > **GN-5 — `--check` + `--strict` exit ordering:** When `--check` detects stale output files, `process.exit(1)` fires before `[STRICT]` scan output is emitted. The exit code remains 1 (correct). This is intentional. In CI, run `--check` as a separate pre-build step if `[STRICT]` failure details are needed.
+6. **`--strict` fails the build on warning-severity validation results, not on unresolved markers.** `scripts/build-personas.js` forwards `--strict` to the library CLI and runs no scan of its own. The library then exits 1 when any validation result has severity `warning`; error-severity results fail the build with or without the flag. Warnings come from the library's built-in validators (for example a tool written in another target's notation, or an unmapped `tool_parity_exceptions` entry) and from plugins (for example the ledger plugin's unknown-role check). An unresolved `{{variable}}` marker only prints a console `[WARN] Unresolved variable` line. That line is not a validation result, so `--strict` does not gate on it. The wrapper's own warn-severity checks (philosophy tone, changelog size) never fail the build either, since `resolveExitCode()` counts only error-severity results. Use `node scripts/build-personas.js --strict` in CI to gate on zero library warnings, and add `--check` to keep the run free of writes.
 
 ---
 
@@ -1075,7 +1079,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c33"></a>
 <a name="b15"></a>
-15. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files, and forwards the `--target` flag so the build step generates only the required output. There is no need to run build separately when syncing.
+15. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files. It passes `--suite` and `--target`, but `build-personas.js` ignores both and always builds every suite and target in `personas/persona-build.config.js`; `--target` limits only which outputs the sync copies. There is no need to run build separately when syncing.
 
 ```
 ###  Path: `/personas/docs/agents/project-manifest/constraints-cross-system.md`
@@ -1098,7 +1102,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 2. **`role` field ↔ Agent Registry**: The `role` value in persona frontmatter is used by the MCP server's Agent Registry (`mcp-server/src/utils/agent-registry.ts`) to discover agent handles for automatic handoffs. The registry scans `*.agent.md` files in the VS Code prompts directory and matches the `role` field.
 
 <a name="x3"></a>
-3. **`name-mapping.json` is generated from persona YAML metadata.** `scripts/build-personas.js` reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` (plus `_shared.yaml` for `default_version`) and writes `personas/name-mapping.json` after every real build (skipped in `--check`/`--dry-run` mode). The file contains per-persona identity (`role`, `number`, `id`, `version`) and per-target agent name data (`vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`). It must be regenerated whenever persona YAML naming fields change (`role`, `number`, `id`, `version`, `cc_file_name`, `vs_file_name`, `da_file_name`, or `default_version` in `_shared.yaml`). The file is checked into Git — stale state is visible in Git diffs. Run `node scripts/build-personas.js` (without `--check`) to regenerate.
+3. **`name-mapping.json` is generated from persona YAML metadata.** `scripts/build-personas.js` calls `generateNameMapping()` and `writeNameMapping()` from `scripts/lib/name-mapping.js` and writes `personas/name-mapping.json` after every real build (skipped in `--check`/`--dry-run` mode). The generator reads all three suites: the numbered ledger persona YAML files (`/^\d+-.*\.yaml$/`) in `personas/ledger/src/meta/` plus that directory's `_shared.yaml` (`default_version`, `default_model`, `default_model_slug`); every non-underscore YAML file in `personas/standalone/src/meta/` and `personas/ledger-support/src/meta/`, plus each suite's optional `_shared.yaml` for `default_model_slug`; and the model registry in `personas/model-registry/`. The file contains per-persona identity (`role`, `number`, `id`, `version`, `suite`), model data (`model`, `model_slug`, `cc_model`) and per-target agent name data (`vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`). It must be regenerated whenever persona YAML naming fields change (`role`, `number`, `id`, `name`, `version`, `changelog`, `cc_file_name`, `vs_file_name`, `da_file_name`, `model_slug`, or `default_version` / `default_model_slug` in a `_shared.yaml`), or when a persona is added, renamed or removed in any suite. The file is checked into Git — stale state is visible in Git diffs. Run `node scripts/build-personas.js` (without `--check`) to regenerate.
 
 <a name="x4"></a>
 4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of ledger-support (or standalone, for legacy slugs) personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
@@ -1160,7 +1164,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
    | `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments (base layer; no MCP content) |
 
 <a name="c3"></a>
-4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` / `--target deep-agents` for a single target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild all three suites (ledger, standalone, ledger-support) in one pass.
+4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. The build wrapper takes only `--check`, `--dry-run` (an alias for `--check`) and `--strict`; it builds every suite and target defined in `personas/persona-build.config.js` (ledger, standalone and ledger-support, each for vscode, claude-code and deep-agents) in one pass. Change suite or target selection in that config, never by passing `--suite` or `--target` to the build wrapper, which ignores them.
 
 ---
 
@@ -1251,6 +1255,22 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
    | The persona build command | `node scripts/build-personas.js` ([C3](#c3) covers the full edit → build → sync workflow) |
 
    An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
+
+<a name="c4f"></a>
+<a name="nested-delegation"></a>
+5f. **Nested delegation between documentation personas follows the caller's plan.** The principle is stated in the [Persona Design Guide](../../persona-design-guide.md#nested-delegation), Pattern 9 → "Nested Delegation", and is not restated here. This entry records where this suite implements it. The guide is a published artifact (C5d), so these project-specific locations belong here rather than in the guide.
+
+   | Part | Where it lives | What it does |
+   |---|---|---|
+   | Shared rule | `personas/shared/partials/documentation-ownership.md` → the **When a caller passes a plan** paragraph and the constraint "Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped". Included by the Documentation Curator, README Curator and AGENTS.md Curator (see the [Shared Partials](api-surface.md#shared-partials-personassharedpartials) row). | A document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided: it is left to the plan and the finding is reported to the caller. Dispatches to agents outside the plan stay allowed. |
+   | Inline deferrals | **Manifest Curator:** step 13 (*Delegate CTX Context Update*) in Mode: Create and Mode: Update, and the matching skip rule in *CTX Context Delegation* → Constraints. **AGENTS.md Curator:** the "a gap always dispatches" rule in *The Manifest Boundary* → *Sourcing a Fact*. **Documentation Curator:** the CTX Architect and Manifest Curator delegation steps in Mode: Update and Mode: Create; in Create mode, an outline the caller passes as already approved by the user replaces the outline hold (step 4 and the *Approval before creating or reorganizing* rule). | Each numbered dispatch step names "no caller's plan has the owner still to come or skipped" as its own condition. |
+   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the "Never dispatch without the session plan" constraint. | Every dispatch, in every mode, carries the session plan with a status per stage (run, still to come, skipped), plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. Dispatches a sub-agent made outside the plan are listed in the summary's **Nested Dispatches** line. |
+
+   - Link to the guide's Nested Delegation section for the principle. Never copy it into this entry or into a persona.
+   - Change the caller's-plan rule for the partial's includers in the partial, never inline in one of them.
+   - Give a new dispatch step in a persona the Workspace Architect calls its own caller's-plan condition inside the step, worded like the existing ones. A line in the caller's prompt alone does not override a numbered step.
+   - Keep dispatches to agents outside the plan allowed. A deferral covers only owners the plan has still to run or marks skipped; it never becomes a ban on further dispatch.
+   - Update this table in the same change when a persona gains or loses a caller's-plan deferral, or when the Workspace Architect changes what its dispatches carry.
 
 ---
 
@@ -1426,10 +1446,28 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 ## Pre-Commit Guard
 
 <a name="c46"></a>
-26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, stale generated output can be committed silently.
+26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, persona sources with error-severity validation results can be committed unchecked. The check renders in memory and does not compare against files on disk.
 
 <a name="c47"></a>
 27. **`.githooks/pre-commit` enforces persona freshness at commit time.** The hook exits non-zero if any generated persona file is stale, blocking the commit. This closes the gap where a developer editing only `personas/src/` would never trigger the freshness check via `mcp-server/` tests.
+
+---
+
+<a name="generated-artefacts"></a>
+## Generated Artefacts
+
+Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, root `CLAUDE.md`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. [Generated Artefacts](generated-artefacts.md) records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+
+- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
+- Commit `.context/` output only on `main`, as its own `CTX: Updated docs` commit. On a feature branch, treat every `.context/` change as drift.
+- Never commit a generated file whose diff is only a timestamp or date.
+- Keep a runtime-coupled artefact when the branch changed its source. Regenerate `personas/name-mapping.json` with `node scripts/build-personas.js` and commit it with the persona change, since the MCP server loads it at startup.
+- Treat a `personas/name-mapping.json` diff confined to `model`, `model_slug` and `cc_model` as machine-local drift from the gitignored model registry, not as a change to commit.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml`, root `AGENTS.md` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
+- Run `node scripts/cli.js ctx-generate` only with root `AGENTS.md` in its intended state: it deletes `.context/` and overwrites root `CLAUDE.md` from `AGENTS.md`. Re-run it after correcting `AGENTS.md` to repair `CLAUDE.md`.
+- When unsure whether a file is generated, leave it and ask the user.
 
 ---
 
@@ -1459,10 +1497,10 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 32. **`identity` is required in every persona YAML.** All personas across all three suites (ledger, standalone, ledger-support) must have a top-level `identity:` field whose value matches the role title in the `**Identity: {{identity}}.**` mission header. This field is the single source of truth for the persona's role label and is used by `scripts/generate-agents-overview.js`.
 
 <a name="c55"></a>
-33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/generate-agents-overview.js` (or `node scripts/cli.js build-maintain`) to regenerate `docs/agents-overview.md`.
+33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/generate-agents-overview.js` (or `node scripts/cli.js build-maintain`) to regenerate `docs/references/agents-overview.md`.
 
 <a name="c56"></a>
-34. **Do not edit `docs/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.
+34. **Do not edit `docs/references/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.
 
 ---
 
@@ -1494,9 +1532,85 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 | Date | Decision | Rationale |
 |---|---|---|
-| — | — | None settled with the user yet. |
+| 2026-10-16 | The practice for generated artefacts on feature branches is the one the Git Committer persona (`personas/standalone/src/content/git-committer.md`) enforces. On a feature branch, generator drift (including all `.context/` output) stays out of commits and is reverted by path before upstream integration. A generated file whose source the branch changed is committed with that change. `.context/` is committed only on the default branch `main`, as a `CTX: Updated docs` commit. Date-only diffs of generated files are never committed. `generated-artefacts.md` and `constraints.md` → Generated Artefacts summarise this and cite the Git Committer rather than restating its procedure. | Decided by the user. The Git Committer is the agent that commits and discards these files, so making its rules the project practice keeps one source of truth. Where the two disagree, the Git Committer persona wins and the manifest is corrected. |
 
 ## History
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, persona-build facts only: the `--check` semantics, the name-mapping inputs and ordering, `--suite` / `--target` being ignored by the build wrapper, `--strict` semantics in `constraints-build-system.md` entry 6, and the `generated-artefacts.md` items the previous entry deferred. Covered `api-surface.md` → `build-personas.js` flags and post-build step 2; `data-flows.md` → build post-build step and sync pipeline step 1; `constraints-build-system.md` entries 6 and 15; `tech-stack.md` → CLI Flags (`build-personas.js`); `README.md` → the `--check` usage heading; `constraints.md` entry 26; `generated-artefacts.md` → Purpose and Branch Policy, the `.context/**` row, Known Contradictions. No other content in any document was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `--check` (in `api-surface.md`, `tech-stack.md`, `README.md`, `constraints.md` 26, `generated-artefacts.md` → Purpose and Branch Policy): now described as an in-memory render that writes nothing and fails only on error-severity validation results. It never compares against files on disk. The pre-commit paragraph also names the hook's other blocking steps, `check-version-sync.js` and ruff on staged orchestrator Python.
+- Name mapping (`api-surface.md` post-build step 2, `data-flows.md` post-build): it reads all three suites' `src/meta/` plus `personas/model-registry/`. Ledger entries come first by `number`, then non-ledger entries by suite and role. Entry fields now include `suite`, `model`, `model_slug` and `cc_model`, and `number` is `null` outside the ledger suite.
+- Sync (`data-flows.md` sync step 1, `constraints-build-system.md` 15): the build ignores the `--suite` / `--target` that the sync passes and builds everything in `persona-build.config.js`. `--target` limits only the copy step.
+- `constraints-build-system.md` 6: rewritten. The wrapper runs no marker scan and has no `strictFailures` counter. `--strict` is forwarded to the library, which then also fails on warning-severity validation results. Unresolved `{{variable}}` markers only print a console `[WARN]` and never fail the build. Removed GN-4 (fence stripping for a scan that does not exist) and GN-5 (`--check` detecting stale output). The recommended command is now `node scripts/build-personas.js --strict`.
+- `generated-artefacts.md`: the `.context/**` row's verdicts are now branch-scoped. On a feature branch the row is always drift; the per-file safe and unsafe conditions apply only on `main`, as the 2026-10-16 Standing Decision requires. Removed the Known Contradictions bullet about the `persona-build.config.js` header, which now states the `--check` behaviour correctly.
+
+**Notes:** Dispatched as stage 1 of a Workspace Architect Amend plan. The working tree held uncommitted changes when scanned, including the `persona-build.config.js` header rewrite. The commit above is the last one and equals the previous entry's floor, so the changed-code intersection and the reverted-decision search had an empty committed range and were not run beyond the caller's evidence. The Adjacent Document Check was not run: the caller assigned root `AGENTS.md` and `personas/README.md` to later stages. The generated-artefacts check covered only the rows named above. The same wrong facts survive outside this pass's scope, left for the next pass:
+- `constraints-build-system.md` 8 says `--check` compares generated content against the file on disk, and describes a `staleCount` / `[note_only-violation]` guard in `build-personas.js`. The `note_only` check now lives in the ledger plugin (`personas/plugins/ledger/role-validator.js`, error severity).
+- `constraints-build-system.md` → Log-Prefix Convention lists a `[STRICT]` prefix for unresolved markers. Nothing emits it.
+- `constraints.md` 27 says the hook fails when a generated persona file is stale.
+- `api-surface.md` and `tech-stack.md` → `--strict` rows, and `README.md` → strict-mode usage, still say `--strict` fails on unresolved markers.
+- `api-surface.md` → `name-mapping.json` — All Suites table lacks the `suite`, `model`, `model_slug` and `cc_model` fields.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, one user decision only: the feature-branch practice for generated artefacts, in `generated-artefacts.md` → Purpose and Branch Policy and `constraints.md` → Generated Artefacts. No other content in any document was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `curation-log.md`: first Standing Decision, recording the user's ruling that the Git Committer persona's generated-artefact rules are the project practice.
+- `generated-artefacts.md` → Purpose and Branch Policy: removed the `TODO: verify` marker. The paragraph now states the practice and cites the Git Committer as the authority. The pre-commit hook description is kept as a separate paragraph.
+- `constraints.md` → Generated Artefacts: removed the `TODO: verify` marker. Replaced the "regenerate on the integration branch" bullet with three: follow the Git Committer's rules (drift out of feature-branch commits, reverted by path before integration; first materialisation committed with its source), `.context/` only on `main` as `CTX: Updated docs`, and no date-only commits of generated files.
+
+**Notes:** The working tree held uncommitted changes when scanned. The commit above is the last one. `main` is the default branch according to `origin/HEAD`. The reverted-decision search, changed-code intersection, generated-artefacts row check and Adjacent Document Check were not run, because the caller limited the pass to this decision. Left for the next pass: the `.context/**` row in `generated-artefacts.md` still gives per-file safe and unsafe verdicts. The Git Committer treats all of `.context/` as drift on a feature branch whatever the row says, so the row's *Unsafe to discard when* condition never applies there. It now matters only on `main`, and the row should say so.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow. Covers only the four corrections the previous entry left for the next pass: `file-tree.md` → `shared/partials/`, `constraints.md` entries 4, 33 and 34, and `constraints-cross-system.md` entry 3. No other content in any document was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `file-tree.md` → `shared/partials/`: the listing now matches the directory on disk. Added `documentation-ownership.md`, `no-release-cycles.md`, `outcome-summary-crafting-guide.md`, `refinement-pass-label.md`, `release-history-archiving.md`, `research-brief-reference.md`, `title-crafting-guide.md` and `wip-changelog-version.md`.
+- `constraints.md` entry 4 (Edit → Build → Sync): removed the `--suite` / `--target` build flags. `scripts/build-personas.js` parses only `--check`, `--dry-run` and `--strict`, forwards `--config personas/persona-build.config.js` to the library CLI, and passes no other argument on. The sync-personas step is unchanged.
+- `constraints.md` entries 33 and 34: the overview path is now `docs/references/agents-overview.md`, which is the `OUTPUT_FILE` in `scripts/generate-agents-overview.js`.
+- `constraints-cross-system.md` entry 3: the name mapping now covers all three suites' meta directories plus `personas/model-registry/`, read by `scripts/lib/name-mapping.js` and invoked from `build-personas.js`. The entry-shape and regeneration-trigger lists now include the `suite`, model and `name` / `changelog` / `model_slug` inputs the code reads. Removed the ledger persona count.
+
+**Notes:** Dispatched as stage 1 of a Workspace Architect Amend plan. The working tree held uncommitted changes when scanned. The commit above is the last one. The reverted-decision search, changed-code intersection and generated-artefacts check were not run, because the caller limited the pass to these corrections. Both `TODO: verify` markers about the feature-branch practice stay in place, and that question is still open. The same stale facts survive in documents outside this pass's scope, and they are left for the next pass:
+- `api-surface.md` → `build-personas.js` post-build step 2 and `data-flows.md` → build post-build step still say the name mapping reads only the ledger YAML and has one entry per ledger persona, sorted by `number`.
+- `constraints-build-system.md` entry 6 recommends `--strict --suite all`. `--suite` has no effect there.
+- `data-flows.md` → sync flow shows `sync-personas.js` passing `--suite` and `--target` to the build. That is what the code does, but the wrapper ignores both flags, so the diagram implies a narrowing that does not happen.
+- Code observations, not manifest defects: `scripts/sync-personas.js` and `scripts/package-personas.js` (`--suite standalone --target all --strict`) both pass flags the wrapper discards, so packaging builds every suite.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, three user-approved changes only: (1) a new `generated-artefacts.md`, with its index row and the matching *Generated Artefacts* section in `constraints.md`; (2) the four missing rows in `api-surface.md` → Shared Partials; (3) entry 5f in `constraints.md` and the `documentation-ownership.md` row in `api-surface.md`, for the caller's-plan refinement. No other content in any document was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `generated-artefacts.md` created. Tracked generated files: `personas/name-mapping.json` (runtime-coupled, loaded by the MCP server), `.context/**`, root `CLAUDE.md`, `docs/references/agents-overview.md`, `personas/docs/audits/status.md`. The built persona files under every `personas/*/{vs-code,claude-code,deep-agents}/` are gitignored, and only the `.gitkeep` placeholders in four of those directories are tracked. Linked from `README.md`.
+- `constraints.md`: new *Generated Artefacts* section (anchor `generated-artefacts`), unnumbered so it does not collide with the existing numbering.
+- `api-surface.md` → Shared Partials: added `ax-feedback.md`, `developer-philosophy.md`, `pm-subagent-roster.md` and `outcome-summary-crafting-guide.md`, with includers taken from the suite content files.
+- `constraints.md` → 5f and the `documentation-ownership.md` row: a document whose stage the caller's plan marks skipped now counts as already decided, like one whose owner is still to come. 5f also names the Manifest Curator's *CTX Context Delegation* skip rule beside its step 13. 5f still links to the guide's Pattern 9 → Nested Delegation and does not restate it.
+
+**Notes:** The working tree held uncommitted changes when scanned, including every persona source and the guide change documented here. The commit above is the last one. The reverted-decision search and changed-code intersection were not run, because the caller limited the pass to these three changes.
+- Open question for the user: the branch practice for generated artefacts, and the branch they are regenerated on, are not recorded anywhere. Both `generated-artefacts.md` and the new `constraints.md` section carry a `TODO: verify` marker until that is settled. Once settled, it belongs in Standing Decisions.
+- Found while checking generators: `name-mapping.json`'s `model`, `model_slug` and `cc_model` fields come from the gitignored `personas/model-registry/local.json` and `assignments.json`, so the tracked file varies between machines. Recorded under *Known Contradictions*.
+- Left for the next full pass: `file-tree.md`'s `shared/partials/` listing omits several partials now on disk (among them `documentation-ownership.md`, `outcome-summary-crafting-guide.md`, `wip-changelog-version.md`); `constraints.md` C4 still documents `--suite` / `--target` flags that the index says the wrapper does not take; C34 and AGENTS.md give the overview path as `docs/agents-overview.md` where the generator writes `docs/references/agents-overview.md`; cross-system X3 says the name mapping reads the ledger YAML only, where `scripts/lib/name-mapping.js` reads all three suites and the model registry.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, one change only: documenting how the persona suite implements nested delegation between documentation personas. Covered `api-surface.md` → Shared Partials and `constraints.md` → Persona Content Philosophy. No other content in any document was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `api-surface.md` → Partials Inventory → Shared Partials: added the missing `documentation-ownership.md` row (includers, agent-name/slug variables, `ownership_read_only`, target flags, the caller's-plan rule).
+- `constraints.md` → Persona Content Philosophy: added entry 5f (anchors `c4f` and `nested-delegation`), recording the shared partial rule, the inline caller's-plan deferrals in the Manifest Curator, AGENTS.md Curator and Documentation Curator, and the Workspace Architect as the orchestrator that sends the plan. It links to the Persona Design Guide, Pattern 9 → Nested Delegation, rather than restating it.
+
+**Notes:** Dispatched as stage 1 of a Workspace Architect Amend plan. The working tree held uncommitted changes when scanned, and the persona sources documented here were among them. The commit above is the last one. `api-surface.md` already held an uncommitted `wip-changelog-version.md` row from other work, which this pass left alone. The reverted-decision search, changed-code intersection and generated-artefacts check were not run, because the caller limited the pass to this change. The skip is deferred, not settled:
+- This manifest has no `generated-artefacts.md`, although the project tracks generated files such as `personas/name-mapping.json` and `.context/`. That is for the next full pass.
+- The Shared Partials inventory still lacks `ax-feedback`, `developer-philosophy`, `outcome-summary-crafting-guide` and `pm-subagent-roster`. These are a follow-up the caller has already recorded.
+
+Facts verified on the way:
+- The partial is included from the three personas' content files, not their YAML. The YAML declares the owners in `subagents`.
+- No current persona sets `ownership_read_only`. The Manifest Reviewer set it when the partial was introduced, and that persona no longer exists.
 
 ### 2026-09-23 · Update · Curator v1.4.1
 
@@ -1590,7 +1704,7 @@ The primary data flow: transform source templates into final persona Markdown fi
   └──────────────────────────────────────────┘
 ```
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files and `_shared.yaml`, computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`; each entry: `role`, `number`, `id`, `version`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs; (2) `scripts/lib/name-mapping.js` reads the persona YAML of all three suites (ledger `N-*.yaml` plus `_shared.yaml`; `standalone/` and `ledger-support/` `src/meta/`, each with an optional `_shared.yaml`) and the model registry in `personas/model-registry/`, computes per-target agent names, and writes `personas/name-mapping.json` (ledger entries sorted by `number`, then non-ledger entries sorted by suite and role; each entry: `number`, `id`, `role`, `version`, `suite`, `model`, `model_slug`, `cc_model`, plus `vscode`, `claude_code`, `deep_agents` blocks with `file_name` and `agent_name`).
 
 ### Template Engine Detail (inside the library)
 
@@ -1703,8 +1817,9 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--target] [--dry-run]
-  │                          │  Always rebuilds all three suites (ledger, standalone, ledger-support) before syncing.
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--dry-run] [--target <t> unless all]
+  │                          │  build-personas.js ignores --suite and --target: every sync builds every suite and
+  │                          │  target in personas/persona-build.config.js. --target limits only which outputs are copied.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐
@@ -2062,6 +2177,7 @@ personas/
         ├── ax-feedback.md
         ├── developer-dual-role.md
         ├── developer-philosophy.md
+        ├── documentation-ownership.md
         ├── incident-logging.md
         ├── insight-capture.md
         ├── insight-compilation.md
@@ -2070,7 +2186,9 @@ personas/
         ├── insight-scope-and-types.md
         ├── knowledge-ownership.md
         ├── mcp-insight-capture.md
+        ├── no-release-cycles.md
         ├── no-stale-counts.md
+        ├── outcome-summary-crafting-guide.md
         ├── planner-core-rules.md
         ├── planner-operating-modes.md
         ├── planner-output-template.md
@@ -2078,8 +2196,13 @@ personas/
         ├── planner-quality-checklist.md
         ├── planner-research-brief-template.md
         ├── pm-subagent-roster.md
+        ├── refinement-pass-label.md
+        ├── release-history-archiving.md
         ├── research-brief-protocol.md
-        └── summary-crafting-guide.md
+        ├── research-brief-reference.md
+        ├── summary-crafting-guide.md
+        ├── title-crafting-guide.md
+        └── wip-changelog-version.md
 ```
 
 ---
@@ -2113,6 +2236,79 @@ scripts/
 | `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code prompts dir | Deployed agent file |
 | `personas/ledger/claude-code/*.md` | `sync-personas.js` → `~/.claude/agents/` | Deployed agent file |
 
+```
+###  Path: `/personas/docs/agents/project-manifest/generated-artefacts.md`
+
+```md
+# Generated Artefacts
+
+Which files a build step in this workspace writes for the personas module, which command writes each, and when a modified copy can be discarded. The binding rules derived from this table live in [Constraints & Conventions → Generated Artefacts](constraints.md#generated-artefacts).
+
+## Purpose and Branch Policy
+
+The owner's practice is the one the [Git Committer](../../../standalone/src/content/git-committer.md) persona enforces, recorded as a Standing Decision in the [Curation Log](curation-log.md). That persona is the authority: this section summarises what it does and leaves the procedure to it. On a feature branch, generator drift is not committed. A file whose row's *Safe to discard when* condition holds stays out of the commit, and is discarded by path before an upstream integration. A file whose source the branch changed is committed with that source change. `.context/**` counts as drift on every feature branch whatever its row says, so CTX output enters version control only on the default branch (`main`), as its own `CTX: Updated docs` commit. On any branch, a generated file whose diff is only a timestamp or date is not committed.
+
+Separately, the repository itself enforces something narrower. The `.githooks/pre-commit` hook blocks a commit when `node scripts/build-personas.js --check` fails. That check renders the personas in memory and fails only on error-severity validation results; it never compares against files on disk, so it does not detect out-of-date generated files. The hook also blocks on `node scripts/check-version-sync.js` and on ruff for staged orchestrator Python. It only warns when staged source under `personas/`, `scripts/`, `shared/`, `mcp-server/src/` or `orchestrator/src/` is committed without a matching `.context/` change.
+
+## How to Read Tracked Status
+
+`git ls-files <path>` decides whether a file is tracked. An entry in `.gitignore` proves nothing on its own, because a file committed before its ignore entry stays tracked.
+
+## Tracked Generated Artefacts
+
+### Runtime-coupled
+
+Committed code reads these files, so a stale copy changes behaviour, not just documentation.
+
+| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
+|---|---|---|---|---|
+| `personas/name-mapping.json` | `node scripts/build-personas.js` (real builds only; skipped under `--check` / `--dry-run`), also run by `node scripts/cli.js build-maintain`. Written by `scripts/lib/name-mapping.js`. | Persona YAML in all three suites' `src/meta/` (naming fields, `changelog` versions, `model_slug`) and the model registry in `personas/model-registry/` (see *Known Contradictions*). Loaded at module-load time by `mcp-server/src/utils/constants.ts` (`AGENT_NAMES`). | The diff is limited to the `model`, `model_slug` and `cc_model` fields and the branch changed no model assignment the user asked for — that is machine-local registry drift. | The branch changed a persona's naming fields, version or changelog, or added, renamed or removed a persona. The diff is then the first materialisation of that change and the MCP server's agent names depend on it. |
+
+### Documentation-style
+
+| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
+|---|---|---|---|---|
+| `.context/**` | `node scripts/cli.js ctx-generate`, also the last step of `node scripts/cli.js build-maintain`. The command deletes `.context/` whole, runs `ctx generate`, then `scripts/normalize-ctx-paths.js`, then writes `.context/generated-at.txt`. | Root `context.yaml` and every `**/module-context.yaml` (for this module, `personas/module-context.yaml`), which import manifests, READMEs, source and directory trees. | On a feature branch: always, whatever the diff shows. All of `.context/` is drift there (see *Purpose and Branch Policy*). On `main`: the diff is limited to `.context/generated-at.txt`, or a file's diff reflects no source or manifest change. Judge per file, never per folder. | Only on `main`: a file's diff reflects a manifest, README, `AGENTS.md` or source change — including this manifest's own documents, which `.context/personas/manifest.md` and siblings import. That file belongs in the `CTX: Updated docs` commit. On a feature branch this condition never applies. |
+| `CLAUDE.md` (workspace root) | `node scripts/cli.js ctx-generate` (and `build-maintain`), which overwrites it with a generated-file note followed by the full content of root `AGENTS.md`. | Root `AGENTS.md`. | Its diff only mirrors a root `AGENTS.md` that the branch did not change. | The branch changed root `AGENTS.md`. Never hand-edit it either — the next `ctx-generate` overwrites it. |
+| `docs/references/agents-overview.md` | `node scripts/generate-agents-overview.js` (`node scripts/cli.js generate-overview`), also run by `build-maintain`. Supports `--check`, which ignores the `> **Generated:**` date line. | Persona YAML metadata in all three suites, plus the header template `scripts/templates/agents-overview-header.md`. | The diff is limited to the `> **Generated:**` date line. | The branch changed persona YAML or the header template. |
+| `personas/docs/audits/status.md` | `node scripts/generate-persona-audit.js` (`node scripts/cli.js generate-persona-audit`). Not part of `build-maintain`. | Persona YAML metadata and source composition, the Persona Design Guide's version and changelog, and `personas/docs/audits/annotations.json`. | The diff is limited to the `**Generated:**` date line. | The branch changed persona metadata, the guide version, or `annotations.json`. |
+
+## Ignored Generated Artefacts
+
+These are not tracked, so there is nothing to revert or commit.
+
+| Path / glob | Regenerate with |
+|---|---|
+| `personas/{ledger,standalone,ledger-support}/{vs-code,claude-code,deep-agents}/*.md` — the built persona files | `node scripts/build-personas.js` (deploy with `node scripts/sync-personas.js`) |
+| `dist/*.zip` — packaged standalone personas | `node scripts/cli.js package-personas` (`scripts/package-personas.js`) |
+
+## Hand-maintained Neighbours
+
+Files that sit next to generated output or feed a generator, but are source. Never revert them as build noise.
+
+| Path | Why it looks generated | Why it is source |
+|---|---|---|
+| `personas/{ledger,standalone}/{vs-code,claude-code}/.gitkeep` | Lives inside a generated output directory. | Tracked placeholder keeping the directory in Git; the build's pre-clean deletes only `*.md`. |
+| `personas/{ledger,standalone,ledger-support}/README.md` | Sits beside the generated target directories. | Hand-authored suite guides; the build never writes them. |
+| `personas/package.json` | `build-personas.js` rewrites its `version` field after a real build. | Hand-maintained; only `version` is synchronised from the newest `## vX.Y.Z` heading in `personas/changelog.md`. A version change there follows a changelog change; any other change is real work. |
+| `context.yaml`, `personas/module-context.yaml` | Named like CTX output. | CTX input configuration, owned by the CTX Architect. |
+| Root `AGENTS.md` | Its content reappears in `CLAUDE.md` and `.context/agents.md`. | The source those two are generated from. |
+| `personas/docs/audits/notes.md`, `personas/docs/audits/annotations.json` | Live beside the generated `status.md`. | Hand-written audit narrative and Notes-column text that `generate-persona-audit.js` reads. |
+| `personas/model-registry/default.json` | JSON beside machine-local registry state. | Shipped seed model list, tracked and hand-maintained. |
+| `scripts/templates/agents-overview-header.md` | Feeds a generator. | Hand-written header of `docs/references/agents-overview.md`. |
+
+## Commands That Touch More Than They Generate
+
+| Command | Writes beyond its generated output |
+|---|---|
+| `node scripts/build-personas.js` | Rewrites the `version` field of `personas/package.json` from `personas/changelog.md`. Deletes every `*.md` file in the persona output directories before building. `--check` / `--dry-run` write nothing. |
+| `node scripts/cli.js ctx-generate` | Deletes `.context/` entirely before regenerating, and overwrites root `CLAUDE.md` from root `AGENTS.md`. Requires the `ctx` binary on `PATH`. This is the lighter docs-only command. |
+| `node scripts/cli.js build-maintain` | The full build. Before the persona build it runs `mcp-server/scripts/sync-version.js` and synchronises the root `package.json` and `orchestrator/pyproject.toml` versions from their changelogs; it then builds personas, regenerates `docs/references/agents-overview.md`, runs `check-known-roles.js`, and finishes with `ctx-generate` (and its `CLAUDE.md` overwrite). |
+| `node scripts/sync-personas.js` | Builds, then copies output outside the repository into the VS Code prompts directory and `~/.claude/agents/`. |
+
+## Known Contradictions
+
+- **`personas/name-mapping.json` depends on untracked, machine-local files.** Its `model`, `model_slug` and `cc_model` fields are resolved through `scripts/lib/persona-model-resolution.js` from `personas/model-registry/local.json` (falling back to `default.json`) and `assignments.json`. Both are gitignored, so two machines building the same commit write different model fields into a tracked file. This cannot be fixed by regenerating; a diff confined to those fields is machine drift, not a defect to "fix".
 ```
 ###  Path: `/personas/docs/agents/project-manifest/tech-stack.md`
 
@@ -2163,7 +2359,7 @@ The thin wrapper recognises three flags and forwards the relevant ones to the li
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate build to `@mistralys/persona-builder` for all suites and targets declared in the config |
-| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--check` | Forward `--check` to the library CLI — render every persona in memory and write nothing; exit 1 only on error-severity validation results. Does not compare against files on disk |
 | `--dry-run` | Treated as `--check` by the wrapper (no disk writes) |
 | `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 

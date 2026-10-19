@@ -290,6 +290,8 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.19.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
+    `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.18.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
     symlink; an unlinked sibling repository the work changes is switched to a symlink and reported (new
@@ -742,6 +744,10 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.9.0 (2026-10-16): Versions against the last release tag instead of the newest changelog heading — every WP
+    joins the single `**WIP; UNRELEASED**` changelog entry, raising its version only when it needs a larger
+    bump, and the manifest version tracks the WIP version; the Changelog Curator receives the WIP version
+    via the new shared wip-changelog-version partial
   3.8.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.8.0 (2026-09-29): Gained a Strict Constraints section — the release is prepared, never run
     (publishing, tagging and constraint bumps belong to the user), local dependency symlinks are expected

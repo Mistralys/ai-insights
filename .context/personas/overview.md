@@ -74,25 +74,24 @@ personas/
 
 ## Build Commands
 
+Suite and target selection lives in `personas/persona-build.config.js`. The build script takes no `--suite` or `--target` flag, so every command below builds every suite and target defined there.
+
 ```bash
-# Build ledger suite (default)
+# Build all suites and targets
 node scripts/build-personas.js
 
-# Build standalone suite
-node scripts/build-personas.js --suite standalone
-
-# Build all suites
-node scripts/build-personas.js --suite all
-
-# Check for stale output (CI-friendly)
+# Render in memory and write nothing; fails only on error-severity validation results
+# (does not compare against files on disk)
 node scripts/build-personas.js --check
 
-# Validate no unresolved markers
-node scripts/build-personas.js --strict --suite all
+# Also fail on warning-severity validation results; add --check to keep the run write-free
+node scripts/build-personas.js --strict --check
 
-# Build + deploy to VS Code / Claude Code
+# Build everything, then deploy to VS Code / Claude Code (--target limits only what is copied)
 node scripts/sync-personas.js
 ```
+
+Unresolved `{{…}}` markers print a `[WARN]` line and do not fail the build, even under `--strict`. See [Build-system constraints](docs/agents/project-manifest/constraints-build-system.md#b6) for details.
 
 ## Integration Points
 

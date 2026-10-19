@@ -23,6 +23,7 @@ _SOURCE: Directory tree_
         │   │   ├── curation-log.md
         │   │   ├── data-flows.md
         │   │   ├── file-tree.md
+        │   │   ├── generated-artefacts.md
         │   │   ├── tech-stack.md
         │   │   ├── variables.md
         │   ├── research/
@@ -213,6 +214,7 @@ _SOURCE: Directory tree_
         │   └── research-brief-reference.md
         │   └── summary-crafting-guide.md
         │   └── title-crafting-guide.md
+        │   └── wip-changelog-version.md
     └── standalone/
         └── README.md
         └── claude-code/
