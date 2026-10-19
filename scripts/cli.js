@@ -44,6 +44,7 @@ import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExist
 import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
+import { runCtxGenerate } from './lib/ctx-generate.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 import {
   storeInit,
@@ -496,7 +497,7 @@ async function cmdGui(args) {
   return exitCode.then(code => { process.exit(code); });
 }
 
-function cmdBuildMaintain(args) {
+async function cmdBuildMaintain(args) {
   const syncCode = runScript('node', [path.join(MCP_SERVER_DIR, 'scripts', 'sync-version.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (syncCode !== 0) process.exit(syncCode);
   syncRootVersion();
@@ -508,7 +509,10 @@ function cmdBuildMaintain(args) {
   if (overviewCode !== 0) process.exit(overviewCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
-  cmdCtxGenerate(args);
+  // Always runs a plain generate here, regardless of any flags cmdBuildMaintain
+  // itself received (e.g. --suite) — those are build-personas.js's own flags,
+  // not ctx's, and ctx would reject them.
+  await cmdCtxGenerate([]);
 }
 
 function cmdOrchestrator(args) {
@@ -553,32 +557,62 @@ function cmdGeneratePersonaAudit(args) {
   if (code !== 0) process.exit(code);
 }
 
-function cmdCtxGenerate(args) {
-  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
-  if (fs.existsSync(ctxDir)) {
-    fs.rmSync(ctxDir, { recursive: true, force: true });
-    log('Cleaned .context/', 'dim');
-  }
-  const result = spawnSync('ctx', ['generate', ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
+/**
+ * Thin caller around runCtxGenerate(): maps its structured result to this
+ * CLI's message texts and exit codes. All filesystem safety (staging,
+ * rename-based swap, --check comparison, crash recovery) lives in
+ * scripts/lib/ctx-generate.js \u2014 see its module header for the rationale.
+ */
+async function cmdCtxGenerate(args) {
+  const result = await runCtxGenerate({
+    workspaceRoot: WORKSPACE_ROOT,
+    args,
     shell: IS_WIN,
+    normalizeFn: (stagingDir) => sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), stagingDir], { cwd: WORKSPACE_ROOT }),
   });
-  if (result.status !== 0) {
-    log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
-    process.exit(result.status ?? 1);
+
+  if (!result.ok) {
+    switch (result.reason) {
+      case 'owns-work-dir':
+        log(`\u2717 ctx-generate does not accept ${result.flag} \u2014 it controls ctx's output directory itself (via -w) to stage generation safely. .context/ was not touched.`, 'red');
+        process.exit(2);
+        return;
+      case 'ctx-missing':
+        log('\u2717 ctx binary not found on PATH. Install the context-hub/generator ctx CLI and retry. .context/ was not touched.', 'red');
+        process.exit(1);
+        return;
+      case 'ctx-failed':
+        log('\n\u2717 ctx generate exited with code ' + result.status + '. .context/ was not touched.', 'red');
+        process.exit(result.status ?? 1);
+        return;
+      case 'swap-failed':
+        log('\u2717 Failed to swap the generated context into place: ' + result.error.message + '. .context/ was restored to its previous content.', 'red');
+        process.exit(1);
+        return;
+      default:
+        log('\u2717 ctx-generate failed for an unrecognized reason.', 'red');
+        process.exit(1);
+        return;
+    }
   }
-  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
-  fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
-  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
-  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
-  if (fs.existsSync(agentsMd)) {
-    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
-    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
-    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
-    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
-  } else {
+
+  if (result.mode === 'check') {
+    if (result.fresh) {
+      log('\u2713 .context/ is up to date.', 'green');
+      process.exit(0);
+    } else {
+      log('\u2717 .context/ is stale. Differing paths:', 'red');
+      for (const p of result.diffs) log('  ' + p, 'dim');
+      process.exit(1);
+    }
+    return;
+  }
+
+  log('\u2713 Regenerated .context/', 'green');
+  if (result.agentsMdMissing) {
     log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
+  } else {
+    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
   }
 }
 
@@ -1152,7 +1186,7 @@ const COMMANDS = [
     key:         null,
     label:       'CTX generate',
     category:    'Validation & Utilities',
-    description: 'Generate context documentation (ctx generate)',
+    description: 'Generate context documentation (ctx generate); --check verifies .context/ freshness without writing',
     run:         cmdCtxGenerate,
   },
   {

@@ -40,3 +40,5 @@
 /node_modules/
 /.claude/agent-memory
 .vscode/settings.json
+/.context.incoming/
+/.context.previous/

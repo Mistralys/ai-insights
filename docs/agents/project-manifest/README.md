@@ -135,7 +135,7 @@ These synchronization points span multiple sub-projects. Breaking any of them ca
 
 ## Generated Context (`.context/`)
 
-The `.context/` directory contains auto-generated Markdown snapshots of the entire codebase, produced by the CTX Generator via `node scripts/cli.js ctx-generate`. These files are tracked in VCS and ideal for feeding into LLMs or external tools.
+The `.context/` directory contains auto-generated Markdown snapshots of the entire codebase, produced by the CTX Generator via `node scripts/cli.js ctx-generate`. These files are tracked in VCS and ideal for feeding into LLMs or external tools. Generation is non-destructive (staged into `.context.incoming/` and swapped in only on success — see `scripts/lib/ctx-generate.js`); `node scripts/cli.js ctx-generate --check` reports staleness without writing.
 
 | Path | Contents |
 |------|----------|

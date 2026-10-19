@@ -77,7 +77,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | **Doctor** | `doctor` | Full environment health check across all tiers (instant + fast + slow) |
 | **Build & Maintain** | `build-maintain` | Sync module versions, build personas, and regenerate context docs |
 | **Bundle docs** | `bundle-docs` | Compile NotebookLM and workflow specification doc bundles |
-| **CTX generate** | `ctx-generate` | Regenerate `.context/` snapshots via the CTX Generator |
+| **CTX generate** | `ctx-generate` | Regenerate `.context/` snapshots via the CTX Generator — non-destructive (stages into `.context.incoming/`, swaps in only on success); `--check` reports staleness without writing |
 | **Check version sync** | `check-versions` | Verify that changelog versions match `package.json` / `pyproject.toml` |
 
 ## Direct Commands
