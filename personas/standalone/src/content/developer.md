@@ -138,6 +138,7 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 * {{> no-stale-counts}}
 * **No Git write operations:** Never run Git write commands — `add`, `commit`, `push`, or branch creation. The user manages version control.
 * {{> no-release-cycles}}
+* {{> wip-changelog-version}}
 
 ## Self-Validation Checklist
 
