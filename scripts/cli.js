@@ -641,11 +641,6 @@ async function cmdCtxGenerate(args) {
   }
 
   log('\u2713 Regenerated .context/', 'green');
-  if (result.agentsMdMissing) {
-    log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
-  } else {
-    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
-  }
   if (result.leftoverPrevious) {
     log('\u26a0 .context.previous/ could not be removed \u2014 it will be cleared automatically on the next run.', 'dim');
   }

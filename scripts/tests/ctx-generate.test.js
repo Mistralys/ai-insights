@@ -25,7 +25,6 @@ import {
   PREVIOUS_DIR_NAME,
   OUTPUT_DIR_NAME,
   GENERATED_AT_FILENAME,
-  CLAUDE_MD_HEADER,
 } from '../lib/ctx-generate.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -455,18 +454,16 @@ describe('runCtxGenerate — real run', () => {
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
   });
 
-  it('replaces .context/ with the new output, writes generated-at.txt, and regenerates CLAUDE.md', async () => {
+  it('replaces .context/ with the new output, and writes generated-at.txt', async () => {
     const workspace = makeTempWorkspace();
     writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'old content');
-    writeFileAt(path.join(workspace, 'AGENTS.md'), '# Agents\nSome instructions.');
     const { spawn } = makeSucceedingSpawn({ 'README.md': 'new content' });
 
     const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, now: () => '2026-01-01T00:00:00.000Z' });
 
-    expect(result).toEqual({ ok: true, mode: 'generate', agentsMdMissing: false });
+    expect(result).toEqual({ ok: true, mode: 'generate' });
     expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('new content');
     expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, GENERATED_AT_FILENAME), 'utf8')).toBe('2026-01-01T00:00:00.000Z\n');
-    expect(fs.readFileSync(path.join(workspace, 'CLAUDE.md'), 'utf8')).toBe(CLAUDE_MD_HEADER + '# Agents\nSome instructions.');
     expect(fs.existsSync(path.join(workspace, INCOMING_DIR_NAME))).toBe(false);
     expect(fs.existsSync(path.join(workspace, PREVIOUS_DIR_NAME))).toBe(false);
   });
@@ -479,16 +476,6 @@ describe('runCtxGenerate — real run', () => {
 
     expect(result.ok).toBe(true);
     expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('first run');
-  });
-
-  it('reports agentsMdMissing without writing CLAUDE.md when AGENTS.md is absent', async () => {
-    const workspace = makeTempWorkspace();
-    const { spawn } = makeSucceedingSpawn({ 'README.md': 'x' });
-
-    const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {} });
-
-    expect(result).toEqual({ ok: true, mode: 'generate', agentsMdMissing: true });
-    expect(fs.existsSync(path.join(workspace, 'CLAUDE.md'))).toBe(false);
   });
 
   it('recovers from a leftover .context.previous/ before generating, and completes normally', async () => {
@@ -776,7 +763,7 @@ describe('runCtxGenerate — real run', () => {
 
     const result = await runCtxGenerate({ workspaceRoot: workspace, args: [], spawn, normalizeFn: () => {}, removeWithRetryFn });
 
-    expect(result).toEqual({ ok: true, mode: 'generate', agentsMdMissing: true, leftoverPrevious: true });
+    expect(result).toEqual({ ok: true, mode: 'generate', leftoverPrevious: true });
     expect(fs.readFileSync(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'utf8')).toBe('new content');
   });
 });
@@ -784,12 +771,10 @@ describe('runCtxGenerate — real run', () => {
 // ─── runCtxGenerate — check mode ─────────────────────────────────────────────
 
 describe('runCtxGenerate — check mode', () => {
-  it('reports fresh and writes nothing when staging output matches .context/ and CLAUDE.md', async () => {
+  it('reports fresh and writes nothing when staging output matches .context/', async () => {
     const workspace = makeTempWorkspace();
     writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'matching content');
     writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, GENERATED_AT_FILENAME), '2025-01-01T00:00:00.000Z\n');
-    writeFileAt(path.join(workspace, 'AGENTS.md'), '# Agents\nSame content.');
-    writeFileAt(path.join(workspace, 'CLAUDE.md'), CLAUDE_MD_HEADER + '# Agents\nSame content.');
     const { spawn } = makeSucceedingSpawn({ 'README.md': 'matching content' });
 
     const outputBefore = fs.readdirSync(path.join(workspace, OUTPUT_DIR_NAME)).sort();
@@ -828,20 +813,6 @@ describe('runCtxGenerate — check mode', () => {
     const result = await runCtxGenerate({ workspaceRoot: workspace, args: ['--check'], spawn, normalizeFn: () => {} });
 
     expect(result).toEqual({ ok: true, mode: 'check', fresh: true });
-  });
-
-  it('reports a stale CLAUDE.md as a diff', async () => {
-    const workspace = makeTempWorkspace();
-    writeFileAt(path.join(workspace, OUTPUT_DIR_NAME, 'README.md'), 'same content');
-    writeFileAt(path.join(workspace, 'AGENTS.md'), '# Agents\nUpdated instructions.');
-    writeFileAt(path.join(workspace, 'CLAUDE.md'), CLAUDE_MD_HEADER + '# Agents\nStale instructions.');
-    const { spawn } = makeSucceedingSpawn({ 'README.md': 'same content' });
-
-    const result = await runCtxGenerate({ workspaceRoot: workspace, args: ['--check'], spawn, normalizeFn: () => {} });
-
-    expect(result.ok).toBe(true);
-    expect(result.fresh).toBe(false);
-    expect(result.diffs).toContain('CLAUDE.md');
   });
 
   it('cleans up the staging directory after check mode', async () => {

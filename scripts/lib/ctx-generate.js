@@ -38,8 +38,6 @@ export const INCOMING_DIR_NAME = '.context.incoming';
 export const PREVIOUS_DIR_NAME = '.context.previous';
 export const OUTPUT_DIR_NAME = '.context';
 export const GENERATED_AT_FILENAME = 'generated-at.txt';
-export const CLAUDE_MD_HEADER =
-  '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
 
 const RETRYABLE_ERROR_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
 const DEFAULT_MAX_RETRIES = 5;
@@ -339,28 +337,13 @@ export function generateContext({ workspaceRoot, stagingDir, ctxArgs, spawn = sp
 }
 
 /**
- * Computes the CLAUDE.md content that should be regenerated from
- * `AGENTS.md`, or `null` when `AGENTS.md` is absent.
- *
- * @param {string} workspaceRoot
- * @returns {string | null}
- */
-export function computeClaudeMdContent(workspaceRoot) {
-  const agentsMdPath = path.join(workspaceRoot, 'AGENTS.md');
-  if (!fs.existsSync(agentsMdPath)) {
-    return null;
-  }
-  return CLAUDE_MD_HEADER + fs.readFileSync(agentsMdPath, 'utf8');
-}
-
-/**
  * @typedef {
  *   | { ok: false, reason: 'owns-work-dir', flag: string }
  *   | { ok: false, reason: 'ctx-missing' }
  *   | { ok: false, reason: 'ctx-failed', status: number | null }
  *   | { ok: false, reason: 'recovery-failed', failures: Array<{ op: 'restore' | 'remove-previous' | 'remove-incoming', path: string, error: Error }> }
  *   | { ok: false, reason: 'swap-failed', error: Error, previousOutput: 'none' | 'untouched' | 'restored' | 'preserved-in-previous' | 'unknown', restoreError?: Error, observed?: { output: boolean, previous: boolean } }
- *   | { ok: true, mode: 'generate', agentsMdMissing: boolean, leftoverPrevious?: true }
+ *   | { ok: true, mode: 'generate', leftoverPrevious?: true }
  *   | { ok: true, mode: 'check', fresh: true }
  *   | { ok: true, mode: 'check', fresh: false, diffs: string[] }
  * } RunCtxGenerateResult
@@ -411,7 +394,6 @@ export async function runCtxGenerate({
   const outputDir = path.join(workspaceRoot, OUTPUT_DIR_NAME);
   const incomingDir = path.join(workspaceRoot, INCOMING_DIR_NAME);
   const previousDir = path.join(workspaceRoot, PREVIOUS_DIR_NAME);
-  const claudeMdPath = path.join(workspaceRoot, 'CLAUDE.md');
 
   const generated = generateContext({
     workspaceRoot,
@@ -432,13 +414,6 @@ export async function runCtxGenerate({
     // comparing it would make --check report "stale" even when nothing else
     // changed, so it's excluded from the freshness comparison.
     const diffs = compareTrees(incomingDir, outputDir).filter((p) => p !== GENERATED_AT_FILENAME);
-    const expectedClaudeMd = computeClaudeMdContent(workspaceRoot);
-    if (expectedClaudeMd !== null) {
-      const actualClaudeMd = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, 'utf8') : null;
-      if (actualClaudeMd !== expectedClaudeMd) {
-        diffs.push('CLAUDE.md');
-      }
-    }
     await removeWithRetryFn(incomingDir);
     return diffs.length === 0 ? { ok: true, mode: 'check', fresh: true } : { ok: true, mode: 'check', fresh: false, diffs: diffs.sort() };
   }
@@ -500,13 +475,7 @@ export async function runCtxGenerate({
     }
   }
 
-  const agentsMdContent = computeClaudeMdContent(workspaceRoot);
-  const agentsMdMissing = agentsMdContent === null;
-  if (!agentsMdMissing) {
-    fs.writeFileSync(claudeMdPath, agentsMdContent, 'utf8');
-  }
-
   return leftoverPrevious
-    ? { ok: true, mode: 'generate', agentsMdMissing, leftoverPrevious: true }
-    : { ok: true, mode: 'generate', agentsMdMissing };
+    ? { ok: true, mode: 'generate', leftoverPrevious: true }
+    : { ok: true, mode: 'generate' };
 }
