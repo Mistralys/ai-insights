@@ -29,7 +29,7 @@ summaries and applies requested synthesis edits.
 - Standalone, Build: Verb-initial philosophy titles are flagged without exception; four renamed.
 - Build: Every check runs on each build; template comments are inert; personas can limit targets.
 - Docs: Persona Design Guide v3.6 documents sub-agent dispatch arguments per platform.
-- Docs: Persona Design Guide v3.7 adds Nested Delegation: callers pass their plan, not a ban.
+- Docs: Design Guide v3.7–3.8 adds Nested Delegation: a plan, not a ban, where calls can meet.
 - Shared: Added an outcome-summary crafting guide covering both suites.
 
 ## v3.37.0 - Self-Advancing Chains and Unattended Runs
