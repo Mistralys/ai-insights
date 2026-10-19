@@ -681,6 +681,34 @@ describe('beginWork — circuit breaker persists the trip', () => {
     const after = await store.readWorkPackage('WP-001');
     expect(after.last_updated).toBe(before.last_updated);
   });
+
+  it('on a READY WP already at MAX is refused and persists nothing — the claim itself is rolled back', async () => {
+    // Unlike the MAX-1 case above (where the increment trips the breaker and
+    // the claim + tripped counter ARE persisted), a stored count already at
+    // MAX throws inside the same updateWorkPackageWithSync transaction that
+    // performed the claim — so the whole write (claim included) is aborted.
+    await store.writeRootIndex(makeRootIndex('READY', 'Developer'));
+    const wp = makeWpDetail('READY', 'Developer', [failPipeline]);
+    wp.rework_counts = { implementation: MAX_REWORK_COUNT };
+    await store.writeWorkPackage('WP-001', wp);
+    const beforeWp = await store.readWorkPackage('WP-001');
+    const beforeRoot = await store.readRootIndex();
+
+    const result = await begin();
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toMatch(/^Error beginning work: Rework circuit breaker/);
+
+    const afterWp = await store.readWorkPackage('WP-001');
+    const afterRoot = await store.readRootIndex();
+    expect(afterWp.status).toBe('READY');
+    expect(afterWp.assigned_to).toBe('Developer');
+    expect(afterWp.pipelines).toHaveLength(1);
+    expect(afterWp.rework_counts?.implementation).toBe(MAX_REWORK_COUNT);
+    expect(afterWp.last_updated).toBe(beforeWp.last_updated);
+    expect(afterRoot.work_packages[0].status).toBe('READY');
+    expect(afterRoot.last_updated).toBe(beforeRoot.last_updated);
+  });
 });
 
 describe('beginWork — auto-cancelled prerequisite (§21.27)', () => {

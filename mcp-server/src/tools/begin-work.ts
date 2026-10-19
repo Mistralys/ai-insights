@@ -2,17 +2,14 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
-import type { Pipeline } from '../schema/work-package.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
 import {
   PIPELINE_AGENT_MAP,
   PipelineTypeEnum,
   describePipelineTypes,
-  DEFAULT_PIPELINE_STAGES,
-  resolvePrerequisite,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
-import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
+import { applyPipelineStart } from '../utils/pipeline-start.js';
 import { canStartWorkPackage, isValidStatusTransition } from '../schema/validators.js';
 import { CLAIMABLE_ROLES } from './work-package.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
@@ -143,114 +140,17 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
       }
 
       // ===== PIPELINE START PHASE =====
-
-      // Guard 1: Agent role validation — only the correct pipeline type owner may start it.
-      const expectedAgent = PIPELINE_AGENT_MAP[args.type as PipelineType];
-      const isPmOverride = args.agent_role === 'Project Manager';
-      if (!isPmOverride && expectedAgent !== args.agent_role) {
-        throw new Error(
-          `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
-        );
-      }
-
-      // Guard 2: No duplicate in-progress pipeline of the same type.
-      const existingInProgress = wp.pipelines.find(
-        (p) => p.type === args.type && p.status === 'IN_PROGRESS'
-      );
-      if (existingInProgress) {
-        throw new Error(
-          `Cannot start pipeline: a pipeline of type "${args.type}" is already IN_PROGRESS for work package ${args.work_package_id}. Complete the existing pipeline before starting a new one.`
-        );
-      }
-
-      // Guard 2b: Pipeline type must be in the WP's active stages (§11.1).
-      const activeStages: readonly PipelineType[] =
-        (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
-      if (!activeStages.includes(args.type as PipelineType)) {
-        throw new Error(
-          `Cannot start pipeline '${args.type}' for work package ${args.work_package_id}: ` +
-          `this pipeline type is not in the WP's active stages. ` +
-          `Active stages: ${(activeStages as readonly string[]).join(' \u2192 ')}.`
-        );
-      }
-
-      // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
-      const prerequisite = resolvePrerequisite(args.type as PipelineType, activeStages);
-      if (prerequisite !== null) {
-        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled);
-        const mostRecentPrereq = prereqPipelines.at(-1);
-        if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
-          const orderedActive = (activeStages as readonly string[]).join(' → ');
-          throw new Error(
-            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Active pipeline order: ${orderedActive}.`
-          );
-        }
-
-        // Guard 3b: Revalidation guard (§11.1) — reject if prerequisite PASS is stale after upstream rework.
-        const revalidError = checkRevalidationGuard(
-          wp.pipelines,
-          args.type as PipelineType,
-          prerequisite,
-          activeStages,
-        );
-        if (revalidError !== null) {
-          throw new Error(revalidError);
-        }
-      }
-
-      // Guard 4: Rework count — increment if this is a rework run (§11.3).
-      const effectiveSamePipelines = wp.pipelines.filter(
-        (p) => p.type === args.type && !p.auto_cancelled
-      );
-      const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType, activeStages);
-      const needsRework = isDirectRework || isDownstreamRework;
-
-      const countBeforeIncrement = wp.rework_counts?.[args.type] ?? 0;
-      if (needsRework) {
-        const current = wp.rework_counts?.[args.type] ?? 0;
-        wp.rework_counts = { ...(wp.rework_counts ?? {}), [args.type]: current + 1 };
-      }
-
-      // Guard 5: Circuit breaker — reject if per-type rework count is at maximum.
-      // When the increment itself reaches the limit, the trip is persisted (counter
-      // and claim, no pipeline appended); when the stored count is already at or
-      // above the maximum, the throw aborts the write and nothing is persisted.
-      const effectiveReworkCount = wp.rework_counts?.[args.type] ?? 0;
-      if (effectiveReworkCount >= MAX_REWORK_COUNT) {
-        const message =
-          `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
-          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`;
-        if (countBeforeIncrement >= MAX_REWORK_COUNT) {
-          throw new Error(message);
-        }
-        breakerMessage = message;
-        root.last_updated = now();
-        return { wp, root };
-      }
-
-      // Append new pipeline entry.
-      const newPipeline: Pipeline = {
+      const outcome = applyPipelineStart({
+        wp,
+        root,
+        workPackageId: args.work_package_id,
         type: args.type as PipelineType,
-        status: 'IN_PROGRESS',
-        started_at: now(),
-        summary: isPmOverride ? ['[PM Override]'] : [],
-      };
-      wp.pipelines.push(newPipeline);
+        agentRole: args.agent_role,
+      });
 
-      // Update assigned_to to reflect the agent now taking ownership of this WP.
-      const agentName = PIPELINE_AGENT_MAP[args.type as PipelineType];
-      if (agentName) {
-        wp.assigned_to = agentName;
-        const summary = root.work_packages.find(
-          (s) => s.work_package_id === args.work_package_id
-        );
-        if (summary) {
-          summary.assigned_to = agentName;
-        }
+      if (outcome.kind === 'tripped') {
+        breakerMessage = outcome.message;
       }
-
-      root.last_updated = now();
 
       return { wp, root };
     });

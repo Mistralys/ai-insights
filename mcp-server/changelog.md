@@ -1,5 +1,22 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.14.0 - **WIP; UNRELEASED** - Derived Tool Registry and Completed Help Coverage
+
+**A new derived tool registry closes a test-coverage gap that had let three tools skip schema
+validation.** Every registered tool's help documentation is now complete, and a duplicated
+pipeline-start guard chain has been consolidated into one shared, fully-tested helper.
+
+- Tools: New derived tool registry replaces the hand-maintained tool list and startup log.
+- Tools: Schema and startup-log tests now derive expectations from the registry, closing a
+  coverage gap that had let three tools skip schema validation.
+- Tools: Completed help documentation for four previously undocumented tools, including the
+  guard order for PM-only operations.
+- Tools: Consolidated the duplicated pipeline-start guard chain into one shared helper.
+- Tests: Added a registry-derived suite that fails automatically when a tool lacks help coverage.
+- Tests: Added coverage for the registry, the shared start-guard helper, and the PM role guard.
+- Tests: Removed duplicated setup code and unsafe type casts from the rework-limit test suite.
+- Docs: Manifest and agent guide updated to describe the registry and shared guard helper.
+
 ## v2.13.0 - PM-Only Pipeline Stage Correction
 
 **A work package's stage list can now be fixed in place instead of staying wrong for good.**

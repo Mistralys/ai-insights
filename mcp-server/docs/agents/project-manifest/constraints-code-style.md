@@ -253,7 +253,7 @@ const MyToolSchema = z.object({
 
 **Exception:** Field-level `.refine()`, `.transform()`, or `.preprocess()` applied to an individual field definition (e.g., `z.string().refine(...)`, `plan_file: z.string().refine(v => v === 'plan.md', ...)`, `confidence: numericInput(z.number().min(0).max(1))`) is safe — the outer `z.object()` remains a `ZodObject`. See [Numeric Tool Inputs Use the Shared Coercing Helpers](#numeric-tool-inputs-use-the-shared-coercing-helpers) for the `.preprocess()` case.
 
-**Regression guard:** `tests/tools/schema-integrity.test.ts` converts every registered tool schema to JSON Schema and asserts non-empty `properties`. This test fails if a `.refine()` / `.transform()` / `.superRefine()` is re-added to any outer schema.
+**Regression guard:** `tests/tools/schema-integrity.test.ts` derives its tool set from `registerAllTools()` (`src/tools/registry.ts`) and asserts every registered tool's outer schema is a `ZodObject` instance (not `ZodEffects`), plus non-empty JSON Schema `properties` for every tool except the explicit `ZERO_PARAMETER_TOOLS` allowlist (currently `ledger_ping`, whose `z.object({})` is legitimately parameter-free). This test fails if a `.refine()` / `.transform()` / `.superRefine()` is re-added to any outer schema.
 
 ---
 

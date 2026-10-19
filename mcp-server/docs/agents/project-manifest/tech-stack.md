@@ -151,15 +151,25 @@ Each tool category has its own module with:
 - Async handler functions
 - A `register(server: McpServer)` export that registers all tools
 
-**Tool Modules:**
+**Registry-derived registration:** `src/tools/registry.ts` exports a frozen `TOOL_MODULES` array (one `{ id, register }` entry per tool module) and `registerAllTools(server, modules?)`, which calls each module's `register()` through a recording shim around `server.registerTool()` and returns the registered tool names in registration order. `src/index.ts` calls `registerAllTools(server)` once at startup — there is no hand-maintained list of tool modules or tool names anywhere else; the startup log is built directly from the returned names, and `tests/startup/tool-log-sync.test.ts` / `tests/tools/schema-integrity.test.ts` both derive their expected tool sets from the same function. A new tool module becomes a single line added to `TOOL_MODULES`.
+
+**Tool Modules (current `TOOL_MODULES` order):**
 - `project-lifecycle.ts` — Project initialization and status
 - `work-package.ts` — Work package CRUD operations
+- `work-package-admin.ts` — PM-only admin operations (rework reset, reopen-cancelled, acceptance-criteria/pipeline-stage updates)
 - `pipeline.ts` — Pipeline start/complete operations
+- `begin-work.ts` — Combined claim-and-start-pipeline operation
 - `observations.ts` — Comment and observation tracking
-- `workflow.ts` — Thin aggregator; delegates to the three sub-modules below
+- `workflow.ts` — Thin aggregator; delegates to the two sub-modules below
+- `help.ts` — ledger_help (content sourced from `help-content.ts`, which is not itself a tool module)
+- `ping.ts` — ledger_ping health check
+- `knowledge.ts` — Knowledge-base insight tools
+- `repository-context.ts` — ledger_get_repository_context
+- `standalone-import.ts` — ledger_import_standalone
+
+Sub-modules aggregated by `workflow.ts` (not separate `TOOL_MODULES` entries):
 - `workflow-next-action.ts` — ledger_get_next_action and ledger_get_next_actions (batch) logic
 - `workflow-handoff.ts` — ledger_get_handoff_status logic
-- `help-content.ts` — Static TOOL_HELP documentation strings (extracted from help.ts)
 
 ---
 

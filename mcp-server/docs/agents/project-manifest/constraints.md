@@ -479,6 +479,8 @@ npm run sync-version
 
 **Purpose:** Allows users and CI systems to verify which version is running in their project.
 
+**Source:** The `Registered tools: …` line is generated from the names `registerAllTools()` (`src/tools/registry.ts`) returns — not a hardcoded list. See the Tool Registration Pattern in `tech-stack.md` § 6.
+
 ---
 
 ### Runtime Config Is Read From an In-Memory Cache

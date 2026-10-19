@@ -340,7 +340,7 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 **Rule:** Pipelines must be started in the order defined by the work package's `active_pipeline_stages` (defaults to `DEFAULT_PIPELINE_STAGES` when omitted). Each stage requires a PASS on its immediately preceding active stage. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
 
-**Enforcement:** `ledger_start_pipeline` calls `resolvePrerequisite(type, activeStages)` — which filters `CANONICAL_PIPELINE_ORDERING` by the WP's `active_pipeline_stages` and returns the immediately preceding active stage — then finds the most recent pipeline of that prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
+**Enforcement:** The shared `applyPipelineStart()` (`src/utils/pipeline-start.ts`, called by both `ledger_start_pipeline` and `ledger_begin_work`) calls `resolvePrerequisite(type, activeStages)` — which filters `CANONICAL_PIPELINE_ORDERING` by the WP's `active_pipeline_stages` and returns the immediately preceding active stage — then finds the most recent pipeline of that prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
 
 **Error message format:**
 ```
@@ -358,16 +358,18 @@ Active pipeline order: implementation → qa → code-review → documentation.
 
 **Rule:** A pipeline type that is not in the WP's `active_pipeline_stages` (or `DEFAULT_PIPELINE_STAGES` when omitted) cannot be started — not by its owning agent, and not through PM Override. No server path runs a stage outside the declared chain. Since v2.9.0, `active_pipeline_stages` is no longer fixed for the WP's whole lifetime — see "`active_pipeline_stages` Mutation: PM-Only, Guarded" below for the one gated operation that may change it after creation.
 
-**Enforcement:** The guard is implemented twice, once per start path, and both copies run after the agent-role guard:
-- `startPipeline()` in `src/tools/pipeline.ts` (step 2b, after the IN_PROGRESS check).
-- `beginWork()` in `src/tools/begin-work.ts` (Guard 2b, in the start phase that follows the claim phase).
+**Enforcement:** Both start paths call the single shared guard chain, `applyPipelineStart()` in `src/utils/pipeline-start.ts`, from inside their own `updateWorkPackageWithSync` updater callback:
+- `startPipeline()` in `src/tools/pipeline.ts`.
+- `beginWork()` in `src/tools/begin-work.ts` (in the start phase that follows the claim phase).
+
+`applyPipelineStart()`'s guard order is: (1) agent role / PM Override, (2) WP status must be `IN_PROGRESS`, (3) pipeline type must be in `active_pipeline_stages`, (4) no duplicate `IN_PROGRESS` pipeline of the same type, (5) prerequisite PASS + revalidation guard, (6) rework-count increment, (7) circuit breaker. It mutates the passed-in `wp`/`root` objects in place and either throws (guard rejected — nothing persisted, since the enclosing `updateWorkPackageWithSync` aborts the write) or returns `{ kind: 'started' }` / `{ kind: 'tripped', message }` for the caller to surface after the lock releases.
 
 **Error message format:**
 ```
 Cannot start pipeline 'implementation' for work package WP-019: this pipeline type is not in the WP's active stages. Active stages: qa → code-review.
 ```
 
-**Divergence between the two start paths:** `beginWork` re-implements the `startPipeline` guard chain rather than calling it, so the copies can drift. Apply any change to a start guard to both files; `tests/tools/start-path-parity.test.ts` runs each scenario through both tools and pins that they agree on the outcome and the persisted `rework_counts`.
+**No more divergence between the two start paths:** Both tools now call the same `applyPipelineStart()` implementation, so a change to a start guard only needs to be made once — in `pipeline-start.ts`. `tests/utils/pipeline-start.test.ts` unit-tests the shared helper directly (one case per guard); `tests/tools/start-path-parity.test.ts` remains as an end-to-end regression guard on the claim-plus-start composition, running each scenario through both tools' own entry points and pinning that they agree on the outcome and the persisted `rework_counts`.
 
 > **Specification:** [§11.1](../workflow-specification/operations.md) (`startPipeline` guard "Pipeline type must be in the WP's active stages").
 
@@ -474,7 +476,7 @@ This convention binds whoever composes a chain — the planning personas (WP Dec
 
 **Exception:** `agent_role: 'Project Manager'` (or `'Project Manager Agent'`) bypasses the type-to-agent match check for any pipeline type (PM Override). When PM override is active, `startPipeline` adds a `[PM Override]` marker to the pipeline summary and `completePipeline` sets the handoff note's `from_agent` to `'Project Manager (PM Override)'`.
 
-**Enforcement:** Agent role guard in `startPipeline()` and `completePipeline()` in `src/tools/pipeline.ts` (steps 1b and 2b respectively), applied after the WP status guard.
+**Enforcement:** For start, the agent role guard lives in the shared `applyPipelineStart()` (`src/utils/pipeline-start.ts`), called by both `startPipeline()` in `src/tools/pipeline.ts` and `beginWork()` in `src/tools/begin-work.ts`. For complete, the guard remains in `completePipeline()` in `src/tools/pipeline.ts` (step 2b), applied after the WP status guard.
 
 ---
 

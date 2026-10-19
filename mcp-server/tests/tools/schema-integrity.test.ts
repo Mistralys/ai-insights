@@ -1,35 +1,30 @@
 /**
  * Schema Integrity Regression Test
  *
- * Verifies that every tool schema registered with the MCP server produces
+ * Verifies that every tool schema registered with the MCP server is an
+ * outer `z.object()` (ZodObject) schema and that most of them produce
  * non-empty JSON Schema `properties`. This test fails if anyone re-adds
  * `.refine()`, `.transform()`, or `.superRefine()` to an outer `z.object()`
  * schema — those methods convert `ZodObject` to `ZodEffects`, causing the
  * MCP SDK to emit empty `properties: {}` in the `tools/list` response.
  *
+ * The tool set under test is derived from `registerAllTools()` /
+ * `TOOL_MODULES` rather than a hand-maintained import+name list, so a new
+ * tool module gains schema coverage automatically once it is added to the
+ * registry.
+ *
  * See: constraints.md §63 — Do Not Use .refine() on Outer Tool Schemas
  * Bug report: docs/agents/bug-reports/2026-03-05-zod-refine-empty-schema.md
  */
 import { describe, it, expect, beforeAll } from 'vitest';
+import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerAllTools, type ToolModule } from '../../src/tools/registry.js';
 
-// ── Tool registration imports ──────────────────────────────────────────────
-import { register as registerBeginWork } from '../../src/tools/begin-work.js';
-import { register as registerHelp } from '../../src/tools/help.js';
-import { register as registerObservations } from '../../src/tools/observations.js';
-import { register as registerPipeline } from '../../src/tools/pipeline.js';
-import { register as registerProjectLifecycle } from '../../src/tools/project-lifecycle.js';
-import { register as registerWorkflowHandoff } from '../../src/tools/workflow-handoff.js';
-import { register as registerWorkflowNextAction } from '../../src/tools/workflow-next-action.js';
-import { register as registerWorkPackage } from '../../src/tools/work-package.js';
-import { register as registerWorkPackageAdmin } from '../../src/tools/work-package-admin.js';
-import { register as registerKnowledge } from '../../src/tools/knowledge.js';
-import { register as registerRepositoryContext } from '../../src/tools/repository-context.js';
-
-// ── Capture schemas from registerTool() ───────────────────────────────────
+// ── Capture schemas via the registry's recording mechanism ────────────────
 const capturedSchemas = new Map<string, z.ZodTypeAny>();
+let registeredToolNames: string[] = [];
 
 const mockServer = {
   registerTool: (
@@ -42,85 +37,61 @@ const mockServer = {
 } as unknown as McpServer;
 
 beforeAll(() => {
-  registerBeginWork(mockServer);
-  registerHelp(mockServer);
-  registerObservations(mockServer);
-  registerPipeline(mockServer);
-  registerProjectLifecycle(mockServer);
-  registerWorkflowHandoff(mockServer);
-  registerWorkflowNextAction(mockServer);
-  registerWorkPackage(mockServer);
-  registerWorkPackageAdmin(mockServer);
-  registerKnowledge(mockServer);
-  registerRepositoryContext(mockServer);
+  registeredToolNames = registerAllTools(mockServer);
 });
 
-// ── Expected tool names ────────────────────────────────────────────────────
-const EXPECTED_TOOL_NAMES = [
-  // begin-work
-  'ledger_begin_work',
-  // help
-  'ledger_help',
-  // observations
-  'ledger_add_observation',
-  'ledger_add_project_comment',
-  // pipeline
-  'ledger_start_pipeline',
-  'ledger_complete_pipeline',
-  'ledger_cancel_pipeline',
-  'ledger_update_pipeline_progress',
-  // project-lifecycle
-  'ledger_detect_project',
-  'ledger_initialize_project',
-  'ledger_get_project_status',
-  'ledger_list_projects',
-  'ledger_complete_synthesis',
-  // workflow-handoff
-  'ledger_get_handoff_status',
-  // workflow-next-action
-  'ledger_get_next_action',
-  // repository-context
-  'ledger_get_repository_context',
-  // work-package
-  'ledger_get_work_package',
-  'ledger_list_work_packages',
-  'ledger_create_work_package',
-  'ledger_claim_work_package',
-  'ledger_update_work_package_status',
-  'ledger_reset_rework_count',
-  'ledger_reopen_cancelled_wp',
-  'ledger_update_acceptance_criteria',
-  'ledger_update_pipeline_stages',
-  // knowledge
-  'ledger_add_insight',
-  'ledger_search_insights',
-  'ledger_list_insights',
-  'ledger_update_insight',
-  'ledger_delete_insight',
-] as const;
+// ── Tools with a legitimately empty parameter schema ───────────────────────
+//
+// z.object({}) is a valid ZodObject whose JSON Schema has no `properties`
+// entries — this is correct for a tool that takes no arguments, not a sign
+// of an accidental .refine()/.transform() wrapper. Each entry here must be
+// justified by a genuinely zero-parameter tool.
+const ZERO_PARAMETER_TOOLS: ReadonlySet<string> = new Set(['ledger_ping']);
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Schema Integrity — all tool schemas produce non-empty JSON Schema', () => {
-  it(`registers exactly ${EXPECTED_TOOL_NAMES.length} tools`, () => {
-    expect(capturedSchemas.size).toBe(EXPECTED_TOOL_NAMES.length);
+describe('Schema Integrity — tool set derived from the registry', () => {
+  it('registers at least one tool', () => {
+    expect(registeredToolNames.length).toBeGreaterThan(0);
   });
 
-  it('registers all expected tool names', () => {
-    for (const name of EXPECTED_TOOL_NAMES) {
+  it('captures a schema for every tool name registerAllTools returned', () => {
+    for (const name of registeredToolNames) {
       expect(capturedSchemas.has(name), `Missing schema for tool: ${name}`).toBe(true);
     }
   });
 
-  for (const toolName of EXPECTED_TOOL_NAMES) {
-    it(`${toolName}: properties is non-empty (schema is ZodObject, not ZodEffects)`, () => {
+  it('includes ledger_ping, ledger_import_standalone and ledger_update_synthesis', () => {
+    for (const name of ['ledger_ping', 'ledger_import_standalone', 'ledger_update_synthesis']) {
+      expect(
+        registeredToolNames.includes(name),
+        `Expected ${name} to be registered via TOOL_MODULES`
+      ).toBe(true);
+    }
+  });
+});
+
+describe('Schema Integrity — all tool schemas are outer ZodObject schemas', () => {
+  it('every registered tool schema is a ZodObject, not ZodEffects', () => {
+    for (const toolName of registeredToolNames) {
       const schema = capturedSchemas.get(toolName);
       expect(schema, `No schema captured for ${toolName}`).toBeDefined();
+      expect(
+        schema instanceof z.ZodObject,
+        `${toolName}: outer schema is not a ZodObject (likely wrapped in .refine()/.transform()/.superRefine())`
+      ).toBe(true);
+    }
+  });
 
-      // Convert to JSON Schema — a ZodEffects schema (from .refine/.transform)
-      // produces an empty properties object, while a ZodObject produces the
-      // correct field list.
-      const jsonSchema = zodToJsonSchema(schema!) as { properties?: Record<string, unknown> };
+  it('every registered tool except ZERO_PARAMETER_TOOLS has non-empty JSON Schema properties', () => {
+    for (const toolName of registeredToolNames) {
+      if (ZERO_PARAMETER_TOOLS.has(toolName)) {
+        continue;
+      }
+
+      const schema = capturedSchemas.get(toolName)!;
+      const jsonSchema = zodToJsonSchema(schema) as { properties?: Record<string, unknown> };
+
       expect(
         jsonSchema.properties,
         `${toolName}: JSON Schema missing 'properties' key — schema may be ZodEffects`
@@ -129,8 +100,58 @@ describe('Schema Integrity — all tool schemas produce non-empty JSON Schema', 
         Object.keys(jsonSchema.properties!).length,
         `${toolName}: 'properties' is empty — schema is ZodEffects (check for outer .refine())`
       ).toBeGreaterThan(0);
-    });
-  }
+    }
+  });
+
+  it('ZERO_PARAMETER_TOOLS entries are still ZodObject, just with empty properties', () => {
+    for (const toolName of ZERO_PARAMETER_TOOLS) {
+      const schema = capturedSchemas.get(toolName);
+      expect(schema, `No schema captured for ${toolName}`).toBeDefined();
+      expect(schema instanceof z.ZodObject).toBe(true);
+
+      const jsonSchema = zodToJsonSchema(schema!) as { properties?: Record<string, unknown> };
+      expect(Object.keys(jsonSchema.properties ?? {}).length).toBe(0);
+    }
+  });
+});
+
+describe('Schema Integrity — synthetic .refine() detection', () => {
+  it('flags a .refine()-wrapped schema as non-ZodObject', () => {
+    // The instanceof check is the structural assertion the regression
+    // actually depends on — zod-to-json-schema's own emptiness behavior for
+    // ZodEffects has varied across versions, so this test pins the
+    // structural signal (ZodObject vs. ZodEffects) rather than a
+    // version-dependent JSON Schema shape.
+    const refined = z.object({ foo: z.string() }).refine(() => true);
+    expect(refined instanceof z.ZodObject).toBe(false);
+  });
+
+  it('a synthetic module registering a .refine()-wrapped schema is caught by the ZodObject assertion', () => {
+    const capturedSynthetic = new Map<string, z.ZodTypeAny>();
+    const syntheticMockServer = {
+      registerTool: (name: string, config: { inputSchema: z.ZodTypeAny }) => {
+        capturedSynthetic.set(name, config.inputSchema);
+      },
+    } as unknown as McpServer;
+
+    const syntheticModules: ToolModule[] = [
+      {
+        id: 'synthetic-refine-module',
+        register: (s) => {
+          (s as unknown as { registerTool: (...a: unknown[]) => unknown }).registerTool(
+            'ledger_synthetic_refined',
+            { description: 'synthetic', inputSchema: z.object({ foo: z.string() }).refine(() => true) },
+            () => undefined
+          );
+        },
+      },
+    ];
+
+    registerAllTools(syntheticMockServer, syntheticModules);
+
+    const schema = capturedSynthetic.get('ledger_synthetic_refined');
+    expect(schema instanceof z.ZodObject).toBe(false);
+  });
 });
 
 // ── Numeric-input helper field-type assertions ─────────────────────────────

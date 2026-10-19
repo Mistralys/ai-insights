@@ -73,6 +73,56 @@ describe('ledger_update_pipeline_stages help content', () => {
   });
 });
 
+describe('Newly completed TOOL_HELP entries (help-content-coverage follow-up)', () => {
+  const PM_ONLY_TOOLS = [
+    'ledger_reset_rework_count',
+    'ledger_reopen_cancelled_wp',
+    'ledger_update_acceptance_criteria',
+  ] as const;
+  const ALL_FOUR_TOOLS = [...PM_ONLY_TOOLS, 'ledger_detect_project'] as const;
+
+  for (const toolName of ALL_FOUR_TOOLS) {
+    describe(toolName, () => {
+      it('has a non-empty TOOL_HELP entry headed by the tool name', () => {
+        const helpText = TOOL_HELP[toolName];
+        expect(helpText, `Missing TOOL_HELP entry for ${toolName}`).toBeDefined();
+        expect(helpText!.trim().length).toBeGreaterThan(0);
+        expect(helpText).toContain(`# ${toolName}`);
+      });
+
+      it('documents Required Parameters', () => {
+        expect(TOOL_HELP[toolName]).toContain('## Required Parameters');
+      });
+
+      it('documents an Example', () => {
+        expect(TOOL_HELP[toolName]).toContain('## Example');
+      });
+
+      it('appears in the overview tool table', () => {
+        expect(TOOL_HELP['overview']).toContain(toolName);
+      });
+    });
+  }
+
+  for (const toolName of PM_ONLY_TOOLS) {
+    describe(`${toolName} (PM-only)`, () => {
+      it('documents Guards in evaluation order', () => {
+        expect(TOOL_HELP[toolName]).toMatch(/## Guards/);
+      });
+
+      it('carries "PM-only" wording', () => {
+        expect(TOOL_HELP[toolName]).toMatch(/PM-only/);
+      });
+    });
+  }
+
+  it('ledger_detect_project does not document a project_path parameter (cwd_path is its only input)', () => {
+    const helpText = TOOL_HELP['ledger_detect_project']!;
+    expect(helpText).toContain('cwd_path');
+    expect(helpText).not.toContain('**project_path**');
+  });
+});
+
 describe('ledger_get_repository_context help content', () => {
   const toolName = 'ledger_get_repository_context';
 

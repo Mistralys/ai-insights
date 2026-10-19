@@ -23,6 +23,7 @@ export const TOOL_HELP: Record<string, string> = {
 | Tool | Required Params | Purpose |
 |------|----------------|---------|
 | ledger_get_project_status | cwd_path or project_path | Read project overview |
+| ledger_detect_project | cwd_path | Identify the active project by cross-referencing cwd_path against all known project roots |
 | ledger_initialize_project | project_path, plan_file | Create new project ledger |
 | ledger_list_projects | None (status filter optional) | List all tracked projects with status, dates, and plan paths |
 | ledger_complete_synthesis | cwd_path or project_path | Mark synthesis as generated; transitions project to COMPLETE |
@@ -142,6 +143,50 @@ ${PROJECT_PATH_PARAM}
 
 ## Returns
 The full root index including work package summaries, counters, and project status.
+`,
+
+  ledger_detect_project: `
+# ledger_detect_project
+
+Identifies the active project by cross-referencing \`cwd_path\` against all project roots stored
+in the centralized ledger (across all configured stores in multi-store mode). Returns the unique
+project whose codebase contains the given path.
+
+Most tools auto-detect the active project from \`cwd_path\` directly — a separate
+\`ledger_detect_project\` call is normally unnecessary. It remains available for standalone
+project detection (e.g., to resolve \`project_path\` once and reuse it across several calls).
+
+## Required Parameters
+- **cwd_path** (string): Absolute path to the directory the agent is currently working from (e.g.
+  the workspace root). Must be a **directory** path, not a file path. This tool does not accept
+  \`project_path\` — resolving \`project_path\` is this tool's own purpose.
+
+## Response Shape (FOUND)
+\`\`\`json
+{
+  "plan_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "slug": "2026-02-16-feature",
+  "title": "Feature Name",
+  "status": "IN_PROGRESS"
+}
+\`\`\`
+
+## Error Cases
+- **NOT_FOUND** — no known project root is an ancestor of \`cwd_path\`. Ensure the project has
+  been initialized with \`ledger_initialize_project\` and that \`cwd_path\` is inside its codebase.
+- **AMBIGUOUS** — more than one project root within the **same** store is an ancestor of
+  \`cwd_path\`. The error lists all matching \`plan_path\` candidates. Pass an explicit
+  \`project_path\` to disambiguate.
+- **MULTI_STORE_AMBIGUOUS** — \`cwd_path\` matches projects in **different stores**. The error
+  lists candidates as \`[store_id: X] slug-a, [store_id: Y] slug-b\`. Pass an explicit
+  \`project_path\` to the tool that needs disambiguation.
+
+## Example
+\`\`\`json
+{
+  "cwd_path": "/Users/name/projects/my-repo"
+}
+\`\`\`
 `,
 
   ledger_initialize_project: `
@@ -468,6 +513,141 @@ do not block the write, e.g. a single-stage chain), and \`next_step\` (always na
   "agent_role": "Project Manager",
   "stages": ["implementation", "qa", "security-audit", "code-review", "documentation"],
   "reason": "Original stage list was mis-transcribed from the plan and omitted security-audit."
+}
+\`\`\`
+`,
+
+  ledger_reset_rework_count: `
+# ledger_reset_rework_count
+
+PM-only: resets the rework counter for a specific pipeline type on a work package back to 0.
+Use this to unblock a WP that has hit the rework circuit breaker
+(\`rework_counts[pipeline_type] >= MAX_REWORK_COUNT\`), which otherwise refuses any further
+start of that pipeline type.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): WP ID (format: WP-001)
+- **pipeline_type** (string): Which pipeline type's rework counter to reset — "implementation",
+  "qa", "security-audit", "code-review", "release-engineering", or "documentation"
+- **agent_role** (string): Must be "Project Manager" (PM-only tool)
+- **reason** (string): Mandatory, non-empty reason for the reset (audit trail)
+
+## Guards (evaluated in this order)
+1. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project; an
+   unresolvable path errors before any role check runs.
+2. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`; any other value is rejected.
+3. **No-op guard** — if \`rework_counts[pipeline_type]\` is already \`0\` or absent, the call is a
+   no-op and returns a message without writing anything to disk.
+4. **Reset + audit** — the counter is zeroed and an audit comment (\`type: "rework_reset"\`,
+   \`priority: "high"\`) is appended to \`root.project_comments\` naming the previous value and
+   the supplied \`reason\`.
+
+## Response Shape
+On reset: \`{ message, work_package_id, pipeline_type, previous_value, reason }\`.
+On no-op: \`{ message: "No-op: rework count is already 0 or absent. No changes written.", work_package_id, pipeline_type }\`.
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "pipeline_type": "qa",
+  "agent_role": "Project Manager",
+  "reason": "QA bounced this WP three times for the same flaky test; resetting after fixing the test."
+}
+\`\`\`
+`,
+
+  ledger_reopen_cancelled_wp: `
+# ledger_reopen_cancelled_wp
+
+PM-only administrative override: reopens an incorrectly CANCELLED work package back to READY
+(or BLOCKED if its dependencies are unsatisfied). Mirrors \`ledger_reset_rework_count\`'s pattern —
+a targeted escape hatch with a mandatory audit trail — but for a terminal status instead of a
+counter.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): ID of the CANCELLED work package to reopen
+- **agent_role** (string): Must be "Project Manager" (PM-only tool)
+- **reason** (string): Mandatory, non-empty reason for reopening (audit trail)
+
+## Guards (evaluated in this order)
+1. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`; rejected before any disk I/O.
+2. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project.
+3. **Precondition — must be CANCELLED** — the target WP must currently be in \`CANCELLED\` status.
+   A non-CANCELLED WP is rejected (naming its current status) without modifying any state; this
+   check runs atomically inside the write lock, so there is no time-of-check/time-of-use gap.
+4. **Dependency-aware recovery status** — inside the same atomic write, \`canStartWorkPackage\`
+   determines the recovery status: \`READY\` if all dependencies are \`COMPLETE\`, otherwise
+   \`BLOCKED\` with a \`dependency\`-type \`blocked_by\` naming the unmet dependency.
+
+## Atomic Side Effects
+In the same write as the status transition: \`status_changed_at\` is stamped, \`assigned_to\` is
+cleared to \`null\`, \`rework_counts\` is deleted, the root-index summary entry is synced
+(\`status\`, \`assigned_to\`), \`root.pending_work_packages\` is incremented by 1, and
+\`synthesis_generated\` is cleared via \`clearSynthesisState()\`. An audit comment
+(\`type: "reopen_cancelled"\`, \`priority: "high"\`) records the reason. After the write,
+downstream READY/IN_PROGRESS dependents that relied on this WP's CANCELLED (terminal) status are
+cascade-reblocked.
+
+## Response Shape
+\`{ message, work_package_id, final_status: "READY" | "BLOCKED", reason }\`.
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-007",
+  "agent_role": "Project Manager",
+  "reason": "WP was cancelled by mistake during a bulk cleanup; the scope is still needed."
+}
+\`\`\`
+`,
+
+  ledger_update_acceptance_criteria: `
+# ledger_update_acceptance_criteria
+
+PM-only: remove or modify acceptance criteria text on a work package. Use this to correct a
+mis-transcribed or outdated criterion without recreating the work package.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): WP ID (format: WP-001)
+- **agent_role** (string): Must be "Project Manager" (PM-only tool)
+- **operations** (array, min 1): Each entry is one of:
+  - \`{ "action": "remove", "criterion": "<exact text>" }\`
+  - \`{ "action": "modify_text", "old_criterion": "<exact text>", "new_criterion": "<non-empty text>" }\`
+
+## Guards (evaluated in this order)
+1. **Project resolution** — \`cwd_path\`/\`project_path\` must resolve to a known project.
+2. **PM-only** — \`agent_role\` must be exactly \`"Project Manager"\`.
+3. **CANCELLED guard** — rejects any update targeting a \`CANCELLED\` work package.
+4. **Per-operation application** — operations are applied sequentially on a cloned criteria array:
+   \`remove\` deletes the first criterion whose text exactly matches \`criterion\`; \`modify_text\`
+   replaces the first match for \`old_criterion\` with \`new_criterion\`, preserving the existing
+   \`met\` value (only the text changes, never the evaluation state). Either op throws if its exact
+   text is not found, and \`modify_text\` also rejects an empty/whitespace \`new_criterion\`.
+5. **At-least-one-criterion guard** — rejects the entire batch if applying every operation would
+   leave zero criteria; the cloned array is only committed once all operations succeed.
+
+## Response Shape
+\`{ message, applied_operations: string[] }\` — each entry describes one applied operation
+(\`'removed: "<text>"'\` or \`'modified: "<old>" → "<new>"'\`).
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "agent_role": "Project Manager",
+  "operations": [
+    { "action": "modify_text", "old_criterion": "All test pass", "new_criterion": "All tests pass" }
+  ]
 }
 \`\`\`
 `,

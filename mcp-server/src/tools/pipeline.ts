@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
-import type { Pipeline, HandoffNote } from '../schema/work-package.js';
+import type { HandoffNote } from '../schema/work-package.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
 import {
   PIPELINE_PREREQUISITES,
@@ -13,7 +13,6 @@ import {
   describePipelineTypes,
   describePipelineAgents,
   type PipelineType,
-  resolvePrerequisite,
   resolveNextAgent,
   resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
@@ -21,7 +20,7 @@ import {
   ARTIFACT_DECLARATION_POLICY,
   evaluateArtifactDeclaration,
 } from '../utils/pipeline-maps.js';
-import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
+import { applyPipelineStart } from '../utils/pipeline-start.js';
 import { propagateDependencyUnblock } from './work-package.js';
 import { resolveMultiStoreLedgerRoot } from '../utils/store-resolution.js';
 import { numberInput } from '../schema/common.js';
@@ -154,129 +153,17 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      // 0. Resolve the WP's active pipeline stages (default to legacy 4-stage)
-      const activeStages: readonly PipelineType[] =
-        (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
-
-      // 1. Validate agent role — PM may bypass role ownership (PM Override gate)
-      const expectedAgent = PIPELINE_AGENT_MAP[args.type];
-      const isPmOverride = args.agent_role === 'Project Manager';
-      if (!isPmOverride && expectedAgent !== args.agent_role) {
-        throw new Error(
-          `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
-        );
-      }
-
-      // 2. Validate WP is IN_PROGRESS
-      if (wp.status !== 'IN_PROGRESS') {
-        throw new Error(
-          `Cannot start pipeline for work package ${args.work_package_id}: work package status is ${wp.status}. Only IN_PROGRESS work packages can have pipelines started.`
-        );
-      }
-
-      // 2b. Validate requested pipeline type is in the WP's active stages
-      if (!activeStages.includes(args.type)) {
-        throw new Error(
-          `Cannot start pipeline '${args.type}' for work package ${args.work_package_id}: ` +
-          `this pipeline type is not in the WP's active stages. ` +
-          `Active stages: ${(activeStages as readonly string[]).join(' \u2192 ')}.`
-        );
-      }
-
-      // 3. Check for duplicate in-progress pipeline of same type
-      const existingInProgress = wp.pipelines.find(
-        (p) => p.type === args.type && p.status === 'IN_PROGRESS'
-      );
-
-      if (existingInProgress) {
-        throw new Error(
-          `Cannot start pipeline: a pipeline of type "${args.type}" is already IN_PROGRESS for work package ${args.work_package_id}. Complete the existing pipeline before starting a new one.`
-        );
-      }
-
-      // 4. Enforce pipeline ordering: compute prerequisite dynamically from active stages (§8.2)
-      const prerequisite = resolvePrerequisite(args.type, activeStages);
-      if (prerequisite !== null) {
-        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite && !p.auto_cancelled);
-        const mostRecentPrereq = prereqPipelines.at(-1);
-        if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
-          const orderedActive = (activeStages as readonly string[]).join(' \u2192 ');
-          throw new Error(
-            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. ` +
-            `Active pipeline order: ${orderedActive}.`
-          );
-        }
-
-        // 4b. Revalidation guard: reject if a prior run exists and the prerequisite
-        //     PASS is stale after upstream rework (§11.1).
-        const revalidError = checkRevalidationGuard(wp.pipelines, args.type, prerequisite, activeStages);
-        if (revalidError !== null) {
-          throw new Error(revalidError);
-        }
-      }
-
-      // 5. Create new pipeline entry
-      const newPipeline: Pipeline = {
+      const outcome = applyPipelineStart({
+        wp,
+        root,
+        workPackageId: args.work_package_id,
         type: args.type,
-        status: 'IN_PROGRESS',
-        started_at: now(),
-        summary: isPmOverride ? ['[PM Override]'] : [],
-      };
+        agentRole: args.agent_role,
+      });
 
-      // 6. Increment rework_counts per pipeline type if this is a rework run.
-      //    A rework is triggered by either a direct FAIL on this pipeline type or
-      //    a downstream FAIL that requires this type to re-run (§11.3).
-      const effectiveSamePipelines = wp.pipelines.filter(
-        (p) => p.type === args.type && !p.auto_cancelled
-      );
-      const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type, activeStages);
-      const needsRework = isDirectRework || isDownstreamRework;
-
-      const countBeforeIncrement = wp.rework_counts?.[args.type] ?? 0;
-      if (needsRework) {
-        const current = wp.rework_counts?.[args.type] ?? 0;
-        const newCount = current + 1;
-        wp.rework_counts = { ...wp.rework_counts, [args.type]: newCount };
+      if (outcome.kind === 'tripped') {
+        breakerMessage = outcome.message;
       }
-
-      // 6b. Circuit breaker — reject if the per-type rework count has reached the limit.
-      // Uses the post-increment count. When the increment itself reaches the limit
-      // (stored count was below the maximum), the trip is persisted — counter only,
-      // no pipeline appended — so the stored state records that the rework cannot
-      // run, and the recommendation engine's `>= MAX_REWORK_COUNT` checks see it.
-      // When the stored count is already at or above the maximum, the throw aborts
-      // the write and nothing is persisted.
-      const effectiveReworkCount = wp.rework_counts?.[args.type] ?? 0;
-      if (effectiveReworkCount >= MAX_REWORK_COUNT) {
-        const message =
-          `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
-          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`;
-        if (countBeforeIncrement >= MAX_REWORK_COUNT) {
-          throw new Error(message);
-        }
-        breakerMessage = message;
-        root.last_updated = now();
-        return { wp, root };
-      }
-
-      // 7. Append to pipelines array
-      wp.pipelines.push(newPipeline);
-
-      // 7. Update assigned_to to reflect the agent now working on this WP
-      const agentName = PIPELINE_AGENT_MAP[args.type];
-      if (agentName) {
-        wp.assigned_to = agentName;
-        const summary = root.work_packages.find(
-          (s) => s.work_package_id === args.work_package_id
-        );
-        if (summary) {
-          summary.assigned_to = agentName;
-        }
-      }
-
-      // 8. Update root index timestamp
-      root.last_updated = now();
 
       return { wp, root };
     });

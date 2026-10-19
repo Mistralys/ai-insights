@@ -1,8 +1,14 @@
 /**
- * Parity suite: `ledger_start_pipeline` and `ledger_begin_work` maintain two
- * copies of the start-guard chain. Each scenario runs once through each tool
- * on an identical IN_PROGRESS WP and asserts the same outcome (`isError`) and
- * the same persisted `rework_counts`, so the copies cannot silently drift.
+ * Parity suite: `ledger_start_pipeline` (pipeline.ts) and `ledger_begin_work`
+ * (begin-work.ts) both route their pipeline-start guard chain through the
+ * single shared `applyPipelineStart()` helper in `src/utils/pipeline-start.ts`
+ * — this suite exercises that composition end to end through each tool's own
+ * entry point (resolveProjectPath, LedgerStore, locking) rather than calling
+ * the shared helper directly (see `tests/utils/pipeline-start.test.ts` for
+ * that). Each scenario runs once through each tool on an identical
+ * IN_PROGRESS WP and asserts the same outcome (`isError`) and the same
+ * persisted `rework_counts`, so the two call sites cannot silently drift
+ * even though they share the guard implementation.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'fs/promises';
@@ -65,6 +71,10 @@ interface Scenario {
   pipelines: Pipeline[];
   reworkCount?: number;
   expectError: boolean;
+  /** Overrides the WP's active_pipeline_stages; defaults to the legacy 4-stage set. */
+  activeStages?: string[];
+  /** When set, asserts both tools' error text contains this substring. */
+  expectedMessageContains?: string;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -105,6 +115,26 @@ const SCENARIOS: Scenario[] = [
     reworkCount: MAX_REWORK_COUNT,
     expectError: true,
   },
+  {
+    // Before the shared-helper refactor, startPipeline checked active-stage
+    // membership before the duplicate check, while beginWork checked the
+    // duplicate before active-stage membership. Both guards can only fire
+    // together in a state ledger_update_pipeline_stages guard 5 already
+    // prevents (a duplicate IN_PROGRESS pipeline of a type that isn't in the
+    // WP's own active stages), so unifying the order in applyPipelineStart()
+    // is behavior-preserving for every reachable state — this scenario pins
+    // that the unified order reports the active-stage error consistently.
+    name: 'duplicate IN_PROGRESS of a type outside the active stages reports the active-stage error on both paths',
+    type: 'qa',
+    agent_role: 'QA',
+    pipelines: [
+      pl('implementation', 'PASS', T0),
+      { type: 'qa' as any, status: 'IN_PROGRESS', started_at: T1, summary: [] },
+    ],
+    activeStages: ['implementation'],
+    expectError: true,
+    expectedMessageContains: "this pipeline type is not in the WP's active stages",
+  },
 ];
 
 type Tool = 'startPipeline' | 'beginWork';
@@ -135,6 +165,9 @@ describe('start-path parity: startPipeline vs beginWork', () => {
       acceptance_criteria: [],
       revision: 0,
       pipelines: scenario.pipelines.map((p) => ({ ...p })),
+      ...(scenario.activeStages !== undefined
+        ? { active_pipeline_stages: scenario.activeStages as any }
+        : {}),
       ...(scenario.reworkCount !== undefined
         ? { rework_counts: { implementation: scenario.reworkCount } }
         : {}),
@@ -153,7 +186,11 @@ describe('start-path parity: startPipeline vs beginWork', () => {
         ? await pipelineInternal.startPipeline(args as any)
         : await beginWorkInternal.beginWork(args as any);
     const stored = await store.readWorkPackage('WP-001');
-    return { isError: result.isError === true, reworkCounts: stored.rework_counts ?? {} };
+    return {
+      isError: result.isError === true,
+      reworkCounts: stored.rework_counts ?? {},
+      message: result.content?.[0]?.text as string | undefined,
+    };
   }
 
   for (const scenario of SCENARIOS) {
@@ -164,6 +201,11 @@ describe('start-path parity: startPipeline vs beginWork', () => {
       expect(viaStart.isError).toBe(scenario.expectError);
       expect(viaBegin.isError).toBe(viaStart.isError);
       expect(viaBegin.reworkCounts).toEqual(viaStart.reworkCounts);
+
+      if (scenario.expectedMessageContains !== undefined) {
+        expect(viaStart.message).toContain(scenario.expectedMessageContains);
+        expect(viaBegin.message).toContain(scenario.expectedMessageContains);
+      }
     });
   }
 });

@@ -6,18 +6,7 @@ import { mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { SERVER_VERSION } from './utils/server-version.js';
 import os from 'os';
-import * as projectLifecycleTools from './tools/project-lifecycle.js';
-import * as workPackageTools from './tools/work-package.js';
-import * as workPackageAdminTools from './tools/work-package-admin.js';
-import * as pipelineTools from './tools/pipeline.js';
-import * as beginWorkTools from './tools/begin-work.js';
-import * as observationTools from './tools/observations.js';
-import * as workflowTools from './tools/workflow.js';
-import * as helpTools from './tools/help.js';
-import * as pingTools from './tools/ping.js';
-import * as knowledgeTools from './tools/knowledge.js';
-import * as repositoryContextTools from './tools/repository-context.js';
-import * as standaloneImportTools from './tools/standalone-import.js';
+import { registerAllTools } from './tools/registry.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
@@ -79,22 +68,10 @@ async function main(): Promise<void> {
   // Expose server instance for getClientInfo() accessor
   setMcpServer(server);
 
-  // NOTE: The tool list printed in the startup log below must be kept in sync
-  // with the tools registered here. Update the log message whenever a tool is
-  // added or removed in src/tools/**. There is no auto-discovery at startup.
-  // Register tools
-  projectLifecycleTools.register(server);
-  workPackageTools.register(server);
-  workPackageAdminTools.register(server);
-  pipelineTools.register(server);
-  beginWorkTools.register(server);
-  observationTools.register(server);
-  workflowTools.register(server);
-  helpTools.register(server);
-  pingTools.register(server);
-  knowledgeTools.register(server);
-  repositoryContextTools.register(server);
-  standaloneImportTools.register(server);
+  // Register tools. The registered tool names are recorded in registration
+  // order so the startup log below can be derived from them directly —
+  // there is no separate list to keep in sync.
+  const registeredToolNames = registerAllTools(server);
 
   // Connect to STDIO transport
   // Note: stdout is reserved for MCP protocol, all logs go to stderr
@@ -165,11 +142,10 @@ async function main(): Promise<void> {
   startConfigWatcher(configPath);
   process.stderr.write(`[config] Watching ${configPath}\n`);
 
-  // NOTE: This list must be kept in sync manually when tools are added or
-  // removed in src/tools/**. The MCP SDK does not expose a listTools() method
-  // at startup, so dynamic generation is not currently possible.
+  // Derived directly from the names registerAllTools() recorded above —
+  // no separate list to keep in sync when a tool is added or removed.
   console.error(
-    '[project-ledger-mcp] Registered tools: ledger_ping, ledger_help, ledger_complete_synthesis, ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, ledger_update_pipeline_stages, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status, ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_delete_insight, ledger_get_repository_context, ledger_import_standalone, ledger_update_synthesis'
+    `[project-ledger-mcp] Registered tools: ${registeredToolNames.join(', ')}`
   );
 
   // Initialise agent registry for auto-handoff

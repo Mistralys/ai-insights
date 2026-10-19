@@ -120,9 +120,10 @@ mcp-server/
 │   │   └── store-router.ts      # Routes read/write operations to the correct store by iterating per-store repository registries in config order; exports StoreRouter class with isMultiStoreMode(), resolveDefaultStore(), getAllStorePaths(), getAllStores(), resolveStoreForRepo(), resolveStoreForWrite(); getAllStores() returns [{id, path, label}] in store-priority order — consumed by MultiStoreManager (WP-004); constructor auto-creates each configured store path via mkdirSync({ recursive: true }); provides legacy-mode fallback (delegates to resolveLedgerRoot()) when config is null (cross-device ledger sync plan, WP-003/WP-004)
 │   │
 │   ├── tools/                   # MCP tool implementations
+│   │   ├── registry.ts          # TOOL_MODULES (frozen, 12 modules) + registerAllTools(server, modules?) — derived tool registry; records registered tool names in registration order via a recording shim around server.registerTool(); src/index.ts derives its startup log and tool registration from this instead of a hand-maintained list
 │   │   ├── help.ts              # ledger_help
 │   │   ├── ping.ts              # ledger_ping — lightweight health check; returns status, server_version, stale (boolean|null), uptime_seconds; exports _internal and register()
-│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 30 MCP tools
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for every registered MCP tool except ledger_help itself; completeness is enforced by tests/tools/help-content-coverage.test.ts, which derives the expected tool list from registry.ts's TOOL_MODULES rather than a hand-maintained count
 │   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_delete_insight — knowledge accumulation tools; IDs are UUID v4 strings generated via crypto.randomUUID(); in multi-store mode, search/list iterate stores directly to capture owning storeId per insight (WP-001/003)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
@@ -147,6 +148,7 @@ mcp-server/
 │       ├── pm-role-guard.ts     # requirePmRole(toolName, agentRole) — shared PM-only role check; returns null when agentRole === 'Project Manager', else the standard { content, isError: true } rejection naming both toolName and agentRole; extracted from three verbatim-copied inline guards originally in work-package.ts (ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria), each call site preserving its original position relative to resolveProjectPath; those three call sites now live in work-package-admin.ts after the module split, joined by a fourth call site for ledger_update_pipeline_stages (added directly against the shared helper, not part of the original extraction)
 │       ├── project-resolver.ts  # resolveProjectPath() + formatCandidateList(); requires LedgerStore
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
+│       ├── pipeline-start.ts    # applyPipelineStart(request): PipelineStartOutcome — the shared pipeline-start guard chain (role/PM-override, IN_PROGRESS status, active-stage membership, duplicate-IN_PROGRESS, prerequisite + revalidation, rework-count increment, circuit breaker); called by both startPipeline() in pipeline.ts and beginWork() in begin-work.ts from inside their own updateWorkPackageWithSync updater, replacing two previously drifted ~90-line copies; exports PipelineStartRequest, PipelineStartOutcome ({ kind: 'started' } | { kind: 'tripped'; message })
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
@@ -229,7 +231,7 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── startup/                 # Startup-time static analysis tests
-    │   └── tool-log-sync.test.ts  # Asserts the hardcoded startup log in src/index.ts contains exactly the tool names registered via server.registerTool() across all src/tools/*.ts modules; catches drift without bootstrapping the server at runtime
+    │   └── tool-log-sync.test.ts  # Compares the registry's TOOL_MODULES/registerAllTools() output against a source-text scan of server.registerTool() calls across src/tools/*.ts, catching a module left out of TOOL_MODULES (synthetic missing-module and duplicate-name cases) and asserting src/index.ts calls registerAllTools( with no hand-maintained "Registered tools: ledger_" literal — without bootstrapping the server at runtime
     │
     ├── storage/                 # Storage layer tests
         ├── cross-device-portability.test.ts  # 6 tests for cross-device portability (AC-5, AC-6 of WP-004): searchKnowledge() cross-store dedup by UUID insight id (first-seen wins), listKnowledge() cross-store dedup, and dynamic store discovery — adding a new store path to StoreRouter immediately exposes its .repositories.json and projects via listAllProjects() and getMergedRegistry() without any additional registration step (cross-device ledger sync plan, WP-004)
@@ -254,7 +256,8 @@ mcp-server/
     │   ├── claim-guard.test.ts
     │   ├── complete-pipeline-guards.test.ts
     │   ├── enrichment-resilience.test.ts
-    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool
+    │   ├── help-content-coverage.test.ts  # Registry-derived TOOL_HELP completeness suite: derives registered tool names from registerAllTools()/TOOL_MODULES and cross-checks against TOOL_HELP entries and overview table rows (ledger_help exempt); synthetic fixtures prove the checks catch a missing TOOL_HELP entry, a missing overview row, and an orphaned TOOL_HELP key naming no registered tool
+    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool; also asserts Required Parameters/Example/Guards/"PM-only" structure for the ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, and ledger_detect_project TOOL_HELP entries
     │   ├── knowledge.test.ts        # Tests for ledger_add_insight, ledger_search_insights, ledger_update_insight tools
     │   ├── knowledge-multi-store.test.ts  # 10 integration tests for multi-store knowledge routing (cross-device ledger sync plan, WP-009): addInsight global scope writes to default store (AC2), addInsight repository scope routes to claiming store (AC1), unregistered repo error (AC1), searchInsights cross-store merge with dedup (AC3), listInsights cross-store merge (AC4), updateInsight and deleteInsight iterate stores to locate insight (AC5)
     │   ├── list-projects.test.ts
@@ -264,12 +267,13 @@ mcp-server/
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
     │   ├── project-lifecycle-multi-store.test.ts  # 13 integration tests for multi-store project lifecycle (cross-device ledger sync plan, WP-007): ledger_list_projects tags projects from all stores with store_id/store_label (AC1), ledger_initialize_project routes to the correct store via StoreRouter (AC2), unregistered repo returns "not registered in any store" error (AC3), detectProject returns MULTI_STORE_AMBIGUOUS with tagged candidates on cross-store cwd collision (AC4), single-store / legacy mode behavior is unchanged (AC5)
+    │   ├── registry.test.ts     # Tests for src/tools/registry.ts: registerAllTools() forwards calls to the real registerTool with original arguments and returns its result, returns registered names in registration order, throws "Duplicate tool registration: <name>" on a repeated name, and TOOL_MODULES is frozen with unique ids; also exercises the real TOOL_MODULES end to end
     │   ├── reopen-cancelled-wp.test.ts  # 22 tests for ledger_reopen_cancelled_wp: PM-only guard, non-CANCELLED status guards, core side effects (dep-aware READY/BLOCKED branching, field clearing, counter adjustment, audit comment, pipeline history preservation), cascade reblock (READY and IN_PROGRESS downstream dependents), and state machine invariant preservation
     │   ├── rework-circuit-breaker.test.ts
     │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
-    │   ├── schema-integrity.test.ts
+    │   ├── schema-integrity.test.ts  # Tool set derived from registerAllTools()/TOOL_MODULES (closes prior gaps on ledger_ping, ledger_import_standalone, ledger_update_synthesis); asserts every tool schema is an outer ZodObject (not ZodEffects from .refine()/.transform()/.superRefine()) and has non-empty JSON Schema properties except the ZERO_PARAMETER_TOOLS allowlist (ledger_ping); includes a synthetic .refine()-wrapped schema case plus pinned numeric-input helper field-type assertions
     │   ├── standalone-import.test.ts  # 18 tests for ledger_import_standalone: successful import (project creation, WP-001 structure, archival, cwd_path fallback, project_path precedence), all four validation error paths (no path, bad basename, missing plan.md, missing synthesis.md), duplicate slug rejection, outcome summary extraction with fallback, repo name derivation, and project_summary (root index persistence, .meta.json persistence, backward compatibility when omitted, schema rejection of empty strings)
-    │   ├── start-path-parity.test.ts  # startPipeline vs beginWork parity: same isError and persisted rework_counts across prerequisite, auto-cancelled and rework-limit scenarios
+    │   ├── start-path-parity.test.ts  # startPipeline vs beginWork parity: both tools route through the shared applyPipelineStart() helper; same isError and persisted rework_counts across prerequisite, auto-cancelled, rework-limit and duplicate-outside-active-stages scenarios, exercised through each tool's own entry point (not the helper directly — see pipeline-start.test.ts for that)
     │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
     │   ├── update-pipeline-stages.test.ts  # Unit/guard tests for ledger_update_pipeline_stages: full 7-guard-and-response surface — PM-only, structural/fail-route validation (empty, unknown, duplicate, out-of-order, fail-route-gap lists), CANCELLED/COMPLETE/IN_PROGRESS-pipeline rejections, executed-stage removal rejection, never-run-stage removal + assigned_to clearing (owned vs. not-owned), guard-ordering proofs (role-before-validation, validation-before-CANCELLED, COMPLETE-before-removal), audit comment, warning passthrough, and rework-limit-at-MAX_REWORK_COUNT next-step surfacing
@@ -286,6 +290,8 @@ mcp-server/
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
+        ├── pm-role-guard.test.ts  # Pins requirePmRole()'s contract: null for exact 'Project Manager'; standard { isError: true, content: [{type:'text', text:'Error: ${toolName} is a PM-only tool. You are: ${agentRole}'}] } rejection for any other value (incl. the deliberate 'Project Manager Agent' asymmetry); no production code change
+        ├── pipeline-start.test.ts  # Unit tests for applyPipelineStart() called directly against in-memory WorkPackageDetail/RootIndex fixtures (no LedgerStore): role rejection + PM-override, non-IN_PROGRESS rejection, inactive-stage rejection, duplicate-IN_PROGRESS rejection, missing/non-PASS prerequisite, auto_cancelled prerequisite ignored, revalidation rejection, direct/downstream rework increments, circuit-breaker trip ({ kind: 'tripped' }, counter persisted, no pipeline appended) and stored-at-MAX throw, and the success path (pipeline appended, assigned_to on both WP detail and root summary, root.last_updated stamped)
         ├── project-resolver.test.ts
         ├── pipeline-maps.test.ts
         ├── progress.test.ts

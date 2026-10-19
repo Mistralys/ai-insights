@@ -171,7 +171,7 @@ Imports a completed standalone developer plan execution into the project ledger.
 }
 ```
 
-**Implementation:** `src/tools/standalone-import.ts` — registered via `standaloneImportTools.register(server)` in `src/index.ts`.
+**Implementation:** `src/tools/standalone-import.ts` — registered via the `standalone-import` entry in `TOOL_MODULES` (`src/tools/registry.ts`), invoked by `registerAllTools(server)` in `src/index.ts`.
 
 ---
 
@@ -211,7 +211,7 @@ Updates the `outcome_summary` and archived `synthesis.md` for a project the ledg
 }
 ```
 
-**Implementation:** `src/tools/standalone-import.ts` — registered via `standaloneImportTools.register(server)` in `src/index.ts`.
+**Implementation:** `src/tools/standalone-import.ts` — registered via the `standalone-import` entry in `TOOL_MODULES` (`src/tools/registry.ts`), invoked by `registerAllTools(server)` in `src/index.ts`.
 
 ---
 
@@ -447,7 +447,7 @@ The `agent` field is required because the server checks which persona is attempt
 
 **Other statuses (`COMPLETE`, `BLOCKED`, etc.):** Rejected with a descriptive error.
 
-**Pipeline start phase:** Applies the same pipeline ordering, duplicate IN_PROGRESS rejection, rework detection, circuit breaker (including the persisted trip: a refused start whose increment reaches the maximum still persists the counter and the claim, with no pipeline appended), revalidation guard, and `agent_role` ownership validation as `ledger_start_pipeline`. The prerequisite lookup excludes `auto_cancelled` pipelines, exactly as `ledger_start_pipeline` does (§21.27). A `[PM Override]` marker is added when `agent_role: 'Project Manager'`.
+**Pipeline start phase:** Calls the same shared `applyPipelineStart()` helper (`src/utils/pipeline-start.ts`) as `ledger_start_pipeline` — pipeline ordering, duplicate IN_PROGRESS rejection, rework detection, circuit breaker (including the persisted trip: a refused start whose increment reaches the maximum still persists the counter and the claim, with no pipeline appended), revalidation guard, and `agent_role` ownership validation are no longer two drifted copies. The prerequisite lookup excludes `auto_cancelled` pipelines (§21.27). A `[PM Override]` marker is added when `agent_role: 'Project Manager'`.
 
 **Response:** Same shape as `ledger_start_pipeline` (updated WP detail + pipelines) with an additional `claimed: boolean` field.
 
@@ -466,6 +466,8 @@ The `agent` field is required because the server checks which persona is attempt
 Starts a new pipeline for a work package. The `type` field is validated by `PipelineTypeEnum` (a Zod enum derived from `PIPELINE_TYPES`) — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
 
 **`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type and adds a `[PM Override]` marker to the pipeline summary.
+
+**Shared guard implementation:** The ordering, duplicate, rework-detection, circuit-breaker and revalidation guards below (everything except the top-level handler's own `resolveProjectPath()` / `LedgerStore` setup and `isPmOverride` pipeline-summary tagging) live in a single function, `applyPipelineStart()` (`src/utils/pipeline-start.ts`), called from inside this tool's `updateWorkPackageWithSync` updater. `ledger_begin_work` calls the same function from its own updater — see its entry above.
 
 **Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order (legacy 4-stage default). Dynamic ordering via per-WP `active_pipeline_stages` is supported. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
 
@@ -705,7 +707,7 @@ Lightweight health check — verifies MCP server reachability and detects stale 
 
 **Stale detection:** Compares `SERVER_VERSION` (captured at module load / process startup) against `readPackageVersion()` (re-reads `package.json` from disk on each call). If they differ, the dist was rebuilt but the process was not restarted. When `readPackageVersion()` throws (e.g., `package.json` momentarily absent during a rebuild), `stale` is `null` and `stale_detail` explains the I/O failure — the error is never propagated as an opaque MCP error.
 
-**Implementation:** `src/tools/ping.ts` — registered via `pingTools.register(server)` in `src/index.ts`.
+**Implementation:** `src/tools/ping.ts` — registered via the `ping` entry in `TOOL_MODULES` (`src/tools/registry.ts`), invoked by `registerAllTools(server)` in `src/index.ts`.
 
 ---
 
@@ -724,6 +726,13 @@ Returns usage documentation, examples, and required parameters for all ledger to
 - **Unknown `tool_name`** — returns a list of all available tool names.
 
 Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The tool is stateless and has no side effects.
+
+**Completeness guarantee:** `tests/tools/help-content-coverage.test.ts` derives the full registered
+tool-name list from `registerAllTools()`/`TOOL_MODULES` (`src/tools/registry.ts`) at test time and
+fails the build if any registered tool other than `ledger_help` itself is missing a `TOOL_HELP`
+entry or an overview-table row, or if a `TOOL_HELP` key names no registered tool. This replaced a
+review-time habit (reviewers flagged the same four missing entries across several review cycles)
+with a structural guarantee that holds for every future tool addition.
 
 ---
 
@@ -782,7 +791,7 @@ In single-store / legacy mode (no `stores.json`), `isMultiStore` is `false` and 
 
 **Insight sourcing:** When `include_insights` is `true` (default), up to 20 global insights and all repository-scoped insights for `repository_name` are fetched in parallel and merged into `relevant_insights[]`. The result is deduplicated by `id` (global insights take precedence; first-seen wins), so an insight that appears in both stores is returned exactly once, with the global copy preserved. Two helper functions handle repository-scoped lookup with the same error-handling contract: `safeListRepositoryInsights()` (single-store, legacy mode) and `safeListAllStoreRepositoryInsights()` (multi-store mode, WP-008). Both helpers suppress slug-validation errors (invalid `SLUG_REGEX` names and the reserved name `"global"`) and return `[]` for those cases; genuine I/O errors (e.g. `EACCES`, `EIO`) are **re-thrown** so they surface as tool errors rather than silently returning an empty result. Any future helper of this type must preserve both invariants.
 
-**Implementation:** `src/tools/repository-context.ts` — registered via `repositoryContextTools.register(server)` in `src/index.ts`.
+**Implementation:** `src/tools/repository-context.ts` — registered via the `repository-context` entry in `TOOL_MODULES` (`src/tools/registry.ts`), invoked by `registerAllTools(server)` in `src/index.ts`.
 
 ---
 
@@ -4314,6 +4323,33 @@ export const _internal: {
 export function register(server: McpServer): void;
 ```
 
+### `src/utils/pipeline-start.ts` — shared pipeline-start guard chain
+
+```typescript
+export interface PipelineStartRequest {
+  wp: WorkPackageDetail;   // mutated in place on success/trip
+  root: RootIndex;         // mutated in place on success/trip
+  workPackageId: string;   // used verbatim in error messages
+  type: PipelineType;
+  agentRole: string;       // 'Project Manager' triggers PM Override
+}
+
+export type PipelineStartOutcome =
+  | { kind: 'started' }
+  | { kind: 'tripped'; message: string };
+
+// Applies the full pipeline-start guard chain (role/PM-override, IN_PROGRESS
+// status, active-stage membership, duplicate IN_PROGRESS, prerequisite +
+// revalidation, rework-count increment, circuit breaker) to request.wp /
+// request.root in place. Throws Error for any rejected guard (the caller's
+// enclosing updateWorkPackageWithSync aborts the write, so nothing is
+// persisted). On success, appends the new pipeline and updates assigned_to
+// on both the WP detail and its root-index summary row.
+export function applyPipelineStart(request: PipelineStartRequest): PipelineStartOutcome;
+```
+
+**Single source of truth for both start paths:** `startPipeline()` (`src/tools/pipeline.ts`, backing `ledger_start_pipeline`) and `beginWork()` (`src/tools/begin-work.ts`, backing `ledger_begin_work`) both call `applyPipelineStart()` from inside their own `updateWorkPackageWithSync` updater callback — replacing two previously hand-maintained ~90-line copies of the guard chain that had already drifted in guard order (duplicate-check vs. active-stage-check). `tests/utils/pipeline-start.test.ts` unit-tests the function directly; `tests/tools/start-path-parity.test.ts` exercises the end-to-end composition through both tools.
+
 ### `src/tools/pipeline.ts` — routing constants
 
 ```typescript
@@ -7098,4 +7134,36 @@ Each tool module exports:
 function register(server: McpServer): void;
 ```
 
-These are called in `src/index.ts` to register all tools on the server instance.
+### `src/tools/registry.ts` — derived tool registry
+
+```typescript
+export interface ToolModule {
+  // Identifier for diagnostics and duplicate-module detection.
+  id: string;
+  // Registers this module's tools against the given server.
+  register: (server: McpServer) => void;
+}
+
+// The full, ordered set of tool modules registered by the MCP server at
+// startup — the single source of truth for which modules contribute tools.
+// Frozen via Object.freeze. 12 entries, one per tool module (today: the 11
+// modules previously imported individually in src/index.ts, plus ping and
+// standalone-import, which registerAllTools() now covers the same way).
+export const TOOL_MODULES: readonly ToolModule[];
+
+// Registers every tool module's tools against `server`, recording each
+// registered tool name in registration order as it forwards the call
+// through to the real server.registerTool(name, config, handler) — no
+// dependency on MCP SDK internals. Defaults `modules` to TOOL_MODULES;
+// tests pass a synthetic subset to exercise ordering and duplicate
+// detection in isolation. Throws `Duplicate tool registration: <name>` if
+// the same tool name is registered twice.
+export function registerAllTools(
+  server: McpServer,
+  modules?: readonly ToolModule[]
+): string[];
+```
+
+**Startup wiring in `src/index.ts`:** `const registeredToolNames = registerAllTools(server);` replaces the former sequence of 12 individual `fooTools.register(server)` calls. The `[project-ledger-mcp] Registered tools: …` startup log line is built from `registeredToolNames.join(', ')` — there is no separate hand-maintained tool-name literal to keep in sync.
+
+**Test coverage:** `tests/tools/registry.test.ts` proves forwarding (the real `registerTool` is called with the original arguments and its result is returned), registration-order preservation, duplicate-name detection, and `TOOL_MODULES`'s frozen/unique-id invariants. `tests/startup/tool-log-sync.test.ts` and `tests/tools/schema-integrity.test.ts` both derive their expected tool sets from `registerAllTools()` rather than maintaining their own copies — see their entries in `file-tree.md`.

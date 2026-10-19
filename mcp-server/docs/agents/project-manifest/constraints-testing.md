@@ -168,9 +168,9 @@ const wp = makeWpDetail({ work_package_id: 'WP-001', status: 'READY' });
 
 ### Mock `McpServer` Intercept Pattern for Tool Metadata Tests
 
-**Rule:** When writing tests that need to inspect tool metadata (input schema shape, parameter constraints, tool descriptions) without spinning up a real MCP server, use the mock `McpServer` intercept pattern: create a plain object with a `registerTool` method that captures schemas into a `Map`, cast it `as unknown as McpServer`, and call each tool module's `register()` function with it in `beforeAll`.
+**Rule:** When writing tests that need to inspect tool metadata (input schema shape, parameter constraints, tool descriptions) without spinning up a real MCP server, use the mock `McpServer` intercept pattern: create a plain object with a `registerTool` method that captures schemas into a `Map`, cast it `as unknown as McpServer`, and call `registerAllTools()` (`src/tools/registry.ts`) with it in `beforeAll` — not each tool module's `register()` individually.
 
-**Rationale:** This pattern exercises the exact production registration path — same `register()` call, same `inputSchema` reference — without a network socket or real server lifecycle. It is safe with `beforeAll` because `register()` calls are synchronous.
+**Rationale:** This pattern exercises the exact production registration path — same `registerTool` calls, same `inputSchema` references — without a network socket or real server lifecycle. It is safe with `beforeAll` because registration is synchronous. Deriving the module list from the registry, rather than importing each tool module by hand, means a new module added to `TOOL_MODULES` is covered automatically.
 
 **Correct pattern:**
 
@@ -179,7 +179,7 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { register as registerPipeline } from '../../src/tools/pipeline.js';
+import { registerAllTools } from '../../src/tools/registry.js';
 
 const capturedSchemas = new Map<string, z.ZodTypeAny>();
 
@@ -194,7 +194,7 @@ const mockServer = {
 } as unknown as McpServer;
 
 beforeAll(() => {
-  registerPipeline(mockServer);
+  registerAllTools(mockServer);
 });
 
 describe('pipeline schemas', () => {
@@ -205,6 +205,8 @@ describe('pipeline schemas', () => {
   });
 });
 ```
+
+**Zero-parameter allowlist:** A tool that legitimately takes no parameters (e.g. `ledger_ping`) is exempt from the "non-empty properties" assertion via a named `ZERO_PARAMETER_TOOLS: ReadonlySet<string>` allowlist, checked per tool name before asserting. Add a tool to this set only when it genuinely has no parameters — it is a deliberate exception list, not a place to silence a failing assertion.
 
 **When to use:** Any test that needs to verify tool schema shape, description content, or parameter constraints without full server lifecycle overhead. See `tests/tools/schema-integrity.test.ts` for the canonical usage.
 
