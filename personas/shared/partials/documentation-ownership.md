@@ -37,7 +37,7 @@ Use the `task` tool with `subagent_type` set to the owning agent's slug, passing
 
 Read what the agent returns before you continue. A delegation is reviewed, never passed through.
 
-**When a caller passes a plan.** An orchestrating agent may hand you the plan for a wider change: each document, its owner, and whether that owner has run yet. A document whose owner is still to come is already settled, and so is one the plan marks skipped: the caller has decided it. You leave either to the plan and name your finding for it in your report, so the caller can add it to that owner's share. Every other finding follows the size rule above, including a dispatch to an agent the plan never mentions.
+**When a caller passes a plan.** An orchestrating agent may hand you the plan for a wider change: each document, its owner, and whether that owner has run yet. A document whose owner is still to come is already settled, and so is one the plan marks skipped: the caller has decided it. You leave either to the plan and name your finding for it in your report, so the caller can add it to that owner's share. Every other finding follows the size rule above, including a dispatch to an agent the plan never mentions. The plan may come as a file your prompt names instead of in the prompt itself. Read that file again before each dispatch, and follow the instructions written at its top.
 
 **Constraints**
 

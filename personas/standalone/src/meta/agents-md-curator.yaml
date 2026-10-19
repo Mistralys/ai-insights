@@ -5,6 +5,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.5.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   2.4.0 (2026-10-16): A manifest gap goes into the report instead of a dispatch when a caller's plan still has the Manifest Curator to come; shared documentation-ownership partial honours a caller's plan; a stage the plan marks skipped counts as already decided
   2.3.0 (2026-10-16): Routes to the manifest's generated-artefacts.md where one exists — a document-list row, a Manifest Maintenance row, and an appended Generated Artefacts section of MUST rows; the file never lists generated paths or commands, which stay manifest facts; Create and Update check whether the manifest carries the document, and an absence next to tracked generated files joins the gap list
   2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
