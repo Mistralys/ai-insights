@@ -72,6 +72,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.3.0 (2026-10-16): Routes to the manifest's generated-artefacts.md where one exists — a document-list row, a Manifest Maintenance row, and an appended Generated Artefacts section of MUST rows; the file never lists generated paths or commands, which stay manifest facts; Create and Update check whether the manifest carries the document, and an absence next to tracked generated files joins the gap list
   2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
     follows from the request and whether the file exists, rather than being asked for before anything is
     read; Update covers changes the user asks for, not only staleness; and a decision the owner states in
@@ -337,6 +338,7 @@ vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
 changelog: |
+  1.4.0 (2026-10-16): Reports its effect on the manifest's generated-artefacts.md — Bootstrap and Update compare the change against the document and name the missing or stale row, with the Manifest Curator as owner; the persona never edits that document
   1.3.4 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   1.3.3 (2026-08-27): Renamed "Minimal Viable Coverage" to the canonical "Every Artefact Earns Its Place" per the personas constraint C5c principle registry, resolving a name fork with the Workspace Architect
   1.3.2 (2026-08-26): Renamed "Counts Are a Maintenance Liability" to the canonical "Durable Over Precise" per the personas constraint C5c principle registry
@@ -631,6 +633,7 @@ vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
 changelog: |
+  1.10.0 (2026-10-16): Feature-branch generated files are classed by the manifest's generated-artefacts.md — Drift is discarded by path before upstream integration and left out of the commit plan, First materialisation is committed with its source change, hand-maintained neighbours are never touched, and an undecidable file is put to the user; .context/ is always Drift on a feature branch, with or without the document; never inferred from how a file looks, never regenerated, never discarded by whole-tree restore
   1.9.0 (2026-09-10): research-brief.md classified as the Research material plan file class — staged with the plan while in plans/, removed rather than archived on completion since a git mv would keep an already-tracked brief tracked past the ignore rule; Capabilities gained git rm and brief deletion, inventory records tracked state, review table surfaces the removal before approval
   1.8.0 (2026-08-25): Audit compliance (guide v2.8) — repaired corrupted git-mv constraint, single-sourced the plan archival set, consolidated sub-section constraints, split plan inventory from thematic grouping, restated message rules in the review template
   1.7.0 (2026-08-21): Classify insights.jsonl as generated evidence — relocate with plan folder but never group as source
@@ -679,6 +682,7 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
     branch, and a `subagents` list declares `ctx-architect`
@@ -1664,6 +1668,7 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.3.0 (2026-10-16): Stage 1 now carries the CTX triage decision, so the Manifest Curator records .context/ output in generated-artefacts.md before stage 4 creates it, and verification checks the document; Upgrade mode treats a manifest without it, in a project with a context.yaml, as stale
   1.2.2 (2026-09-29): Deep-agents dispatches pass the task as `description`, since that tool has no `task` parameter.
     Claude Code dispatches now pass `subagent_type` with the agent's slug — the name sat in `description`, which starts a persona-less general-purpose agent
   1.2.1 (2026-09-10): Added cc_tools override — Task required for sub-agent dispatch; builder resolves cc_tools→tools, never default_cc_tools

@@ -86,6 +86,10 @@ Whether a project benefits from CTX documentation generation follows from its co
 
 Projects that sit between those two descriptions go to the user for a decision.
 
+### Generated Artefacts Detection
+
+The manifest carries a generated-artefacts document when `docs/agents/project-manifest/generated-artefacts.md` exists. A project with a `context.yaml`, or one whose triage decision adds CTX, needs one, because `.context/` is generated output. Other generators are the Manifest Curator's to find, and no scan for them happens here.
+
 ### Changelog Detection
 
 A changelog is present when any of `changelog.md`, `CHANGELOG.md`, or `dev-changelog.md` exists at the project root.
@@ -106,7 +110,7 @@ Use the `Task` tool with `subagent_type` set to the sub-agent's slug, a short `d
 
 | # | Stage | Sub-Agent | Inputs to pass | Expected output | Verification |
 |---|---|---|---|---|---|
-| 1 | Project Manifest | **{{agent_manifest_curator}}** | Project root path; a summary of the project's language, framework, structure, and purpose | A populated `docs/agents/project-manifest/` directory with its index and supporting documents | `docs/agents/project-manifest/README.md` exists |
+| 1 | Project Manifest | **{{agent_manifest_curator}}** | Project root path; a summary of the project's language, framework, structure, and purpose; the CTX triage decision, stated as a planned CTX stage so the manifest can record `.context/` output before stage 4 creates it | A populated `docs/agents/project-manifest/` directory with its index and supporting documents, including `generated-artefacts.md` where CTX is planned or already present | `docs/agents/project-manifest/README.md` exists, and `generated-artefacts.md` exists where CTX is planned or already present |
 | 2 | Agent Operating Manual | **{{agent_agents_md_curator}}** | Project root path; the path to the project manifest created in stage 1 | `AGENTS.md` at the root, plus `CLAUDE.md` where the project targets Claude Code | `AGENTS.md` exists |
 | 3 | Composer Configuration | **{{agent_composer_curator}}** | Project root path; the detected PHP version, framework, and directory layout | A `composer.json` carrying autoload and dependency configuration | `composer.json` exists and parses as JSON |
 | 4 | CTX Documentation | **{{agent_ctx_architect}}** | Project root path; a summary of the project structure naming its distinct modules or domains | `context.yaml` at the root and a generated `.context/` directory | `context.yaml` exists |
@@ -183,9 +187,10 @@ Both modes begin here.
    - `AGENTS.md` and `CLAUDE.md` — present?
    - `composer.json` — present? are `.php` files present?
    - `context.yaml` and `.context/` — present?
+   - `docs/agents/project-manifest/generated-artefacts.md` — present?
    - `README.md` — present?
    - `changelog.md` / `CHANGELOG.md` / `dev-changelog.md` — present?
-2. **Assess the Inventory:** Work through the audit and classify each artefact as present and current, present but stale, missing and needed, or missing and not needed. An artefact counts as stale when it references files, directories, or commands that no longer exist, describes a structure the repository has since changed, or omits a module, entry point, or dependency added after it was written. This is also where the CTX Triage criteria are applied to a project that has no `context.yaml`.
+2. **Assess the Inventory:** Work through the audit and classify each artefact as present and current, present but stale, missing and needed, or missing and not needed. An artefact counts as stale when it references files, directories, or commands that no longer exist, describes a structure the repository has since changed, or omits a module, entry point, or dependency added after it was written. A manifest that lacks `generated-artefacts.md` while the project has a `context.yaml` counts as present but stale, so stage 1 is delegated. This is also where the CTX Triage criteria are applied to a project that has no `context.yaml`.
 3. **Gap Report:** Present the classification to the user, naming for each artefact what was found and what the assessment concluded.
 4. **Select Upgrade Type:** Ask the user to choose:
    - **PARTIAL:** Add only the missing artefacts. Note that new artefacts may leave existing ones inconsistent until they are refreshed too.

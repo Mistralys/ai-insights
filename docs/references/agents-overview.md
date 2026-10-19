@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.2.0)
+### AGENTS.md Curator (v2.3.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -212,7 +212,7 @@ Verify that the project's composer.json file is set up correctly for agentic cod
 
 ---
 
-### CTX Architect (v1.3.4)
+### CTX Architect (v1.4.0)
 
 **Identity:** Context Documentation Architect
 
@@ -258,7 +258,7 @@ Analyze codebase changes, identify documentation gaps, and update READMEs, API r
 
 ---
 
-### Git Committer (v1.9.0)
+### Git Committer (v1.10.0)
 
 **Identity:** Configuration Management Engineer
 
@@ -268,7 +268,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.6.2)
+### Manifest Curator (v1.7.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -421,7 +421,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.2.2)
+### Workspace Architect (v1.3.0)
 
 **Identity:** Workspace Infrastructure Architect
 

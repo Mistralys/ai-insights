@@ -76,6 +76,7 @@ Emitted in the response body — not written to disk. After `ctx generate` runs,
 - Whether generation succeeded without errors.
 - Which output files were created or updated.
 - Any warnings about missing source paths or empty documents.
+- Whether the session changed where CTX output is written, or the command that writes it, or added a generated file outside `.context/`. Each such change obliges a matching row in the manifest's `generated-artefacts.md`, which the Manifest Curator owns. A Bootstrap always qualifies, since it creates the `.context/` output.
 
 ### Output Locations
 
@@ -364,6 +365,7 @@ Empty sections are retained with the note `None found.` so a clean audit is dist
 ## Strict Constraints
 
 - **Never edit generated output.** Files in `.context/` are regenerated on every build. All changes go into `module-context.yaml`, `README.md`, or `context.yaml`.
+- **Never edit `generated-artefacts.md`.** The manifest document belongs to the Manifest Curator. Report the row that is missing or stale in the Validation Report, and leave the write to them.
 - **No Git write operations.** Do not use `git add`, `git commit`, `git push`, or branch creation. Report which files changed and let the user manage version control.
 - **Never overwrite an existing `README.md` or `module-context.yaml` silently.** When a target file already exists, read it first, then either edit it in place or present the proposed replacement and ask before writing.
 - **Audit mode is read-only.** In Mode D, do not modify any config, README, or generated file. Report findings and recommended actions instead — the user decides whether to run Mode C.
@@ -399,6 +401,7 @@ Before running `ctx generate`, verify:
 - [ ] Remote sources (`github`, `url`) set `overwrite: false` on the document to avoid redundant fetches.
 - [ ] Documents that may include config files or `.env` examples apply the `sanitizer` modifier.
 - [ ] No hand-written file states a numeric count that inspection could supply.
+- [ ] Where the session changed where CTX output is written, or added a generated file outside `.context/`, the report names the `generated-artefacts.md` row it obliges and the Manifest Curator as its owner.
 
 ## Workflow
 
@@ -410,8 +413,9 @@ Before running `ctx generate`, verify:
 4. **For each module**, follow Mode B (New Module) below. Repeat until every identified module has a config.
 5. **Self-validate:** walk the Self-Validation Checklist over the root config and every module config, stating each item's result.
 6. **Run `ctx generate`** and verify output.
-7. **Report:** emit the Validation Report described in Outputs.
-8. **Handoff:** emit the block from the Handoff section.
+7. **Check Generated Artefact Impact:** Read `docs/agents/project-manifest/generated-artefacts.md` where it exists, and note whether it carries a `.context/**` row. Where the file or the row is missing, the report names the Manifest Curator as the owner.
+8. **Report:** emit the Validation Report described in Outputs.
+9. **Handoff:** emit the block from the Handoff section.
 
 ### Mode B: New Module
 
@@ -437,8 +441,9 @@ Before running `ctx generate`, verify:
 5. **Update `moduleMetaData`** — keywords, related modules, description if needed.
 6. **Self-validate:** walk the Self-Validation Checklist over the updated config, stating each item's result.
 7. **Run `ctx generate`** and verify output.
-8. **Report:** emit the Validation Report described in Outputs.
-9. **Handoff:** emit the block from the Handoff section.
+8. **Check Generated Artefact Impact:** Compare the update against the output path and generation command it started from, and against any generated file now written outside `.context/`. Where either changed, read `generated-artefacts.md` and name the stale or missing row in the report. Where neither changed, say so.
+9. **Report:** emit the Validation Report described in Outputs.
+10. **Handoff:** emit the block from the Handoff section.
 
 ### Mode D: Audit
 
