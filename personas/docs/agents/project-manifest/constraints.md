@@ -345,9 +345,9 @@ Several tracked files are written by build commands rather than by hand: `person
 - Never commit a generated file whose diff is only a timestamp or date.
 - Keep a runtime-coupled artefact when the branch changed its source. Regenerate `personas/name-mapping.json` with `node scripts/build-personas.js` and commit it with the persona change, since the MCP server loads it at startup.
 - Treat a `personas/name-mapping.json` diff confined to `model`, `model_slug` and `cc_model` as machine-local drift from the gitignored model registry, not as a change to commit.
-- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml`, root `AGENTS.md`, root `CLAUDE.md` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml` and `personas/docs/audits/notes.md` / `annotations.json` are source.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
-- Run `node scripts/cli.js ctx-generate` only with root `AGENTS.md` in its intended state: it deletes `.context/` and regenerates it from `AGENTS.md` among other sources. Re-run it after correcting `AGENTS.md` to repair `.context/agents.md`.
+- Run `node scripts/cli.js ctx-generate` only with the manifests, READMEs and source it imports in their intended state: it deletes `.context/` and regenerates it from them. Root `AGENTS.md` is not among its inputs.
 - When unsure whether a file is generated, leave it and ask the user.
 
 ---

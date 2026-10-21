@@ -14,6 +14,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ### 2026-10-19 · Update · Curator v1.8.0
 
+**Scope:** Narrow, by instruction: mentions of root `AGENTS.md` and root `CLAUDE.md` as hand-maintained neighbours. Touched `generated-artefacts.md` (Hand-maintained Neighbours) and `constraints.md` (Generated Artefacts). Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** Root-level files are recorded only by the workspace hub manifest, so the two root-file rows were removed from the Hand-maintained Neighbours table and both files were dropped from the "Never revert a hand-maintained neighbour" bullet. The `ctx-generate` bullet stays. The rest of the personas manifest was searched; remaining hits are the AGENTS.md Curator persona and cross-references to the root manual, which are not neighbour claims.
+**Notes:** The working tree held uncommitted changes, so the scan read 1ced4e17 plus that working tree. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. The earlier 2026-10-19 entry above describes the now-removed `CLAUDE.md` neighbour row; it is a dated record and stays as written.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
 **Scope:** Narrow, by instruction: root `CLAUDE.md` no longer described as generated (`generated-artefacts.md`, `constraints.md`, `README.md`), the `api-surface.md` Sync Script section, and one pointer in `file-tree.md`. Not a full reconcile.
 **Commit:** 1ced4e17
 **Changes:**

@@ -14,6 +14,27 @@ This log covers the workspace hub manifest (`docs/agents/project-manifest/`) onl
 
 ## History
 
+### 2026-10-21 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the "Root `AGENTS.md` and root `CLAUDE.md`" row of `generated-artefacts.md`, plus a search of the hub manifest for other pointers to a removed Known Contradictions entry about `CLAUDE.md`. Not a full reconcile.
+**Commit:** 6e94b106
+**Changes:** Dropped the dangling "(see *Known Contradictions*)" from that row. No other hub manifest document points to a Known Contradictions entry about `CLAUDE.md`.
+**Notes:** The working tree held uncommitted changes, so the scan read 6e94b106 plus that working tree. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the Known Contradictions section of `generated-artefacts.md`. Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** Removed the bullet saying the personas manifest still lists root `CLAUDE.md` as generated; that was already corrected there. The section keeps its remaining bullet. The "Root `AGENTS.md` and root `CLAUDE.md`" row is unchanged and remains the record for both root files.
+**Notes:** The working tree held uncommitted changes, so the scan read 1ced4e17 plus that working tree. Other checks were not run, by the brief's scope. That row still ends with "(see *Known Contradictions*)", which no longer holds an entry for `CLAUDE.md`; left as instructed.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the end state in which `AGENTS.md` is no longer imported into the generated `.context/` bundle. Touched `generated-artefacts.md` only; `README.md`, `root-tooling.md` and `cross-system-dependencies.md` were searched for statements that `.context/` mirrors or imports `AGENTS.md`. Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** In `generated-artefacts.md`, the `.context/**` row's unsafe-to-discard text no longer lists `AGENTS.md` among the changes a `.context/` diff can reflect, and the "Root `AGENTS.md` and root `CLAUDE.md`" row now states that `.context/agents.md` is no longer generated and the root `context.yaml` does not import `AGENTS.md`. The other three documents held no such statement.
+**Notes:** The working tree held uncommitted changes, so the scan read 1ced4e17 plus that working tree. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. The root `context.yaml` and root `AGENTS.md` had not yet been changed when this pass ran (later stages of the session), so the end state was written from the brief, not verified against those files.
+
 ### 2026-10-19 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: one wording defect in the hub `README.md` Navigation table. Not a full reconcile, and it does not certify the rest of the hub as verified. The README was searched for other hard-coded "9-stage" / "9-agent" / "nine" wording.

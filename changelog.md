@@ -22,6 +22,7 @@ launch with permission prompts skipped.
 - MCP: Fixed synthesis refresh clearing a stored summary it could not replace.
 - GUI: Persona model settings flag obsolete assignments and offer to remove them.
 - Build: Persona build runs every check and verifies sub-agent dispatch on all targets.
+- Build: Generated context bundle no longer duplicates `AGENTS.md`; related docs corrected.
 - Dependencies: Updated JS and Python packages to clear known security advisories.
 
 ## v2.14.1 - CLI Claude Resume

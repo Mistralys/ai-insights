@@ -173,7 +173,6 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | Path | Contents |
 |------|----------|
 | `.context/README.md` | Workspace overview (mirrors root `README.md`) |
-| `.context/agents.md` | Root `AGENTS.md` content |
 | `.context/workspace-structure.md` | Top-level directory tree (depth 3) |
 | `.context/scripts.md` | All workspace scripts source |
 | `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
