@@ -421,7 +421,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.6.0)
+### Workspace Architect (v1.7.0)
 
 **Identity:** Workspace Infrastructure Architect
 
