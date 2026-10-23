@@ -21,7 +21,6 @@ _SOURCE: Project manifest (tech stack, constraints, API surface, data flows, fil
                 └── curation-log.md
                 └── data-flows.md
                 └── file-tree.md
-                └── generated-artefacts.md
                 └── tech-stack.md
                 └── variables.md
 
@@ -64,7 +63,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
-| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
+| [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) | Hub document, shared with the whole repository: tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---
@@ -1279,7 +1278,7 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
    |---|---|---|
    | Shared rule | `personas/shared/partials/documentation-ownership.md` → the **When a caller passes a plan** paragraph and the constraint "Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped". Included by the Documentation Curator, README Curator and AGENTS.md Curator (see the [Shared Partials](api-surface.md#shared-partials-personassharedpartials) row). | A document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided: it is left to the plan and the finding is reported to the caller. Dispatches to agents outside the plan stay allowed. A plan passed as a file is re-read before each dispatch, and its header's instructions are followed. |
    | Inline deferrals | **Manifest Curator:** step 13 (*Delegate CTX Context Update*) in Mode: Create and Mode: Update, and the matching skip rule in *CTX Context Delegation* → Constraints. **AGENTS.md Curator:** the "a gap always dispatches" rule in *The Manifest Boundary* → *Sourcing a Fact*. **Documentation Curator:** the CTX Architect and Manifest Curator delegation steps in Mode: Update and Mode: Create; in Create mode, an outline the caller passes as already approved by the user replaces the outline hold (step 4 and the *Approval before creating or reorganizing* rule). | Each numbered dispatch step names "no caller's plan has the owner still to come or skipped" as its own condition. |
-   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the *Plan File* sub-section with its template, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the plan-file constraints; the *Open the Plan File* and *Close the Plan File* steps in each mode workflow. | The session plan lives in `.ledger/workspace-architect-plan.md` under the target project's root for the length of one session. Every dispatch names that file rather than pasting the plan, plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. The Architect keeps the stage table (still to come, done, skipped); agents at any depth append dispatches and findings to its Log, which feeds the summary's **Nested Dispatches** line and the next stage's inputs. |
+   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the *Plan File* sub-section with its template, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the plan-file constraints; the *Open the Plan File* and *Close the Plan File* steps in each mode workflow. *Amend Routing* (the authority-or-summary paragraph and stage 7) and *Amend Dispatch* with its findings table and constraints; the *Stage 7 — Other Owners* and *Return Pass* steps in Workflow — Amend Mode. | The session plan lives in `.ledger/workspace-architect-plan.md` under the target project's root for the length of one session. Every dispatch names that file rather than pasting the plan, plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. The Architect keeps the stage table (still to come, done, skipped); agents at any depth append dispatches and findings to its Log, which feeds the summary's **Nested Dispatches** line and the next stage's inputs. An Amend dispatch's scope limit counts the owner's own record of the pass (curation-log entry, version line, dated footer) as part of the change, and Amend verification checks that record. Routing follows the changed section to the files it names as authority or summary; files outside the documentation set, such as persona sources, join as user-approved stage 7 rows dispatched after stage 6. A finding that follows from the brief and names a file whose stage has already run goes back to that owner in one return pass after the last stage, carrying the line "This is a return pass for your own file"; no owner is dispatched more than twice per session. The summary's **Return Passes** line records these, and **Follow-ups** holds only out-of-brief findings, earlier gaps, user decisions and findings a return pass produced. |
 
    - Link to the guide's Nested Delegation section for the principle. Never copy it into this entry or into a persona.
    - Change the caller's-plan rule for the partial's includers in the partial, never inline in one of them.
@@ -1472,9 +1471,9 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
 <a name="generated-artefacts"></a>
 ## Generated Artefacts
 
-Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. [Generated Artefacts](generated-artefacts.md) records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. The hub's [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) document records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
 
-- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
 - Commit `.context/` output only on `main`, as its own `CTX: Updated docs` commit. On a feature branch, treat every `.context/` change as drift.
 - Never commit a generated file whose diff is only a timestamp or date.
@@ -1551,6 +1550,27 @@ Written by the Manifest Curator only; no other agent edits this file.
 | 2026-10-16 | The practice for generated artefacts on feature branches is the one the Git Committer persona (`personas/standalone/src/content/git-committer.md`) enforces. On a feature branch, generator drift (including all `.context/` output) stays out of commits and is reverted by path before upstream integration. A generated file whose source the branch changed is committed with that change. `.context/` is committed only on the default branch `main`, as a `CTX: Updated docs` commit. Date-only diffs of generated files are never committed. `generated-artefacts.md` and `constraints.md` → Generated Artefacts summarise this and cite the Git Committer rather than restating its procedure. | Decided by the user. The Git Committer is the agent that commits and discards these files, so making its rules the project practice keeps one source of truth. Where the two disagree, the Git Committer persona wins and the manifest is corrected. |
 
 ## History
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the consolidation of the generated-artefacts documentation into the hub manifest, and the links this manifest holds to it. Not a full reconcile.
+**Commit:** 2d4220a3 (working tree held uncommitted changes, including earlier same-day manifest edits)
+**Changes:** Deleted this manifest's `generated-artefacts.md`; its content now lives in the hub's `docs/agents/project-manifest/generated-artefacts.md`, which is the single document for the repository. Repointed the `README.md` index row and the `constraints.md` → Generated Artefacts preamble and first bullet to the hub file. The `constraints.md` section is kept and remains the binding rules. History entries and Standing Decisions below name `generated-artefacts.md` as it stood when written; where they refer to a document in this directory, read the hub file. The consolidation Standing Decision is recorded in the hub's Curation Log.
+**Notes:** The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. Root `AGENTS.md` and the CTX configuration are stages still to come; findings for both are in the hub log's entry for this date.
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: Purpose and Branch Policy in `generated-artefacts.md`, to agree with the hub copy. Not a full reconcile.
+**Commit:** 2d4220a3
+**Changes:** Added a paragraph recording that a commit on a branch that is not a feature branch opens with a fresh Build & Maintain run (`node scripts/cli.js build-maintain`), and that a feature branch skips it. The paragraph states this is a project-level rule the Git Committer persona does not enforce, because the owner decided on 2026-10-23 to keep it out of that persona; the Git Committer stays the authority for the feature-branch practice only. It links to the hub copy. The command and menu label were checked against `scripts/cli.js`. The Standing Decision above is unchanged, since it covers the feature-branch practice; the new decision is recorded in the hub log.
+**Notes:** The working tree held uncommitted changes, so the scan read 2d4220a3 plus that working tree. Other checks were not run, by the brief's scope. The hub log holds the finding for root `AGENTS.md`.
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `constraints.md` → C5f (anchor `nested-delegation`), the Orchestrator row only, for the Workspace Architect v1.7.0 Amend changes. Not a full reconcile.
+**Commit:** bc2b4737
+**Changes:** The Orchestrator row now names *Amend Routing*, *Amend Dispatch* and the Amend workflow's *Stage 7 — Other Owners* and *Return Pass* steps as locations. It also records four things. The owner's own pass record is part of every Amend dispatch's scope, and Amend verification checks it. Routing follows the changed section to the files it names as authority or summary, and files outside the documentation set join as user-approved stage 7 rows. An in-brief finding for a stage that already ran goes back in one return pass, and no owner is dispatched more than twice. The summary has a **Return Passes** line, and **Follow-ups** is narrowed. Checked against `personas/standalone/src/content/workspace-architect.md` and its meta changelog. No other personas manifest document describes Amend dispatches or follow-up handling.
+**Notes:** The working tree held uncommitted changes, the v1.7.0 persona source included, so the scan read bc2b4737 plus that working tree. The reverted-decision search, changed-code intersection, generated-artefacts check and adjacent-document check were not run, because the brief limited the scope. One finding for root `AGENTS.md` (owner: AGENTS.md Curator), reported to the caller: the Personas maintenance row on caller's-plan deferral names "the Workspace Architect's *Delegation Protocol* inputs", but the Amend dispatch inputs now live in *Amend Dispatch*.
 
 ### 2026-10-19 · Update · Curator v1.8.0
 
@@ -2308,78 +2328,6 @@ scripts/
 | `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code agents dir | Deployed agent file |
 | `personas/ledger/claude-code/*.md` | `sync-personas.js` → `~/.claude/agents/` | Deployed agent file |
 
-```
-###  Path: `/personas/docs/agents/project-manifest/generated-artefacts.md`
-
-```md
-# Generated Artefacts
-
-Which files a build step in this workspace writes for the personas module, which command writes each, and when a modified copy can be discarded. The binding rules derived from this table live in [Constraints & Conventions → Generated Artefacts](constraints.md#generated-artefacts).
-
-## Purpose and Branch Policy
-
-The owner's practice is the one the [Git Committer](../../../standalone/src/content/git-committer.md) persona enforces, recorded as a Standing Decision in the [Curation Log](curation-log.md). That persona is the authority: this section summarises what it does and leaves the procedure to it. On a feature branch, generator drift is not committed. A file whose row's *Safe to discard when* condition holds stays out of the commit, and is discarded by path before an upstream integration. A file whose source the branch changed is committed with that source change. `.context/**` counts as drift on every feature branch whatever its row says, so CTX output enters version control only on the default branch (`main`), as its own `CTX: Updated docs` commit. On any branch, a generated file whose diff is only a timestamp or date is not committed.
-
-Separately, the repository itself enforces something narrower. The `.githooks/pre-commit` hook blocks a commit when `node scripts/build-personas.js --check` fails. That check renders the personas in memory and fails only on error-severity validation results; it never compares against files on disk, so it does not detect out-of-date generated files. The hook also blocks on `node scripts/check-version-sync.js` and on ruff for staged orchestrator Python. It only warns when staged source under `personas/`, `scripts/`, `shared/`, `mcp-server/src/` or `orchestrator/src/` is committed without a matching `.context/` change.
-
-## How to Read Tracked Status
-
-`git ls-files <path>` decides whether a file is tracked. An entry in `.gitignore` proves nothing on its own, because a file committed before its ignore entry stays tracked.
-
-## Tracked Generated Artefacts
-
-### Runtime-coupled
-
-Committed code reads these files, so a stale copy changes behaviour, not just documentation.
-
-| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
-|---|---|---|---|---|
-| `personas/name-mapping.json` | `node scripts/build-personas.js` (real builds only; skipped under `--check` / `--dry-run`), also run by `node scripts/cli.js build-maintain`. Written by `scripts/lib/name-mapping.js`. | Persona YAML in all three suites' `src/meta/` (naming fields, `changelog` versions, `model_slug`) and the model registry in `personas/model-registry/` (see *Known Contradictions*). Loaded at module-load time by `mcp-server/src/utils/constants.ts` (`AGENT_NAMES`). | The diff is limited to the `model`, `model_slug` and `cc_model` fields and the branch changed no model assignment the user asked for — that is machine-local registry drift. | The branch changed a persona's naming fields, version or changelog, or added, renamed or removed a persona. The diff is then the first materialisation of that change and the MCP server's agent names depend on it. |
-
-### Documentation-style
-
-| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
-|---|---|---|---|---|
-| `.context/**` | `node scripts/cli.js ctx-generate`, also the last step of `node scripts/cli.js build-maintain`. The command deletes `.context/` whole, runs `ctx generate`, then `scripts/normalize-ctx-paths.js`, then writes `.context/generated-at.txt`. | Root `context.yaml` and every `**/module-context.yaml` (for this module, `personas/module-context.yaml`), which import manifests, READMEs, source and directory trees. | On a feature branch: always, whatever the diff shows. All of `.context/` is drift there (see *Purpose and Branch Policy*). On `main`: the diff is limited to `.context/generated-at.txt`, or a file's diff reflects no source or manifest change. Judge per file, never per folder. | Only on `main`: a file's diff reflects a manifest, README or source change — including this manifest's own documents, which `.context/personas/manifest.md` and siblings import. That file belongs in the `CTX: Updated docs` commit. On a feature branch this condition never applies. |
-| `docs/references/agents-overview.md` | `node scripts/generate-agents-overview.js` (`node scripts/cli.js generate-overview`), also run by `build-maintain`. Supports `--check`, which ignores the `> **Generated:**` date line. | Persona YAML metadata in all three suites, plus the header template `scripts/templates/agents-overview-header.md`. | The diff is limited to the `> **Generated:**` date line. | The branch changed persona YAML or the header template. |
-| `personas/docs/audits/status.md` | `node scripts/generate-persona-audit.js` (`node scripts/cli.js generate-persona-audit`). Not part of `build-maintain`. | Persona YAML metadata and source composition, the Persona Design Guide's version and changelog, and `personas/docs/audits/annotations.json`. | The diff is limited to the `**Generated:**` date line. | The branch changed persona metadata, the guide version, or `annotations.json`. |
-
-## Ignored Generated Artefacts
-
-These are not tracked, so there is nothing to revert or commit.
-
-| Path / glob | Regenerate with |
-|---|---|
-| `personas/{ledger,standalone,ledger-support}/{vs-code,claude-code,deep-agents}/*.md` — the built persona files | `node scripts/build-personas.js` (deploy with `node scripts/sync-personas.js`) |
-| `dist/*.zip` — packaged standalone personas | `node scripts/cli.js package-personas` (`scripts/package-personas.js`) |
-
-## Hand-maintained Neighbours
-
-Files that sit next to generated output or feed a generator, but are source. Never revert them as build noise.
-
-| Path | Why it looks generated | Why it is source |
-|---|---|---|
-| `personas/{ledger,standalone}/{vs-code,claude-code}/.gitkeep` | Lives inside a generated output directory. | Tracked placeholder keeping the directory in Git; the build's pre-clean deletes only `*.md`. |
-| `personas/{ledger,standalone,ledger-support}/README.md` | Sits beside the generated target directories. | Hand-authored suite guides; the build never writes them. |
-| `personas/package.json` | `build-personas.js` rewrites its `version` field after a real build. | Hand-maintained; only `version` is synchronised from the newest `## vX.Y.Z` heading in `personas/changelog.md`. A version change there follows a changelog change; any other change is real work. |
-| `context.yaml`, `personas/module-context.yaml` | Named like CTX output. | CTX input configuration, owned by the CTX Architect. |
-| `personas/docs/audits/notes.md`, `personas/docs/audits/annotations.json` | Live beside the generated `status.md`. | Hand-written audit narrative and Notes-column text that `generate-persona-audit.js` reads. |
-| `personas/model-registry/default.json` | JSON beside machine-local registry state. | Shipped seed model list, tracked and hand-maintained. |
-| `scripts/templates/agents-overview-header.md` | Feeds a generator. | Hand-written header of `docs/references/agents-overview.md`. |
-
-## Commands That Touch More Than They Generate
-
-| Command | Writes beyond its generated output |
-|---|---|
-| `node scripts/build-personas.js` | Rewrites the `version` field of `personas/package.json` from `personas/changelog.md`. Deletes every `*.md` file in the persona output directories before building. `--check` / `--dry-run` write nothing. |
-| `node scripts/cli.js ctx-generate` | Deletes `.context/` entirely before regenerating. Requires the `ctx` binary on `PATH`. This is the lighter docs-only command. |
-| `node scripts/cli.js build-maintain` | The full build. Before the persona build it runs `mcp-server/scripts/sync-version.js` and synchronises the root `package.json` and `orchestrator/pyproject.toml` versions from their changelogs; it then builds personas, regenerates `docs/references/agents-overview.md`, runs `check-known-roles.js`, and finishes with `ctx-generate`. |
-| `node scripts/sync-personas.js` | Runs the full build (with all its side effects above), then copies output outside the repository into the VS Code agents directory and `~/.claude/agents/`, and `.claude/skills/` into `~/.claude/skills/`. Under `--dry-run` it regenerates and copies nothing. |
-| `node scripts/cli.js package-personas` | Unless `--skip-build` is given, first runs `node scripts/build-personas.js --strict`, which builds every suite (with the build's side effects above), not only the standalone suite. The `TARGETS` list in `scripts/package-personas.js` (`personas/standalone/vs-code`, `personas/standalone/claude-code`) is what keeps the `dist/` ZIPs standalone-only. |
-
-## Known Contradictions
-
-- **`personas/name-mapping.json` depends on untracked, machine-local files.** Its `model`, `model_slug` and `cc_model` fields are resolved through `scripts/lib/persona-model-resolution.js` from `personas/model-registry/local.json` (falling back to `default.json`) and `assignments.json`. Both are gitignored, so two machines building the same commit write different model fields into a tracked file. This cannot be fixed by regenerating; a diff confined to those fields is machine drift, not a defect to "fix".
 ```
 ###  Path: `/personas/docs/agents/project-manifest/tech-stack.md`
 

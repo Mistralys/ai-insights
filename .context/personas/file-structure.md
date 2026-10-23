@@ -23,7 +23,6 @@ _SOURCE: Directory tree_
         │   │   ├── curation-log.md
         │   │   ├── data-flows.md
         │   │   ├── file-tree.md
-        │   │   ├── generated-artefacts.md
         │   │   ├── tech-stack.md
         │   │   ├── variables.md
         │   ├── research/

@@ -28,7 +28,6 @@ _SOURCE: MCP server source directory tree_
         │       ├── curation-log.md
         │       ├── data-flows.md
         │       ├── file-tree.md
-        │       ├── generated-artefacts.md
         │       ├── tech-stack.md
         │   └── workflow-specification/
         │       └── README.md

@@ -2357,10 +2357,10 @@ npm run sync-version
 
 ## Generated Artefacts
 
-Some files under `mcp-server/` are written by build and test commands rather than by hand. [generated-artefacts.md](generated-artefacts.md) records which, and when each can be discarded. Repository-wide generated files are covered by the hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md).
+Some files under `mcp-server/` are written by build and test commands rather than by hand. The hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md) records which, and when each can be discarded; this module's rows carry the Source `MCP Server`, and the same document covers the repository-wide generated files.
 
-- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
-- On a feature branch, revert generator drift by path (`mcp-server/coverage/**`, a `package.json` diff limited to `version`) before integrating upstream.
+- Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
+- On a feature branch, revert generator drift by path (a `package.json` diff limited to `version`) before integrating upstream.
 - Keep a `package.json` `version` change when the branch edited `changelog.md`; run `npm run sync-version` and commit it with that change.
 - Never revert a hand-maintained neighbour such as `module-context.yaml` or `package-lock.json` as build noise.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.

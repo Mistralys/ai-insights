@@ -22,14 +22,6 @@ _SOURCE: Top-level directory tree_
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
-    │   ├── insights/
-    │   │   ├── 2026-09-28-synthesis-parser-section-boundary-fix.jsonl
-    │   │   ├── 2026-10-16-claude-md-import.jsonl
-    │   │   ├── 2026-10-16-package-personas-build-flags.jsonl
-    │   │   ├── 2026-10-16-persona-build-config-header-comment.jsonl
-    │   │   ├── 2026-10-16-sync-personas-build-flags.jsonl
-    │   │   ├── 2026-10-21-vscode-copilot-agents-dir-synthesis.md
-    │   │   ├── 2026-10-21-vscode-copilot-agents-dir.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
     │   │   ├── cross-system-dependencies.md
