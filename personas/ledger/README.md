@@ -603,7 +603,7 @@ node scripts/build-personas.js --check
 # Also fail on the library's warning-severity validation results
 node scripts/build-personas.js --strict
 
-# Build + sync to both IDEs (VS Code prompts folder + ~/.claude/agents/)
+# Build + sync to both IDEs (VS Code agents folder (~/.copilot/agents/) + ~/.claude/agents/)
 node scripts/sync-personas.js
 
 # Build + sync to a specific IDE only

@@ -31,7 +31,7 @@ Source files live in `skills/`. Build output goes to `dist/vscode-skills/` and `
 ```bash
 node scripts/build-skills.js           # compile to dist/
 node scripts/build-skills.js --check   # verify only (no files written)
-node scripts/publish-skills.js         # deploy to .github/skills/ and ~/.claude/skills/
+node scripts/publish-skills.js         # deploy to ~/.copilot/skills/ and ~/.claude/skills/
 ```
 
 → [skills/README.md](skills/README.md) — adding skills, metadata fields, output layout, and runtime dependencies

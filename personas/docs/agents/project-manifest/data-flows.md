@@ -203,7 +203,7 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
                                                               no role)
 ```
 
-The diagram shows the ledger and standalone columns. Each target also has a matching ledger-support step (`syncLedgerSupportVSCode()` reads `ledger-support/vs-code/`, `syncLedgerSupportClaudeCode()` reads `ledger-support/claude-code/`), so every deploy covers all three suites. The Claude Code target ends with `syncSkills()`, copying `.claude/skills/` to `~/.claude/skills/`. `--custom-path` overrides the VS Code prompts dir.
+The diagram shows the ledger and standalone columns. Each target also has a matching ledger-support step (`syncLedgerSupportVSCode()` reads `ledger-support/vs-code/`, `syncLedgerSupportClaudeCode()` reads `ledger-support/claude-code/`), so every deploy covers all three suites. The Claude Code target ends with `syncSkills()`, copying `.claude/skills/` to `~/.claude/skills/`. `--custom-path` overrides the VS Code agents dir.
 
 ---
 

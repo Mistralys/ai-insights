@@ -91,7 +91,7 @@ node scripts/cli.js install-mcp
 ```
 
 This command installs a stable shim at `~/.ai-insights/bin/launch-server.js` and merges
-the `central_pm` server key into the VS Code user-level `mcp.json`, making the MCP server
+the `central_pm` server key into `~/.copilot/mcp-config.json` (read by Copilot CLI and VS Code), making the MCP server
 available across all workspaces without per-project configuration. A `--dry-run` flag previews
 the changes without writing.
 

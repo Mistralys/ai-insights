@@ -6,7 +6,7 @@
  * Acceptance Criteria verified:
  *   AC-2: Idempotent re-run produces no changes.
  *   AC-3: --dry-run (dryRun()) outputs JSON diff without writing files.
- *   AC-4: installVSCode() merges only central_pm key; no other keys modified.
+ *   AC-4: installCopilot() merges only central_pm key; no other keys modified.
  *   AC-5: writeShim() throws DIST_MISSING when mcp-server/dist/index.js absent.
  *   AC-8: Timestamped backup created before merge write.
  *   Security: shim content includes path-containment guard (distPath must be inside repoPath).
@@ -22,9 +22,10 @@ import {
   shimConfigExists,
   writeShim,
   writeConfig,
-  installVSCode,
+  installCopilot,
   dryRun,
   install,
+  uninstall,
 } from '../install-mcp-global.js';
 
 import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
@@ -196,20 +197,20 @@ describe('writeShim()', () => {
   });
 }, SUBPROCESS_TEST_TIMEOUT_MS);
 
-// ─── installVSCode() — AC-4: only central_pm key modified ────────────────────
+// ─── installCopilot() — AC-4: only central_pm key modified ────────────────────
 
-describe('installVSCode()', () => {
+describe('installCopilot()', () => {
   it('creates mcp.json with central_pm when it does not exist', () => {
     const tmpDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
     // shimBaseDir needed for shimPath resolution
     const shimDir = makeTempDir();
     try {
-      const result = installVSCode({ mcpPath, shimBaseDir: shimDir });
+      const result = installCopilot({ mcpPath, shimBaseDir: shimDir });
       expect(result.changed).toBe(true);
       const parsed = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-      expect(parsed.servers.central_pm).toBeDefined();
-      expect(parsed.servers.central_pm.command).toBe('node');
+      expect(parsed.mcpServers.central_pm).toBeDefined();
+      expect(parsed.mcpServers.central_pm.command).toBe('node');
     } finally {
       rmDir(tmpDir);
       rmDir(shimDir);
@@ -221,20 +222,20 @@ describe('installVSCode()', () => {
     const shimDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
     const existingConfig = {
-      servers: {
+      mcpServers: {
         other_server: { command: 'other', args: ['/other/path'] },
       },
       someTopLevelKey: 'preserved',
     };
     fs.writeFileSync(mcpPath, JSON.stringify(existingConfig, null, 2), 'utf8');
     try {
-      installVSCode({ mcpPath, shimBaseDir: shimDir });
+      installCopilot({ mcpPath, shimBaseDir: shimDir });
       const parsed = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
       // central_pm added
-      expect(parsed.servers.central_pm).toBeDefined();
+      expect(parsed.mcpServers.central_pm).toBeDefined();
       // other_server preserved
-      expect(parsed.servers.other_server).toBeDefined();
-      expect(parsed.servers.other_server.command).toBe('other');
+      expect(parsed.mcpServers.other_server).toBeDefined();
+      expect(parsed.mcpServers.other_server.command).toBe('other');
       // top-level key preserved
       expect(parsed.someTopLevelKey).toBe('preserved');
     } finally {
@@ -247,9 +248,9 @@ describe('installVSCode()', () => {
     const tmpDir = makeTempDir();
     const shimDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
-    fs.writeFileSync(mcpPath, JSON.stringify({ servers: {} }, null, 2), 'utf8');
+    fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: {} }, null, 2), 'utf8');
     try {
-      installVSCode({ mcpPath, shimBaseDir: shimDir });
+      installCopilot({ mcpPath, shimBaseDir: shimDir });
       const files = fs.readdirSync(tmpDir);
       // Backup file: mcp.json.YYYY-MM-... .bak
       const backups = files.filter(f => f.startsWith('mcp.json.') && f.endsWith('.bak'));
@@ -266,11 +267,11 @@ describe('installVSCode()', () => {
     const mcpPath = path.join(tmpDir, 'mcp.json');
     try {
       // First install
-      installVSCode({ mcpPath, shimBaseDir: shimDir });
+      installCopilot({ mcpPath, shimBaseDir: shimDir });
       const contentAfterFirst = fs.readFileSync(mcpPath, 'utf8');
 
       // Second install
-      const secondResult = installVSCode({ mcpPath, shimBaseDir: shimDir });
+      const secondResult = installCopilot({ mcpPath, shimBaseDir: shimDir });
       expect(secondResult.changed).toBe(false);
 
       // File content should be unchanged
@@ -287,12 +288,12 @@ describe('installVSCode()', () => {
     const shimDir = makeTempDir();
     const mcpPath = path.join(tmpDir, 'mcp.json');
     try {
-      const result = installVSCode({ mcpPath, shimBaseDir: shimDir, dryRun: true });
+      const result = installCopilot({ mcpPath, shimBaseDir: shimDir, dryRun: true });
       expect(result.changed).toBe(true);
       expect(result.diff).toBeDefined();
       // Parse the diff to verify it contains central_pm
       const parsed = JSON.parse(result.diff);
-      expect(parsed.servers.central_pm).toBeDefined();
+      expect(parsed.mcpServers.central_pm).toBeDefined();
       // File must NOT have been written
       expect(fs.existsSync(mcpPath)).toBe(false);
     } finally {
@@ -303,6 +304,40 @@ describe('installVSCode()', () => {
 });
 
 // ─── dryRun() — AC-3: prints without writing ─────────────────────────────────
+
+describe('installCopilot() entry shape and uninstall()', () => {
+  it('writes the Copilot CLI schema: local type and all tools enabled', () => {
+    const tmpDir = makeTempDir();
+    try {
+      const mcpPath = path.join(tmpDir, 'mcp-config.json');
+      installCopilot({ mcpPath, shimBaseDir: tmpDir });
+      const entry = JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers.central_pm;
+      expect(entry.type).toBe('local');
+      expect(entry.tools).toEqual(['*']);
+    } finally {
+      rmDir(tmpDir);
+    }
+  });
+
+  it('uninstall() removes central_pm from the new and the legacy config, keeping other servers', () => {
+    const tmpDir = makeTempDir();
+    try {
+      const mcpPath       = path.join(tmpDir, 'mcp-config.json');
+      const legacyMcpPath = path.join(tmpDir, 'legacy-mcp.json');
+      fs.writeFileSync(mcpPath, JSON.stringify({ mcpServers: { central_pm: {}, other: { command: 'x' } } }), 'utf8');
+      fs.writeFileSync(legacyMcpPath, JSON.stringify({ servers: { central_pm: {}, other: { command: 'y' } } }), 'utf8');
+      uninstall({ shimBaseDir: tmpDir, mcpPath, legacyMcpPath });
+      const now    = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+      const legacy = JSON.parse(fs.readFileSync(legacyMcpPath, 'utf8'));
+      expect(now.mcpServers.central_pm).toBeUndefined();
+      expect(now.mcpServers.other).toBeDefined();
+      expect(legacy.servers.central_pm).toBeUndefined();
+      expect(legacy.servers.other).toBeDefined();
+    } finally {
+      rmDir(tmpDir);
+    }
+  });
+});
 
 describe('dryRun()', () => {
   it('does not write any files (AC-3)', () => {

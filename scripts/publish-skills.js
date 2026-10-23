@@ -5,7 +5,7 @@
  *
  * Reads built .md files from dist/vscode-skills/ and dist/claude-skills/ and
  * deploys each as {stem}/SKILL.md under:
- *   .github/skills/      (VS Code, workspace-relative)
+ *   ~/.copilot/skills/   (VS Code / GitHub Copilot, user-global)
  *   ~/.claude/skills/    (Claude Code, user-global)
  *
  * Only directories whose stems match build output are cleared before publishing.
@@ -17,12 +17,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getClaudeCodeSkillsDir } from './publish-locations.js';
+import { getVSCodeSkillsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
 
 const ROOT        = path.resolve(import.meta.dirname, '..');
 const DIST_VSCODE = path.join(ROOT, 'dist', 'vscode-skills');
 const DIST_CLAUDE = path.join(ROOT, 'dist', 'claude-skills');
-const GH_SKILLS   = path.join(ROOT, '.github', 'skills');
+const VS_SKILLS   = getVSCodeSkillsDir();
 const CC_SKILLS   = getClaudeCodeSkillsDir();
 
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -83,11 +83,11 @@ if (vsFiles.length === 0 && ccFiles.length === 0) {
 let published = 0;
 const errors  = [];
 
-// Deploy VS Code skills (.github/skills/{stem}/SKILL.md)
+// Deploy VS Code skills (~/.copilot/skills/{stem}/SKILL.md)
 for (const { stem, content } of vsFiles) {
   try {
-    deploySkill(stem, content, GH_SKILLS, DRY_RUN);
-    if (!DRY_RUN) console.log(`[publish-skills] VS Code  → .github/skills/${stem}/SKILL.md`);
+    deploySkill(stem, content, VS_SKILLS, DRY_RUN);
+    if (!DRY_RUN) console.log(`[publish-skills] VS Code  → ${path.join(VS_SKILLS, stem, 'SKILL.md')}`);
     published++;
   } catch (err) {
     errors.push(`VS Code / ${stem}: ${err.message}`);

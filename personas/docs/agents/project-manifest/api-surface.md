@@ -244,7 +244,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `model` | `string` | no | AI model override — replaces `default_model` for this persona (e.g. `"Claude Opus 4.6"`) |
 | `model_slug` | `string` | no | API-compatible model slug — overrides `default_model_slug` from `_shared.yaml` (e.g. `"claude-opus-4-6"`). Consumed by the orchestrator directly; not written into generated frontmatter. |
 | `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
-| `vs_file_name` | `string` | yes | Output filename when synced to VS Code prompts dir |
+| `vs_file_name` | `string` | yes | Output filename when synced to VS Code agents dir |
 | `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `da_file_name` | `string` | yes | Output filename for the deep-agents target (e.g. `"3-developer.md"`). Follows the same `N-<role-slug>.md` pattern as `cc_file_name`. Intentionally absent from standalone YAMLs — the deep-agents target falls back to the content file basename (e.g. `researcher.md`) for standalone personas. |
 | `version` | `string` | no | Overrides `default_version` for this persona |
@@ -592,7 +592,7 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 The script does not define these; it imports them.
 
-- `getVSCodePromptsDir()`, `getClaudeCodeAgentsDir()`, `getClaudeCodeSkillsDir()` from `scripts/publish-locations.js` — platform-specific publish directories (VS Code User prompts, `~/.claude/agents/`, `~/.claude/skills/`).
+- `getVSCodeAgentsDir()`, `getClaudeCodeAgentsDir()`, `getClaudeCodeSkillsDir()` from `scripts/publish-locations.js` — publish directories (`~/.copilot/agents/`, `~/.claude/agents/`, `~/.claude/skills/`).
 - `parseFrontmatter(filePath) → Object | null` from `scripts/lib/frontmatter.js` — reads all top-level YAML frontmatter fields into a plain object.
 
 ### Functions
@@ -605,18 +605,18 @@ The script does not define these; it imports them.
 | `validateSlugModeVSCodeFrontmatter` | `(dir: string, suiteLabel: string) → void` | Validates slug-mode VS Code persona frontmatter for the standalone and ledger-support suites: requires `name`, `vs_file_name`, and `id`; no `role` required; `suiteLabel` names the suite in console output; warns on failures (including missing `id:`) but does not block sync |
 | `validateCCFrontmatter` | `(dir: string) → void` | Validates `name` (kebab-case with numeric prefix), `role`, `permissionMode`, `model`, `memory` in CC persona frontmatter |
 | `syncFromDir` | `(sourceDir, targetDir, extractFileNameFn, label, dryRun?) → void` | Generic copy helper: reads all `.md` files from sourceDir, extracts deployment name via `extractFileNameFn`, copies to targetDir |
-| `syncVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger/vs-code/` → VS Code prompts dir; calls `validateVSCodeFrontmatter` |
-| `syncStandaloneVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/standalone/vs-code/` → VS Code prompts dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'standalone')`; reuses `syncFromDir` with `extractVSFileName` |
+| `syncVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger/vs-code/` → VS Code agents dir; calls `validateVSCodeFrontmatter` |
+| `syncStandaloneVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/standalone/vs-code/` → VS Code agents dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'standalone')`; reuses `syncFromDir` with `extractVSFileName` |
 | `syncClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/ledger/claude-code/` → `~/.claude/agents/`; calls `validateCCFrontmatter` |
 | `validateSlugModeCCFrontmatter` | `(dir: string, suiteLabel: string) → void` | Validates slug-mode CC persona frontmatter for the standalone and ledger-support suites: requires `name` (plain kebab-case, no numeric prefix), `permissionMode`, `model`, `memory`; `suiteLabel` names the suite in console output; warns on failures but does not block sync |
 | `syncStandaloneClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/standalone/claude-code/` → `~/.claude/agents/`; calls `validateSlugModeCCFrontmatter(dir, 'standalone')`; reuses `syncFromDir` with `extractCCFileName` |
-| `syncLedgerSupportVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger-support/vs-code/` → VS Code prompts dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'ledger-support')` |
+| `syncLedgerSupportVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger-support/vs-code/` → VS Code agents dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'ledger-support')` |
 | `syncLedgerSupportClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/ledger-support/claude-code/` → `~/.claude/agents/`; calls `validateSlugModeCCFrontmatter(dir, 'ledger-support')` |
 | `syncSkills` | `(dryRun?: boolean) → void` | Copies `.claude/skills/` → `~/.claude/skills/` |
 
 ### CLI Behaviour
 
-`main()` first runs `node scripts/build-personas.js` as a child process — with no extra arguments, or with `--dry-run` when the sync gets `--dry-run`. The build always covers every suite and target in `personas/persona-build.config.js`. The sync takes no `--suite`, and silently ignores arguments it does not recognise. Its own `--target` (`vscode` | `claude-code` | `all`, default `all`) selects only which deploy steps run: `vscode` / `all` copies all three suites to the VS Code prompts folder (`--custom-path` overrides it); `claude-code` / `all` copies all three suites to `~/.claude/agents/` and then runs `syncSkills()`. Under `--dry-run` nothing is regenerated and nothing is copied; the sync only previews ("Would copy") from the existing output.
+`main()` first runs `node scripts/build-personas.js` as a child process — with no extra arguments, or with `--dry-run` when the sync gets `--dry-run`. The build always covers every suite and target in `personas/persona-build.config.js`. The sync takes no `--suite`, and silently ignores arguments it does not recognise. Its own `--target` (`vscode` | `claude-code` | `all`, default `all`) selects only which deploy steps run: `vscode` / `all` copies all three suites to the VS Code agents folder (~/.copilot/agents/) (`--custom-path` overrides it); `claude-code` / `all` copies all three suites to `~/.claude/agents/` and then runs `syncSkills()`. Under `--dry-run` nothing is regenerated and nothing is copied; the sync only previews ("Would copy") from the existing output.
 
 ### `KNOWN_ROLES` Constant
 

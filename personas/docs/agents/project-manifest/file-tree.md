@@ -170,5 +170,5 @@ scripts/
 | `personas/ledger/src/content/*.md` | Library template engine | Persona body content |
 | `personas/ledger/src/partials/*.md` | Library template engine (override layer) | Embedded partial content |
 | `personas/shared/partials/*.md` | Library template engine (base layer) | Embedded partial content |
-| `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code prompts dir | Deployed agent file |
+| `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code agents dir | Deployed agent file |
 | `personas/ledger/claude-code/*.md` | `sync-personas.js` → `~/.claude/agents/` | Deployed agent file |

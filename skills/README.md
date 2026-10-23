@@ -5,7 +5,7 @@ that can be invoked from within VS Code (via Copilot) or Claude Code.
 
 Skills are built using the `@mistralys/persona-builder` infrastructure with a custom
 `TargetRegistry`. The build step (WP-002) produces output in `dist/vscode-skills/` and
-`dist/claude-skills/`, which the publish step (WP-003) deploys to `.github/skills/` and
+`dist/claude-skills/`, which the publish step (WP-003) deploys to `~/.copilot/skills/` and
 `.claude/skills/`.
 
 ---
@@ -57,7 +57,7 @@ Built skill files in `dist/` are deployed to IDE-specific locations with `script
 
 | Command | Effect |
 |---------|--------|
-| `node scripts/publish-skills.js` | Deploy compiled skills to `.github/skills/` (VS Code) and `~/.claude/skills/` (Claude Code). |
+| `node scripts/publish-skills.js` | Deploy compiled skills to `~/.copilot/skills/` (VS Code) and `~/.claude/skills/` (Claude Code). |
 | `node scripts/publish-skills.js --dry-run` | Preview what would be deployed without writing any files. Exits 0. |
 | `node scripts/cli.js publish-skills` | Full pipeline: build then publish. |
 | `node scripts/cli.js publish-skills -- --dry-run` | Full pipeline in dry-run mode: build (check only) then preview deployment. |
@@ -91,7 +91,7 @@ at runtime. **The persona must be deployed to the IDE before the skill can execu
 For example, `insights-audit-persona.yaml` specifies `agent: persona-curator`. This means
 the Persona Curator persona must be present as a deployed agent file:
 
-- **VS Code:** `persona-curator.agent.md` must exist in the VS Code prompts directory.
+- **VS Code:** `persona-curator.agent.md` must exist in the VS Code agents directory.
 - **Claude Code:** `persona-curator.md` must exist in `~/.claude/agents/`.
 
 To deploy personas, run:

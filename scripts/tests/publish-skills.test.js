@@ -21,6 +21,8 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
+import { getVSCodeSkillsDir } from '../publish-locations.js';
+
 import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
 
 const __dirname    = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +30,7 @@ const ROOT         = path.resolve(__dirname, '..', '..');
 const SCRIPT       = path.join(ROOT, 'scripts', 'publish-skills.js');
 const DIST_VSCODE  = path.join(ROOT, 'dist', 'vscode-skills');
 const DIST_CLAUDE  = path.join(ROOT, 'dist', 'claude-skills');
-const GH_SKILLS    = path.join(ROOT, '.github', 'skills');
+const VS_SKILLS    = getVSCodeSkillsDir();
 
 /** Unique stem used only by these tests — will never clash with real skills. */
 const TEST_STEM = 'test-skill-publish-abc123';
@@ -138,9 +140,9 @@ describe('publish-skills.js --dry-run', () => {
     expect(stdout).toMatch(/would be published \(dry-run\)/);
   });
 
-  it('does not write any file to .github/skills/ for the test stem', () => {
+  it('does not write any file to ~/.copilot/skills/ for the test stem', () => {
     runPublishSkills('--dry-run');
-    const deployedPath = path.join(GH_SKILLS, TEST_STEM, 'SKILL.md');
+    const deployedPath = path.join(VS_SKILLS, TEST_STEM, 'SKILL.md');
     expect(fs.existsSync(deployedPath)).toBe(false);
   });
 }, SUBPROCESS_TEST_TIMEOUT_MS);

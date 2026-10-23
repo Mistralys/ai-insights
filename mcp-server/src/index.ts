@@ -3,9 +3,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { mkdirSync } from 'fs';
-import { join, resolve } from 'path';
+import { resolve } from 'path';
 import { SERVER_VERSION } from './utils/server-version.js';
-import os from 'os';
 import * as projectLifecycleTools from './tools/project-lifecycle.js';
 import * as workPackageTools from './tools/work-package.js';
 import * as pipelineTools from './tools/pipeline.js';
@@ -18,6 +17,7 @@ import * as knowledgeTools from './tools/knowledge.js';
 import * as repositoryContextTools from './tools/repository-context.js';
 import * as standaloneImportTools from './tools/standalone-import.js';
 import { discoverAgents } from './utils/agent-registry.js';
+import { getVSCodeAgentsDir } from './utils/publish-locations.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
@@ -28,11 +28,11 @@ import { MultiStoreManager } from './storage/multi-store-manager.js';
 import { setStoreContext } from './storage/store-context.js';
 
 /**
- * Resolves the agents directory from CLI args or platform-specific defaults.
+ * Resolves the agents directory from CLI args or the shared default.
  *
  * Precedence:
  * 1. `--agents-dir <path>` CLI argument
- * 2. Platform-specific default (VS Code User prompts folder)
+ * 2. Shared default (VS Code agents folder, `~/.copilot/agents`)
  */
 function resolveAgentsDir(): string {
   // Check for --agents-dir <path> in process.argv
@@ -44,20 +44,8 @@ function resolveAgentsDir(): string {
     }
   }
 
-  // Platform-specific defaults
-  const home = os.homedir();
-  switch (os.platform()) {
-    case 'darwin':
-      return join(home, 'Library', 'Application Support', 'Code', 'User', 'prompts');
-    case 'linux':
-      return join(home, '.config', 'Code', 'User', 'prompts');
-    case 'win32': {
-      const appData = process.env['APPDATA'] ?? join(home, 'AppData', 'Roaming');
-      return join(appData, 'Code', 'User', 'prompts');
-    }
-    default:
-      return join(home, '.config', 'Code', 'User', 'prompts');
-  }
+  // Default: the same directory persona sync deploys the VS Code target to
+  return getVSCodeAgentsDir();
 }
 
 /**

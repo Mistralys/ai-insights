@@ -80,7 +80,7 @@ Unresolved `{{…}}` markers print a `[WARN]` line and do not fail the build, ev
 
 - **MCP Server:** Ledger personas reference MCP tools exposed by `mcp-server/`. The server name is configured in `ledger/src/meta/_shared.yaml` → `mcp_server_name`.
 - **Workflow Manifest:** Persona `role` fields (ledger suite) are validated against role names in `shared/workflow-manifest.json` during the build.
-- **Sync Script:** `scripts/sync-personas.js` rebuilds every suite, then deploys the output to the VS Code User prompts directory and/or Claude Code's `~/.claude/agents/`. Its `--target` flag (`vscode`, `claude-code`, or `all`, the default) selects only which deploy steps run; the `claude-code` and `all` targets also sync skills from `.claude/skills/` to `~/.claude/skills/`.
+- **Sync Script:** `scripts/sync-personas.js` rebuilds every suite, then deploys the output to the VS Code agents directory (`~/.copilot/agents/`) and/or Claude Code's `~/.claude/agents/`. Its `--target` flag (`vscode`, `claude-code`, or `all`, the default) selects only which deploy steps run; the `claude-code` and `all` targets also sync skills from `.claude/skills/` to `~/.claude/skills/`.
 
 ## Further Reading
 

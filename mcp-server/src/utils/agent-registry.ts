@@ -98,7 +98,7 @@ function stripYamlQuotes(value: string): string {
  * The result is stored in the module-level cache and returned.
  *
  * @param agentsDir - Absolute path to the directory containing `*.agent.md`
- *   files (e.g. the VS Code User prompts folder).
+ *   files (e.g. the VS Code agents folder).
  * @param strict - When `true`, throws a `RangeError` for any `role:` value
  *   that is not present in `AGENT_ROLES`. Intended for CI/validation tooling
  *   and test harnesses that must assert exhaustive role coverage. Defaults to

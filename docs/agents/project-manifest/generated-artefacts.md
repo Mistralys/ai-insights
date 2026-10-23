@@ -67,7 +67,7 @@ Files that sit next to generated output or feed a generator, but are source. Nev
 |---|---|
 | `node scripts/cli.js ctx-generate` | Deletes `.context/` entirely before regenerating. Requires the `ctx` binary on `PATH`. This is the lighter docs-only command. |
 | `node scripts/cli.js build-maintain` | The full build. Runs `mcp-server/scripts/sync-version.js`, synchronises the root `package.json` and `orchestrator/pyproject.toml` versions from their changelogs, builds all persona suites (rewriting `personas/package.json` `version` and `personas/name-mapping.json`), regenerates `docs/references/agents-overview.md`, runs `check-known-roles.js`, and finishes with `ctx-generate`. |
-| `node scripts/sync-personas.js` | Runs the full build, then copies output outside the repository into the VS Code prompts directory and `~/.claude/agents/`, and skills into `~/.claude/skills/`. |
+| `node scripts/sync-personas.js` | Runs the full build, then copies output outside the repository into the VS Code agents directory and `~/.claude/agents/`, and skills into `~/.claude/skills/`. |
 | `node scripts/cli.js package-personas` | Unless `--skip-build` is given, first runs `build-personas.js --strict`, which builds every suite. |
 
 ## Known Contradictions

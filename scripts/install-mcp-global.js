@@ -11,7 +11,7 @@
  *   shimConfigExists(opts?)     — true if config.json is present
  *   writeShim(opts?)            — write shim file; throws if dist missing
  *   writeConfig(repoPath, opts?)— write config.json
- *   installVSCode(opts?)        — merge central_pm into VS Code user mcp.json
+ *   installCopilot(opts?)       — merge central_pm into ~/.copilot/mcp-config.json
  *   installClaudeCode(opts?)    — register via claude CLI (optional)
  *   uninstall(opts?)            — remove all registrations
  *   dryRun(opts?)               — print diff without writing
@@ -23,6 +23,7 @@ import os   from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { isClaudeCliAvailable } from './lib/claude-cli.js';
+import { getCopilotMcpConfigPath } from './publish-locations.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -32,10 +33,11 @@ const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Platform-specific path to the VS Code user-level mcp.json.
+ * Platform-specific path to the legacy VS Code user-level mcp.json, the former
+ * registration target. Only consulted by uninstall() to clear leftover entries.
  * @returns {string}
  */
-function _getVSCodeMcpPath() {
+function _getLegacyVSCodeMcpPath() {
   if (process.platform === 'win32') {
     return path.join(
       process.env.APPDATA || os.homedir(),
@@ -53,7 +55,7 @@ function _getVSCodeMcpPath() {
 
 /**
  * Resolve all internal paths, allowing tests to inject temp-dir overrides.
- * @param {{ shimBaseDir?: string, mcpPath?: string }} [overrides]
+ * @param {{ shimBaseDir?: string, mcpPath?: string, legacyMcpPath?: string }} [overrides]
  */
 function _resolvePaths(overrides = {}) {
   const base = overrides.shimBaseDir ?? path.join(os.homedir(), '.ai-insights');
@@ -61,7 +63,8 @@ function _resolvePaths(overrides = {}) {
     shimBaseDir: base,
     shimPath:    path.join(base, 'bin', 'launch-server.js'),
     configPath:  path.join(base, 'config.json'),
-    mcpPath:     overrides.mcpPath ?? _getVSCodeMcpPath(),
+    mcpPath:     overrides.mcpPath ?? getCopilotMcpConfigPath(),
+    legacyMcpPath: overrides.legacyMcpPath ?? _getLegacyVSCodeMcpPath(),
   };
 }
 
@@ -201,14 +204,16 @@ export function writeConfig(repoPath, opts = {}) {
 }
 
 /**
- * Merge the central_pm entry into the VS Code user-level mcp.json.
- * Only the central_pm key is touched; all other keys are preserved in order.
- * A timestamped backup is created before any write.
+ * Merge the central_pm entry into the global Copilot MCP config
+ * (~/.copilot/mcp-config.json, or under $COPILOT_HOME; `mcpServers` schema). VS Code and Copilot CLI
+ * both read it. Only the central_pm key is touched; all other keys are
+ * preserved in order. A timestamped backup (owner-only, since the file may hold
+ * credentials for other servers) is created before any write.
  *
  * @param {{ dryRun?: boolean, mcpPath?: string, shimBaseDir?: string }} [opts]
  * @returns {{ changed: boolean, path: string, diff?: string }}
  */
-export function installVSCode(opts = {}) {
+export function installCopilot(opts = {}) {
   const { mcpPath, shimPath } = _resolvePaths(opts);
   const dryRun = Boolean(opts.dryRun);
 
@@ -222,8 +227,8 @@ export function installVSCode(opts = {}) {
     }
   }
 
-  const servers   = existing.servers || {};
-  const newEntry  = { type: 'stdio', command: 'node', args: [shimPath] };
+  const servers   = existing.mcpServers || {};
+  const newEntry  = { type: 'local', command: 'node', args: [shimPath], tools: ['*'] };
   const current   = servers.central_pm;
 
   // Idempotency check
@@ -236,7 +241,7 @@ export function installVSCode(opts = {}) {
 
   const updated = {
     ...existing,
-    servers: { ...servers, central_pm: newEntry },
+    mcpServers: { ...servers, central_pm: newEntry },
   };
 
   if (dryRun) {
@@ -248,6 +253,7 @@ export function installVSCode(opts = {}) {
     const ts     = new Date().toISOString().replace(/[:.]/g, '-');
     const backup = mcpPath + '.' + ts + '.bak';
     fs.copyFileSync(mcpPath, backup);
+    try { fs.chmodSync(backup, 0o600); } catch { /* ignored on Windows */ }
   }
 
   fs.mkdirSync(path.dirname(mcpPath), { recursive: true });
@@ -300,26 +306,37 @@ export function installClaudeCode(opts = {}) {
 }
 
 /**
- * Remove all global MCP registrations (VS Code, Claude Code, shim files).
- * @param {{ shimBaseDir?: string, mcpPath?: string }} [opts]
+ * Remove central_pm from one MCP config file (best-effort, backup first).
+ * @param {string} file
+ * @param {'mcpServers'|'servers'} key — top-level object holding the servers
+ */
+function _removeServerEntry(file, key) {
+  if (!fs.existsSync(file)) return;
+  try {
+    const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (existing[key]?.central_pm) {
+      const ts     = new Date().toISOString().replace(/[:.]/g, '-');
+      const backup = file + '.' + ts + '.bak';
+      fs.copyFileSync(file, backup);
+      try { fs.chmodSync(backup, 0o600); } catch { /* ignored on Windows */ }
+      delete existing[key].central_pm;
+      fs.writeFileSync(file, JSON.stringify(existing, null, 2) + '\n', 'utf8');
+    }
+  } catch {
+    // Best-effort; ignore errors during uninstall
+  }
+}
+
+/**
+ * Remove all global MCP registrations (Copilot config, legacy VS Code config,
+ * Claude Code, shim files).
+ * @param {{ shimBaseDir?: string, mcpPath?: string, legacyMcpPath?: string }} [opts]
  */
 export function uninstall(opts = {}) {
-  const { mcpPath, shimPath, configPath } = _resolvePaths(opts);
+  const { mcpPath, legacyMcpPath, shimPath, configPath } = _resolvePaths(opts);
 
-  // Remove from VS Code mcp.json
-  if (fs.existsSync(mcpPath)) {
-    try {
-      const existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-      if (existing.servers?.central_pm) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        fs.copyFileSync(mcpPath, mcpPath + '.' + ts + '.bak');
-        delete existing.servers.central_pm;
-        fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
-      }
-    } catch {
-      // Best-effort; ignore errors during uninstall
-    }
-  }
+  _removeServerEntry(mcpPath, 'mcpServers');
+  _removeServerEntry(legacyMcpPath, 'servers');
 
   // Remove from Claude Code (if CLI available)
   if (isClaudeCliAvailable()) {
@@ -354,11 +371,11 @@ export function dryRun(opts = {}) {
   logFn(JSON.stringify({ repoPath: WORKSPACE_ROOT }, null, 2));
   logFn('');
 
-  // VS Code mcp.json
-  const vsResult = installVSCode({ ...opts, dryRun: true });
-  if (vsResult.changed) {
+  // Copilot mcp-config.json
+  const copilotResult = installCopilot({ ...opts, dryRun: true });
+  if (copilotResult.changed) {
     logFn(`  [\u2139\ufe0f  ${mcpPath}]`);
-    logFn(vsResult.diff);
+    logFn(copilotResult.diff);
   } else {
     logFn(`  [\u2713 ${mcpPath}] already configured \u2014 no change`);
     logFn('');
@@ -394,10 +411,10 @@ export function install(opts = {}) {
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       if (existing.repoPath === WORKSPACE_ROOT) {
-        const vsResult  = installVSCode({ ...opts, dryRun: true });
+        const copilotResult  = installCopilot({ ...opts, dryRun: true });
         const ccStatus  = _checkClaudeCodeStatus(opts);
         const ccSettled = !ccStatus.available || (ccStatus.registered && !ccStatus.stale);
-        if (!vsResult.changed && ccSettled) {
+        if (!copilotResult.changed && ccSettled) {
           logFn('  \u2713 Global MCP already registered (no change)');
           return;
         }
@@ -413,12 +430,12 @@ export function install(opts = {}) {
   logFn(`  \u2713 Shim written \u2192 ${shimPath}`);
   logFn(`  \u2713 Config written \u2192 ${configPath}`);
 
-  // VS Code
-  const vsResult = installVSCode(opts);
-  if (vsResult.changed) {
-    logFn(`  \u2713 VS Code user mcp.json updated \u2192 ${vsResult.path}`);
+  // Copilot (VS Code + CLI)
+  const copilotResult = installCopilot(opts);
+  if (copilotResult.changed) {
+    logFn(`  \u2713 Copilot mcp-config.json updated \u2192 ${copilotResult.path}`);
   } else {
-    logFn(`  \u2713 VS Code user mcp.json already configured`);
+    logFn(`  \u2713 Copilot mcp-config.json already configured`);
   }
 
   // Claude Code (optional)
