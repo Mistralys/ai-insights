@@ -5,23 +5,25 @@
 
 **Work packages whose verifier stage cannot be fixed are now rejected at creation.** Planning
 personas also stop producing check-only work packages. Agents now write project outcome summaries
-themselves, and Claude Code handoffs reliably start the intended agent. The agent picker can
-launch with permission prompts skipped.
+themselves, and Claude Code handoffs reliably start the intended agent. VS Code personas, skills
+and MCP config now deploy to the global Copilot home.
 
 - MCP: Work package creation rejects chains whose verifier stage has no stage able to fix it.
 - Personas: Planning personas no longer produce check-only work packages.
 - MCP: Standalone import and synthesis refresh accept agent-supplied outcome summaries.
 - Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
 - Personas: Claude Code handoffs and sub-agent dispatches start the intended agent.
-- Personas: Releases stay out of plans; developers and release engineers never publish or tag.
+- CLI: Persona sync, skill publishing and MCP install now target the global Copilot home.
+- CLI: Files deployed to the old VS Code locations are not removed automatically.
+- MCP: Agent registry looks for agents in the same folder as persona sync.
+- Personas: Workspace Architect gained Amend mode and keeps its session plan in a file.
+- Personas: Manifest Curator documents generated files; related curators and Git Committer follow.
+- Personas: Documentation curators defer to a caller's plan and check docblocks against READMEs.
 - Personas: Changelog and WHATSNEW Curators can now archive older releases.
+- Personas: WHATSNEW Curator writes self-contained items; changelog writers use one WIP version.
+- Personas: Releases stay out of plans; developers and release engineers never publish or tag.
 - Personas: Work-package renumbering and ordering are handled consistently across planning.
 - CLI: Claude agent picker gained a toggle to launch with permission prompts skipped.
-- CLI: Persona sync deploys the VS Code target to `~/.copilot/agents/` instead of the old `Code/User/prompts` folder; previously synced files there are not removed.
-- CLI: Skill publishing deploys the VS Code target to `~/.copilot/skills/` instead of the workspace `.github/skills/`; previously published workspace copies are not removed.
-- CLI: `install-mcp` registers `central_pm` in `~/.copilot/mcp-config.json` (read by Copilot CLI and, via its discovery, by VS Code) instead of the VS Code user `mcp.json`; uninstall also clears the old entry, which install leaves in place.
-- CLI: Persona, skill and MCP config deploy targets under `~/.copilot` honour the `COPILOT_HOME` environment variable, as Copilot CLI does; the MCP agent registry follows it too.
-- MCP: The agent registry's default directory now comes from the same shared `shared/publish-locations.json` as persona sync, so both use `~/.copilot/agents/`.
 - CLI: New `audit-orchestrator` command scans the orchestrator venv for security advisories.
 - MCP: Artifact-declaration warnings now follow each pipeline type's policy.
 - MCP: Fixed synthesis refresh clearing a stored summary it could not replace.

@@ -13,6 +13,7 @@ warnings now follow each pipeline type's policy.
 - Tools: Unmatched acceptance-criteria updates now surface in the result and leave an audit comment.
 - Tools: Synthesis refresh no longer clears a stored summary it cannot replace.
 - Tools: Outcome summaries are found under level-2 and level-3 headings anywhere in synthesis.md.
+- Tools: Agent registry looks for agents in the shared persona deploy folder.
 - GUI: Obsolete persona model assignments show a banner with an option to remove them.
 - GUI: Saving persona model assignments now names every unknown persona.
 - Docs: Tool help, manifest and workflow specification describe the new rules.
