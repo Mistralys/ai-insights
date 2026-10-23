@@ -1,5 +1,6 @@
 .DS_Store
 /mcp-server/node_modules/
+/mcp-server/coverage/
 
 # Ledger temporary plan artefacts
 /docs/agents/**/work.md
