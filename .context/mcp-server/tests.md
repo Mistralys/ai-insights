@@ -168,6 +168,7 @@ _SOURCE: Test suite directory structure_
             └── progress.test.ts
             └── project-reset.test.ts
             └── project-resolver.test.ts
+            └── publish-locations.test.ts
             └── runner.test.ts
             └── store-resolution.test.ts
             └── synthesis-parser.test.ts

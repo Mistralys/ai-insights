@@ -22,7 +22,7 @@ The server manages two types of JSON files:
 | [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | MCP tools, classes, types, and public methods |
 | [Key Data Flows](data-flows.md) | Main interaction paths through the system |
-| [Generated Artefacts](generated-artefacts.md) | Which tracked and ignored files this module's build and test commands write, and when discarding each is safe |
+| [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) | Hub document shared with the whole repository: the tracked and ignored files this module's build and test commands write (rows with Source `MCP Server`), and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions about this manifest's shape, and the dated trail of verification passes |
 
 ### Constraints
@@ -91,7 +91,7 @@ node scripts/cli.js install-mcp
 ```
 
 This command installs a stable shim at `~/.ai-insights/bin/launch-server.js` and merges
-the `central_pm` server key into the VS Code user-level `mcp.json`, making the MCP server
+the `central_pm` server key into `~/.copilot/mcp-config.json` (read by Copilot CLI and VS Code), making the MCP server
 available across all workspaces without per-project configuration. A `--dry-run` flag previews
 the changes without writing.
 

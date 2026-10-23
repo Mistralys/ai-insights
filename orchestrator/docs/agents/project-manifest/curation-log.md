@@ -12,6 +12,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the module's generated-artefacts document and the links to it. Not a full reconcile.
+**Commit:** 2d4220a3 (working tree held uncommitted changes)
+**Changes:** Deleted this manifest's `generated-artefacts.md`; its rows (including all run-state rows and the `requirements.txt` neighbour) were merged into the hub's `docs/agents/project-manifest/generated-artefacts.md` (Source `Orchestrator`). Repointed the `README.md` index row and the `constraints.md` → Generated Artefacts preamble and first bullet to the hub file.
+**Notes:** Two `TODO: verify` markers carried over to the hub row for `orchestrator/requirements.txt` and the `pytest` command row. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. History entries below name `generated-artefacts.md` as a document of this directory as it stood when written; it now lives in the hub.
+
 ### 2026-10-19 · Update · Curator v1.8.0
 
 **Scope:** One link in `constraints.md` (storage layout section). Not a full reconcile.

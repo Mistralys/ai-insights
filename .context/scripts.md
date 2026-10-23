@@ -1777,16 +1777,6 @@ function cmdCtxGenerate(args) {
   }
   sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
   fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
-  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
-  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
-  if (fs.existsSync(agentsMd)) {
-    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
-    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
-    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
-    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
-  } else {
-    log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
-  }
 }
 
 function cmdGitHooks() {
@@ -4046,7 +4036,7 @@ console.log('Git hooks installed. Pre-commit persona guard active.');
  *   shimConfigExists(opts?)     — true if config.json is present
  *   writeShim(opts?)            — write shim file; throws if dist missing
  *   writeConfig(repoPath, opts?)— write config.json
- *   installVSCode(opts?)        — merge central_pm into VS Code user mcp.json
+ *   installCopilot(opts?)       — merge central_pm into ~/.copilot/mcp-config.json
  *   installClaudeCode(opts?)    — register via claude CLI (optional)
  *   uninstall(opts?)            — remove all registrations
  *   dryRun(opts?)               — print diff without writing
@@ -4058,6 +4048,7 @@ import os   from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { isClaudeCliAvailable } from './lib/claude-cli.js';
+import { getCopilotMcpConfigPath } from './publish-locations.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -4067,10 +4058,11 @@ const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Platform-specific path to the VS Code user-level mcp.json.
+ * Platform-specific path to the legacy VS Code user-level mcp.json, the former
+ * registration target. Only consulted by uninstall() to clear leftover entries.
  * @returns {string}
  */
-function _getVSCodeMcpPath() {
+function _getLegacyVSCodeMcpPath() {
   if (process.platform === 'win32') {
     return path.join(
       process.env.APPDATA || os.homedir(),
@@ -4088,7 +4080,7 @@ function _getVSCodeMcpPath() {
 
 /**
  * Resolve all internal paths, allowing tests to inject temp-dir overrides.
- * @param {{ shimBaseDir?: string, mcpPath?: string }} [overrides]
+ * @param {{ shimBaseDir?: string, mcpPath?: string, legacyMcpPath?: string }} [overrides]
  */
 function _resolvePaths(overrides = {}) {
   const base = overrides.shimBaseDir ?? path.join(os.homedir(), '.ai-insights');
@@ -4096,7 +4088,8 @@ function _resolvePaths(overrides = {}) {
     shimBaseDir: base,
     shimPath:    path.join(base, 'bin', 'launch-server.js'),
     configPath:  path.join(base, 'config.json'),
-    mcpPath:     overrides.mcpPath ?? _getVSCodeMcpPath(),
+    mcpPath:     overrides.mcpPath ?? getCopilotMcpConfigPath(),
+    legacyMcpPath: overrides.legacyMcpPath ?? _getLegacyVSCodeMcpPath(),
   };
 }
 
@@ -4236,14 +4229,16 @@ export function writeConfig(repoPath, opts = {}) {
 }
 
 /**
- * Merge the central_pm entry into the VS Code user-level mcp.json.
- * Only the central_pm key is touched; all other keys are preserved in order.
- * A timestamped backup is created before any write.
+ * Merge the central_pm entry into the global Copilot MCP config
+ * (~/.copilot/mcp-config.json, or under $COPILOT_HOME; `mcpServers` schema). VS Code and Copilot CLI
+ * both read it. Only the central_pm key is touched; all other keys are
+ * preserved in order. A timestamped backup (owner-only, since the file may hold
+ * credentials for other servers) is created before any write.
  *
  * @param {{ dryRun?: boolean, mcpPath?: string, shimBaseDir?: string }} [opts]
  * @returns {{ changed: boolean, path: string, diff?: string }}
  */
-export function installVSCode(opts = {}) {
+export function installCopilot(opts = {}) {
   const { mcpPath, shimPath } = _resolvePaths(opts);
   const dryRun = Boolean(opts.dryRun);
 
@@ -4257,8 +4252,8 @@ export function installVSCode(opts = {}) {
     }
   }
 
-  const servers   = existing.servers || {};
-  const newEntry  = { type: 'stdio', command: 'node', args: [shimPath] };
+  const servers   = existing.mcpServers || {};
+  const newEntry  = { type: 'local', command: 'node', args: [shimPath], tools: ['*'] };
   const current   = servers.central_pm;
 
   // Idempotency check
@@ -4271,7 +4266,7 @@ export function installVSCode(opts = {}) {
 
   const updated = {
     ...existing,
-    servers: { ...servers, central_pm: newEntry },
+    mcpServers: { ...servers, central_pm: newEntry },
   };
 
   if (dryRun) {
@@ -4283,6 +4278,7 @@ export function installVSCode(opts = {}) {
     const ts     = new Date().toISOString().replace(/[:.]/g, '-');
     const backup = mcpPath + '.' + ts + '.bak';
     fs.copyFileSync(mcpPath, backup);
+    try { fs.chmodSync(backup, 0o600); } catch { /* ignored on Windows */ }
   }
 
   fs.mkdirSync(path.dirname(mcpPath), { recursive: true });
@@ -4335,26 +4331,37 @@ export function installClaudeCode(opts = {}) {
 }
 
 /**
- * Remove all global MCP registrations (VS Code, Claude Code, shim files).
- * @param {{ shimBaseDir?: string, mcpPath?: string }} [opts]
+ * Remove central_pm from one MCP config file (best-effort, backup first).
+ * @param {string} file
+ * @param {'mcpServers'|'servers'} key — top-level object holding the servers
+ */
+function _removeServerEntry(file, key) {
+  if (!fs.existsSync(file)) return;
+  try {
+    const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (existing[key]?.central_pm) {
+      const ts     = new Date().toISOString().replace(/[:.]/g, '-');
+      const backup = file + '.' + ts + '.bak';
+      fs.copyFileSync(file, backup);
+      try { fs.chmodSync(backup, 0o600); } catch { /* ignored on Windows */ }
+      delete existing[key].central_pm;
+      fs.writeFileSync(file, JSON.stringify(existing, null, 2) + '\n', 'utf8');
+    }
+  } catch {
+    // Best-effort; ignore errors during uninstall
+  }
+}
+
+/**
+ * Remove all global MCP registrations (Copilot config, legacy VS Code config,
+ * Claude Code, shim files).
+ * @param {{ shimBaseDir?: string, mcpPath?: string, legacyMcpPath?: string }} [opts]
  */
 export function uninstall(opts = {}) {
-  const { mcpPath, shimPath, configPath } = _resolvePaths(opts);
+  const { mcpPath, legacyMcpPath, shimPath, configPath } = _resolvePaths(opts);
 
-  // Remove from VS Code mcp.json
-  if (fs.existsSync(mcpPath)) {
-    try {
-      const existing = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-      if (existing.servers?.central_pm) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        fs.copyFileSync(mcpPath, mcpPath + '.' + ts + '.bak');
-        delete existing.servers.central_pm;
-        fs.writeFileSync(mcpPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
-      }
-    } catch {
-      // Best-effort; ignore errors during uninstall
-    }
-  }
+  _removeServerEntry(mcpPath, 'mcpServers');
+  _removeServerEntry(legacyMcpPath, 'servers');
 
   // Remove from Claude Code (if CLI available)
   if (isClaudeCliAvailable()) {
@@ -4389,11 +4396,11 @@ export function dryRun(opts = {}) {
   logFn(JSON.stringify({ repoPath: WORKSPACE_ROOT }, null, 2));
   logFn('');
 
-  // VS Code mcp.json
-  const vsResult = installVSCode({ ...opts, dryRun: true });
-  if (vsResult.changed) {
+  // Copilot mcp-config.json
+  const copilotResult = installCopilot({ ...opts, dryRun: true });
+  if (copilotResult.changed) {
     logFn(`  [\u2139\ufe0f  ${mcpPath}]`);
-    logFn(vsResult.diff);
+    logFn(copilotResult.diff);
   } else {
     logFn(`  [\u2713 ${mcpPath}] already configured \u2014 no change`);
     logFn('');
@@ -4429,10 +4436,10 @@ export function install(opts = {}) {
     try {
       const existing = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       if (existing.repoPath === WORKSPACE_ROOT) {
-        const vsResult  = installVSCode({ ...opts, dryRun: true });
+        const copilotResult  = installCopilot({ ...opts, dryRun: true });
         const ccStatus  = _checkClaudeCodeStatus(opts);
         const ccSettled = !ccStatus.available || (ccStatus.registered && !ccStatus.stale);
-        if (!vsResult.changed && ccSettled) {
+        if (!copilotResult.changed && ccSettled) {
           logFn('  \u2713 Global MCP already registered (no change)');
           return;
         }
@@ -4448,12 +4455,12 @@ export function install(opts = {}) {
   logFn(`  \u2713 Shim written \u2192 ${shimPath}`);
   logFn(`  \u2713 Config written \u2192 ${configPath}`);
 
-  // VS Code
-  const vsResult = installVSCode(opts);
-  if (vsResult.changed) {
-    logFn(`  \u2713 VS Code user mcp.json updated \u2192 ${vsResult.path}`);
+  // Copilot (VS Code + CLI)
+  const copilotResult = installCopilot(opts);
+  if (copilotResult.changed) {
+    logFn(`  \u2713 Copilot mcp-config.json updated \u2192 ${copilotResult.path}`);
   } else {
-    logFn(`  \u2713 VS Code user mcp.json already configured`);
+    logFn(`  \u2713 Copilot mcp-config.json already configured`);
   }
 
   // Claude Code (optional)
@@ -9716,7 +9723,7 @@ main().catch((err) => {
  *
  * Single source of truth for persona publish locations.
  * Used by sync-personas.js (deploy) and cli.js (clean-agents).
- * Individual path helpers (getClaudeCodeSkillsDir, etc.) are also imported
+ * Individual path helpers (getVSCodeSkillsDir, getClaudeCodeSkillsDir, etc.) are also imported
  * directly by publish-skills.js for skills deployment.
  *
  * Each location defines:
@@ -9727,24 +9734,68 @@ main().catch((err) => {
 
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 
 /**
- * Determine the VS Code User prompts directory based on the platform.
+ * Home-relative location segments shared with the MCP server
+ * (see shared/publish-locations.json and mcp-server/src/utils/publish-locations.ts).
+ */
+const LOCATIONS = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, '../shared/publish-locations.json'), 'utf-8')
+);
+
+/**
+ * @param {string} key
+ * @returns {string[]}
+ */
+function segmentsFor(key) {
+  const segments = LOCATIONS[key];
+  if (!Array.isArray(segments) || segments.length === 0) {
+    throw new Error(`shared/publish-locations.json: missing or invalid "${key}"`);
+  }
+  return segments;
+}
+
+/**
+ * Resolve a location under the user's home directory. Locations that start with
+ * the "copilot_home" segments are rebased onto $COPILOT_HOME when it is set,
+ * mirroring Copilot CLI, which replaces ~/.copilot with it.
+ * @param {'copilot_mcp_config'|'vscode_agents'|'vscode_skills'|'claude_agents'|'claude_skills'} key
  * @returns {string}
  */
-function getVSCodePromptsDir() {
-  const platform = os.platform();
-  const homeDir = os.homedir();
-  switch (platform) {
-    case 'win32':
-      return path.join(process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming'), 'Code', 'User', 'prompts');
-    case 'darwin':
-      return path.join(homeDir, 'Library', 'Application Support', 'Code', 'User', 'prompts');
-    case 'linux':
-      return path.join(homeDir, '.config', 'Code', 'User', 'prompts');
-    default:
-      throw new Error(`Unsupported platform: ${platform}`);
+function homeLocation(key) {
+  const segments = segmentsFor(key);
+  const base     = segmentsFor('copilot_home');
+  const override = process.env.COPILOT_HOME?.trim();
+  if (override && base.every((seg, i) => segments[i] === seg)) {
+    return path.join(path.resolve(override), ...segments.slice(base.length));
   }
+  return path.join(os.homedir(), ...segments);
+}
+
+/**
+ * Determine the VS Code (GitHub Copilot) agents directory.
+ * Personas live in ~/.copilot/agents/ on every platform.
+ * @returns {string} Path to ~/.copilot/agents/ (or under $COPILOT_HOME)
+ */
+function getVSCodeAgentsDir() {
+  return homeLocation('vscode_agents');
+}
+
+/**
+ * Determine the VS Code (GitHub Copilot) global skills directory.
+ * @returns {string} Path to ~/.copilot/skills/ (or under $COPILOT_HOME)
+ */
+function getVSCodeSkillsDir() {
+  return homeLocation('vscode_skills');
+}
+
+/**
+ * Determine the global Copilot MCP config file (read by Copilot CLI and VS Code).
+ * @returns {string} Path to ~/.copilot/mcp-config.json (or under $COPILOT_HOME)
+ */
+function getCopilotMcpConfigPath() {
+  return homeLocation('copilot_mcp_config');
 }
 
 /**
@@ -9752,7 +9803,7 @@ function getVSCodePromptsDir() {
  * @returns {string} Path to ~/.claude/agents/
  */
 function getClaudeCodeAgentsDir() {
-  return path.join(os.homedir(), '.claude', 'agents');
+  return homeLocation('claude_agents');
 }
 
 /**
@@ -9760,7 +9811,7 @@ function getClaudeCodeAgentsDir() {
  * @returns {string} Path to ~/.claude/skills/
  */
 function getClaudeCodeSkillsDir() {
-  return path.join(os.homedir(), '.claude', 'skills');
+  return homeLocation('claude_skills');
 }
 
 /**
@@ -9772,13 +9823,15 @@ function getClaudeCodeSkillsDir() {
  */
 function getPublishLocations() {
   return [
-    { label: 'VS Code prompts',    dir: getVSCodePromptsDir(),    filter: (f) => f.endsWith('.agent.md') },
+    { label: 'VS Code agents',     dir: getVSCodeAgentsDir(),     filter: (f) => f.endsWith('.agent.md') },
     { label: 'Claude Code agents', dir: getClaudeCodeAgentsDir(), filter: (f) => f.endsWith('.md') },
   ];
 }
 
 export {
-  getVSCodePromptsDir,
+  getVSCodeAgentsDir,
+  getVSCodeSkillsDir,
+  getCopilotMcpConfigPath,
   getClaudeCodeAgentsDir,
   getClaudeCodeSkillsDir,
   getPublishLocations,
@@ -9795,7 +9848,7 @@ export {
  *
  * Reads built .md files from dist/vscode-skills/ and dist/claude-skills/ and
  * deploys each as {stem}/SKILL.md under:
- *   .github/skills/      (VS Code, workspace-relative)
+ *   ~/.copilot/skills/   (VS Code / GitHub Copilot, user-global)
  *   ~/.claude/skills/    (Claude Code, user-global)
  *
  * Only directories whose stems match build output are cleared before publishing.
@@ -9807,12 +9860,12 @@ export {
 
 import fs from 'fs';
 import path from 'path';
-import { getClaudeCodeSkillsDir } from './publish-locations.js';
+import { getVSCodeSkillsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
 
 const ROOT        = path.resolve(import.meta.dirname, '..');
 const DIST_VSCODE = path.join(ROOT, 'dist', 'vscode-skills');
 const DIST_CLAUDE = path.join(ROOT, 'dist', 'claude-skills');
-const GH_SKILLS   = path.join(ROOT, '.github', 'skills');
+const VS_SKILLS   = getVSCodeSkillsDir();
 const CC_SKILLS   = getClaudeCodeSkillsDir();
 
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -9873,11 +9926,11 @@ if (vsFiles.length === 0 && ccFiles.length === 0) {
 let published = 0;
 const errors  = [];
 
-// Deploy VS Code skills (.github/skills/{stem}/SKILL.md)
+// Deploy VS Code skills (~/.copilot/skills/{stem}/SKILL.md)
 for (const { stem, content } of vsFiles) {
   try {
-    deploySkill(stem, content, GH_SKILLS, DRY_RUN);
-    if (!DRY_RUN) console.log(`[publish-skills] VS Code  → .github/skills/${stem}/SKILL.md`);
+    deploySkill(stem, content, VS_SKILLS, DRY_RUN);
+    if (!DRY_RUN) console.log(`[publish-skills] VS Code  → ${path.join(VS_SKILLS, stem, 'SKILL.md')}`);
     published++;
   } catch (err) {
     errors.push(`VS Code / ${stem}: ${err.message}`);
@@ -10609,21 +10662,22 @@ process.exit(result.status ?? 1);
  * sync-personas.js
  *
  * Builds persona files from source templates and copies them to each IDE's
- * agent/prompt directory.
+ * agent/prompt directory. The build always covers every suite and target;
+ * --target only selects which IDE's built files are copied.
  *
  * Usage:
  *   node scripts/sync-personas.js
- *   node scripts/sync-personas.js --target vscode         # VS Code only
- *   node scripts/sync-personas.js --target claude-code    # Claude Code only
+ *   node scripts/sync-personas.js --target vscode         # Deploy VS Code files only
+ *   node scripts/sync-personas.js --target claude-code    # Deploy Claude Code files only
  *   node scripts/sync-personas.js --dry-run               # Preview without copying
- *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code prompts dir
+ *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code agents dir
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
-import { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
+import { getVSCodeAgentsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
 import { parseFrontmatter } from './lib/frontmatter.js';
 
 // Role names are loaded from the shared workflow manifest — the single source
@@ -10916,13 +10970,13 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
 }
 
 /**
- * Sync VS Code personas: personas/ledger/vs-code/ → VS Code prompts directory.
+ * Sync VS Code personas: personas/ledger/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'VS Code', dryRun);
   validateVSCodeFrontmatter(sourceDir);
 }
@@ -10976,25 +11030,25 @@ function validateSlugModeVSCodeFrontmatter(dir, suiteLabel) {
 }
 
 /**
- * Sync standalone VS Code personas: personas/standalone/vs-code/ → VS Code prompts directory.
+ * Sync standalone VS Code personas: personas/standalone/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncStandaloneVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
   validateSlugModeVSCodeFrontmatter(sourceDir, 'standalone');
 }
 
 /**
- * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code prompts directory.
+ * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncLedgerSupportVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Ledger Support VS Code', dryRun);
   validateSlugModeVSCodeFrontmatter(sourceDir, 'ledger-support');
 }
@@ -11131,7 +11185,7 @@ ${colors.bright}Usage:${colors.reset}
 ${colors.bright}Options:${colors.reset}
   --target <value>       Which IDE target to sync: vscode, claude-code, all (default: all)
   --dry-run              Preview without copying
-  --custom-path <path>   Override default VS Code prompts directory (vscode target only)
+  --custom-path <path>   Override default VS Code agents directory (vscode target only)
   --help, -h             Show this help message
 
 ${colors.bright}Notes:${colors.reset}
@@ -11150,15 +11204,18 @@ ${colors.bright}Examples:${colors.reset}
   }
 
   try {
-    // Build personas from source templates, forwarding --target and --dry-run
+    // Build personas from source templates. build-personas.js always builds
+    // every suite and target declared in personas/persona-build.config.js —
+    // it has no suite or target selection — so only --dry-run is forwarded.
+    // The --target option of this script selects which built files are
+    // copied below; it does not narrow the build.
     const buildScript = path.join(import.meta.dirname, 'build-personas.js');
-    const buildArgs = ['--suite', 'ledger,standalone,ledger-support'];
+    const buildArgs = [];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the
     // existing output directories. On a clean checkout where output dirs
     // don't exist yet, a dry-run will report stale or empty content.
     if (dryRun) buildArgs.push('--dry-run');
-    if (target !== 'all') buildArgs.push('--target', target);
 
     console.log(`${colors.bright}${colors.cyan}=== Building Personas ===${colors.reset}\n`);
     execFileSync(process.execPath, [buildScript, ...buildArgs], { stdio: 'inherit' });

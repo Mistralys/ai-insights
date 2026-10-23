@@ -51,7 +51,7 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | Item | Command | Description |
 |------|---------|-------------|
 | **Build skills** | `build-skills` | Compile skill source files to `dist/vscode-skills/` and `dist/claude-skills/` |
-| **Publish skills** | `publish-skills` | Build and deploy skills to `.github/skills/` and `~/.claude/skills/` |
+| **Publish skills** | `publish-skills` | Build and deploy skills to `~/.copilot/skills/` and `~/.claude/skills/` |
 
 ### MCP Server
 

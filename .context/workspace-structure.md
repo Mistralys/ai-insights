@@ -22,12 +22,12 @@ _SOURCE: Top-level directory tree_
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
-    │   ├── insights/
-    │   │   ├── 2026-09-28-synthesis-parser-section-boundary-fix.jsonl
-    │   │   ├── 2026-10-16-package-personas-build-flags.jsonl
-    │   │   ├── 2026-10-16-persona-build-config-header-comment.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
+    │   │   ├── cross-system-dependencies.md
+    │   │   ├── curation-log.md
+    │   │   ├── generated-artefacts.md
+    │   │   ├── root-tooling.md
     │   ├── projects/
     │   │   ├── recipe-database-management.md
     │   ├── references/
@@ -214,6 +214,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── pipeline-maps.ts
     │   │   └── project-reset.ts
     │   │   └── project-resolver.ts
+    │   │   └── publish-locations.ts
     │   │   └── read-project-name.ts
     │   │   └── runner.ts
     │   │   └── server-version.ts
@@ -373,6 +374,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── progress.test.ts
     │   │   └── project-reset.test.ts
     │   │   └── project-resolver.test.ts
+    │   │   └── publish-locations.test.ts
     │   │   └── runner.test.ts
     │   │   └── store-resolution.test.ts
     │   │   └── synthesis-parser.test.ts
@@ -763,12 +765,14 @@ _SOURCE: Top-level directory tree_
     │   ├── npm-link.test.js
     │   ├── original-cwd.test.js
     │   ├── philosophy-tone.test.js
+    │   ├── publish-locations.test.js
     │   ├── publish-skills.test.js
     │   ├── store-commands.test.js
     │   ├── subagent-reference-validation.test.js
     │   ├── yaml-utils.test.js
     ├── validate-workflow-manifest.js
 └── shared/
+    ├── publish-locations.json
     ├── workflow-manifest.json
     ├── workflow-manifest.schema.json
 └── skills/

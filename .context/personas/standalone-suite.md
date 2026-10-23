@@ -119,20 +119,18 @@ For detailed build commands, template syntax, and sync conventions, see:
 
 - [personas/docs/agents/project-manifest/README.md](../docs/agents/project-manifest/README.md) — Quick reference
 - [personas/docs/agents/project-manifest/api-surface.md](../docs/agents/project-manifest/api-surface.md) — Build script functions and template syntax
-- [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints
 - [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints (includes directory layout table)
 
 **Quick commands:**
 
 ```bash
-# Build standalone suite only
-node scripts/build-personas.js --suite standalone
-
-# Build all suites
-node scripts/build-personas.js --suite all
+# Build all suites and targets
+node scripts/build-personas.js
 
 # Build + deploy to VS Code and Claude Code
-node scripts/sync-personas.js --suite standalone
+node scripts/sync-personas.js
 ```
+
+> Neither script selects a single suite: every build and sync covers all three suites (ledger, standalone, ledger-support). See the [build CLI interface](../docs/agents/project-manifest/api-surface.md#scriptsbuild-personasjs--cli-interface) for the available flags.
 
 ```

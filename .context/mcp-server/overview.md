@@ -180,7 +180,7 @@ Add the server to your `.mcp.json` (or MCP configuration file):
 }
 ```
 
-By default the server auto-detects the VS Code User prompts folder for the current platform.
+By default the server reads the VS Code agents folder, `~/.copilot/agents/`, the same location persona sync deploys to (defined in `shared/publish-locations.json`).
 
 ---
 

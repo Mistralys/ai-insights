@@ -75,6 +75,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 | **Design Decisions** | [project-manifest/decisions.md](decisions.md) | Rejected and not-adopted alternatives, and IDE/orchestrator divergences that look like bugs but are deliberate |
+| **Generated Artefacts** | [Hub generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md) | Hub document shared with the whole repository: the tracked and ignored files the orchestrator's commands and runs write (rows with Source `Orchestrator`), and when discarding each is safe |
 | **Curation Log** | [project-manifest/curation-log.md](curation-log.md) | Standing decisions about this manifest and the dated trail of curation passes |
 
 ---
@@ -606,6 +607,7 @@ This document codifies established rules, conventions, and non-obvious gotchas f
 - [Sub-Agent Delegation Constraints](#sub-agent-delegation-constraints)
 - [Storage Layout](#storage-layout)
 - [Queue Entry Schema](#queue-entry-schema)
+- [Generated Artefacts](#generated-artefacts)
 
 ### Constraint Entry Format
 
@@ -1039,7 +1041,7 @@ ledger_log_dir = (
 **Sync note:** The `STORAGE_VERSION` constant in `mcp-server/src/storage/migrate-namespaced.ts`
 is the authoritative version-tracking source for the storage layout. Any change to the layout
 must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
-See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
+See the hub manifest's [Cross-System Dependencies → Dependency Table](../../../../docs/agents/project-manifest/cross-system-dependencies.md#dependency-table), "Storage layout version" row.
 
 ---
 
@@ -1284,6 +1286,21 @@ again would be incorrect.
 **Rationale:** This decouples tool governance per target: VS Code tools are declared in `tools:`, Claude Code in `cc_tools:`, and Deep Agents tools are a runtime concern of `create_deep_agent()`. A plan that assumes `da_tools:` restricts or configures Deep Agents tooling will produce incorrect instructions.
 
 **Source:** `orchestrator/src/nodes/__init__.py` → `create_deep_agent()` call site; `deepagents` library → `graph.py` built-in tool merge.
+
+---
+
+## Generated Artefacts
+
+The orchestrator has no build step of its own. Its generated files are the version field synchronised into `pyproject.toml`, the `.context/orchestrator/**` output, and the run state a pipeline writes. The hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md) records which is which and when each can be discarded; this module's rows carry the Source `Orchestrator`, and the same document covers the repository-wide generated files.
+
+- Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
+- On a feature branch, revert generator drift by path (`.context/orchestrator/**`, a `pyproject.toml` diff limited to `version`) before integrating upstream, and regenerate `.context/` on the default branch.
+- Keep a `pyproject.toml` `version` change when the branch edited `changelog.md`; commit it with that change.
+- Never revert a hand-maintained neighbour such as `module-context.yaml` or `requirements.txt` as build noise.
+- Never commit or delete run state (`checkpoints/`, `logs/`, `.orchestrator-run.json`). It is ignored, written by runs, and cannot be regenerated on demand.
+- Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
+- When unsure whether a file is generated, leave it and ask the user.
+
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/curation-log.md`
 
@@ -1301,6 +1318,29 @@ Written by the Manifest Curator only; no other agent edits this file.
 | — | — | None settled with the user yet. |
 
 ## History
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the module's generated-artefacts document and the links to it. Not a full reconcile.
+**Commit:** 2d4220a3 (working tree held uncommitted changes)
+**Changes:** Deleted this manifest's `generated-artefacts.md`; its rows (including all run-state rows and the `requirements.txt` neighbour) were merged into the hub's `docs/agents/project-manifest/generated-artefacts.md` (Source `Orchestrator`). Repointed the `README.md` index row and the `constraints.md` → Generated Artefacts preamble and first bullet to the hub file.
+**Notes:** Two `TODO: verify` markers carried over to the hub row for `orchestrator/requirements.txt` and the `pytest` command row. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. History entries below name `generated-artefacts.md` as a document of this directory as it stood when written; it now lives in the hub.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** One link in `constraints.md` (storage layout section). Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** The pointer to the root `AGENTS.md` "Storage layout version" row now targets the hub's `cross-system-dependencies.md`, where that row moved. The target file and anchor exist on disk.
+
+### 2026-10-19 · Update · Curator v1.6.2
+
+**Scope:** Partial upgrade, addition only: new `generated-artefacts.md`, its row in the `README.md` Manifest Sections table, a Generated Artefacts section appended to `constraints.md` (plus its Contents link). No other document or section was reconciled or verified.
+**Commit:** 1ced4e17
+**Changes:**
+- Created `generated-artefacts.md`, cross-linking the hub document instead of repeating repo-wide rows. Rows checked against `src/cli.py`, `src/graph.py`, `src/config.py`, `src/utils/{logging,run_queue,chunk_writer,dialogue_writer}.py`, `scripts/cli.js` (version sync into `pyproject.toml`), `module-context.yaml`, the root and module `.gitignore` files, and `git ls-files`. Tracked generated files are `.context/orchestrator/**` and the `pyproject.toml` version field; run state (checkpoints, logs, queue, `.orchestrator-run.json`, ledger-storage chunks and dialogues) is ignored.
+- `constraints.md` gained a Generated Artefacts section; `README.md` gained an index row.
+
+**Notes:** The reverted-decision search and changed-code intersection were not run (partial pass by instruction). The working tree held uncommitted changes elsewhere in the repository; the commit above is the last one. Two rows carry `TODO: verify` comments: the origin of `requirements.txt` (no writing script found) and whether tests isolate themselves from the real `logs/` and `checkpoints/`. Observed but untouched: `README.md` index still states a test count and constraint count (stale-prone) and its inline file tree omits `decisions.md`, `curation-log.md` and newer `src/utils/` modules; `constraints.md` lines near 454 still cite root `AGENTS.md` -> Cross-System Dependencies "Storage layout version" row, which exists in the root `AGENTS.md` today (open Amend-plan item, left as is). `.context/orchestrator/manifest.md` needs `node scripts/cli.js ctx-generate`. The adjacent-document check was out of scope for this dispatch.
 
 ### 2026-10-06 · Update · Curator v1.6.2
 

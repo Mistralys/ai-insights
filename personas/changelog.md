@@ -17,17 +17,19 @@ summaries and applies requested synthesis edits.
 - Ledger, Ledger-Support: No check-only work packages; the Ledger Doctor diagnoses legacy ones.
 - Ledger: Claude Code handoffs and sub-agent dispatches start the intended agent.
 - Ledger: QA re-engages when requested and narrows its run only after a failed QA pipeline.
-- Ledger-Support: Synthesis Maintainer composes outcome summaries and applies requested edits.
+- Ledger-Support: Synthesis Maintainer composes summaries, applies edits, picks Archive or Refresh.
+- Standalone: Changelog and WHATSNEW Curators gained Archive mode for older releases.
 - Ledger, Standalone: Synthesis records archival failures and writes an Outcome Summary section.
 - Planning: Releases stay out of plans; gates on a person count as dependencies.
 - Planning: Baseline-capture guidance now runs through the whole planning chain.
+- Ledger: Project Manager, Bootstrapper and Dependency Sequencer keep WP numbering in step.
 - Developer: Never publishes or tags; Release Engineer prepares releases without running them.
 - Standalone: Plan Auditor flags release steps and person-gated steps as Critical.
 - Ledger, Standalone: Changelog writers collect changes in one WIP version based on the last tag.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
 - Standalone: Manifest Curator documents generated files in a new `generated-artefacts.md`.
 - Standalone: AGENTS.md Curator, CTX Architect, Workspace Architect route to that document.
-- Standalone: Workspace Architect gained Amend mode, a shared plan file, existing-artefact handling.
+- Standalone: Workspace Architect gained Amend mode, a plan file, return passes, artefact handling.
 - Standalone: Documentation curators leave work to a caller's plan and may still call specialists.
 - Standalone: WHATSNEW Curator writes self-contained items and completes existing versions.
 - Standalone: Git Committer classes feature-branch generated files via `generated-artefacts.md`.

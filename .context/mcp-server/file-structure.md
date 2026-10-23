@@ -55,6 +55,7 @@ _SOURCE: MCP server source directory tree_
         │   │       └── README.md
         │   │       └── api-surface.md
         │   │       └── constraints.md
+        │   │       └── curation-log.md
         │   │       └── data-flows.md
         │   │       └── file-tree.md
         │   │       └── tech-stack.md
@@ -154,6 +155,7 @@ _SOURCE: MCP server source directory tree_
         │   └── pipeline-maps.ts
         │   └── project-reset.ts
         │   └── project-resolver.ts
+        │   └── publish-locations.ts
         │   └── read-project-name.ts
         │   └── runner.ts
         │   └── server-version.ts
@@ -305,6 +307,7 @@ _SOURCE: MCP server source directory tree_
         │   └── progress.test.ts
         │   └── project-reset.test.ts
         │   └── project-resolver.test.ts
+        │   └── publish-locations.test.ts
         │   └── runner.test.ts
         │   └── store-resolution.test.ts
         │   └── synthesis-parser.test.ts

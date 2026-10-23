@@ -16,7 +16,7 @@ Each suite is built for three output targets: **VS Code** (`.agent.md`), **Claud
 
 Generated persona files are consumed in three ways:
 - **Directly** — users copy-paste persona content into AI IDE chat sessions
-- **Via sync** — `sync-personas.js` copies VS Code and Claude Code output to VS Code's User prompts directory (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
+- **Via sync** — `sync-personas.js` copies VS Code and Claude Code output to VS Code agents directory (`~/.copilot/agents/`) (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
 - **Via the orchestrator** — the Deep Agents output is read directly off disk by `orchestrator/src/config.py`, with no sync step
 
 ---
@@ -33,7 +33,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
-| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
+| [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) | Hub document, shared with the whole repository: tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---

@@ -12,6 +12,20 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the coverage-report reference in `constraints.md` → Generated Artefacts.
+**Commit:** 2d4220a3 (working tree held uncommitted changes)
+**Changes:** Removed `mcp-server/coverage/**` as the drift example in the Generated Artefacts bullet on feature-branch drift, since the owner untracked and ignored the report.
+**Notes:** Supersedes the earlier same-day note that the repository still tracks the coverage report; it is now untracked and ignored through the root `.gitignore`. The hub's `generated-artefacts.md` carries the ignored-artefact row.
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the module's generated-artefacts document and the links to it. Not a full reconcile.
+**Commit:** 2d4220a3 (working tree held uncommitted changes)
+**Changes:** Deleted this manifest's `generated-artefacts.md`; its rows were merged into the hub's `docs/agents/project-manifest/generated-artefacts.md` (Source `MCP Server`). Repointed the `README.md` index row and the `constraints.md` → Generated Artefacts preamble and first bullet to the hub file. The `mcp-server/coverage/**` row was settled with the owner: a temporary report not meant to be tracked.
+**Notes:** At the last check the repository still tracks the coverage report and no `.gitignore` entry covers it; untracking is an owner action. `mcp-server/gui` manifest carries no link to the file. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. History entries below name `generated-artefacts.md` as a document of this directory as it stood when written; it now lives in the hub.
+
 ### 2026-10-19 · Update · Curator v1.6.2
 
 **Scope:** Partial upgrade, addition only: new `generated-artefacts.md`, its row in the `README.md` Manifest Sections table, and a matching Generated Artefacts section appended to `constraints.md`. No other document or section was reconciled or verified.

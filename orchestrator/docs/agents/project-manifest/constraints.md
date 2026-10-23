@@ -702,9 +702,9 @@ again would be incorrect.
 
 ## Generated Artefacts
 
-The orchestrator has no build step of its own. Its generated files are the version field synchronised into `pyproject.toml`, the `.context/orchestrator/**` output, and the run state a pipeline writes. [generated-artefacts.md](generated-artefacts.md) records which is which and when each can be discarded. Repository-wide generated files are covered by the hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md).
+The orchestrator has no build step of its own. Its generated files are the version field synchronised into `pyproject.toml`, the `.context/orchestrator/**` output, and the run state a pipeline writes. The hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md) records which is which and when each can be discarded; this module's rows carry the Source `Orchestrator`, and the same document covers the repository-wide generated files.
 
-- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - On a feature branch, revert generator drift by path (`.context/orchestrator/**`, a `pyproject.toml` diff limited to `version`) before integrating upstream, and regenerate `.context/` on the default branch.
 - Keep a `pyproject.toml` `version` change when the branch edited `changelog.md`; commit it with that change.
 - Never revert a hand-maintained neighbour such as `module-context.yaml` or `requirements.txt` as build noise.

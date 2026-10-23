@@ -12,14 +12,14 @@
  *   node scripts/sync-personas.js --target vscode         # Deploy VS Code files only
  *   node scripts/sync-personas.js --target claude-code    # Deploy Claude Code files only
  *   node scripts/sync-personas.js --dry-run               # Preview without copying
- *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code prompts dir
+ *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code agents dir
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
-import { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
+import { getVSCodeAgentsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
 import { parseFrontmatter } from './lib/frontmatter.js';
 
 // Role names are loaded from the shared workflow manifest — the single source
@@ -312,13 +312,13 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
 }
 
 /**
- * Sync VS Code personas: personas/ledger/vs-code/ → VS Code prompts directory.
+ * Sync VS Code personas: personas/ledger/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'VS Code', dryRun);
   validateVSCodeFrontmatter(sourceDir);
 }
@@ -372,25 +372,25 @@ function validateSlugModeVSCodeFrontmatter(dir, suiteLabel) {
 }
 
 /**
- * Sync standalone VS Code personas: personas/standalone/vs-code/ → VS Code prompts directory.
+ * Sync standalone VS Code personas: personas/standalone/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncStandaloneVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
   validateSlugModeVSCodeFrontmatter(sourceDir, 'standalone');
 }
 
 /**
- * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code prompts directory.
+ * Sync ledger-support VS Code personas: personas/ledger-support/vs-code/ → VS Code agents directory.
  * @param {boolean} dryRun
- * @param {string|null} customPath - Override the default VS Code prompts directory
+ * @param {string|null} customPath - Override the default VS Code agents directory
  */
 function syncLedgerSupportVSCode(dryRun = false, customPath = null) {
   const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger-support', 'vs-code');
-  const targetDir = customPath || getVSCodePromptsDir();
+  const targetDir = customPath || getVSCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Ledger Support VS Code', dryRun);
   validateSlugModeVSCodeFrontmatter(sourceDir, 'ledger-support');
 }
@@ -527,7 +527,7 @@ ${colors.bright}Usage:${colors.reset}
 ${colors.bright}Options:${colors.reset}
   --target <value>       Which IDE target to sync: vscode, claude-code, all (default: all)
   --dry-run              Preview without copying
-  --custom-path <path>   Override default VS Code prompts directory (vscode target only)
+  --custom-path <path>   Override default VS Code agents directory (vscode target only)
   --help, -h             Show this help message
 
 ${colors.bright}Notes:${colors.reset}
