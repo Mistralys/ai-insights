@@ -599,11 +599,16 @@ use_when: "Invoked by the Project Manager to determine which pipeline stages eac
 ```yaml
 slug: ledger-synthesis-maintainer
 name: "Ledger Synthesis Maintainer"
-description: "Archive a completed standalone plan folder into the project ledger, or apply requested edits to the synthesis.md of a completed project and refresh its ledger record."
+description: "Keep the ledger synthesis record of a completed project in step with its synthesis.md: apply requested updates, then archive the plan folder if the ledger does not track it, or refresh the ledger copy if it does."
 vs_file_name: ledger-synthesis-maintainer.agent.md
 id: ledger-support-synthesis-maintainer
 cc_file_name: ledger-synthesis-maintainer.md
 changelog: |
+  3.0.0 (2026-10-23): BREAKING — Update mode renamed to Refresh mode; adds a vocabulary table fixing
+    "update" (change the file), "refresh" (sync the ledger copy) and "archive" (first import); the mode
+    is no longer chosen from the request — shared steps apply any update, then call
+    `ledger_update_synthesis` as the lookup, falling through to Archive mode on `no project with slug`;
+    accepts the path to `synthesis.md` as well as the plan folder
   2.2.0 (2026-09-28): Archive mode now composes the project's `outcome_summary` from `synthesis.md` and
     passes it to the tool, instead of leaving the server to parse it out of a section heading; Update
     mode passes none and lets the stored summary stand, composing one only where the refresh comes back
@@ -656,10 +661,10 @@ cc_tools:
 
 # overview metadata
 identity: "Ledger Archivist"
-use_when: "A completed standalone plan should be tracked in the project ledger, or the synthesis.md of a completed project needs a correction and its ledger record refreshed"
+use_when: "The synthesis.md of a completed plan should be archived into or refreshed in the project ledger, optionally after updating it"
 modes: |
   Archive
-  Update
+  Refresh
 
 ```
 ###  Path: `/personas/ledger-support/src/meta/ledger-wp-decomposer.yaml`

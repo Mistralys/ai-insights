@@ -42,6 +42,7 @@ The server manages two types of JSON files:
 | [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | MCP tools, classes, types, and public methods |
 | [Key Data Flows](data-flows.md) | Main interaction paths through the system |
+| [Generated Artefacts](generated-artefacts.md) | Which tracked and ignored files this module's build and test commands write, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions about this manifest's shape, and the dated trail of verification passes |
 
 ### Constraints
@@ -110,7 +111,7 @@ node scripts/cli.js install-mcp
 ```
 
 This command installs a stable shim at `~/.ai-insights/bin/launch-server.js` and merges
-the `central_pm` server key into the VS Code user-level `mcp.json`, making the MCP server
+the `central_pm` server key into `~/.copilot/mcp-config.json` (read by Copilot CLI and VS Code), making the MCP server
 available across all workspaces without per-project configuration. A `--dry-run` flag previews
 the changes without writing.
 
@@ -156,6 +157,7 @@ _SOURCE: GUI sub-manifest hub (manifest index, architecture overview, key relati
 | [ui-components.md](ui-components.md) | CSS component library: theme tokens, buttons, badges, cards, tables, forms, and all view-specific classes. |
 | [data-flows.md](data-flows.md) | Request lifecycle, SPA routing, polling, theme initialization. |
 | [constraints.md](constraints.md) | Architectural invariants, naming conventions, security rules. |
+| [curation-log.md](curation-log.md) | Standing decisions settled with the user, and the dated history of manifest curation passes. |
 
 ---
 

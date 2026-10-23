@@ -47,7 +47,7 @@ Each suite is built for three output targets: **VS Code** (`.agent.md`), **Claud
 
 Generated persona files are consumed in three ways:
 - **Directly** — users copy-paste persona content into AI IDE chat sessions
-- **Via sync** — `sync-personas.js` copies VS Code and Claude Code output to VS Code's User prompts directory (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
+- **Via sync** — `sync-personas.js` copies VS Code and Claude Code output to VS Code agents directory (`~/.copilot/agents/`) (using `vs_file_name` frontmatter) and/or Claude Code's `~/.claude/agents/` directory (using `name` frontmatter)
 - **Via the orchestrator** — the Deep Agents output is read directly off disk by `orchestrator/src/config.py`, with no sync step
 
 ---
@@ -64,7 +64,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
-| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, `CLAUDE.md`, overview and audit status), their generators, and when discarding each is safe |
+| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---
@@ -83,24 +83,24 @@ node scripts/build-personas.js
 node scripts/build-personas.js --check
 ```
 
-**Preview without writing:**
+**Same as `--check` (alias):**
 ```bash
 node scripts/build-personas.js --dry-run
 ```
 
-**Validate generated output for unresolved markers (strict mode):**
+**Also fail on library warnings (strict mode):**
 ```bash
 node scripts/build-personas.js --strict
 ```
 
-Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers.
+Exits 1 on the library's warning-severity validation results as well as its errors. Unresolved `{{variable}}` or `{{> partial}}` markers only print a `[WARN]` line and never fail the build, even under `--strict`; the wrapper's own warn-severity checks stay non-fatal too. Add `--check` to run it without writing.
 
 **Build + sync to both IDEs (VS Code + Claude Code):**
 ```bash
 node scripts/sync-personas.js
 ```
 
-**Build + sync to a specific IDE only:**
+**Build everything + sync to a specific IDE only (`--target` selects deploy steps, not what is built; `claude-code` also syncs `.claude/skills/`):**
 ```bash
 node scripts/sync-personas.js --target vscode
 node scripts/sync-personas.js --target claude-code
@@ -125,16 +125,16 @@ All template engine logic (partial resolution, conditionals, variable interpolat
 
 ### `scripts/build-personas.js` — CLI Interface
 
-The wrapper accepts three flags. Suite and target selection are controlled by the config file.
+The wrapper accepts only `--check`, `--dry-run` and `--strict`; it takes no `--suite` or `--target`. Suite and target selection are controlled by the config file, and every build covers all of them.
 
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate full build to `@mistralys/persona-builder` for all suites and targets in the config |
 | `--check` | Forward `--check` to the library CLI, which renders every persona in memory and writes nothing. Fails only on error-severity validation results; it does not compare the rendered output against files on disk |
 | `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
-| `--strict` | Forward `--strict` to the library CLI — unresolved `{{variable}}` or `{{> partial}}` markers remaining in output count as an error-severity result |
+| `--strict` | Forward `--strict` to the library CLI, which then also fails on its warning-severity validation results. Unresolved `{{variable}}` / `{{> partial}}` markers only print a `[WARN]` line and are not validation results, so they never fail the build; the wrapper's own warn-severity checks stay non-fatal too |
 
-**Exit code:** the wrapper captures the library CLI's own exit status (`libraryStatus`) instead of exiting immediately on failure, runs every wrapper-side check (below) and both post-build steps regardless of that status, then calls `process.exit()` exactly once via `resolveExitCode(libraryStatus, { errorCount })` (`scripts/lib/build-checks.js`): the library's own non-zero status wins if present, else `1` when any check reported an error-severity result, else `0`. A failing library CLI call no longer skips the post-build steps or any of the five checks — see **Unconditional** below.
+**Exit code:** the wrapper captures the library CLI's own exit status (`libraryStatus`) instead of exiting immediately on failure, runs every wrapper-side check (below) and both post-build steps regardless of that status, then calls `process.exit()` exactly once via `resolveExitCode(libraryStatus, { errorCount })` (`scripts/lib/build-checks.js`): the library's own non-zero status wins if present, else `1` when any check reported an error-severity result, else `0`. A failing library CLI call no longer skips the post-build steps or any of the checks — see **Unconditional** below.
 
 Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally regardless of the library CLI's exit status. The wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) calls `generateNameMapping()` in `scripts/lib/name-mapping.js`, which reads the ledger `src/meta/` (`N-*.yaml` plus `_shared.yaml`, for `default_version` and the default model), the `standalone/` and `ledger-support/` `src/meta/` directories (each with an optional `_shared.yaml` supplying `default_model_slug`), and the model registry in `personas/model-registry/`, then writes `personas/name-mapping.json` via `writeNameMapping()`. Ledger entries come first, sorted by `number`, followed by non-ledger entries sorted by suite and then role; a non-ledger YAML without `id` or `cc_file_name` is skipped. Each entry shape: `number` (`null` outside the ledger suite), `id`, `role` (the YAML `role` for ledger personas; for the others, `name` with its `(Standalone)` / `(Ledger Support)` suffix removed by `deriveRole()`), `version` (derived from the per-persona `changelog:` block scalar via `resolveVersionFromChangelog()`, falling back to the YAML `version:` field if present, then `default_version`), `suite`, the model fields `model`, `model_slug` and `cc_model`, and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`. **`version:` and `last_updated:` are not direct YAML inputs** — they are auto-derived from the `changelog:` block scalar; do not set them manually in per-persona YAML.
 
@@ -150,7 +150,7 @@ Post-build (real builds only, not `--check`/`--dry-run`): run unconditionally re
 
 5. **Cross-target tool-capability parity:** Implemented by `@mistralys/persona-builder`'s `validateToolParity()`, run as a `build()` post-pass once every suite × target has finished rendering. Compares each persona's granted capabilities across all of its built targets and fails the build for any capability a persona has on one target but lacks the equivalent tool for on another — naming the granting target(s)/tool(s) and the lacking target's own missing tool name. A persona's YAML `tool_parity_exceptions` list (capability names, or `mcp:`-prefixed forms) is excluded from the comparison; declaring a name that isn't a capability recognised by any registered target's tool-capability map is flagged as a build warning. This is a distinct check from the `cc_tools` / dispatch consistency check (step 3), which only verifies Claude Code's `Task` grant — parity compares every capability across every target pair.
 
-6. **Warnings:** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size — line count, bullet count, sentences per bullet, and per-line length (`scripts/lib/changelog-size-check.js`).
+6. **Warnings (never fatal, `--strict` included):** Operating Philosophy mood (`scripts/lib/philosophy-tone.js`) and the newest `personas/changelog.md` entry size — line count, bullet count, sentences per bullet, and per-line length (`scripts/lib/changelog-size-check.js`).
 
 ### `personas/persona-build.config.js` — Config Interface
 
@@ -356,7 +356,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `model` | `string` | no | AI model override — replaces `default_model` for this persona (e.g. `"Claude Opus 4.6"`) |
 | `model_slug` | `string` | no | API-compatible model slug — overrides `default_model_slug` from `_shared.yaml` (e.g. `"claude-opus-4-6"`). Consumed by the orchestrator directly; not written into generated frontmatter. |
 | `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
-| `vs_file_name` | `string` | yes | Output filename when synced to VS Code prompts dir |
+| `vs_file_name` | `string` | yes | Output filename when synced to VS Code agents dir |
 | `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `da_file_name` | `string` | yes | Output filename for the deep-agents target (e.g. `"3-developer.md"`). Follows the same `N-<role-slug>.md` pattern as `cc_file_name`. Intentionally absent from standalone YAMLs — the deep-agents target falls back to the content file basename (e.g. `researcher.md`) for standalone personas. |
 | `version` | `string` | no | Overrides `default_version` for this persona |
@@ -700,33 +700,45 @@ This table is the **normative reference** for which MCP tools belong in each per
 
 ## Sync Script (`scripts/sync-personas.js`)
 
+### Imported Helpers
+
+The script does not define these; it imports them.
+
+- `getVSCodeAgentsDir()`, `getClaudeCodeAgentsDir()`, `getClaudeCodeSkillsDir()` from `scripts/publish-locations.js` — publish directories (`~/.copilot/agents/`, `~/.claude/agents/`, `~/.claude/skills/`).
+- `parseFrontmatter(filePath) → Object | null` from `scripts/lib/frontmatter.js` — reads all top-level YAML frontmatter fields into a plain object.
+
 ### Functions
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `getVSCodePromptsDir` | `() → string` | Returns platform-specific VS Code User prompts directory (win32/darwin/linux) |
-| `getClaudeCodeAgentsDir` | `() → string` | Returns `~/.claude/agents/` (cross-platform via `os.homedir()`) |
-| `getClaudeCodeSkillsDir` | `() → string` | Returns `~/.claude/skills/` (cross-platform via `os.homedir()`) |
 | `extractVSFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `vs_file_name` field or null |
 | `extractCCFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `name` field (trimmed) + `.md`, or null |
-| `parseFrontmatter` | `(filePath: string) → Object \| null` | Reads all top-level YAML frontmatter fields into a plain object |
-| `validateVSCodeFrontmatter` | `(dir: string) → void` | Validates `role`, `name`, `vs_file_name`, and `id` fields in ledger VS Code persona frontmatter; warns (non-blocking) when `id:` is missing |
-| `validateStandaloneVSCodeFrontmatter` | `(dir: string) → void` | Validates standalone VS Code persona frontmatter: requires `name`, `vs_file_name`, and `id`; no `role` required; warns on failures (including missing `id:`) but does not block sync |
+| `validateVSCodeFrontmatter` | `(dir: string) → void` | Warns (non-blocking) when ledger VS Code persona frontmatter lacks `role` (or carries one outside `KNOWN_ROLES`), `name`, `vs_file_name`, `id`, or `model` |
+| `validateSlugModeVSCodeFrontmatter` | `(dir: string, suiteLabel: string) → void` | Validates slug-mode VS Code persona frontmatter for the standalone and ledger-support suites: requires `name`, `vs_file_name`, and `id`; no `role` required; `suiteLabel` names the suite in console output; warns on failures (including missing `id:`) but does not block sync |
 | `validateCCFrontmatter` | `(dir: string) → void` | Validates `name` (kebab-case with numeric prefix), `role`, `permissionMode`, `model`, `memory` in CC persona frontmatter |
 | `syncFromDir` | `(sourceDir, targetDir, extractFileNameFn, label, dryRun?) → void` | Generic copy helper: reads all `.md` files from sourceDir, extracts deployment name via `extractFileNameFn`, copies to targetDir |
-| `syncVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger/vs-code/` → VS Code prompts dir; calls `validateVSCodeFrontmatter` |
-| `syncStandaloneVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/standalone/vs-code/` → VS Code prompts dir; calls `validateStandaloneVSCodeFrontmatter`; reuses `syncFromDir` with `extractVSFileName` |
+| `syncVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger/vs-code/` → VS Code agents dir; calls `validateVSCodeFrontmatter` |
+| `syncStandaloneVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/standalone/vs-code/` → VS Code agents dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'standalone')`; reuses `syncFromDir` with `extractVSFileName` |
 | `syncClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/ledger/claude-code/` → `~/.claude/agents/`; calls `validateCCFrontmatter` |
-| `validateStandaloneCCFrontmatter` | `(dir: string) → void` | Validates standalone CC persona frontmatter: requires `name` (plain kebab-case, no numeric prefix), `permissionMode`, `model`, `memory`; warns on failures but does not block sync |
-| `syncStandaloneClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/standalone/claude-code/` → `~/.claude/agents/`; calls `validateStandaloneCCFrontmatter`; reuses `syncFromDir` with `extractCCFileName` |
+| `validateSlugModeCCFrontmatter` | `(dir: string, suiteLabel: string) → void` | Validates slug-mode CC persona frontmatter for the standalone and ledger-support suites: requires `name` (plain kebab-case, no numeric prefix), `permissionMode`, `model`, `memory`; `suiteLabel` names the suite in console output; warns on failures but does not block sync |
+| `syncStandaloneClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/standalone/claude-code/` → `~/.claude/agents/`; calls `validateSlugModeCCFrontmatter(dir, 'standalone')`; reuses `syncFromDir` with `extractCCFileName` |
+| `syncLedgerSupportVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger-support/vs-code/` → VS Code agents dir; calls `validateSlugModeVSCodeFrontmatter(dir, 'ledger-support')` |
+| `syncLedgerSupportClaudeCode` | `(dryRun?: boolean) → void` | Syncs `personas/ledger-support/claude-code/` → `~/.claude/agents/`; calls `validateSlugModeCCFrontmatter(dir, 'ledger-support')` |
+| `syncSkills` | `(dryRun?: boolean) → void` | Copies `.claude/skills/` → `~/.claude/skills/` |
+
+### CLI Behaviour
+
+`main()` first runs `node scripts/build-personas.js` as a child process — with no extra arguments, or with `--dry-run` when the sync gets `--dry-run`. The build always covers every suite and target in `personas/persona-build.config.js`. The sync takes no `--suite`, and silently ignores arguments it does not recognise. Its own `--target` (`vscode` | `claude-code` | `all`, default `all`) selects only which deploy steps run: `vscode` / `all` copies all three suites to the VS Code agents folder (~/.copilot/agents/) (`--custom-path` overrides it); `claude-code` / `all` copies all three suites to `~/.claude/agents/` and then runs `syncSkills()`. Under `--dry-run` nothing is regenerated and nothing is copied; the sync only previews ("Would copy") from the existing output.
 
 ### `KNOWN_ROLES` Constant
 
 ```javascript
-const KNOWN_ROLES = require('../shared/workflow-manifest.json').roles.map(r => r.name);
+const KNOWN_ROLES = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, '../shared/workflow-manifest.json'), 'utf-8')
+).roles.map(r => r.name);
 ```
 
-Derived at runtime from the shared workflow manifest. Always in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts` (both are manifest-derived).
+Derived at runtime from the shared workflow manifest, read in ESM through `JSON.parse(fs.readFileSync(...))` rather than `require`. Always in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts` (both are manifest-derived).
 
 ---
 
@@ -864,14 +876,18 @@ The persona `id` field (from `name-mapping.json`) is the stable key used in `ass
 
 ### `name-mapping.json` — All Suites
 
-`personas/name-mapping.json` is regenerated by `scripts/build-personas.js` after every real build. It covers all three suites (ledger, standalone, ledger-support). Each entry shape:
+`personas/name-mapping.json` is written by `writeNameMapping()` in `scripts/lib/name-mapping.js`, which `scripts/build-personas.js` calls after every real build (never under `--check` / `--dry-run`). `generateNameMapping()` reads the persona YAML of all three suites (ledger, standalone, ledger-support `src/meta/`, including each `_shared.yaml` for model defaults) plus `personas/model-registry/`. Each entry shape:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `role` | string | Human-readable role name |
-| `number` | number | Display ordering index (ledger suite) |
+| `number` | number \| null | Display ordering index for the ledger suite; `null` for standalone and ledger-support entries |
 | `id` | string | Stable persona identifier used as the `persona_models` key in `assignments.json` |
+| `role` | string | Human-readable role name |
 | `version` | string | Resolved from persona `changelog` block scalar |
+| `suite` | string | `ledger`, `standalone` or `ledger-support` |
+| `model` | string | Resolved model display name (`scripts/lib/persona-model-resolution.js`, from the model registry, assignments, persona YAML `model_slug` and `_shared.yaml` defaults) |
+| `model_slug` | string | Resolved model slug, same resolution |
+| `cc_model` | string | Resolved Claude Code model value, same resolution |
 | `vscode` | `{ file_name, agent_name }` | VS Code target output |
 | `claude_code` | `{ file_name, agent_name }` | Claude Code target output |
 | `deep_agents` | `{ file_name, agent_name }` | Deep-agents target output |
@@ -981,23 +997,22 @@ template change (`node scripts/build-personas.js`).
 
 <a name="c9"></a>
 <a name="b5"></a>
-5. **Unresolved markers are preserved.** Unknown `{{variable}}` or `{{> partial}}` markers are left in the output as-is and a `[WARN]` is emitted. This makes typos visible without causing a hard build failure.
+5. **Unresolved markers are preserved.** Unknown `{{variable}}` or `{{> partial}}` markers are left in the output as-is, and the library prints a `[WARN] Unresolved variable` or `[WARN] Partial not found` line via `console.warn`. These lines are not validation results, so they never fail the build, with or without `--strict`. This makes typos visible without causing a hard build failure.
 
 <a name="c10"></a>
 <a name="b6"></a>
-6. **`--strict` fails the build on warning-severity validation results, not on unresolved markers.** `scripts/build-personas.js` forwards `--strict` to the library CLI and runs no scan of its own. The library then exits 1 when any validation result has severity `warning`; error-severity results fail the build with or without the flag. Warnings come from the library's built-in validators (for example a tool written in another target's notation, or an unmapped `tool_parity_exceptions` entry) and from plugins (for example the ledger plugin's unknown-role check). An unresolved `{{variable}}` marker only prints a console `[WARN] Unresolved variable` line. That line is not a validation result, so `--strict` does not gate on it. The wrapper's own warn-severity checks (philosophy tone, changelog size) never fail the build either, since `resolveExitCode()` counts only error-severity results. Use `node scripts/build-personas.js --strict` in CI to gate on zero library warnings, and add `--check` to keep the run free of writes.
+6. **`--strict` fails the build on warning-severity validation results, not on unresolved markers.** `scripts/build-personas.js` forwards `--strict` to the library CLI and runs no scan of its own. The library then exits 1 when any validation result has severity `warning`; error-severity results fail the build with or without the flag. Warnings come from the library's built-in validators (for example a tool written in another target's notation, or an unmapped `tool_parity_exceptions` entry) and from plugins (for example the ledger plugin's unknown-role check). An unresolved `{{variable}}` marker only prints a console `[WARN] Unresolved variable` line. That line is not a validation result, so `--strict` does not gate on it. The same holds for an unresolved `{{> partial}}` and its `[WARN] Partial not found` line. The wrapper's own warn-severity checks (philosophy tone, changelog entry size) never fail the build either, `--strict` included, since `resolveExitCode()` in `scripts/lib/build-checks.js` considers only the library exit status and the error count. Use `node scripts/build-personas.js --strict` in CI to gate on zero library warnings, and add `--check` to keep the run free of writes.
 
 ---
 
 ## Log-Prefix Convention
 
-The build script (`scripts/build-personas.js`) uses four bracket-prefixed severity levels for all console output. Use these prefixes consistently for any `console.log` / `console.error` calls added to the build script in the future.
+The build script (`scripts/build-personas.js`) uses bracket-prefixed severity levels for all console output. Use these prefixes consistently for any `console.log` / `console.error` calls added to the build script in the future.
 
 | Prefix | Meaning | Example usage |
 |--------|---------|---------------|
 | `[info]` | Informational — runtime context, no action needed | Suite default announcement at startup |
-| `[WARN]` | Warning — recoverable issue, output may still be valid | Unresolved template markers (non-strict mode) |
-| `[STRICT]` | Strict-mode failure — gates CI exit code | Unresolved markers when `--strict` is active |
+| `[WARN]` | Warning — recoverable issue, output may still be valid | Unresolved template markers (`[WARN] Unresolved variable`, `[WARN] Partial not found`, printed by the library); never fatal, even under `--strict` |
 | `[ERROR]` | Fatal — build cannot continue | Missing content file, invalid YAML |
 
 ---
@@ -1010,13 +1025,13 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c35"></a>
 <a name="b8"></a>
-8. **`--check` mode asserts that `note_only: true` tools are absent from generated output.** Running `node scripts/build-personas.js --check` performs two validations per file: (1) the generated content matches the file on disk (staleness check), and (2) no tool entry marked `note_only: true` in the persona's `mcp_tools` YAML appears as a rendered table row in the generated output. The guard in `build-personas.js` uses a **regex** (`/\|\s*\`toolName\`\s*\|/`) rather than `string.includes()` — this tolerates Markdown table column-spacing variations (e.g., `|  \`toolName\`  |`). Violations increment `staleCount` and are printed to stderr with prefix `[note_only-violation]`. If any violation is found the process exits with code 1.
+8. **The `note_only` guard is a ledger-plugin validator, run on every build.** `validateNoteOnlyGuard()` in `personas/plugins/ledger/role-validator.js` asserts that no tool entry marked `note_only: true` in the persona's `mcp_tools` YAML appears as a rendered table row. The ledger plugin (`personas/plugins/ledger/index.js`) caches each persona's rendered output per target in its `onPostRender` hook and runs the guard from its `onValidate` hook, so it applies to real builds and `--check` alike. Each leaking tool is reported as an error-severity validation result, which fails the build. `build-personas.js` holds no guard, counter, or log prefix of its own for this check. `--check` itself renders in memory and writes nothing; it never compares rendered output with the files on disk, so it does not detect stale output. The guard matches with a **regex** (`\|\s*\`toolName\`\s*\|`) rather than `string.includes()` — this tolerates Markdown table column-spacing variations (e.g., `|  \`toolName\`  |`).
 
    > **Why regex over string.includes:** `string.includes('| \`toolName\` |')` is tightly coupled to exact column spacing. A Markdown table reformatter or editor that normalises padding (e.g., `|  \`toolName\`  |`) would silently bypass the check. The regex `\|\s*\`…\`\s*\|` matches any amount of whitespace on either side of the backtick-quoted name, making the guard robust to formatting drift.
 
 <a name="c36"></a>
 <a name="b9"></a>
-9. **`{{agent_slug_*}}` references in ledger persona content must match the persona's declared `subagents` list.** Every `{{agent_slug_X_Y}}` reference in `personas/ledger/src/content/*.md` is cross-checked against that persona's `subagents` field in its YAML (`personas/ledger/src/meta/*.yaml`). The suffix `X_Y` is converted to kebab-case (`X-Y`) and must appear as an entry in the `subagents` list. The check runs **unconditionally** — on both real builds and `--check` runs — via `scripts/lib/agent-slug-validation.js`'s `validateAgentSlugReferences()`, one of the five descriptors `scripts/build-personas.js` passes through its `runBuildChecks()` check runner (`scripts/lib/build-checks.js`). A reference written inside a template comment (`{{!-- … --}}` / `{{! … }}`) is ignored — the wrapper passes the library's `stripComments()` (falling back to the identity function for a stale `dist/` predating that export). If any reference has no matching `subagents` entry, a `[ERROR]` block is emitted identifying the persona, the template variable, and the expected slug; the runner records this as an error-severity result and `scripts/build-personas.js` exits non-zero once every check (and the library CLI) has run — not immediately, as the check used to do when it was inline.
+9. **`{{agent_slug_*}}` references in ledger persona content must match the persona's declared `subagents` list.** Every `{{agent_slug_X_Y}}` reference in `personas/ledger/src/content/*.md` is cross-checked against that persona's `subagents` field in its YAML (`personas/ledger/src/meta/*.yaml`). The suffix `X_Y` is converted to kebab-case (`X-Y`) and must appear as an entry in the `subagents` list. The check runs **unconditionally** — on both real builds and `--check` runs — via `scripts/lib/agent-slug-validation.js`'s `validateAgentSlugReferences()`, one of the descriptors `scripts/build-personas.js` passes through its `runBuildChecks()` check runner (`scripts/lib/build-checks.js`). A reference written inside a template comment (`{{!-- … --}}` / `{{! … }}`) is ignored — the wrapper passes the library's `stripComments()` (falling back to the identity function for a stale `dist/` predating that export). If any reference has no matching `subagents` entry, a `[ERROR]` block is emitted identifying the persona, the template variable, and the expected slug; the runner records this as an error-severity result and `scripts/build-personas.js` exits non-zero once every check (and the library CLI) has run — not immediately, as the check used to do when it was inline.
 
    **Error message format:**
    ```
@@ -1071,15 +1086,15 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
 <a name="c31"></a>
 <a name="b13"></a>
-13. **Sync reads from explicit source directories.** `syncVSCode()` reads from `ledger/vs-code/`; `syncStandaloneVSCode()` reads from `standalone/vs-code/`; `syncClaudeCode()` reads from `ledger/claude-code/`; `syncStandaloneClaudeCode()` reads from `standalone/claude-code/`. All four copy to their respective target directories without recursively walking the whole `personas/` tree. When `--target vscode` (or `--target all`) is used, both `syncVSCode()` and `syncStandaloneVSCode()` are called. When `--target claude-code` (or `--target all`) is used, both `syncClaudeCode()` and `syncStandaloneClaudeCode()` are called.
+13. **Sync reads from explicit source directories.** `syncVSCode()` reads from `ledger/vs-code/`; `syncStandaloneVSCode()` reads from `standalone/vs-code/`; `syncLedgerSupportVSCode()` reads from `ledger-support/vs-code/`; `syncClaudeCode()` reads from `ledger/claude-code/`; `syncStandaloneClaudeCode()` reads from `standalone/claude-code/`; `syncLedgerSupportClaudeCode()` reads from `ledger-support/claude-code/`. Each copies to its target directory without recursively walking the whole `personas/` tree. When `--target vscode` (or `--target all`) is used, the three VS Code functions are called, copying to the VS Code agents folder (~/.copilot/agents/) (`--custom-path` overrides it). When `--target claude-code` (or `--target all`) is used, the three Claude Code functions are called, copying to `~/.claude/agents/`, followed by `syncSkills()`, which copies `.claude/skills/` to `~/.claude/skills/`.
 
 <a name="c32"></a>
 <a name="b14"></a>
-14. **Frontmatter validation is advisory.** `validateVSCodeFrontmatter()` checks `role`, `name`, `vs_file_name`, `id`, and `model` in ledger VS Code personas. `validateStandaloneVSCodeFrontmatter()` checks `name` and `vs_file_name` in standalone VS Code personas (no `role` required). `validateCCFrontmatter()` checks `name` (must match `\d-kebab-case` pattern with numeric prefix), `role`, `permissionMode`, `model`, and `memory` in ledger Claude Code personas. `validateStandaloneCCFrontmatter()` checks `name` (plain kebab-case — **no** numeric prefix, e.g. `agents-md-curator`), `permissionMode`, `model`, and `memory` in standalone Claude Code personas. None of these functions block the sync — warnings are printed to console.
+14. **Frontmatter validation is advisory.** `validateVSCodeFrontmatter()` checks `role`, `name`, `vs_file_name`, `id`, and `model` in ledger VS Code personas. `validateSlugModeVSCodeFrontmatter(dir, suiteLabel)` checks `name`, `vs_file_name`, and `id` in standalone and ledger-support VS Code personas (no `role` required). `validateCCFrontmatter()` checks `name` (must match `\d-kebab-case` pattern with numeric prefix), `role`, `permissionMode`, `model`, and `memory` in ledger Claude Code personas. `validateSlugModeCCFrontmatter(dir, suiteLabel)` checks `name` (plain kebab-case — **no** numeric prefix, e.g. `agents-md-curator`), `permissionMode`, `model`, and `memory` in standalone and ledger-support Claude Code personas. None of these functions block the sync — warnings are printed to console.
 
 <a name="c33"></a>
 <a name="b15"></a>
-15. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files. It passes `--suite` and `--target`, but `build-personas.js` ignores both and always builds every suite and target in `personas/persona-build.config.js`; `--target` limits only which outputs the sync copies. There is no need to run build separately when syncing.
+15. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `node scripts/build-personas.js` as a child process before copying files, with no extra arguments, or with `--dry-run` when the sync itself gets `--dry-run`. The build always covers every suite and target in `personas/persona-build.config.js`; the sync's `--target` selects only which deploy steps run. There is no need to run build separately when syncing. Under `--dry-run` nothing is regenerated and nothing is copied: the sync only previews ("Would copy") from the existing output, so on a checkout without built output the preview is empty or stale.
 
 ```
 ###  Path: `/personas/docs/agents/project-manifest/constraints-cross-system.md`
@@ -1262,14 +1277,15 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
    | Part | Where it lives | What it does |
    |---|---|---|
-   | Shared rule | `personas/shared/partials/documentation-ownership.md` → the **When a caller passes a plan** paragraph and the constraint "Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped". Included by the Documentation Curator, README Curator and AGENTS.md Curator (see the [Shared Partials](api-surface.md#shared-partials-personassharedpartials) row). | A document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided: it is left to the plan and the finding is reported to the caller. Dispatches to agents outside the plan stay allowed. |
+   | Shared rule | `personas/shared/partials/documentation-ownership.md` → the **When a caller passes a plan** paragraph and the constraint "Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped". Included by the Documentation Curator, README Curator and AGENTS.md Curator (see the [Shared Partials](api-surface.md#shared-partials-personassharedpartials) row). | A document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided: it is left to the plan and the finding is reported to the caller. Dispatches to agents outside the plan stay allowed. A plan passed as a file is re-read before each dispatch, and its header's instructions are followed. |
    | Inline deferrals | **Manifest Curator:** step 13 (*Delegate CTX Context Update*) in Mode: Create and Mode: Update, and the matching skip rule in *CTX Context Delegation* → Constraints. **AGENTS.md Curator:** the "a gap always dispatches" rule in *The Manifest Boundary* → *Sourcing a Fact*. **Documentation Curator:** the CTX Architect and Manifest Curator delegation steps in Mode: Update and Mode: Create; in Create mode, an outline the caller passes as already approved by the user replaces the outline hold (step 4 and the *Approval before creating or reorganizing* rule). | Each numbered dispatch step names "no caller's plan has the owner still to come or skipped" as its own condition. |
-   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the "Never dispatch without the session plan" constraint. | Every dispatch, in every mode, carries the session plan with a status per stage (run, still to come, skipped), plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. Dispatches a sub-agent made outside the plan are listed in the summary's **Nested Dispatches** line. |
+   | Orchestrator | **Workspace Architect:** *Delegation Protocol* — the inputs every dispatch carries, the *Plan File* sub-section with its template, the paragraph after the Stage Table on agents a sub-agent dispatched itself, and the plan-file constraints; the *Open the Plan File* and *Close the Plan File* steps in each mode workflow. | The session plan lives in `.ledger/workspace-architect-plan.md` under the target project's root for the length of one session. Every dispatch names that file rather than pasting the plan, plus the mode for the Manifest Curator, CTX Architect and Documentation Curator. The Architect keeps the stage table (still to come, done, skipped); agents at any depth append dispatches and findings to its Log, which feeds the summary's **Nested Dispatches** line and the next stage's inputs. |
 
    - Link to the guide's Nested Delegation section for the principle. Never copy it into this entry or into a persona.
    - Change the caller's-plan rule for the partial's includers in the partial, never inline in one of them.
    - Give a new dispatch step in a persona the Workspace Architect calls its own caller's-plan condition inside the step, worded like the existing ones. A line in the caller's prompt alone does not override a numbered step.
    - Keep dispatches to agents outside the plan allowed. A deferral covers only owners the plan has still to run or marks skipped; it never becomes a ban on further dispatch.
+   - Keep the plan file's usage instructions in the file's own header, written by the Workspace Architect. A callee carries only the partial's one trigger sentence, because personas run outside this workspace and every added line travels with them.
    - Update this table in the same change when a persona gains or loses a caller's-plan deferral, or when the Workspace Architect changes what its dispatches carry.
 
 ---
@@ -1419,7 +1435,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
    > **Suite-wide changes:** If a single change affects multiple personas (e.g., editing a shared partial), update each affected persona's `changelog:` field individually and document all of them in one `personas/changelog.md` entry. For changes affecting every persona in a suite, prefer bumping `default_version` in `_shared.yaml` with a dated entry rather than updating every YAML file individually.
 
-   Omitting any of these steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata in the `changelog:` field.
+   Omitting any of these steps is a defect — downstream agents and `personas/name-mapping.json` (whose `version` is derived from it) depend on accurate version metadata in the `changelog:` field.
 
 ---
 
@@ -1446,17 +1462,17 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 ## Pre-Commit Guard
 
 <a name="c46"></a>
-26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, persona sources with error-severity validation results can be committed unchecked. The check renders in memory and does not compare against files on disk.
+26. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check || exit 1` before every commit. Without this step, persona sources with error-severity validation results can be committed unchecked. The check renders in memory, writes nothing, and never compares against files on disk.
 
 <a name="c47"></a>
-27. **`.githooks/pre-commit` enforces persona freshness at commit time.** The hook exits non-zero if any generated persona file is stale, blocking the commit. This closes the gap where a developer editing only `personas/src/` would never trigger the freshness check via `mcp-server/` tests.
+27. **`.githooks/pre-commit` validates persona sources at commit time; it is not a freshness guard.** The hook blocks the commit when `node scripts/build-personas.js --check` fails, which happens only on error-severity validation results. Do not rely on it to catch stale generated output — it never compares rendered output with the files on disk. Rebuild after editing persona sources. The hook catches source errors even when a developer edits only `personas/` and never runs the `mcp-server/` tests.
 
 ---
 
 <a name="generated-artefacts"></a>
 ## Generated Artefacts
 
-Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, root `CLAUDE.md`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. [Generated Artefacts](generated-artefacts.md) records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. [Generated Artefacts](generated-artefacts.md) records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
 
 - Classify a modified tracked file against `generated-artefacts.md` before discarding it.
 - Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
@@ -1464,9 +1480,9 @@ Several tracked files are written by build commands rather than by hand: `person
 - Never commit a generated file whose diff is only a timestamp or date.
 - Keep a runtime-coupled artefact when the branch changed its source. Regenerate `personas/name-mapping.json` with `node scripts/build-personas.js` and commit it with the persona change, since the MCP server loads it at startup.
 - Treat a `personas/name-mapping.json` diff confined to `model`, `model_slug` and `cc_model` as machine-local drift from the gitignored model registry, not as a change to commit.
-- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml`, root `AGENTS.md` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml` and `personas/docs/audits/notes.md` / `annotations.json` are source.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
-- Run `node scripts/cli.js ctx-generate` only with root `AGENTS.md` in its intended state: it deletes `.context/` and overwrites root `CLAUDE.md` from `AGENTS.md`. Re-run it after correcting `AGENTS.md` to repair `CLAUDE.md`.
+- Run `node scripts/cli.js ctx-generate` only with the manifests, READMEs and source it imports in their intended state: it deletes `.context/` and regenerates it from them. Root `AGENTS.md` is not among its inputs.
 - When unsure whether a file is generated, leave it and ask the user.
 
 ---
@@ -1535,6 +1551,57 @@ Written by the Manifest Curator only; no other agent edits this file.
 | 2026-10-16 | The practice for generated artefacts on feature branches is the one the Git Committer persona (`personas/standalone/src/content/git-committer.md`) enforces. On a feature branch, generator drift (including all `.context/` output) stays out of commits and is reverted by path before upstream integration. A generated file whose source the branch changed is committed with that change. `.context/` is committed only on the default branch `main`, as a `CTX: Updated docs` commit. Date-only diffs of generated files are never committed. `generated-artefacts.md` and `constraints.md` → Generated Artefacts summarise this and cite the Git Committer rather than restating its procedure. | Decided by the user. The Git Committer is the agent that commits and discards these files, so making its rules the project practice keeps one source of truth. Where the two disagree, the Git Committer persona wins and the manifest is corrected. |
 
 ## History
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: mentions of root `AGENTS.md` and root `CLAUDE.md` as hand-maintained neighbours. Touched `generated-artefacts.md` (Hand-maintained Neighbours) and `constraints.md` (Generated Artefacts). Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** Root-level files are recorded only by the workspace hub manifest, so the two root-file rows were removed from the Hand-maintained Neighbours table and both files were dropped from the "Never revert a hand-maintained neighbour" bullet. The `ctx-generate` bullet stays. The rest of the personas manifest was searched; remaining hits are the AGENTS.md Curator persona and cross-references to the root manual, which are not neighbour claims.
+**Notes:** The working tree held uncommitted changes, so the scan read 1ced4e17 plus that working tree. The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. The earlier 2026-10-19 entry above describes the now-removed `CLAUDE.md` neighbour row; it is a dated record and stays as written.
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: root `CLAUDE.md` no longer described as generated (`generated-artefacts.md`, `constraints.md`, `README.md`), the `api-surface.md` Sync Script section, and one pointer in `file-tree.md`. Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:**
+- Root `CLAUDE.md` is a hand-maintained one-line `@AGENTS.md` import, and `cmdCtxGenerate()` in `scripts/cli.js` contains no reference to it. Removed its row from the tracked table, dropped the overwrite from the `ctx-generate` and `build-maintain` command rows, listed it under Hand-maintained Neighbours, and updated the `constraints.md` Generated Artefacts preamble and two bullets.
+- `api-surface.md`: path helpers and `parseFrontmatter` moved from the function table to an Imported Helpers note (they come from `scripts/publish-locations.js` and `scripts/lib/frontmatter.js`); `validateVSCodeFrontmatter` lists `role`, `name`, `vs_file_name`, `id` and `model`; the `KNOWN_ROLES` snippet shows the ESM `JSON.parse(fs.readFileSync(...))` form. Verified against `scripts/sync-personas.js`.
+- `file-tree.md`: `scripts/` section points to the hub's `root-tooling.md`.
+
+**Notes:** This closes the four observations the 2026-10-16 entry left open on the Sync Script section. The 2026-10-16 History entry above still describes `CLAUDE.md` as generated; it is a dated record and stays as written. Wording elsewhere in this log's older entries is untouched.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by fact: the persona build, check and sync facts of the caller's brief, in `api-surface.md` (build Exit code paragraph, Sync Script functions table and CLI Behaviour), `constraints-build-system.md` (entries 9 and 14), and the root manifest hub `docs/agents/project-manifest/README.md` (Cross-System Dependencies → Agent name mapping row, Validation Scripts → `build-personas.js --check` row). Each file was searched whole for the brief's facts. No other section was reconciled.
+**Commit:** 1502acd9
+**Changes:**
+- `api-surface.md`: Sync Script table renames `validateStandaloneVSCodeFrontmatter` / `validateStandaloneCCFrontmatter` to `validateSlugModeVSCodeFrontmatter(dir, suiteLabel)` / `validateSlugModeCCFrontmatter(dir, suiteLabel)`, both serving standalone and ledger-support. The `syncStandalone*` and `syncLedgerSupport*` rows name the validator each calls. CLI Behaviour states the sync takes no `--suite` and ignores unknown arguments. The Exit code paragraph drops "the five checks".
+- `constraints-build-system.md`: entry 14 uses the slug-mode names and lists `id` for the VS Code validator. Entry 9 drops "one of the five descriptors".
+- Root hub `README.md`: the Agent name mapping row names all three suites' `src/meta/` plus `personas/model-registry/` and links to the `generated-artefacts.md` Runtime-coupled table. It says the file is regenerated by real builds only. The `--check` row now describes a write-free validation run that never compares against disk and links to the personas CLI interface section.
+
+**Notes:** Stage 1 of a Workspace Architect Amend plan. Facts re-verified against `scripts/build-personas.js`, `scripts/sync-personas.js` and `scripts/lib/name-mapping.js`. The working tree held uncommitted changes, earlier stage-1 passes of this session included, so the scan read 1502acd9 plus that working tree. `1502acd9..HEAD` is empty, so the changed-code intersection and reverted-decision search had no range to cover. The root hub has no curation log of its own; this entry records its edits. Deferred, outside the brief:
+- `api-surface.md` → `validateVSCodeFrontmatter` row omits `model`, which the code also checks (`constraints-build-system.md` entry 14 has it).
+- `api-surface.md` → `KNOWN_ROLES` snippet shows `require(...)`; `scripts/sync-personas.js` is ESM and uses `JSON.parse(fs.readFileSync(...))`.
+- `api-surface.md` → Sync Script table lists `getVSCodePromptsDir`, `getClaudeCodeAgentsDir`, `getClaudeCodeSkillsDir` and `parseFrontmatter` as its functions; they are imported from `scripts/publish-locations.js` and `scripts/lib/frontmatter.js`.
+- Root hub `README.md` → "Orchestrator persona files" row names `personas/ledger/claude-code/` filenames; root `AGENTS.md` names `personas/ledger/deep-agents/`. Not verified this pass.
+
+### 2026-10-16 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by fact rather than by line: seven persona-build facts from the caller's brief (`--check` / `--dry-run` semantics and the `note_only` guard; `--strict` semantics and unresolved markers; the pre-commit hook; `name-mapping.json` inputs and fields; the build wrapper's flags; `sync-personas.js` build call, `--target` and `--dry-run`; `package-personas.js` build and `TARGETS`). Every manifest document except this log was searched for statements of those facts. No other content was verified.
+**Commit:** 1502acd9
+**Changes:**
+- `constraints-build-system.md`: entry 5 names the library's `[WARN] Unresolved variable` / `[WARN] Partial not found` lines and says they never fail the build, `--strict` included. Entry 6 adds the partial case and states that `resolveExitCode()` considers only the library status and error count. Log-Prefix Convention: removed the `[STRICT]` row (nothing emits it) and the prefix count. Entry 8 rewritten: the `note_only` guard is `validateNoteOnlyGuard()` in `personas/plugins/ledger/role-validator.js`, run from the ledger plugin's `onValidate` hook on output cached in `onPostRender`, error severity, on every build. Removed the staleness comparison, `staleCount` and `[note_only-violation]`. Entry 13 adds the ledger-support sync functions, `--custom-path` and `syncSkills()`. Entry 15: the sync calls the build with no arguments or `--dry-run` only, and `--dry-run` previews from existing output.
+- `api-surface.md`: build flags intro and `--strict` row; step 6 warnings marked never fatal; `name-mapping.json` table gains `suite`, `model`, `model_slug`, `cc_model`, and `number` is `null` outside the ledger suite; Sync Script gains `syncLedgerSupportVSCode`, `syncLedgerSupportClaudeCode`, `syncSkills` rows and a CLI Behaviour subsection.
+- `tech-stack.md`: build flags intro and `--strict` row; sync flag rows (`--target` selects deploy steps only, `--dry-run` copies nothing); sync tool row mentions skills.
+- `data-flows.md`: sync step 1 spawn line; note under the sync diagram for the ledger-support steps and `syncSkills()`.
+- `constraints.md`: entry 25 closing sentence no longer cites a "pre-commit freshness guard"; entry 26 wording; entry 27 rewritten: the hook validates sources and is not a freshness guard.
+- `variables.md`: resolution table's unresolved-variable rows.
+- `README.md` (index): `--dry-run` is the `--check` alias; strict-mode block rewritten (no `[STRICT]`, markers never fatal); sync `--target` heading.
+- `generated-artefacts.md`: `sync-personas.js` row (skills, `--dry-run`); new `package-personas` row (full `--strict` build unless `--skip-build`; `TARGETS` keeps ZIPs standalone-only).
+
+**Notes:** Dispatched as stage 1 of a Workspace Architect Amend plan. The facts came from the caller's brief and were spot-checked against `.githooks/pre-commit`, `scripts/sync-personas.js`, `scripts/package-personas.js`, `scripts/lib/build-checks.js`, `scripts/build-personas.js`, `scripts/lib/name-mapping.js` and `personas/plugins/ledger/`. The working tree held uncommitted changes, including the `sync-personas.js` change that stopped passing `--suite` / `--target`. The commit above is the last one and equals the previous entry's floor, so the changed-code intersection and reverted-decision search had an empty committed range and were not run. The Adjacent Document Check was not run, because the caller assigned root `AGENTS.md` and `personas/README.md` to later stages. Left for the next pass, outside these facts:
+- `api-surface.md` → Sync Script lists `validateStandaloneVSCodeFrontmatter` / `validateStandaloneCCFrontmatter`. The code has `validateSlugModeVSCodeFrontmatter(dir, suiteLabel)` / `validateSlugModeCCFrontmatter(dir, suiteLabel)`. `constraints-build-system.md` entry 14 uses the old names too.
+- `api-surface.md` → build Exit code paragraph says "any of the five checks", which is a count.
 
 ### 2026-10-16 · Update · Curator v1.8.0
 
@@ -1817,9 +1884,10 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone,ledger-support [--dry-run] [--target <t> unless all]
-  │                          │  build-personas.js ignores --suite and --target: every sync builds every suite and
-  │                          │  target in personas/persona-build.config.js. --target limits only which outputs are copied.
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js [--dry-run]
+  │                          │  Every sync builds every suite and target in personas/persona-build.config.js.
+  │                          │  --target selects only which deploy steps below run. Under --dry-run nothing is
+  │                          │  regenerated or copied: the steps below only preview ("Would copy") existing output.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐
@@ -1845,6 +1913,8 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
                                          model, memory)       model, memory;
                                                               no role)
 ```
+
+The diagram shows the ledger and standalone columns. Each target also has a matching ledger-support step (`syncLedgerSupportVSCode()` reads `ledger-support/vs-code/`, `syncLedgerSupportClaudeCode()` reads `ledger-support/claude-code/`), so every deploy covers all three suites. The Claude Code target ends with `syncSkills()`, copying `.claude/skills/` to `~/.claude/skills/`. `--custom-path` overrides the VS Code agents dir.
 
 ---
 
@@ -2211,6 +2281,8 @@ personas/
 
 Only the persona-build–related scripts are annotated here.
 
+For the full inventory of root-level scripts, see the hub's [root-tooling.md](../../../../docs/agents/project-manifest/root-tooling.md).
+
 ```
 scripts/
 ├── build-personas.js                  # Thin wrapper: delegates build to @mistralys/persona-builder
@@ -2233,7 +2305,7 @@ scripts/
 | `personas/ledger/src/content/*.md` | Library template engine | Persona body content |
 | `personas/ledger/src/partials/*.md` | Library template engine (override layer) | Embedded partial content |
 | `personas/shared/partials/*.md` | Library template engine (base layer) | Embedded partial content |
-| `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code prompts dir | Deployed agent file |
+| `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code agents dir | Deployed agent file |
 | `personas/ledger/claude-code/*.md` | `sync-personas.js` → `~/.claude/agents/` | Deployed agent file |
 
 ```
@@ -2268,8 +2340,7 @@ Committed code reads these files, so a stale copy changes behaviour, not just do
 
 | Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
 |---|---|---|---|---|
-| `.context/**` | `node scripts/cli.js ctx-generate`, also the last step of `node scripts/cli.js build-maintain`. The command deletes `.context/` whole, runs `ctx generate`, then `scripts/normalize-ctx-paths.js`, then writes `.context/generated-at.txt`. | Root `context.yaml` and every `**/module-context.yaml` (for this module, `personas/module-context.yaml`), which import manifests, READMEs, source and directory trees. | On a feature branch: always, whatever the diff shows. All of `.context/` is drift there (see *Purpose and Branch Policy*). On `main`: the diff is limited to `.context/generated-at.txt`, or a file's diff reflects no source or manifest change. Judge per file, never per folder. | Only on `main`: a file's diff reflects a manifest, README, `AGENTS.md` or source change — including this manifest's own documents, which `.context/personas/manifest.md` and siblings import. That file belongs in the `CTX: Updated docs` commit. On a feature branch this condition never applies. |
-| `CLAUDE.md` (workspace root) | `node scripts/cli.js ctx-generate` (and `build-maintain`), which overwrites it with a generated-file note followed by the full content of root `AGENTS.md`. | Root `AGENTS.md`. | Its diff only mirrors a root `AGENTS.md` that the branch did not change. | The branch changed root `AGENTS.md`. Never hand-edit it either — the next `ctx-generate` overwrites it. |
+| `.context/**` | `node scripts/cli.js ctx-generate`, also the last step of `node scripts/cli.js build-maintain`. The command deletes `.context/` whole, runs `ctx generate`, then `scripts/normalize-ctx-paths.js`, then writes `.context/generated-at.txt`. | Root `context.yaml` and every `**/module-context.yaml` (for this module, `personas/module-context.yaml`), which import manifests, READMEs, source and directory trees. | On a feature branch: always, whatever the diff shows. All of `.context/` is drift there (see *Purpose and Branch Policy*). On `main`: the diff is limited to `.context/generated-at.txt`, or a file's diff reflects no source or manifest change. Judge per file, never per folder. | Only on `main`: a file's diff reflects a manifest, README or source change — including this manifest's own documents, which `.context/personas/manifest.md` and siblings import. That file belongs in the `CTX: Updated docs` commit. On a feature branch this condition never applies. |
 | `docs/references/agents-overview.md` | `node scripts/generate-agents-overview.js` (`node scripts/cli.js generate-overview`), also run by `build-maintain`. Supports `--check`, which ignores the `> **Generated:**` date line. | Persona YAML metadata in all three suites, plus the header template `scripts/templates/agents-overview-header.md`. | The diff is limited to the `> **Generated:**` date line. | The branch changed persona YAML or the header template. |
 | `personas/docs/audits/status.md` | `node scripts/generate-persona-audit.js` (`node scripts/cli.js generate-persona-audit`). Not part of `build-maintain`. | Persona YAML metadata and source composition, the Persona Design Guide's version and changelog, and `personas/docs/audits/annotations.json`. | The diff is limited to the `**Generated:**` date line. | The branch changed persona metadata, the guide version, or `annotations.json`. |
 
@@ -2292,7 +2363,6 @@ Files that sit next to generated output or feed a generator, but are source. Nev
 | `personas/{ledger,standalone,ledger-support}/README.md` | Sits beside the generated target directories. | Hand-authored suite guides; the build never writes them. |
 | `personas/package.json` | `build-personas.js` rewrites its `version` field after a real build. | Hand-maintained; only `version` is synchronised from the newest `## vX.Y.Z` heading in `personas/changelog.md`. A version change there follows a changelog change; any other change is real work. |
 | `context.yaml`, `personas/module-context.yaml` | Named like CTX output. | CTX input configuration, owned by the CTX Architect. |
-| Root `AGENTS.md` | Its content reappears in `CLAUDE.md` and `.context/agents.md`. | The source those two are generated from. |
 | `personas/docs/audits/notes.md`, `personas/docs/audits/annotations.json` | Live beside the generated `status.md`. | Hand-written audit narrative and Notes-column text that `generate-persona-audit.js` reads. |
 | `personas/model-registry/default.json` | JSON beside machine-local registry state. | Shipped seed model list, tracked and hand-maintained. |
 | `scripts/templates/agents-overview-header.md` | Feeds a generator. | Hand-written header of `docs/references/agents-overview.md`. |
@@ -2302,9 +2372,10 @@ Files that sit next to generated output or feed a generator, but are source. Nev
 | Command | Writes beyond its generated output |
 |---|---|
 | `node scripts/build-personas.js` | Rewrites the `version` field of `personas/package.json` from `personas/changelog.md`. Deletes every `*.md` file in the persona output directories before building. `--check` / `--dry-run` write nothing. |
-| `node scripts/cli.js ctx-generate` | Deletes `.context/` entirely before regenerating, and overwrites root `CLAUDE.md` from root `AGENTS.md`. Requires the `ctx` binary on `PATH`. This is the lighter docs-only command. |
-| `node scripts/cli.js build-maintain` | The full build. Before the persona build it runs `mcp-server/scripts/sync-version.js` and synchronises the root `package.json` and `orchestrator/pyproject.toml` versions from their changelogs; it then builds personas, regenerates `docs/references/agents-overview.md`, runs `check-known-roles.js`, and finishes with `ctx-generate` (and its `CLAUDE.md` overwrite). |
-| `node scripts/sync-personas.js` | Builds, then copies output outside the repository into the VS Code prompts directory and `~/.claude/agents/`. |
+| `node scripts/cli.js ctx-generate` | Deletes `.context/` entirely before regenerating. Requires the `ctx` binary on `PATH`. This is the lighter docs-only command. |
+| `node scripts/cli.js build-maintain` | The full build. Before the persona build it runs `mcp-server/scripts/sync-version.js` and synchronises the root `package.json` and `orchestrator/pyproject.toml` versions from their changelogs; it then builds personas, regenerates `docs/references/agents-overview.md`, runs `check-known-roles.js`, and finishes with `ctx-generate`. |
+| `node scripts/sync-personas.js` | Runs the full build (with all its side effects above), then copies output outside the repository into the VS Code agents directory and `~/.claude/agents/`, and `.claude/skills/` into `~/.claude/skills/`. Under `--dry-run` it regenerates and copies nothing. |
+| `node scripts/cli.js package-personas` | Unless `--skip-build` is given, first runs `node scripts/build-personas.js --strict`, which builds every suite (with the build's side effects above), not only the standalone suite. The `TARGETS` list in `scripts/package-personas.js` (`personas/standalone/vs-code`, `personas/standalone/claude-code`) is what keeps the `dist/` ZIPs standalone-only. |
 
 ## Known Contradictions
 
@@ -2350,29 +2421,29 @@ The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/pe
 |------|-----------|---------|
 | `build-personas.js` | `node scripts/build-personas.js` | Thin wrapper: resolves paths to `personas/persona-build.config.js` and the library CLI binary, then delegates the full build to `@mistralys/persona-builder` |
 | `persona-build.config.js` | *(loaded by the library CLI)* | Config file in `personas/persona-build.config.js` — declares suite directories, output paths, and the `ledgerPlugin` that validates persona role names against the workflow manifest |
-| `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs build, copies output to VS Code prompts dir and/or Claude Code agents dir, validates frontmatter |
+| `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs the full build, copies output to VS Code agents dir and/or Claude Code agents dir (plus skills to `~/.claude/skills/`), validates frontmatter |
 
 ### CLI Flags (`build-personas.js`)
 
-The thin wrapper recognises three flags and forwards the relevant ones to the library CLI. Suite and target selection are defined in `personas/persona-build.config.js`.
+The thin wrapper accepts only `--check`, `--dry-run` and `--strict`, and forwards them to the library CLI; it takes no `--suite` or `--target`. Suite and target selection are defined in `personas/persona-build.config.js`, and every build covers all of them.
 
 | Flag | Effect |
 |------|--------|
 | *(none)* | Delegate build to `@mistralys/persona-builder` for all suites and targets declared in the config |
 | `--check` | Forward `--check` to the library CLI — render every persona in memory and write nothing; exit 1 only on error-severity validation results. Does not compare against files on disk |
 | `--dry-run` | Treated as `--check` by the wrapper (no disk writes) |
-| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
+| `--strict` | Forward `--strict` to the library CLI — also exit 1 on the library's warning-severity validation results. Unresolved `{{variable}}` / `{{> partial}}` markers only print a `[WARN]` line and never fail the build; the wrapper's own warn-severity checks stay non-fatal |
 
 ### CLI Flags (`sync-personas.js`)
 
 | Flag | Effect |
 |------|--------|
-| *(none)* | Build + copy to both VS Code prompts dir and `~/.claude/agents/` |
-| `--target vscode` | Build + copy VS Code output only |
-| `--target claude-code` | Build + copy Claude Code output only |
-| `--target all` | Explicit default — same as no `--target` |
-| `--dry-run` | Build dry-run + preview copy targets; no writes |
-| `--custom-path <dir>` | Override the VS Code prompts directory (vscode target only) |
+| *(none)* | Build every suite and target, then run every deploy step (same as `--target all`) |
+| `--target vscode` | Build every suite and target, then copy all three suites to the VS Code agents dir only |
+| `--target claude-code` | Build every suite and target, then copy all three suites to `~/.claude/agents/` and sync `.claude/skills/` to `~/.claude/skills/` |
+| `--target all` | Explicit default — both deploy steps |
+| `--dry-run` | Runs the build with `--dry-run` (nothing regenerated) and previews ("Would copy") from the existing output; nothing is copied |
+| `--custom-path <dir>` | Override the VS Code agents directory (vscode target only) |
 
 ---
 
@@ -2663,9 +2734,9 @@ These are set in per-persona YAML and used in content templates with `{{#if}}` c
 | Scenario | Result |
 |----------|--------|
 | Variable found in context | Replaced with `String(value)` |
-| Variable not found | Warning emitted to stderr; marker preserved as-is in output |
+| Variable not found | `[WARN] Unresolved variable` printed via `console.warn`; marker preserved as-is in output |
 | Escaped variable (`\{{name}}`) | Output is literal `{{name}}` — no substitution, no warning |
-| `--strict` flag and unresolved variable | Build exits with code 1 |
+| `--strict` flag and unresolved variable | Same as without the flag — the `[WARN]` line is not a validation result, so the build does not fail |
 
 ---
 

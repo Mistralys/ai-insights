@@ -613,17 +613,16 @@ The ledger persona files (`1-planner.md` … `9-synthesis.md`) are **auto-genera
 # Install build dependency (once)
 cd personas && npm install
 
-# Build all personas (both VS Code and Claude Code targets)
+# Build all personas (every suite and target in personas/persona-build.config.js)
 node scripts/build-personas.js
 
-# Build for a specific IDE only
-node scripts/build-personas.js --target vscode
-node scripts/build-personas.js --target claude-code
+# Validate without writing any files
+node scripts/build-personas.js --check
 
-# Verify no unresolved {{…}} tokens remain in any generated file
-node scripts/build-personas.js --strict --suite all
+# Also fail on the library's warning-severity validation results
+node scripts/build-personas.js --strict
 
-# Build + sync to both IDEs (VS Code prompts folder + ~/.claude/agents/)
+# Build + sync to both IDEs (VS Code agents folder (~/.copilot/agents/) + ~/.claude/agents/)
 node scripts/sync-personas.js
 
 # Build + sync to a specific IDE only
@@ -631,7 +630,7 @@ node scripts/sync-personas.js --target vscode
 node scripts/sync-personas.js --target claude-code
 ```
 
-> `--strict` exits with code 1 if any unresolved `{{…}}` markers remain after the build. Use it in CI or pre-commit hooks. Full flag documentation is in the [Personas Project Manifest](../docs/agents/project-manifest/README.md).
+> The build has no suite or target selection; `--target` applies to the sync step only. `--check` renders in memory and writes nothing, but does not compare against the files on disk. Unresolved `{{…}}` markers only print a `[WARN]` line and never fail the build, with or without `--strict` — see [Template Engine Limitations](../docs/agents/project-manifest/constraints-build-system.md#template-engine-limitations). Full flag documentation is in the [build CLI interface](../docs/agents/project-manifest/api-surface.md#scriptsbuild-personasjs--cli-interface).
 
 For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](../docs/agents/project-manifest/README.md).
 

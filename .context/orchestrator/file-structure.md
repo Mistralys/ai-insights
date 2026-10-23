@@ -29,6 +29,7 @@ _SOURCE: Directory tree_
         │   │   └── data-flows.md
         │   │   └── decisions.md
         │   │   └── file-tree.md
+        │   │   └── generated-artefacts.md
         │   │   └── tech-stack.md
         ├── architecture.md
         ├── jsonl-log-schema.md

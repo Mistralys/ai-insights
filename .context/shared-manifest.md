@@ -2,7 +2,6 @@
 <INSTRUCTION>
 # AI Insights - Shared Workflow Manifest
 workflow-manifest.json: the single source of truth for all 9 agent roles, 6 pipeline types, and status/workflow constants. All sub-projects derive their constants from this file.
-
 </INSTRUCTION>
 ------------------------------------------------------------
 _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuses)_
@@ -10,8 +9,23 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
 ```
 // Structure of documents
 └── shared/
+    └── publish-locations.json
     └── workflow-manifest.json
     └── workflow-manifest.schema.json
+
+```
+###  Path: `/shared/publish-locations.json`
+
+```json
+{
+  "_comment": "Single source of truth for persona/skill deploy locations, as path segments relative to the user's home directory. Any location starting with the copilot_home segments is rebased onto the COPILOT_HOME environment variable when it is set (Copilot CLI replaces ~/.copilot with it). Read by scripts/publish-locations.js and mcp-server/src/utils/publish-locations.ts.",
+  "copilot_home": [".copilot"],
+  "copilot_mcp_config": [".copilot", "mcp-config.json"],
+  "vscode_agents": [".copilot", "agents"],
+  "vscode_skills": [".copilot", "skills"],
+  "claude_agents": [".claude", "agents"],
+  "claude_skills": [".claude", "skills"]
+}
 
 ```
 ###  Path: `/shared/workflow-manifest.json`

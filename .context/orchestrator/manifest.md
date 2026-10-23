@@ -21,6 +21,7 @@ _SOURCE: Project manifest (overview, tech stack, constraints, decisions, API sur
                 └── data-flows.md
                 └── decisions.md
                 └── file-tree.md
+                └── generated-artefacts.md
                 └── tech-stack.md
 
 ```
@@ -75,6 +76,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 | **Design Decisions** | [project-manifest/decisions.md](decisions.md) | Rejected and not-adopted alternatives, and IDE/orchestrator divergences that look like bugs but are deliberate |
+| **Generated Artefacts** | [project-manifest/generated-artefacts.md](generated-artefacts.md) | Which tracked and ignored files the orchestrator's commands and runs write, and when discarding each is safe |
 | **Curation Log** | [project-manifest/curation-log.md](curation-log.md) | Standing decisions about this manifest and the dated trail of curation passes |
 
 ---
@@ -606,6 +608,7 @@ This document codifies established rules, conventions, and non-obvious gotchas f
 - [Sub-Agent Delegation Constraints](#sub-agent-delegation-constraints)
 - [Storage Layout](#storage-layout)
 - [Queue Entry Schema](#queue-entry-schema)
+- [Generated Artefacts](#generated-artefacts)
 
 ### Constraint Entry Format
 
@@ -1039,7 +1042,7 @@ ledger_log_dir = (
 **Sync note:** The `STORAGE_VERSION` constant in `mcp-server/src/storage/migrate-namespaced.ts`
 is the authoritative version-tracking source for the storage layout. Any change to the layout
 must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
-See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
+See the hub manifest's [Cross-System Dependencies → Dependency Table](../../../../docs/agents/project-manifest/cross-system-dependencies.md#dependency-table), "Storage layout version" row.
 
 ---
 
@@ -1284,6 +1287,21 @@ again would be incorrect.
 **Rationale:** This decouples tool governance per target: VS Code tools are declared in `tools:`, Claude Code in `cc_tools:`, and Deep Agents tools are a runtime concern of `create_deep_agent()`. A plan that assumes `da_tools:` restricts or configures Deep Agents tooling will produce incorrect instructions.
 
 **Source:** `orchestrator/src/nodes/__init__.py` → `create_deep_agent()` call site; `deepagents` library → `graph.py` built-in tool merge.
+
+---
+
+## Generated Artefacts
+
+The orchestrator has no build step of its own. Its generated files are the version field synchronised into `pyproject.toml`, the `.context/orchestrator/**` output, and the run state a pipeline writes. [generated-artefacts.md](generated-artefacts.md) records which is which and when each can be discarded. Repository-wide generated files are covered by the hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md).
+
+- Classify a modified tracked file against `generated-artefacts.md` before discarding it.
+- On a feature branch, revert generator drift by path (`.context/orchestrator/**`, a `pyproject.toml` diff limited to `version`) before integrating upstream, and regenerate `.context/` on the default branch.
+- Keep a `pyproject.toml` `version` change when the branch edited `changelog.md`; commit it with that change.
+- Never revert a hand-maintained neighbour such as `module-context.yaml` or `requirements.txt` as build noise.
+- Never commit or delete run state (`checkpoints/`, `logs/`, `.orchestrator-run.json`). It is ignored, written by runs, and cannot be regenerated on demand.
+- Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
+- When unsure whether a file is generated, leave it and ask the user.
+
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/curation-log.md`
 
@@ -1301,6 +1319,22 @@ Written by the Manifest Curator only; no other agent edits this file.
 | — | — | None settled with the user yet. |
 
 ## History
+
+### 2026-10-19 · Update · Curator v1.8.0
+
+**Scope:** One link in `constraints.md` (storage layout section). Not a full reconcile.
+**Commit:** 1ced4e17
+**Changes:** The pointer to the root `AGENTS.md` "Storage layout version" row now targets the hub's `cross-system-dependencies.md`, where that row moved. The target file and anchor exist on disk.
+
+### 2026-10-19 · Update · Curator v1.6.2
+
+**Scope:** Partial upgrade, addition only: new `generated-artefacts.md`, its row in the `README.md` Manifest Sections table, a Generated Artefacts section appended to `constraints.md` (plus its Contents link). No other document or section was reconciled or verified.
+**Commit:** 1ced4e17
+**Changes:**
+- Created `generated-artefacts.md`, cross-linking the hub document instead of repeating repo-wide rows. Rows checked against `src/cli.py`, `src/graph.py`, `src/config.py`, `src/utils/{logging,run_queue,chunk_writer,dialogue_writer}.py`, `scripts/cli.js` (version sync into `pyproject.toml`), `module-context.yaml`, the root and module `.gitignore` files, and `git ls-files`. Tracked generated files are `.context/orchestrator/**` and the `pyproject.toml` version field; run state (checkpoints, logs, queue, `.orchestrator-run.json`, ledger-storage chunks and dialogues) is ignored.
+- `constraints.md` gained a Generated Artefacts section; `README.md` gained an index row.
+
+**Notes:** The reverted-decision search and changed-code intersection were not run (partial pass by instruction). The working tree held uncommitted changes elsewhere in the repository; the commit above is the last one. Two rows carry `TODO: verify` comments: the origin of `requirements.txt` (no writing script found) and whether tests isolate themselves from the real `logs/` and `checkpoints/`. Observed but untouched: `README.md` index still states a test count and constraint count (stale-prone) and its inline file tree omits `decisions.md`, `curation-log.md` and newer `src/utils/` modules; `constraints.md` lines near 454 still cite root `AGENTS.md` -> Cross-System Dependencies "Storage layout version" row, which exists in the root `AGENTS.md` today (open Amend-plan item, left as is). `.context/orchestrator/manifest.md` needs `node scripts/cli.js ctx-generate`. The adjacent-document check was out of scope for this dispatch.
 
 ### 2026-10-06 · Update · Curator v1.6.2
 
@@ -1712,6 +1746,76 @@ tree but are tracked in Git when committed alongside the plan.
 |------|-----------|---------|
 | `.orchestrator-run.json` | `_write_run_metadata()` in `cli.py` | Run provenance sidecar: thread ID, plan path, slug, started_at, is_resume, dry_run, log_filename, pid, result (null while in progress → SUCCESS/INTERRUPTED/ERROR), error, duration_s. Written atomically (tmp + os.replace). Read by the GUI via `GET /api/projects/:slug/run-metadata` to populate the Resume Run button. Overwritten on every new run of the same plan. |
 | `.orchestrator.lock` | `lock_exclusive()` in `cli.py` | Process lock file — prevents concurrent orchestrator runs against the same plan. Created on startup, deleted on exit. |
+
+```
+###  Path: `/orchestrator/docs/agents/project-manifest/generated-artefacts.md`
+
+```md
+# Generated Artefacts
+
+Which files an orchestrator command or run writes, and when a modified copy can be discarded. This document covers the orchestrator module only. Repository-wide rows (persona output, `name-mapping.json`, the presentation bundle, the agents overview, and the `.context/**` tree) live in the hub's [generated-artefacts.md](../../../../docs/agents/project-manifest/generated-artefacts.md) and are not repeated here. The binding rules derived from the table are in the [Generated Artefacts section of constraints.md](constraints.md#generated-artefacts).
+
+## Purpose and Branch Policy
+
+The owner's stated practice, summarised in the hub document and enforced by the Git Committer persona, is that generated artefacts are not committed on feature branches. A file whose diff is generator drift is discarded by path; a file whose source the branch changed is committed with that change. `.context/**` is drift on every feature branch and enters version control only on the default branch.
+
+The orchestrator has no build step of its own. It is a Python package with no compiled or bundled output, so the generated files below are either written by a hub-level command or are runtime state written by a pipeline run.
+
+## How to Read Tracked Status
+
+`git ls-files <path>` decides whether a file is tracked. A `.gitignore` entry proves nothing on its own, because a file committed before its ignore entry stays tracked.
+
+## Tracked Generated Artefacts
+
+### Runtime-coupled
+
+| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
+|---|---|---|---|---|
+| `orchestrator/pyproject.toml` (`version` field only) | The hub's `node scripts/cli.js build-maintain`, which synchronises the version from the orchestrator changelog (`scripts/cli.js`). | The top version header of `orchestrator/changelog.md`. | The diff is limited to the `version` field and the branch did not edit `changelog.md` (stale local value). | The branch edited `changelog.md`, or the diff touches anything beyond `version`: the rest of the file is hand-maintained packaging metadata. |
+
+### Documentation-style
+
+| Path / glob | Generated by | Source | Safe to discard when | Unsafe to discard when |
+|---|---|---|---|---|
+| `.context/orchestrator/**` (repository root) | The hub's `node scripts/cli.js ctx-generate`, never by a command inside `orchestrator/`. | `orchestrator/module-context.yaml`, which imports the module README, this manifest, `orchestrator/docs/` (excluding `agents/`), the source tree and the tests. | Follows the hub's `.context/**` row: always on a feature branch, whatever the diff shows. | Only on the default branch, when a file's diff reflects a change to a manifest document, README, docs page or source file named by the module context. |
+
+## Ignored Generated Artefacts
+
+These are not tracked, so there is nothing to revert or commit. Run state is written by pipeline runs and is not regenerable on demand.
+
+| Path / glob | Written by | Notes |
+|---|---|---|
+| `orchestrator/checkpoints/workflow.sqlite` | A run: the LangGraph SQLite checkpointer (`src/graph.py`). Location set by `CHECKPOINT_DIR`, default `./checkpoints`. | Holds resumable run state for `--resume`. |
+| `orchestrator/checkpoints/{thread_id}.terminal` | A run that reaches a terminal state (`src/cli.py`). | Zero-content marker files; their presence tells a later `--resume` the thread is finished. |
+| `orchestrator/logs/{timestamp}-{slug}.jsonl` | Every run (`src/utils/logging.py`). | The JSONL run log; see the [log schema](../../jsonl-log-schema.md). |
+| `orchestrator/logs/{plan-hash}-run-status.json` | Every run, as a tombstone for GUI polling (`src/cli.py`). | Deleted at the start of the next run of the same plan. |
+| `orchestrator/logs/.run-queue.json`, `.run-queue.lock` | The run queue (`src/utils/run_queue.py`). | Queue state and its file lock. |
+| `{plan_dir}/.orchestrator-run.json` (and a `.tmp` sibling during the atomic write) | A run, via `_write_run_metadata()` in `src/cli.py`. | Lives beside the plan document, so it can appear in any repository the orchestrator is pointed at. Ignored by the root `.gitignore` pattern `.orchestrator-run.json`. |
+| `mcp-server/storage/ledger/{repo}/{slug}/orchestrator/{logs,chunks,dialogues}/` | A run: the log copy in `src/cli.py`, `ChunkWriter` and `dialogue_writer`. | Run artefacts stored in the MCP server's ledger tree, ignored through `mcp-server/.gitignore` (`storage/ledger/`). Layout rules are in [constraints.md](constraints.md#storage-layout). |
+| `orchestrator/.venv/`, `ai_insights_orchestrator.egg-info/`, `**/__pycache__/` | `pip install -e` and the Python interpreter. | Ignored through `orchestrator/.gitignore` and the root `.gitignore`. |
+| `.pytest_cache/`, `.ruff_cache/` | `pytest` and `ruff check`. | Not tracked; each directory ships its own self-ignoring `.gitignore`. |
+
+## Hand-maintained Neighbours
+
+| Path | Why it looks generated | Why it is source |
+|---|---|---|
+| `orchestrator/module-context.yaml` | Named like CTX output. | CTX input configuration, owned by the CTX Architect. |
+| `orchestrator/docs/agents/project-manifest/**` | Imported wholesale into `.context/orchestrator/`. | The source the `.context/` copies derive from. |
+| `orchestrator/requirements.txt` | Reads like a pip freeze. | Hand-maintained dependency list. <!-- TODO: verify: no script writing it was found; origin assumed manual --> |
+| `orchestrator/.env.example` | Sits beside the ignored `.env`. | Committed template for local configuration. |
+| `orchestrator/docs/jsonl-log-schema.md` | Describes generated logs. | Hand-written schema reference. |
+
+## Commands That Touch More Than They Generate
+
+| Command | Writes beyond its generated output |
+|---|---|
+| `orchestrate` (`src/cli.py`) | Writes into several locations at once: the orchestrator's own `checkpoints/` and `logs/`, the plan directory (`.orchestrator-run.json`), and the MCP server's ledger storage (`mcp-server/storage/ledger/...`). It also drives MCP tools that change ledger state. |
+| `node scripts/cli.js build-maintain` (hub) | Rewrites `orchestrator/pyproject.toml` `version` from the changelog, among its many other effects; see the hub document. |
+| `pytest` | Writes only `.pytest_cache/` and `__pycache__/`. Tests that exercise the run queue, checkpoints or logs are expected to use temporary paths. <!-- TODO: verify: isolation of tests from the real logs/ and checkpoints/ directories was not checked --> |
+
+## Known Contradictions
+
+None known for this module.
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/tech-stack.md`

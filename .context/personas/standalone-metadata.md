@@ -72,6 +72,7 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.5.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   2.4.0 (2026-10-16): A manifest gap goes into the report instead of a dispatch when a caller's plan still has the Manifest Curator to come; shared documentation-ownership partial honours a caller's plan; a stage the plan marks skipped counts as already decided
   2.3.0 (2026-10-16): Routes to the manifest's generated-artefacts.md where one exists — a document-list row, a Manifest Maintenance row, and an appended Generated Artefacts section of MUST rows; the file never lists generated paths or commands, which stay manifest facts; Create and Update check whether the manifest carries the document, and an absence next to tracked generated files joins the gap list
   2.2.0 (2026-09-30): Reads a request for intent instead of asking what it already says. The mode now
@@ -169,6 +170,7 @@ vs_file_name: changelog-curator.agent.md
 id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 changelog: |
+  1.7.2 (2026-10-19): Plainer wording for the archive-suggestion count in the shared archiving section
   1.7.1 (2026-10-16): Retitled "Merge Before Multiply" to "Logical Change Over Commit History" — the Design Guide allows no verb-initial philosophy titles
   1.7.0 (2026-10-16): Generate collects changes in a single `**WIP; UNRELEASED**` entry whose version is based
     on the changelog as it stood at the last release tag (shared wip-changelog-version partial); Rewrite
@@ -561,6 +563,7 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.5.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   1.4.0 (2026-10-16): Honours a caller's plan for a wider change — a document whose owner the plan still has to run is left to it and reported to the caller, through the shared documentation-ownership partial and the CTX and manifest delegation steps; Create mode accepts an outline the caller passes as user-approved; used by the Workspace Architect's Amend mode; a stage the plan marks skipped counts as already decided
   1.3.3 (2026-09-29): Research Verify phase looks up each changed docblock across the project's
     READMEs and compares every matching paragraph, with a matching Quality Checklist item — a
@@ -1219,6 +1222,7 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.8.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   1.7.0 (2026-10-16): Shared documentation-ownership partial honours a caller's plan: a document whose owner the plan still has to run is left to it and reported to the caller; a stage the plan marks skipped counts as already decided
   1.6.3 (2026-10-16): Retitled "Show Over Describe" to "Demonstration Over Description" — the Design Guide allows no verb-initial philosophy titles
   1.6.2 (2026-09-29): Claude Code and deep-agents dispatches to an owning agent now pass `subagent_type`
@@ -1622,6 +1626,29 @@ vs_file_name: whatsnew-curator.agent.md
 id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 changelog: |
+  1.5.2 (2026-10-19): Re-audit polish — Generate drops a same-release fix once its commits are read;
+    Generate gains a findings step and Rewrite's Present lists unclear, contradicted and uncovered
+    entries, each with a "none" form; plainer wording in Gathering Change Context and the archive check
+  1.5.1 (2026-10-19): Design Guide v3.7 audit fixes — the commit-gathering procedure moves into its own
+    Gathering Change Context section shared by Generate and Rewrite; Rewrite reads the changelog and
+    gathers context for every item before diagnosing; the v20.0.4 worked example shows filtering and
+    structure only, with placeholder item text instead of terse items; completed blocks place an item
+    with no related feature at the end; the glossary input is marked optional
+  1.5.0 (2026-10-19): Generate completes a version that already has a block — it adds items for
+    uncovered changelog entries next to related items, leaving existing items untouched
+  1.4.2 (2026-10-19): Excludes bugs introduced and fixed within the same release; line length counts
+    characters, not bytes; Category Mapping gains CoMa, LiveIndex and Tenants; Translation Guide maps
+    Publish to Freischalten
+  1.4.1 (2026-10-19): Findings from a v26 test run — commit range runs tag to tag and survives a
+    consolidated changelog; Rewrite may merge items and correct facts the code contradicts but only
+    lists uncovered entries; items may run to about four sentences; untranslated labels stay English
+    in German items, with a note on hash-keyed translation files; added Übersteuerung terms and fixed
+    the worked example's German; line length counts indentation
+  1.4.0 (2026-10-19): Items are self-contained — each names where the change shows up, what changed,
+    a concrete example where the change is abstract, and any action the user must take; Generate and
+    Rewrite gain a context-gathering step that reads the commits behind each changelog line and the
+    project glossary; new principle, constraint against guessed context, two cold-reader checklist
+    items, and a worked example expanding a terse entry
   1.3.0 (2026-10-16): Refuses to write release notes for a `**WIP; UNRELEASED**` changelog entry — Generate
     checks the marker in step 1 and routes the user to a Changelog Curator Rewrite to finalize it first
   1.2.0 (2026-10-16): Added Archive mode — older minor series move verbatim into one XML file per series,
@@ -1639,8 +1666,8 @@ changelog: |
   1.0.1 (2026-03-04): Added persona ID field for VS Code agent registry
   1.0.0 (2026-02-25): Initial release — bilingual WHATSNEW.xml release note generation
 
-audit_guide_version: "3.3"
-audit_date: "2026-08-27"
+audit_guide_version: "3.7"
+audit_date: "2026-10-19"
 
 tools:
   - vscode
@@ -1670,7 +1697,7 @@ cc_tools:
 identity: "Release Notes Editor"
 use_when: "Preparing bilingual (EN/DE) WHATSNEW.xml release note entries from a developer changelog, or archiving older ones"
 modes: |
-  Generate (from the developer changelog)
+  Generate (from the developer changelog, or completing an existing version)
   Rewrite (polish existing entries)
   Archive (move older versions alongside the changelog archive)
 
@@ -1685,6 +1712,7 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.6.0 (2026-10-19): The session plan moves into a temporary plan file at `.ledger/workspace-architect-plan.md` — created before the first stage, its table updated as each stage finishes, deleted at the end; every dispatch names the file instead of pasting the plan, and the file's own header tells readers how to use it. Sub-agents at any depth log their dispatches and findings there, so Nested Dispatches now includes second-level dispatches and findings for a stage still to come join its inputs
   1.5.0 (2026-10-16): Every dispatch carries the session plan with each stage's owner and status, replacing the Documentation Curator's no-further-dispatch instruction — owners leave pending stages to the plan and may still call other specialists, reported as Nested Dispatches; the Manifest Curator, CTX Architect and Documentation Curator are told their mode; Amend waits for approval of a new document's path and outline and dispatches stage 0 in Create mode; Upgrade marks a missing generated-artefacts.md as needed when triage adds CTX; the plan's skipped stages count as already decided
   1.4.2 (2026-10-16): A manifest lacking generated-artefacts.md beside a context.yaml now counts as missing and needed, so Upgrade PARTIAL runs stage 1 too; the stage 0 Amend dispatch names Update as the Documentation Curator's mode
   1.4.1 (2026-10-16): Design Guide v3.6 audit fixes — stages 3, 4 and 6 now cover artefacts that already exist (PHP files without composer.json get the user's decision, an existing context.yaml is refreshed, an existing changelog is left alone), staleness criteria moved into Detection Logic, VS Code dispatch lists each stage's agentName, "Ask Before Assuming" retitled "Questions Cost Less Than Rewrites", the Mission restated as one outcome, workflow passives rewritten in active second person, and a duplicate scope constraint removed
