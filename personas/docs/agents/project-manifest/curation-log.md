@@ -12,6 +12,27 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: the consolidation of the generated-artefacts documentation into the hub manifest, and the links this manifest holds to it. Not a full reconcile.
+**Commit:** 2d4220a3 (working tree held uncommitted changes, including earlier same-day manifest edits)
+**Changes:** Deleted this manifest's `generated-artefacts.md`; its content now lives in the hub's `docs/agents/project-manifest/generated-artefacts.md`, which is the single document for the repository. Repointed the `README.md` index row and the `constraints.md` → Generated Artefacts preamble and first bullet to the hub file. The `constraints.md` section is kept and remains the binding rules. History entries and Standing Decisions below name `generated-artefacts.md` as it stood when written; where they refer to a document in this directory, read the hub file. The consolidation Standing Decision is recorded in the hub's Curation Log.
+**Notes:** The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. Root `AGENTS.md` and the CTX configuration are stages still to come; findings for both are in the hub log's entry for this date.
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: Purpose and Branch Policy in `generated-artefacts.md`, to agree with the hub copy. Not a full reconcile.
+**Commit:** 2d4220a3
+**Changes:** Added a paragraph recording that a commit on a branch that is not a feature branch opens with a fresh Build & Maintain run (`node scripts/cli.js build-maintain`), and that a feature branch skips it. The paragraph states this is a project-level rule the Git Committer persona does not enforce, because the owner decided on 2026-10-23 to keep it out of that persona; the Git Committer stays the authority for the feature-branch practice only. It links to the hub copy. The command and menu label were checked against `scripts/cli.js`. The Standing Decision above is unchanged, since it covers the feature-branch practice; the new decision is recorded in the hub log.
+**Notes:** The working tree held uncommitted changes, so the scan read 2d4220a3 plus that working tree. Other checks were not run, by the brief's scope. The hub log holds the finding for root `AGENTS.md`.
+
+### 2026-10-23 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `constraints.md` → C5f (anchor `nested-delegation`), the Orchestrator row only, for the Workspace Architect v1.7.0 Amend changes. Not a full reconcile.
+**Commit:** bc2b4737
+**Changes:** The Orchestrator row now names *Amend Routing*, *Amend Dispatch* and the Amend workflow's *Stage 7 — Other Owners* and *Return Pass* steps as locations. It also records four things. The owner's own pass record is part of every Amend dispatch's scope, and Amend verification checks it. Routing follows the changed section to the files it names as authority or summary, and files outside the documentation set join as user-approved stage 7 rows. An in-brief finding for a stage that already ran goes back in one return pass, and no owner is dispatched more than twice. The summary has a **Return Passes** line, and **Follow-ups** is narrowed. Checked against `personas/standalone/src/content/workspace-architect.md` and its meta changelog. No other personas manifest document describes Amend dispatches or follow-up handling.
+**Notes:** The working tree held uncommitted changes, the v1.7.0 persona source included, so the scan read bc2b4737 plus that working tree. The reverted-decision search, changed-code intersection, generated-artefacts check and adjacent-document check were not run, because the brief limited the scope. One finding for root `AGENTS.md` (owner: AGENTS.md Curator), reported to the caller: the Personas maintenance row on caller's-plan deferral names "the Workspace Architect's *Delegation Protocol* inputs", but the Amend dispatch inputs now live in *Amend Dispatch*.
+
 ### 2026-10-19 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: mentions of root `AGENTS.md` and root `CLAUDE.md` as hand-maintained neighbours. Touched `generated-artefacts.md` (Hand-maintained Neighbours) and `constraints.md` (Generated Artefacts). Not a full reconcile.

@@ -33,7 +33,7 @@ Generated persona files are consumed in three ways:
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
-| [Generated Artefacts](generated-artefacts.md) | Tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
+| [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) | Hub document, shared with the whole repository: tracked files a build command writes (name mapping, CTX output, overview and audit status), their generators, and when discarding each is safe |
 | [Curation Log](curation-log.md) | Standing decisions and the dated history of manifest curation passes |
 
 ---

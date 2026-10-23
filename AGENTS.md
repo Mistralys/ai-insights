@@ -24,7 +24,7 @@ The `scripts/` directory contains cross-project scripts that orchestrate persona
 
 **Core Philosophy:** The Project Manifests are the canonical documentation of this codebase. If implementation code contradicts a manifest, the **code is likely wrong**.
 
-**Unified entry point:** [`docs/agents/project-manifest/`](docs/agents/project-manifest/README.md) — links to all module manifests, the [cross-system dependencies](docs/agents/project-manifest/cross-system-dependencies.md) and [root-level tooling](docs/agents/project-manifest/root-tooling.md) hub documents, and a navigation guide.
+**Unified entry point:** [`docs/agents/project-manifest/`](docs/agents/project-manifest/README.md) — links to all module manifests, the [cross-system dependencies](docs/agents/project-manifest/cross-system-dependencies.md), [root-level tooling](docs/agents/project-manifest/root-tooling.md) and [generated artefacts](docs/agents/project-manifest/generated-artefacts.md) hub documents, and a navigation guide.
 
 Each sub-project maintains its own detailed manifest:
 
@@ -110,7 +110,6 @@ If your work touches more than one sub-project or root-level scripts, review the
 | Add/remove dependency | `tech-stack.md` |
 | Change naming convention | `constraints.md` |
 | Modify sync script behavior | `constraints.md`, `data-flows.md` |
-| Change a tracked generated file, its generator, or the inputs/commands that produce it (e.g. `personas/name-mapping.json`, `.context/**`, `docs/references/agents-overview.md`, `personas/docs/audits/status.md`) | [`generated-artefacts.md`](personas/docs/agents/project-manifest/generated-artefacts.md) |
 | Change how a documentation persona defers to a caller's plan (the shared partial's caller's-plan rule, an inline deferral in the Manifest / AGENTS.md / Documentation Curator, or what the Workspace Architect's dispatches carry) | `personas/shared/partials/documentation-ownership.md` (for the includers' rule); the inline deferral steps in the affected persona sources under `personas/standalone/src/content/`; the Workspace Architect's *Delegation Protocol* inputs; [`constraints.md` → C5f](personas/docs/agents/project-manifest/constraints.md#nested-delegation) |
 
 ### Root-Level / Cross-Project
@@ -120,6 +119,7 @@ If your work touches more than one sub-project or root-level scripts, review the
 | Add/modify agent role | `mcp-server/` → `constraints.md`, `personas/` → `constraints.md` |
 | Add OS-specific code or dependency | This `AGENTS.md` → Cross-Platform Policy; affected sub-project's `constraints.md` |
 | Add or change a root-level script | [`root-tooling.md`](docs/agents/project-manifest/root-tooling.md) (hub), root `README.md` |
+| Add a generator, a tracked generated file or a changed source-to-artefact dependency, in any module (personas, MCP server, orchestrator) or at the root | [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) (hub) — the single document for all modules; no module manifest keeps a copy |
 | Add or change a cross-system sync point | [`cross-system-dependencies.md`](docs/agents/project-manifest/cross-system-dependencies.md) (hub) |
 | Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, regenerate `.context/` |
 | Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints-workflow.md` |
@@ -133,7 +133,7 @@ If your work touches more than one sub-project or root-level scripts, review the
 
 | What You Need | Search Here FIRST | Then Here | Read Source LAST |
 |---------------|-------------------|-----------|------------------|
-| Find a file location | Relevant `file-tree.md` (mcp-server) or `.context/` auto-generated tree (personas) | grep/file search | Never needed |
+| Find a file location | Relevant `file-tree.md` | grep/file search | Never needed |
 | Understand a method/tool | Relevant `api-surface.md` | Source code | Only for implementation logic |
 | Trace data flow | Relevant `data-flows.md` | Source code | Only for edge cases |
 | Check a rule or convention | Relevant `constraints.md` | Source comments | Only if ambiguous |
@@ -163,49 +163,12 @@ If your work touches more than one sub-project or root-level scripts, review the
 | Grep entire workspace for a tool name | Search `mcp-server/…/api-surface.md` |
 | Read generated persona files to understand template logic | Read `personas/…/api-surface.md` + `data-flows.md` |
 | Read 10 source files to understand status transitions | Read the Workflow Specification §6.2 |
-| Search code to find where a file lives | Check `file-tree.md` (mcp-server) or `.context/` tree (personas) |
+| Search code to find where a file lives | Check the relevant `file-tree.md` |
 | Get a full module overview (API + source + tests) | Read `.context/{module}/` generated docs | Manifest `api-surface.md` | Source code |
 
 ### Generated Context Docs (`.context/`)
 
-The [CTX Generator](https://github.com/context-hub/generator) produces Markdown snapshots of the entire codebase. Run `node scripts/cli.js ctx-generate` to regenerate. Output lives in `.context/` (tracked in VCS).
-
-| Path | Contents |
-|------|----------|
-| `.context/README.md` | Workspace overview (mirrors root `README.md`) |
-| `.context/workspace-structure.md` | Top-level directory tree (depth 3) |
-| `.context/scripts.md` | All workspace scripts source |
-| `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
-| `.context/project-manifest.md` | Root manifest hub (module links, cross-system dependencies, root tooling) |
-| `.context/mcp-server/overview.md` | MCP server README |
-| `.context/mcp-server/manifest-readme.md` | MCP server manifest: project overview + GUI sub-manifest hub |
-| `.context/mcp-server/manifest-api-surface.md` | MCP server manifest: full API surface |
-| `.context/mcp-server/manifest-constraints.md` | MCP server manifest: all five constraints documents + GUI constraints |
-| `.context/mcp-server/manifest-tech-stack.md` | MCP server manifest: tech stack and patterns (core + GUI) |
-| `.context/mcp-server/manifest-data-flows.md` | MCP server manifest: data flows |
-| `.context/mcp-server/manifest-file-tree.md` | MCP server manifest: annotated file tree |
-| `.context/mcp-server/workflow-spec-state.md` | Workflow spec: overview, state machines, data model |
-| `.context/mcp-server/workflow-spec-operations.md` | Workflow spec: operations, routing, handoffs, walkthrough |
-| `.context/mcp-server/workflow-spec-edge-cases.md` | Workflow spec: edge cases, dependencies, auxiliary systems |
-| `.context/mcp-server/tests.md` | Test suite directory tree |
-| `.context/mcp-server/file-structure.md` | MCP server directory tree |
-| `.context/mcp-server/source-gui-api-handlers.md` | MCP server GUI: API handler source |
-| `.context/mcp-server/source-gui-frontend.md` | MCP server GUI: frontend source |
-| `.context/orchestrator/overview.md` | Orchestrator README |
-| `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
-| `.context/orchestrator/manifest.md` | Orchestrator project manifest (incl. `decisions.md`) |
-| `.context/orchestrator/tests.md` | Test suite directory tree |
-| `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
-| `.context/personas/overview.md` | Personas README |
-| `.context/personas/manifest.md` | Personas project manifest |
-| `.context/personas/ledger-suite.md` | Ledger workflow user guide |
-| `.context/personas/standalone-suite.md` | Standalone personas guide |
-| `.context/personas/ledger-support-suite.md` | Ledger support personas guide |
-| `.context/personas/shared-partials.md` | Cross-suite Markdown partials |
-| `.context/personas/ledger-metadata.md` | Ledger persona YAML metadata |
-| `.context/personas/standalone-metadata.md` | Standalone persona YAML metadata |
-| `.context/personas/ledger-support-metadata.md` | Ledger support persona YAML metadata |
-| `.context/personas/file-structure.md` | Personas directory tree |
+The [CTX Generator](https://github.com/context-hub/generator) produces Markdown snapshots of the codebase and its manifests, grouped per module under `.context/` (tracked in VCS). The files are generated, so they are never edited by hand; [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) states what writes them and how they are handled on a branch. Browse the directory for the current file set.
 
 > **Tip:** These files are ideal for feeding into LLMs or external tools (e.g. NotebookLM) that need a full codebase snapshot without cloning the repo.
 
@@ -327,7 +290,7 @@ Step 2 — Root changelog
 
 ### Prompt Template
 
-See the root [README.md → Changelog Workflow](README.md) section for the copy-paste prompt template.
+See the [Changelog Workflow](docs/references/development.md#changelog-workflow) section of the Developer Guide for the copy-paste prompt template.
 
 ---
 
@@ -356,6 +319,7 @@ The root-level scripts, shared libraries, `shared/workflow-manifest.json` and it
 |------------|---------|
 | Understand the whole workspace | [README.md](README.md) |
 | See all project manifests | [docs/agents/project-manifest/](docs/agents/project-manifest/README.md) |
+| Find which files are generated, and whether one may be discarded | [generated-artefacts.md](docs/agents/project-manifest/generated-artefacts.md) |
 | Check what must stay in sync across systems | [cross-system-dependencies.md](docs/agents/project-manifest/cross-system-dependencies.md) |
 | Look up a root-level script or shared file | [root-tooling.md](docs/agents/project-manifest/root-tooling.md) |
 | Work on the MCP server | [mcp-server/AGENTS.md](mcp-server/AGENTS.md) → then its manifest |
@@ -364,7 +328,7 @@ The root-level scripts, shared libraries, `shared/workflow-manifest.json` and it
 | Look up an MCP tool signature | [mcp-server/…/api-surface.md](mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [personas/…/api-surface.md](personas/docs/agents/project-manifest/api-surface.md) |
 | Find a file in mcp-server | [mcp-server/…/file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) |
-| Find a file in personas | `.context/personas/file-structure.md` (auto-generated) |
+| Find a file in personas | [personas/…/file-tree.md](personas/docs/agents/project-manifest/file-tree.md) |
 | See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) (core) — plus [workflow](mcp-server/docs/agents/project-manifest/constraints-workflow.md), [testing](mcp-server/docs/agents/project-manifest/constraints-testing.md), [code style](mcp-server/docs/agents/project-manifest/constraints-code-style.md), [storage](mcp-server/docs/agents/project-manifest/constraints-storage.md) |
 | See GUI constraints | [mcp-server/gui/…/constraints.md](mcp-server/gui/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
@@ -374,31 +338,31 @@ The root-level scripts, shared libraries, `shared/workflow-manifest.json` and it
 | Review past discussions | [discussions/](docs/discussions/) |
 | Review error history | [history/error-ledger.md](docs/history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](docs/history/key-learnings.md) |
-| Get a full codebase snapshot for LLMs | `.context/` (run `node scripts/cli.js ctx-generate` to regenerate) |
+| Get a full codebase snapshot for LLMs | `.context/` (regeneration: see [generated-artefacts.md](docs/agents/project-manifest/generated-artefacts.md)) |
 | Understand changelog workflow | Changelog Convention section (this file) |
 
 ---
 
 ## Generated Artefacts
 
-Some tracked files are written by build commands, not by hand: the persona name mapping, the CTX context docs, and generated reference documents. [`generated-artefacts.md`](personas/docs/agents/project-manifest/generated-artefacts.md) records which files these are, what produces each, and when a modified copy may be discarded. How they are handled on a branch is set by the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions) of 2026-10-16. The [Git Committer](personas/standalone/src/content/git-committer.md) persona enforces it and is the authority, and [Purpose and Branch Policy](personas/docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy) summarises it. The rules below apply workspace-wide.
+Some tracked files are written by build commands, not by hand: persona build output, version fields synchronised from changelogs, the CTX context docs, and generated reference documents. [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) is the single document for the whole workspace, covering the personas, the MCP server and the orchestrator alike. It records which files these are, which module owns each, what produces each, and when a modified copy may be discarded; module manifests keep no copy. How they are handled on a branch is set by the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions) of 2026-10-16. The [Git Committer](personas/standalone/src/content/git-committer.md) persona enforces it and is the authority, and [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy) summarises it. The one exception is the build-first row for commits outside a feature branch: that is a project-level rule of this workspace, which the Git Committer does not enforce, so the last row of the table does not cover it. The rules below apply workspace-wide.
 
 | Scenario | Action | Priority |
 |----------|--------|----------|
-| **A modified tracked file may be generated** | Classify it against [Tracked Generated Artefacts](personas/docs/agents/project-manifest/generated-artefacts.md#tracked-generated-artefacts) before discarding it. | MUST |
+| **A modified tracked file may be generated** | Classify it against [Tracked Generated Artefacts](docs/agents/project-manifest/generated-artefacts.md#tracked-generated-artefacts) before discarding it. | MUST |
 | **Generator drift on a feature branch** | Keep it out of every commit, and revert it by path before integrating upstream, as the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions) sets out. | MUST |
-| **Committing on a branch that is not a feature branch (e.g. the default branch)** | Make the very first step a fresh Build & Maintain run (CLI menu action; `node scripts/cli.js build-maintain`), so every generated artefact is current before anything is committed. On a feature branch, skip the step: generated artefacts are not committed there. See [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy). | MUST |
+| **Committing on a branch that is not a feature branch (e.g. the default branch)** | Make the very first step a fresh Build & Maintain run (the CLI menu action of that name; the exact command is in [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy)), so every generated artefact is current before anything is committed. On a feature branch, skip the step: generated artefacts are not committed there. See [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy). | MUST |
 | **CTX context output changed** | Commit it only on the default branch, as its own commit, per the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions). On a feature branch all of it counts as drift. | MUST |
 | **A generated file's diff is only a timestamp or date** | Never commit it ([Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions)). | MUST |
-| **The branch changed the source of a generated file** | Keep the file, regenerate it, and commit it with that source change. This applies especially to runtime-coupled artefacts ([`constraints.md` → Generated Artefacts](personas/docs/agents/project-manifest/constraints.md#generated-artefacts)). | MUST |
-| **A file sits beside generated output or feeds a generator** | Never revert it as build noise. Check [Hand-maintained Neighbours](personas/docs/agents/project-manifest/generated-artefacts.md#hand-maintained-neighbours) first. | MUST |
-| **A generated file's diff matches a known contradiction** | Handle it as [Known Contradictions](personas/docs/agents/project-manifest/generated-artefacts.md#known-contradictions) describes, not as a defect to fix. | MUST |
+| **The branch changed the source of a generated file** | Keep the file, regenerate it, and commit it with that source change. This applies especially to runtime-coupled artefacts; each module's rules are in its own `constraints.md` → Generated Artefacts ([personas](personas/docs/agents/project-manifest/constraints.md#generated-artefacts), [MCP server](mcp-server/docs/agents/project-manifest/constraints.md#generated-artefacts), [orchestrator](orchestrator/docs/agents/project-manifest/constraints.md#generated-artefacts)). | MUST |
+| **A file sits beside generated output or feeds a generator** | Never revert it as build noise. Check [Hand-maintained Neighbours](docs/agents/project-manifest/generated-artefacts.md#hand-maintained-neighbours) first. | MUST |
+| **A generated file's diff matches a known contradiction** | Handle it as [Known Contradictions](docs/agents/project-manifest/generated-artefacts.md#known-contradictions) describes, not as a defect to fix. | MUST |
 | **Discarding is needed** | Revert by path only, never by whole-tree restore. | MUST |
-| **The manifest and the Git Committer disagree** | Follow the Git Committer, and report the manifest entry to the Manifest Curator for correction. | MUST |
+| **The manifest and the Git Committer disagree** | Follow the Git Committer, and report the manifest entry to the Manifest Curator for correction. Does not apply to the build-first row above, which the Git Committer does not enforce. | MUST |
 | **Unsure whether a file is generated** | Leave it and ask the user. | MUST |
 
 ---
 
-**Version:** 1.2.2
-**Last Updated:** 2026-10-19
+**Version:** 1.3.0
+**Last Updated:** 2026-10-23
 **Maintained By:** AGENTS.md Curator Agent
