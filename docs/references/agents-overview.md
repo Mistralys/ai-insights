@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-19
+> **Generated:** 2026-10-23
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.4.0)
+### AGENTS.md Curator (v2.5.0)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -180,7 +180,7 @@ Generate, update, and maintain AGENTS.md files — the operating manual for AI a
 
 ---
 
-### Changelog Curator (v1.7.1)
+### Changelog Curator (v1.7.2)
 
 **Identity:** Release Communications Editor
 
@@ -246,7 +246,7 @@ Implement scoped plan documents without ledger workflow, including code insights
 
 ---
 
-### Documentation — Standalone (v1.4.0)
+### Documentation — Standalone (v1.5.0)
 
 **Identity:** Technical Writing Manager
 
@@ -346,7 +346,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.7.0)
+### README Curator (v1.8.0)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -410,7 +410,7 @@ Design and implement engaging, visually optimized web app and tool interfaces wi
 
 ---
 
-### WHATSNEW Curator (v1.5.1)
+### WHATSNEW Curator (v1.5.2)
 
 **Identity:** Release Notes Editor
 
@@ -421,7 +421,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.5.0)
+### Workspace Architect (v1.6.0)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -532,14 +532,14 @@ Determine which pipeline stages should be active for each Work Package based on 
 
 ---
 
-### Ledger Synthesis Maintainer (v2.2.0)
+### Ledger Synthesis Maintainer (v3.0.0)
 
 **Identity:** Ledger Archivist
 
-Archive a completed standalone plan folder into the project ledger, or apply requested edits to the synthesis.md of a completed project and refresh its ledger record.
+Keep the ledger synthesis record of a completed project in step with its synthesis.md: apply requested updates, then archive the plan folder if the ledger does not track it, or refresh the ledger copy if it does.
 
-- **Modes:** Archive, Update
-- **Use When:** A completed standalone plan should be tracked in the project ledger, or the synthesis.md of a completed project needs a correction and its ledger record refreshed
+- **Modes:** Archive, Refresh
+- **Use When:** The synthesis.md of a completed plan should be archived into or refreshed in the project ledger, optionally after updating it
 
 ---
 
