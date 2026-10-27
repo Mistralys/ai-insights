@@ -179,6 +179,18 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. The four per-dispatch "built-in persona" notes now point to that section.
+  3.12.0 (2026-10-26): Claude Code dispatches now wait for the sub-agent's task notification by ending the turn,
+    via the new shared `subagent-wait-claude-code` section; every dispatch runs in the background, and the PM
+    was filling the gap with `until` loops on files it expected — once on a `.ledger` folder the ledger never
+    creates, which hung runs for up to 40 hours. Each Claude Code dispatch step now names the task notification
+    as its continuation. Auto-handoff likewise passes only `subagent_type`, `description` and `prompt`, and ends
+    the stage once the launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told
+    to report through a `SendMessage` tool they never had, and `run_in_background: false` is ignored
+    since every dispatch runs in the background
   3.11.2 (2026-10-15): Dependency Sequencer's expected output now includes the renumbered draft
   3.11.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the
@@ -290,6 +302,9 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.19.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.19.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
     `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
@@ -428,6 +443,9 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.2 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.10.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.0 (2026-10-06): Stale `REWORK_QA` trigger removed — the server never emits it and re-engages QA
     with `RUN_QA`. Rework Handling now names the three `RUN_QA` situations, after the Reviewer's
@@ -537,6 +555,9 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.4 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.10.3 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.10.2 (2026-09-29): Claude Code auto-handoff now passes `subagent_type` from `cc_agent_name` — the
     partial put the slug in `description`, so every handoff started a persona-less
@@ -637,6 +658,9 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.12.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.12.0 (2026-10-01): Declare All Artifacts now states the field is never omitted — pass
     `artifacts.files_modified: []` explicitly when nothing was reviewed and nothing changed
   3.11.3 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
@@ -744,6 +768,19 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.11.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  3.10.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
+  3.9.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.9.0 (2026-10-16): Versions against the last release tag instead of the newest changelog heading — every WP
     joins the single `**WIP; UNRELEASED**` changelog entry, raising its version only when it needs a larger
     bump, and the manifest version tracks the WIP version; the Changelog Curator receives the WIP version
@@ -843,6 +880,19 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  3.12.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
+  3.11.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.11.0 (2026-10-01): Declare All Artifacts and Workflow step 6 now instruct an explicit
     `artifacts.files_modified: []` when the gap analysis found nothing to update, instead of omitting the field
   3.10.6 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
@@ -960,6 +1010,16 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.15.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. The per-dispatch "built-in persona" note now points to that section.
+  3.14.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   3.13.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.13.0 (2026-10-08): When the Knowledge Archiver dispatch cannot run (dispatch tool withheld at
     the sub-agent depth limit, or the call fails), records a project comment and a Next Steps item

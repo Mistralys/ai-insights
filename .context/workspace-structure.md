@@ -19,6 +19,9 @@ _SOURCE: Top-level directory tree_
     ├── _layouts/
     │   ├── default.html
     ├── agents/
+    │   ├── bug-reports/
+    │   │   ├── 2026-10-26-claude-code-subagent-dispatch-and-waiting.md
+    │   │   ├── send-message-reproduction.zip
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
@@ -32,6 +35,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
+    │   │   ├── claude-code-subagent-dispatch.md
     │   │   ├── ctx-generator-guide.md
     │   │   ├── langgraph-deep-agents-subagent-handbook.md
     │   │   ├── ledger-workflow-visual-guide.md
@@ -607,6 +611,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── release-history-archiving.md
     │   │   └── research-brief-protocol.md
     │   │   └── research-brief-reference.md
+    │   │   └── subagent-briefing.md
+    │   │   └── subagent-wait-claude-code.md
     │   │   └── summary-crafting-guide.md
     │   │   └── title-crafting-guide.md
     │   │   └── wip-changelog-version.md

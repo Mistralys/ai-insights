@@ -72,6 +72,16 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.7.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  2.6.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   2.5.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   2.4.0 (2026-10-16): A manifest gap goes into the report instead of a dispatch when a caller's plan still has the Manifest Curator to come; shared documentation-ownership partial honours a caller's plan; a stage the plan marks skipped counts as already decided
   2.3.0 (2026-10-16): Routes to the manifest's generated-artefacts.md where one exists — a document-list row, a Manifest Maintenance row, and an appended Generated Artefacts section of MUST rows; the file never lists generated paths or commands, which stay manifest facts; Create and Update check whether the manifest carries the document, and an absence next to tracked generated files joins the gap list
@@ -463,6 +473,16 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.19.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.18.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.17.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
     `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   1.16.0 (2026-09-29): Never publishes, tags or runs a release, and never reverts a local dependency
@@ -563,6 +583,16 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.7.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.6.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.5.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   1.4.0 (2026-10-16): Honours a caller's plan for a wider change — a document whose owner the plan still has to run is left to it and reported to the caller, through the shared documentation-ownership partial and the CTX and manifest delegation steps; Create mode accepts an outline the caller passes as user-approved; used by the Workspace Architect's Amend mode; a stage the plan marks skipped counts as already decided
   1.3.3 (2026-09-29): Research Verify phase looks up each changed docblock across the project's
@@ -695,6 +725,16 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.9.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.8.0 (2026-10-16): Skips its CTX delegation when a caller's plan still has the CTX Architect to come, naming the changed manifest sections in its report instead; a stage the plan marks skipped counts as already decided
   1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
@@ -903,6 +943,16 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.5.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  2.4.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   2.3.4 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
     branch, and a `subagents` list declares `researcher`
@@ -978,6 +1028,11 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.13.0 (2026-10-27): Accepts an optional differential summary on a re-audit, with its own checkpoint step 3:
+    modified sections are verified in full, each previous finding's area is checked for whether its fix holds, and
+    unchanged sections are spot-checked rather than skipped, since an edit in one section can break a reference in
+    another. The handling previously arrived as an instruction in the Plan Refiner's dispatch prompt. Later steps
+    renumbered.
   1.12.0 (2026-10-01): Baseline oracles check — a before/after diff-oracle AC with no early, dependency-
     free capture step naming its storage location is a Major finding under Feasibility, added after the
     Local dependencies check
@@ -1062,6 +1117,17 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks. The
+    re-audit differential summary now carries facts only (cycle number, previous finding counts and severities,
+    modified sections); the instruction to prioritize changed areas moved into the Plan Auditor, which owns how it
+    weights verification.
+  1.8.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.7.2 (2026-09-29): Removed `web` from VS Code `tools` — the persona's `cc_tools` already document
     "no web access" and its content contains no fetch/URL instruction, so the VS Code grant exceeded
     Claude Code's without cause
@@ -1222,6 +1288,16 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.9.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.8.0 (2026-10-19): Shared documentation-ownership partial accepts a caller's plan passed as a file — re-read before each dispatch, following the instructions at its top
   1.7.0 (2026-10-16): Shared documentation-ownership partial honours a caller's plan: a document whose owner the plan still has to run is left to it and reported to the caller; a stage the plan marks skipped counts as already decided
   1.6.3 (2026-10-16): Retitled "Show Over Describe" to "Demonstration Over Description" — the Design Guide allows no verb-initial philosophy titles
@@ -1376,6 +1452,12 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.4.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. Its sub-agent delegation can reach a persona or a generic agent, so both briefing rules apply. The Claude
+    Code build also gains the shared `subagent-wait-claude-code` section, which it lacked despite dispatching: it
+    waits for a sub-agent's task notification by ending its turn and never polls.
   1.3.3 (2026-10-16): Retitled "Exhaust Before Inventing" to "Proven Patterns Before Invention" and "Quantify Over Qualify" to "Numbers Over Adjectives" — the Design Guide allows no verb-initial philosophy titles
   1.3.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
@@ -1543,6 +1625,16 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.8.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.7.5 (2026-09-29): Added `tool_parity_exceptions: [web]` — VS Code's `browser` and Claude Code's
     `WebFetch`/`WebSearch` are genuinely different capabilities with no shared counterpart, so the
     cross-target parity check now needs an explicit, documented exception rather than treating the
@@ -1712,6 +1804,16 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.8.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.7.0 (2026-10-23): Amend finishes what follows from the brief instead of listing it as follow-ups — dispatches name the owner's pass record (curation log, version footer) as part of the change and verification checks it; an in-brief finding for a stage that already ran goes back to its owner in one return pass after the last stage; routing follows the changed section to the files it names as authority or summary, and files outside the documentation set (e.g. persona sources) join as user-approved stage 7 rows. Follow-ups now hold only out-of-brief findings, older gaps, user decisions and return-pass findings
   1.6.0 (2026-10-19): The session plan moves into a temporary plan file at `.ledger/workspace-architect-plan.md` — created before the first stage, its table updated as each stage finishes, deleted at the end; every dispatch names the file instead of pasting the plan, and the file's own header tells readers how to use it. Sub-agents at any depth log their dispatches and findings there, so Nested Dispatches now includes second-level dispatches and findings for a stage still to come join its inputs
   1.5.0 (2026-10-16): Every dispatch carries the session plan with each stage's owner and status, replacing the Documentation Curator's no-further-dispatch instruction — owners leave pending stages to the plan and may still call other specialists, reported as Nested Dispatches; the Manifest Curator, CTX Architect and Documentation Curator are told their mode; Amend waits for approval of a new document's path and outline and dispatches stage 0 in Create mode; Upgrade marks a missing generated-artefacts.md as needed when triage adds CTX; the plan's skipped stages count as already decided

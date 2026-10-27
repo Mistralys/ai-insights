@@ -211,6 +211,8 @@ _SOURCE: Directory tree_
         │   └── release-history-archiving.md
         │   └── research-brief-protocol.md
         │   └── research-brief-reference.md
+        │   └── subagent-briefing.md
+        │   └── subagent-wait-claude-code.md
         │   └── summary-crafting-guide.md
         │   └── title-crafting-guide.md
         │   └── wip-changelog-version.md
