@@ -72,6 +72,12 @@ Three dispatches recur often enough to have their briefs written out:
 | **{{agent_readme_curator}}** | `README.md` needs a full structural overhaul rather than targeted corrections | The path to `README.md`, the path to the Project Manifest, and a note naming the structural problems found | A rewritten `README.md` following the README funnel format |
 | **{{agent_manifest_curator}}** | A `/docs/agents/project-manifest/` directory exists and this session's changes affect its content | The list of documentation and code areas that changed, and the path to the manifest directory | Updated manifest documents covering the changed areas |
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Operational Protocol — Documentation Research
 
 All three modes share the same fact-gathering procedure. It runs to completion before any documentation prose is written, and produces a brief that the writing phase consumes on its own.

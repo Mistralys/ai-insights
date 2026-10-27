@@ -247,6 +247,12 @@ No downstream agent reviews this work before the user sees it — the archiver v
 - [ ] When no plan was supplied, Ad-Hoc Entry produced a `plan.md` with a genuine `## Summary` section before implementation began.
 - [ ] No Git write operations were performed.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Determine Entry Mode:** Check whether `synthesis.md` already exists in the plan folder — if it does, this is a rework pass; follow **Rework Handling** instead of the steps below. If no plan document was provided at all, follow **Ad-Hoc Entry** to create one, then continue to step 2. Otherwise continue to step 2 with the plan document already in hand.

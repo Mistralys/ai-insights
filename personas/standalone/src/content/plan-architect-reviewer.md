@@ -242,6 +242,12 @@ Before submitting the review, verify:
 - [ ] The **Roadmap** line reflects whether a roadmap was supplied, and every unanchored Next-Change Cost cell says so.
 - [ ] The **Research brief** line distinguishes "none found" from "used" — and, when used, records whether references were contributed or the size guard made it read-only.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Ingest the Plan:** Read the plan document end-to-end. Identify the project it targets and its root directory.

@@ -186,6 +186,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | **Unclear which manifest applies** | If change touches both sub-projects, consult both. When in doubt, default to the MCP server manifest. | SHOULD |
 | **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/`, `personas/standalone/src/`, or `personas/ledger-support/src/`) and change the template source. | MUST |
 | **Published artifact needs change** | `personas/docs/persona-design-guide.md` and `personas/standalone/src/content/persona-curator.md` are fetched by unrelated downstream projects covering non-coding domains. Keep both domain-neutral — project-specific inventories go in `personas/docs/agents/project-manifest/constraints.md` (C5d). Top-level heading renames break a downstream sync anchor: flag them, never apply silently. | MUST |
+| **Waiting for a sub-agent under Claude Code, or a dispatch chain seems hung** | Never poll (`sleep`, `until`, Monitor, waiting on a file); end the turn and act on the `<task-notification>`, not the hand-back. See [Debugging a Hung Chain](docs/agents/references/claude-code-subagent-dispatch.md#debugging-a-hung-chain). | MUST |
 | **Breaking change proposed** | Document in work package. Flag for review. Never implement silently. | MUST |
 | **Dependency not in tech stack** | Justify before adding. Update relevant `tech-stack.md`. | SHOULD |
 
@@ -335,6 +336,7 @@ The root-level scripts, shared libraries, `shared/workflow-manifest.json` and it
 | See orchestrator design decisions | [orchestrator/…/decisions.md](orchestrator/docs/agents/project-manifest/decisions.md) |
 | Understand the ledger agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
+| Dispatch sub-agents under Claude Code, or debug a hung Claude Code chain | [claude-code-subagent-dispatch.md](docs/agents/references/claude-code-subagent-dispatch.md) |
 | Review past discussions | [discussions/](docs/discussions/) |
 | Review error history | [history/error-ledger.md](docs/history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](docs/history/key-learnings.md) |
@@ -363,6 +365,6 @@ Some tracked files are written by build commands, not by hand: persona build out
 
 ---
 
-**Version:** 1.3.0
-**Last Updated:** 2026-10-23
+**Version:** 1.3.1
+**Last Updated:** 2026-10-26
 **Maintained By:** AGENTS.md Curator Agent

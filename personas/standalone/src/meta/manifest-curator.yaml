@@ -5,6 +5,16 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.9.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.8.0 (2026-10-16): Skips its CTX delegation when a caller's plan still has the CTX Architect to come, naming the changed manifest sections in its report instead; a stage the plan marks skipped counts as already decided
   1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat

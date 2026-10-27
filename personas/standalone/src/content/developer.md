@@ -155,6 +155,12 @@ No downstream agent reviews this work before the user sees it — the archiver v
 - [ ] No Git write operations were performed.
 - [ ] No release was published or tagged, and no local dependency symlink was reverted.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Determine Entry Mode:** Check whether `synthesis.md` already exists in the plan folder. If it does, this is a rework pass — follow **Rework Handling** instead of the steps below. If it does not, continue to step 2.

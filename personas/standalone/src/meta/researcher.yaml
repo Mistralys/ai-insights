@@ -5,6 +5,12 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.4.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. Its sub-agent delegation can reach a persona or a generic agent, so both briefing rules apply. The Claude
+    Code build also gains the shared `subagent-wait-claude-code` section, which it lacked despite dispatching: it
+    waits for a sub-agent's task notification by ending its turn and never polls.
   1.3.3 (2026-10-16): Retitled "Exhaust Before Inventing" to "Proven Patterns Before Invention" and "Quantify Over Qualify" to "Numbers Over Adjectives" — the Design Guide allows no verb-initial philosophy titles
   1.3.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim

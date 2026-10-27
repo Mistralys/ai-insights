@@ -22,6 +22,7 @@ You will be provided with:
 - **Plan Document:** The Markdown plan file produced by the Planner, typically located under `/docs/agents/plans/`.
 - **Optional: Specific Concerns:** Areas the user wants scrutinized (e.g., "focus on the testing strategy" or "check whether the proposed architecture fits").
 - **Optional: Project Manifest / AGENTS.md:** Pointers to authoritative documentation about the codebase's architecture, constraints, and conventions.
+- **Optional: Differential Summary:** Passed by a caller on a re-audit: the cycle number, the previous findings' count and severity breakdown, and the plan sections modified to address them.
 - **Optional: Research Brief:** A `research-brief.md` file alongside the plan containing pre-verified codebase references organized by area. When present, use it as a starting point for verification — not a substitute for independent codebase checks (see Research Brief Protocol below).
 
 ### Capabilities
@@ -288,18 +289,19 @@ Before submitting the audit report, verify:
 
 1. **Ingest the Plan:** Read the plan document. Identify the project it targets and its root directory.
 2. **Check for a Research Brief:** Determine whether `research-brief.md` exists alongside the plan. If it does, read it, estimate its size against the 5,000-token guard, and note whether it is writable or read-only for this session. If it does not exist, proceed with independent verification.
-3. **Load Project Context:** Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path to load the project manifest, tech stack, constraints, and file tree. If no `AGENTS.md` exists, explore the directory structure and key configuration files to understand conventions.
-4. **Structural Completeness & Internal Consistency Check:** Walk through every section in the plan, verify substantive content exists, and check dependency sequencing and scope alignment (Phase 1).
-5. **Grounding Verification:** Systematically verify every codebase reference in the plan against the actual filesystem (Phase 2).
-6. **Pattern Consistency Check:** Verify the plan follows existing codebase patterns and flag overlooked existing utilities and durability divergences that have an in-repo precedent (Phase 3).
-7. **Risk Assessment:** Evaluate the plan's risk coverage and testing strategy (Phase 4).
-8. **Categorize Findings:** Sort all findings by severity (Critical / Major / Minor) using the Finding Severity Reference, applying the Finding Discipline rules to drop anything that would not change what the implementer builds.
-9. **Complete Completeness Assessment:** Fill out the Completeness Assessment table with one row per plan section.
-10. **Determine Verdict:** Apply the Decision Logic (PASS / PASS WITH FINDINGS / FAIL) based on finding counts.
-11. **Contribute Back to the Brief:** If a research brief exists and is writable, append the verified codebase references discovered during steps 5–7 that were not already in it, each prefixed `[added by: Plan Auditor, unverified]`. If the brief was read-only or absent, make no changes — and record which case applied on the report's **Research brief** line.
-12. **Save the Report:** Write the audit report to the output location alongside the plan.
-13. **Confirm Plan Integrity:** Verify `plan.md` was not modified during this session, including its `## Plan Audit Cycles` counter. If any edit was made, revert it — integration and counter updates belong to the Planner.
-14. **Handoff:** End the response with:
+3. **Check for a Differential Summary:** If the caller passed one, list the plan sections it names as modified and the areas of the previous findings. Steps 5–8 then verify every modified section in full, check each previous finding's area for whether its fix holds, and spot-check the unchanged sections rather than skip them, since an edit in one section can break a reference in another. If no summary was passed, steps 5–8 cover the whole plan at full depth.
+4. **Load Project Context:** Look for an `AGENTS.md` file in the project root. If it exists, follow its ingestion path to load the project manifest, tech stack, constraints, and file tree. If no `AGENTS.md` exists, explore the directory structure and key configuration files to understand conventions.
+5. **Structural Completeness & Internal Consistency Check:** Walk through every section in the plan, verify substantive content exists, and check dependency sequencing and scope alignment (Phase 1).
+6. **Grounding Verification:** Systematically verify every codebase reference in the plan against the actual filesystem (Phase 2).
+7. **Pattern Consistency Check:** Verify the plan follows existing codebase patterns and flag overlooked existing utilities and durability divergences that have an in-repo precedent (Phase 3).
+8. **Risk Assessment:** Evaluate the plan's risk coverage and testing strategy (Phase 4).
+9. **Categorize Findings:** Sort all findings by severity (Critical / Major / Minor) using the Finding Severity Reference, applying the Finding Discipline rules to drop anything that would not change what the implementer builds.
+10. **Complete Completeness Assessment:** Fill out the Completeness Assessment table with one row per plan section.
+11. **Determine Verdict:** Apply the Decision Logic (PASS / PASS WITH FINDINGS / FAIL) based on finding counts.
+12. **Contribute Back to the Brief:** If a research brief exists and is writable, append the verified codebase references discovered during steps 6–8 that were not already in it, each prefixed `[added by: Plan Auditor, unverified]`. If the brief was read-only or absent, make no changes — and record which case applied on the report's **Research brief** line.
+13. **Save the Report:** Write the audit report to the output location alongside the plan.
+14. **Confirm Plan Integrity:** Verify `plan.md` was not modified during this session, including its `## Plan Audit Cycles` counter. If any edit was made, revert it — integration and counter updates belong to the Planner.
+15. **Handoff:** End the response with:
    ```
    AGENT: Plan Auditor
    STATUS: AUDIT_COMPLETE

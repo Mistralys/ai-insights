@@ -7,6 +7,18 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. The four per-dispatch "built-in persona" notes now point to that section.
+  3.12.0 (2026-10-26): Claude Code dispatches now wait for the sub-agent's task notification by ending the turn,
+    via the new shared `subagent-wait-claude-code` section; every dispatch runs in the background, and the PM
+    was filling the gap with `until` loops on files it expected — once on a `.ledger` folder the ledger never
+    creates, which hung runs for up to 40 hours. Each Claude Code dispatch step now names the task notification
+    as its continuation. Auto-handoff likewise passes only `subagent_type`, `description` and `prompt`, and ends
+    the stage once the launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told
+    to report through a `SendMessage` tool they never had, and `run_in_background: false` is ignored
+    since every dispatch runs in the background
   3.11.2 (2026-10-15): Dependency Sequencer's expected output now includes the renumbered draft
   3.11.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the

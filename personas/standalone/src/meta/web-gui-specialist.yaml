@@ -5,6 +5,16 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.8.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.7.5 (2026-09-29): Added `tool_parity_exceptions: [web]` — VS Code's `browser` and Claude Code's
     `WebFetch`/`WebSearch` are genuinely different capabilities with no shared counterpart, so the
     cross-target parity check now needs an explicit, documented exception rather than treating the

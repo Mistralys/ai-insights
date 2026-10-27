@@ -123,6 +123,12 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 
 ---
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).

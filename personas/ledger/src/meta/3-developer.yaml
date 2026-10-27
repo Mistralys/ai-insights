@@ -5,6 +5,9 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.19.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
+    launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
+    `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
   3.19.0 (2026-10-16): Added the shared wip-changelog-version constraint — changelog entries go into a single
     `**WIP; UNRELEASED**` version based on the last release tag, never a new version per run
   3.18.1 (2026-09-29): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present

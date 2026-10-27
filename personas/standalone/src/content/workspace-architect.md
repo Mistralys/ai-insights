@@ -144,6 +144,12 @@ Temporary file. The Workspace Architect wrote it for one session and deletes it 
 - Where a file whose stage is still to come or skipped needs a change, do not dispatch its owner. Add a line to the Log instead: `- {YOUR_AGENT}: finding for {FILE}: {THE_CHANGE}`.
 - Edit only the Log, and only by adding lines at its end. The Workspace Architect keeps the table.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Stages
 
 | # | File | Owner | Status |

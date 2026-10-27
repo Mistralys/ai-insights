@@ -5,6 +5,18 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.2.0 (2026-10-27): Includes the shared `subagent-briefing` section. The "project path is the whole prompt" rule
+    and the ban on restating ledger content now name the pipeline agents of the dispatch table, which read their task
+    from the ledger. The Ledger Doctor becomes an official sub-agent through a new Repair Dispatch route: the ledger
+    never routes to it, so it runs only on the user's request with no run in flight, its Dispatch Record quotes that
+    request in place of a ledger call, and its prompt names the mode (`Diagnose`, or `Repair` with the diagnosis and
+    the user's confirmation, since the Doctor cannot ask for it as a sub-agent) with the symptom and the evidence,
+    never repair steps. Mission and the quoted-ledger-response principle now admit the user's request as a trace.
+  3.1.0 (2026-10-26): Recast around background-only dispatch: Claude Code ignores `run_in_background: false`, so the
+    "Dispatch in the foreground" constraint and the returned/absent/pending result states described a call that never
+    blocks; the run now ends at the seeded agent's task notification, a hand-back arriving first changes nothing, a
+    repeat notification starts no new run, and the Status Report takes `stopped` or `not launched`. Includes the shared
+    `subagent-wait-claude-code` section (no polling, no named dispatches); the absent-result constraint moved into it
   3.0.1 (2026-09-29): Built for the Claude Code target only — the VS Code and deep-agents builds
     dispatched by Claude Code slugs neither platform matches, and neither deploys this persona;
     the per-target Sub-agent spawning variants collapsed to the Claude Code line
@@ -79,6 +91,7 @@ subagents:
   - 7-release-engineer
   - 8-documentation
   - 9-synthesis
+  - ledger-doctor
 
 audit_guide_version: "3.5"
 audit_date: "2026-09-16"

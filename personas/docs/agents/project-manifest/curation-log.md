@@ -12,6 +12,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-26 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `api-surface.md` → Shared Partials, the `subagent-wait-claude-code.md` row only. Not a full reconcile.
+**Commit:** 231f6ade (working tree held uncommitted changes, this row and the partial it describes included)
+**Changes:** Appended one sentence to the row pointing to the new agent reference `docs/agents/references/claude-code-subagent-dispatch.md` for the observed dispatch and waiting behaviour, its evidence and a hung-chain debugging checklist. The row's rule summary is unchanged. The link is `../../../../docs/...`: the three-level path supplied with the brief resolves inside `personas/`, so the depth was corrected and checked on disk.
+**Notes:** The personas manifest was searched for claims about background dispatch, `run_in_background`, `<task-notification>`, `SendMessage` and polling waits; nothing contradicts the reference. The `background` row of the frontmatter field table describes a Claude Code agent-definition field, not dispatch arguments, and does not conflict. The reverted-decision search, changed-code intersection, generated-artefacts check and adjacent-document check were not run, by the brief's scope. Root `AGENTS.md` is a stage still to come; its finding is in the session plan log.
+
 ### 2026-10-23 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: the consolidation of the generated-artefacts documentation into the hub manifest, and the links this manifest holds to it. Not a full reconcile.

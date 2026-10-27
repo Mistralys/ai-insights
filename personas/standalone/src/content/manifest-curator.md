@@ -332,6 +332,12 @@ Expected output: an updated CTX configuration and regenerated context documents 
 - Mark each fact in the brief with where it came from, and say it is unverified where it was not confirmed this pass. A brief reads as established fact to its recipient, so an assertion carried into one without provenance is acted on rather than checked.
 - Never accept the returned artefacts unreviewed. If they are incomplete or contradict the manifest, report the gap to the user rather than patching the CTX output yourself.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Self-Validation Checklist
 
 Before handing off, verify:

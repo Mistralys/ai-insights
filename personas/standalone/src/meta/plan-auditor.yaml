@@ -5,6 +5,11 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.13.0 (2026-10-27): Accepts an optional differential summary on a re-audit, with its own checkpoint step 3:
+    modified sections are verified in full, each previous finding's area is checked for whether its fix holds, and
+    unchanged sections are spot-checked rather than skipped, since an edit in one section can break a reference in
+    another. The handling previously arrived as an instruction in the Plan Refiner's dispatch prompt. Later steps
+    renumbered.
   1.12.0 (2026-10-01): Baseline oracles check — a before/after diff-oracle AC with no early, dependency-
     free capture step naming its storage location is a Major finding under Feasibility, added after the
     Local dependencies check

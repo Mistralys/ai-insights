@@ -3,7 +3,7 @@
 > **Companion to:** [agents-overview.md](agents-overview.md)
 > **Generated:** 2026-07-31
 
-This document explains how the agentic workflow operates end-to-end: the role of the central ledger as the backbone of all coordination, the two supported execution modes (VS Code Chat and the Orchestrator), and why the workflow is designed the way it is.
+This document explains how the agentic workflow operates end-to-end: the role of the central ledger as the backbone of all coordination, the three supported execution modes (VS Code Chat, Claude Code with the Ledger Claude Coordinator, and the Orchestrator), and why the workflow is designed the way it is.
 
 ---
 
@@ -21,9 +21,9 @@ This document explains how the agentic workflow operates end-to-end: the role of
 - [Pipeline Stages and Rework Routing](#pipeline-stages-and-rework-routing)
 - [Execution Modes](#execution-modes)
   - [VS Code Chat (Semi-Interactive)](#vs-code-chat-semi-interactive)
+  - [Claude Code (Coordinator as Main Agent)](#claude-code-coordinator-as-main-agent)
   - [The Orchestrator (Headless)](#the-orchestrator-headless)
   - [Choosing an Execution Mode](#choosing-an-execution-mode)
-- [Why Claude Code Is Not Used for the Workflow](#why-claude-code-is-not-used-for-the-workflow)
 - [How the Orchestrator Works Internally](#how-the-orchestrator-works-internally)
 - [Knowledge Flow Across Projects](#knowledge-flow-across-projects)
 - [Supporting Infrastructure](#supporting-infrastructure)
@@ -181,25 +181,40 @@ The Documentation stage is terminal — when it completes, the WP is automatical
 
 ## Execution Modes
 
-The same workflow, the same ledger, and the same agent personas run under two different execution models. The choice of model determines how agents are invoked and how much human intervention is required.
+The same workflow, the same ledger, and the same agent personas run under three different execution models. The choice of model determines how agents are invoked and how much human intervention is required.
 
 ### VS Code Chat (Semi-Interactive)
 
 In VS Code Chat mode, the user invokes agents manually in GitHub Copilot Chat by pasting or opening a persona `.agent.md` file. Each stage runs in a new conversation window (or the same window with context switches).
 
-The **Ledger Claude Coordinator** is a meta-agent that automates this within VS Code Chat. Once invoked, it:
+Each agent ends its stage with the handoff the ledger computes (see [The Agent Handoff Protocol](#the-agent-handoff-protocol)), which names the next agent to run; no agent decides the routing on its own. For automated progression inside an agent session, see [Claude Code (Coordinator as Main Agent)](#claude-code-coordinator-as-main-agent) — the Ledger Claude Coordinator is built for the Claude Code target only.
 
-1. Calls `ledger_detect_project` to find the active project
-2. Calls `ledger_get_handoff_status` to determine the next agent
-3. Dispatches that agent via the `runSubagent` tool (VS Code's agent spawning mechanism)
-4. After the sub-agent completes, reads the ledger again to determine the next step
-5. Repeats until the project is COMPLETE
+### Claude Code (Coordinator as Main Agent)
 
-**Interactive mode** (default): The Coordinator reports the current project state and asks for confirmation before dispatching each agent. Good for first-time use or when human review between stages is desired.
+Claude Code runs the ledger workflow through the **Ledger Claude Coordinator** persona, on one condition: the coordinator must be the session's main agent. Start the session with:
 
-**Autonomous mode**: Agents are dispatched continuously without per-stage confirmation. The Coordinator still pauses on errors, rework-limit hits, and repeated failures.
+```bash
+claude --agent ledger-claude-coordinator
+```
 
-The key constraint in VS Code Chat mode is that the Coordinator reads ledger handoffs to determine routing. It does not make routing decisions on its own.
+and give it the path to a finished plan document. The persona source is `personas/ledger-support/src/content/ledger-claude-coordinator.md`; the build writes it to `personas/ledger-support/claude-code/ledger-claude-coordinator.md`, and `node scripts/sync-personas.js` deploys it to `~/.claude/agents/`.
+
+**Why the launch condition exists.** A plain `claude` session that delegates to the coordinator or to the ledger agents leaves routing to the default Claude Code agent. That agent does not follow ledger routing reliably: it can skip stages, ignore handoffs, or decide on its own that a step is unnecessary, without surfacing any of this as an error. With the coordinator as main agent, the session's top level is a persona whose only job is to follow the ledger, and every dispatch it makes traces back to a ledger response it quotes in the transcript.
+
+**How a run proceeds.** The coordinator does not drive the pipeline stage by stage. The ledger agents hand off to each other through the `auto_handoff` the ledger returns, so each one dispatches its own successor. The coordinator:
+
+1. Asks the ledger who runs now and seeds the chain with that agent
+2. Waits for the seeded agent's task notification, which arrives once every agent in the chain below it has stopped
+3. Reads `ledger_get_project_status` to see how far the chain got — the nested handoffs are visible only in the ledger
+4. Asks the ledger again and reseeds where it points, until the project is COMPLETE
+
+Chains usually stop short of COMPLETE on a depth limit — Claude Code's limit on sub-agent nesting, or the ledger's own auto-handoff depth ceiling — so several restarts per project are the normal shape of a run, not a failure. How Claude Code runs a dispatched sub-agent in the background and signals its end is documented in [Claude Code — Sub-Agent Dispatch and Waiting](../agents/references/claude-code-subagent-dispatch.md).
+
+**Interactive mode** (default): The coordinator reports after every run and waits for confirmation before restarting a stalled chain.
+
+**Autonomous mode** (ask it to "run automatically" or similar): Stalled chains are restarted without confirmation. The coordinator still stops on a sub-agent error, a rework limit, a WAIT state, or stagnation.
+
+The coordinator has read-only ledger access and does no work itself: routing comes from the ledger, and all changes come from the agents it seeds.
 
 ### The Orchestrator (Headless)
 
@@ -243,26 +258,12 @@ The Orchestrator uses the same MCP server (`central_pm`) and the same ledger as 
 | Mode | When to use |
 |------|-------------|
 | **VS Code Chat (manual)** | Fine-grained control — iterate on the plan with the Planner, review QA before the Reviewer runs, or inspect intermediate results at any stage |
-| **VS Code Chat (Coordinator)** | Automated pipeline within the IDE — convenient when already in VS Code and wanting autonomous progression with occasional checkpoints |
+| **Claude Code (Coordinator)** | Automated pipeline in an agent session, with a checkpoint after every run in interactive mode. Requires the `claude --agent ledger-claude-coordinator` launch — a plain `claude` session does not follow ledger routing reliably. |
 | **Orchestrator** | Unattended runs, background processing, or when the full pipeline should run without IDE involvement. Preferred for long-running projects. |
 
-Both modes produce the same ledger output and the same project artifacts. The choice is purely about how agents are invoked.
+All modes produce the same ledger output and the same project artifacts. The choice is purely about how agents are invoked.
 
----
-
-## Why Claude Code Is Not Used for the Workflow
-
-Claude Code is **not a supported execution environment** for the ledger workflow. It is explicitly excluded for a reliability reason: Claude Code does not reliably follow ledger handoffs.
-
-The workflow depends on agents following the ledger's routing decisions exactly — reading `ledger_get_handoff_status` at the end of each turn and dispatching the agent the ledger specifies. Claude Code will sometimes ignore these handoffs, decide on its own that a step is unnecessary, skip stages, or otherwise deviate from the ledger's routing without surfacing this as an error.
-
-This is not a flaw that can be worked around with better instructions — it is a fundamental behavioral characteristic of how Claude Code handles agentic workflows. Because the ledger's routing authority is non-negotiable for the workflow to be correct, Claude Code is inadequate as a coordinator.
-
-The two supported execution environments are:
-- **GitHub Copilot Chat in VS Code** — via the Ledger Claude Coordinator or manual stage-by-stage invocation
-- **The Python Orchestrator** — via `./menu.sh orchestrator`
-
-Persona files are available for both environments (`personas/ledger/vs-code/` and `personas/ledger/deep-agents/`). Claude Code persona outputs are also generated (`personas/ledger/claude-code/`) for completeness, but they are not actively used for the ledger pipeline and should not be relied upon — Claude Code's routing behavior makes it unsuitable as a ledger coordinator.
+Ledger persona files are generated for each environment: `personas/ledger/vs-code/` for VS Code Chat, `personas/ledger/claude-code/` for Claude Code (the agents the coordinator seeds), and `personas/ledger/deep-agents/`.
 
 ---
 
@@ -390,7 +391,7 @@ Several support personas manage the workflow infrastructure rather than contribu
 | **Ledger Synthesis Maintainer** | Archives a completed standalone plan folder into the ledger, and refreshes the ledger record of any completed project whose synthesis.md was edited |
 | **Ledger Orchestrator Runner** | Pre-flight checks, launch, and monitoring for Orchestrator runs |
 | **Ledger Orchestrator Archaeologist** | Post-run analysis of Orchestrator logs for issues and performance anomalies |
-| **Ledger Claude Coordinator** | Automates the VS Code Chat pipeline — dispatches agents in order based on ledger state |
+| **Ledger Claude Coordinator** | Runs the pipeline in Claude Code as the session's main agent — seeds and restarts the self-advancing agent chain where the ledger points |
 
 These personas are invoked as sub-agents by the main pipeline personas (PM, Synthesis) or by the user directly when workflow management is needed.
 

@@ -114,3 +114,13 @@
 - When designing MCP tools, it's best to build them around use-cases, and avoid mapping around APIs (see Gmail vs JIRA MCP).
 - Introducing the concept of "AX": Agent Experience. Supporting documentation destined to improve the agent's experience in working on projects.
 - AX-Adjacent: Give agents the possibility to report difficulties, friction and things that could be improved beyond what the synthesis captures. A form of agent feedback on their experience.
+
+### October 2026
+
+- Long-term architecture and code maintenance require specialized personas and recurring tasks.
+- Use questionaires with concrete usage scenarios to verify plans.
+- Confirmed: Plan reviews have proven to be critical. No plan or document is ever error-free on the first throw.
+- Confirmed: The time invested into GUI usage scenarios is worth it, especially in the long term.
+- Confirmed: User-vetted testing scenarios are also worth it, but need careful balancing to focus on the essentials.
+- Confirmed: Project vision and ledger knowledge insights have proven to be worth gold.
+- Confirmed: AX feedback is definitely useful to spot issues that are otherwise invisible.

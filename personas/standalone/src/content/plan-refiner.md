@@ -162,7 +162,7 @@ Repeat until PASS or ceiling reached:
 
 #### Incremental Re-Audit (Cycles 2+)
 
-For audit cycles 2 and beyond, include a differential summary in the Auditor dispatch prompt: the number and severity breakdown of previous findings, which plan sections were modified to address them, and an instruction to prioritize changed areas while still spot-checking unchanged sections. This helps the Auditor focus verification effort without restricting its scope.
+For audit cycles 2 and beyond, include a differential summary in the Auditor dispatch prompt: the cycle number, the number and severity breakdown of previous findings, and which plan sections were modified to address them. The summary carries facts only. How to weight verification between changed and unchanged sections is the Auditor's call.
 
 ### Phase 5: Post-Convergence Usage Scenario Check
 
@@ -244,6 +244,12 @@ Before handing off, verify:
 - [ ] All Critical and Major findings from the final audit are either resolved or explicitly reported as unresolved (ceiling-reached case only).
 - [ ] Review artifacts exist alongside the plan: `audit.md` always; `design-review.md` when the design review was performed; `scenario-coverage.md` when the scenario check ran.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 1. **Receive Plan:** Confirm the plan document path. If not provided, check for an open Markdown file and confirm with the user. Determine max audit cycles (default: 3), confirming a user-supplied value falls within 1–10 — clamp and report when it does not. Determine the Design Review mode (`auto` | `skip` | `force`).
 
@@ -275,7 +281,7 @@ Before handing off, verify:
 
 7. **Audit Loop:** Execute Phase 4 of the Refinement Cycle (see Operational Protocol above). Repeat until PASS, ceiling reached, or divergence detected. After reading each `audit.md`, compare its Major/Critical count against the previous cycle's count before deciding whether to continue — a higher count exits the loop as DIVERGING.
 
-   For **audit cycles 2+**, include a differential summary in the dispatch: cycle number, previous finding count and severity breakdown, which plan sections were modified, and an instruction to prioritize changed areas while spot-checking unchanged sections.
+   For **audit cycles 2+**, include a differential summary in the dispatch: cycle number, previous finding count and severity breakdown, and which plan sections were modified. The summary carries facts, not instructions (see Briefing a Sub-Agent).
 
 {{#if target_vscode}}
    Invoke `runSubagent` with `agentName`: `"{{agent_plan_auditor}}"`, `description`: `"Audit plan for defects"`, `prompt`: plan path, research brief path (if it exists), and differential summary (cycles 2+).

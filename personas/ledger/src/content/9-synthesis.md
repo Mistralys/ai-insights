@@ -79,6 +79,12 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
 ---
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
@@ -114,8 +120,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
    (= `plan_path` from pre-flight).
 {{/if}}
 
-   > **Important:** The sub-agent has its own built-in persona, so does not
-   > need any instructions. The data is sufficient.
+   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
 
    Expected output: An extraction report summarizing insights committed to the
    knowledge base. Review it before proceeding to Step 9.
