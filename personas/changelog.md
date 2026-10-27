@@ -16,22 +16,18 @@ summaries and applies requested synthesis edits.
 - Planning: Baseline-capture guidance now runs through the whole planning chain.
 - Ledger: Project Manager, Bootstrapper and Dependency Sequencer keep WP numbering in step.
 - Developer: Never publishes or tags; Release Engineer prepares releases without running them.
-- Standalone: Plan Auditor flags release steps and person-gated steps as Critical.
 - Ledger, Standalone: Changelog writers collect changes in one WIP version based on the last tag.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
-- Standalone: Manifest Curator documents generated files in a new `generated-artefacts.md`.
-- Standalone: AGENTS.md Curator, CTX Architect, Workspace Architect route to that document.
+- Standalone: Manifest Curator documents generated files; other curators and Git Committer use it.
 - Standalone: Workspace Architect gained Amend mode, a plan file, return passes, artefact handling.
 - Standalone: Documentation curators leave work to a caller's plan and may still call specialists.
 - Standalone: WHATSNEW Curator writes self-contained items and completes existing versions.
-- Standalone: Git Committer classes feature-branch generated files via `generated-artefacts.md`.
 - Ledger, Standalone: Documentation personas check docblocks against README prose.
 - Deep Agents: Sub-agent dispatches pass the task in the correct field.
 - Build: Wrong-name sub-agent dispatches and tool-grant mismatches now fail the build.
 - Standalone, Build: Verb-initial philosophy titles are flagged without exception; four renamed.
 - Build: Every check runs on each build; template comments are inert; personas can limit targets.
-- Docs: Persona Design Guide v3.6 documents sub-agent dispatch arguments per platform.
-- Docs: Design Guide v3.7–3.8 adds Nested Delegation: a plan, not a ban, where calls can meet.
+- Docs: Design Guide v3.6–3.8 covers sub-agent dispatch arguments and Nested Delegation.
 - Shared: Added an outcome-summary crafting guide covering both suites.
 
 ## v3.37.0 - Self-Advancing Chains and Unattended Runs
