@@ -115,6 +115,11 @@
 - Introducing the concept of "AX": Agent Experience. Supporting documentation destined to improve the agent's experience in working on projects.
 - AX-Adjacent: Give agents the possibility to report difficulties, friction and things that could be improved beyond what the synthesis captures. A form of agent feedback on their experience.
 
+### September 2026 
+
+- Claude Code's default system prompt overrides persona prompts with its detailed and strict prompts.
+- Use the `--agent` switch to start sessions with a specific agent persona.
+
 ### October 2026
 
 - Long-term architecture and code maintenance require specialized personas and recurring tasks.
