@@ -7,7 +7,7 @@ Run the Changelog Curator in **Archive** mode on the changelog(s) named in the r
 
 ## Archive Location
 
-Archives live in a central folder, one sub-folder per changelog (see *Archive Locations* in AGENTS.md → Changelog Convention):
+Archives live in a central folder, one sub-folder per changelog (see *Archive Locations* in `docs/agents/project-manifest/constraints.md`):
 
 | Changelog | Archive folder | Footer link base |
 |---|---|---|

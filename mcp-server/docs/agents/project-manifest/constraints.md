@@ -548,7 +548,7 @@ npm run sync-version
 
 **File locking:** Uses `proper-lockfile` (cross-platform npm package). Do not replace with a platform-specific alternative.
 
-**Rationale:** The workspace-wide cross-platform policy (see root `AGENTS.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
+**Rationale:** The workspace-wide cross-platform policy (see the hub manifest's `docs/agents/project-manifest/constraints.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
 
 ---
 

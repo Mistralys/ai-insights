@@ -26,7 +26,11 @@ Documents that belong to the workspace hub itself, beside this index.
 |----------|---------|
 | [cross-system-dependencies.md](cross-system-dependencies.md) | Synchronisation points between sub-projects, root scripts and shared files, plus the validation commands that check them |
 | [root-tooling.md](root-tooling.md) | Root-level scripts, shared libraries and shared configuration (`scripts/`, `shared/`, `context.yaml`) |
+| [development-commands.md](development-commands.md) | Install, build, test, single-test, lint, typecheck and run commands for each part of the workspace, the toolchain versions, and the checks to run for each kind of change |
+| [live-workspace.md](live-workspace.md) | What the running Ledger MCP server reads and which changes can break it or the workflow that depends on it |
+| [plan-folders.md](plan-folders.md) | Layout of `docs/agents/plans/` and `implementation-history/`: which files a plan folder holds, who writes each and how the folder is archived |
 | [generated-artefacts.md](generated-artefacts.md) | Tracked and ignored generated files across the repository, what writes each, and when a modified copy can be discarded |
+| [constraints.md](constraints.md) | Workspace-wide binding rules: a digest of the critical rules (each linking to its owning document), git operations, the live workspace, the Cross-Platform Policy and the Changelog Convention (file locations, rules, archive locations, workflow). Module rules stay in each module's `constraints*.md` |
 | [curation-log.md](curation-log.md) | Standing decisions about how this hub manifest is arranged, plus the dated trail of curation passes |
 
 ---
@@ -136,6 +140,14 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Understand the whole workspace | [README.md](../../../README.md) |
 | Look up a cross-system sync point | [Cross-System Dependencies](cross-system-dependencies.md) |
 | Find a root-level script | [Root-Level Tooling](root-tooling.md) |
+| Find the install, build, test, lint or run command for a part | [Development Commands](development-commands.md#commands-by-part) |
+| Find which checks a kind of change needs | [Verification by Change Type](development-commands.md#verification-by-change-type) |
+| Check what a change can break in the running MCP server | [Live Workspace](live-workspace.md) |
+| Find what a plan folder holds | [Plan Folders](plan-folders.md#files-in-a-plan-folder) |
+| Skim the highest-impact workspace rules | [Critical Rules](constraints.md#critical-rules) |
+| Check who may commit or write to git | [Git Operations](constraints.md#git-operations) |
+| Check platform-support rules before touching OS-specific code | [Cross-Platform Policy](constraints.md#cross-platform-policy) |
+| Edit, release or archive a changelog | [Changelog Convention](constraints.md#changelog-convention) |
 | Understand how agents should operate | [AGENTS.md](../../../AGENTS.md) |
 | Look up an MCP tool signature | [MCP server api-surface.md](../../../mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [Personas api-surface.md](../../../personas/docs/agents/project-manifest/api-surface.md) |
