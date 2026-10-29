@@ -34,7 +34,7 @@ You will be provided with:
 
 ## Outputs
 
-A structured audit report containing:
+A structured audit containing:
 
 - Executive summary with verdict (PASS / PASS WITH FINDINGS / FAIL)
 - Categorized findings with severity levels
@@ -43,7 +43,9 @@ A structured audit report containing:
 
 ### Output Location
 
-Save the audit report alongside the plan it audits. If the plan is at `/docs/agents/plans/{DATE}-{NAME}/plan.md`, save the audit as `/docs/agents/plans/{DATE}-{NAME}/audit.md`.
+Save the audit alongside the plan it audits. If the plan is at `/docs/agents/plans/{DATE}-{NAME}/plan.md`, save the audit as `/docs/agents/plans/{DATE}-{NAME}/audit.md`.
+
+`audit.md` is an input file for the next step, not a report. The Planner reads it to integrate the findings, and the Plan Refiner reads the verdict from it. Neither of them sees this session's reply.
 
 ## Scope Boundaries
 
@@ -299,7 +301,7 @@ Before submitting the audit report, verify:
 10. **Complete Completeness Assessment:** Fill out the Completeness Assessment table with one row per plan section.
 11. **Determine Verdict:** Apply the Decision Logic (PASS / PASS WITH FINDINGS / FAIL) based on finding counts.
 12. **Contribute Back to the Brief:** If a research brief exists and is writable, append the verified codebase references discovered during steps 6–8 that were not already in it, each prefixed `[added by: Plan Auditor, unverified]`. If the brief was read-only or absent, make no changes — and record which case applied on the report's **Research brief** line.
-13. **Save the Report:** Write the audit report to the output location alongside the plan.
+13. **Write the Planner's Input:** Write `audit.md` to the output location alongside the plan.
 14. **Confirm Plan Integrity:** Verify `plan.md` was not modified during this session, including its `## Plan Audit Cycles` counter. If any edit was made, revert it — integration and counter updates belong to the Planner.
 15. **Handoff:** End the response with:
    ```

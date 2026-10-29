@@ -5,6 +5,11 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.2.3 (2026-10-28): The Output Location now describes `scenario-coverage.md` as an input file and names the
+    calling agent and the Planner as its readers. Claude Code tells every sub-agent to write no report or findings
+    files and to return findings as a reply, but exempts files written as input to another tool; a Plan Auditor
+    dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`. The Verify output
+    list and workflow step 6 no longer call it a report.
   1.2.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep or Glob; Task omitted, since this persona

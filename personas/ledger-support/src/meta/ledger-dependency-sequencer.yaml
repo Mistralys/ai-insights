@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.1 (2026-10-28): The Output Location now describes `dependency-analysis.md` as an input file and names the
+    Pipeline Configurator and the Ledger Bootstrapper as its readers. Claude Code tells every sub-agent to write no
+    report or findings files and to return findings as a reply, but exempts files written as input to another tool; a
+    Plan Auditor dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.5.0 (2026-10-15): New Step 7 renumbers `work-packages-draft.md` by phase whenever a WP depends on a
     higher-numbered one, translating every reference from one complete old → new mapping, and records the
     mapping in a new Renumbering section; the ledger assigns IDs in registration order and copies

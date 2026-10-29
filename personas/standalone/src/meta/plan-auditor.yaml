@@ -5,6 +5,11 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.13.1 (2026-10-28): The Output Location now describes `audit.md` as an input file and names the Planner and the
+    Plan Refiner as its readers. Claude Code tells every sub-agent to write no report or findings files and to return
+    findings as a reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan
+    Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`. Workflow step 13 is renamed Write the
+    Planner's Input.
   1.13.0 (2026-10-27): Accepts an optional differential summary on a re-audit, with its own checkpoint step 3:
     modified sections are verified in full, each previous finding's area is checked for whether its fix holds, and
     unchanged sections are spot-checked rather than skipped, since an edit in one section can break a reference in

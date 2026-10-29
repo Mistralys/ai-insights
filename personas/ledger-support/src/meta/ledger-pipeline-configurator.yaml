@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.4.1 (2026-10-28): The Output Location now describes `pipeline-configuration.md` as an input file and names the
+    Project Manager and the Ledger Bootstrapper as its readers. Claude Code tells every sub-agent to write no report
+    or findings files and to return findings as a reply, but exempts files written as input to another tool; a Plan
+    Auditor dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.4.0 (2026-10-08): Added a Baseline-Capture Chain — a WP whose deliverable is an early diff-oracle
     snapshot always gets ["implementation", "qa"], never verification-only, cross-referenced from the
     verification-only chain's state-changing-operations pre-requisite as an exception

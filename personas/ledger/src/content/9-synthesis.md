@@ -64,7 +64,7 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
 ## Output Format
 
-1. **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) covering the sections below. Write each one as a `###` heading with the exact wording given, so every project's synthesis carries the same sections:
+1. **Synthesis Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) covering the sections below. The file is an input, not a report: `ledger_complete_synthesis` archives it from disk, and the Knowledge Archiver reads it from there. Write each section as a `###` heading with the exact wording given, so every project's synthesis carries the same sections:
     * **Outcome Summary:** What was built. This is the document's own copy of the summary you pass to `ledger_complete_synthesis` below.
     * **Metrics:** Tests passed, coverage, clean code scores.
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.

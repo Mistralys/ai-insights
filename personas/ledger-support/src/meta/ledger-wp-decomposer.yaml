@@ -8,6 +8,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.10.1 (2026-10-28): The Output Location now describes `work-packages-draft.md` as an input file and names the
+    four later planning steps that read it. Claude Code tells every sub-agent to write no report or findings files and
+    to return findings as a reply, but exempts files written as input to another tool; a Plan Auditor dispatched by
+    the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.10.0 (2026-10-08): No WP outruns its own baseline — a new constraint keeps a before/after diff
     oracle's early capture step as its own WP, named in the Notes of every WP that mutates the files the
     snapshot covers, so the Dependency Sequencer orders the capture first

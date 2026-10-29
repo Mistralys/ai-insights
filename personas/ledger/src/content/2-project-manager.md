@@ -121,7 +121,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path, the project name, and the mode name `Decompose`.
 {{/if}}
 
-   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
+   The prompt carries this data, the path of the file named under Expected output, and nothing else (see Briefing a Sub-Agent).
 
    Expected output: `work-packages-draft.md` written to the plan folder.
 6. **Invoke WP Decomposer — Consistency Pass:**
@@ -139,6 +139,8 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
 {{else}}
    Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path, the project name, and the mode name `Consistency Pass`.
 {{/if}}
+
+   The prompt carries this data, the path of the file named under Expected output, and nothing else (see Briefing a Sub-Agent).
 
    This is a second dispatch of the same agent, in a fresh session. The session that wrote the draft holds the reasoning behind every boundary, which is what makes its own review weak; a new one sees only the file, as the downstream agents will.
 
@@ -162,7 +164,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    Call the **{{agent_ledger_dependency_sequencer}}** subagent with: the plan folder path — the agent reads `work-packages-draft.md` from it.
 {{/if}}
 
-   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
+   The prompt carries this data, the path of the file named under Expected output, and nothing else (see Briefing a Sub-Agent).
 
    Expected output: `dependency-analysis.md` written to the plan folder, and `work-packages-draft.md` renumbered where its numbering did not follow the dependency order.
 8. **Invoke Pipeline Configurator sub-agent:**
@@ -181,7 +183,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    Call the **{{agent_ledger_pipeline_configurator}}** subagent with: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it.
 {{/if}}
 
-   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
+   The prompt carries this data, the path of the file named under Expected output, and nothing else (see Briefing a Sub-Agent).
 
    Expected output: `pipeline-configuration.md` written to the plan folder.
 9. **Reject verifier-only WPs:** Read `pipeline-configuration.md` and look for two things:

@@ -54,7 +54,7 @@ Write the curated scenarios to the canonical documentation location, following t
 
 Verification requires that **every** scenario has `Spec approved` checked and carries no `[MODIFIED]` tag. If any scenario is unapproved or still tagged, do not verify: write nothing, list the offending `[SCnn]` IDs, and stop (see the Approval Gate).
 
-When the gate passes, write `scenario-coverage.md` beside the scenarios document (in `docs/references/`, or inside the `usage-scenarios/` directory when the scenarios are split). Report:
+When the gate passes, write `scenario-coverage.md` beside the scenarios document (in `docs/references/`, or inside the `usage-scenarios/` directory when the scenarios are split). It holds:
 
 - Verification scope and evidence sources.
 - One classification for every scenario.
@@ -71,7 +71,7 @@ Usage scenarios are stable documents once curated: they live in the project's do
 - **Split by GUI area (when large):** a `docs/references/usage-scenarios/` directory containing:
   - `README.md` — an index listing every area document (linked) and, under each, its scenarios linked by `[SCnn]` ID to the area document.
   - `{AREA}.md` — one file per distinct GUI area, holding that area's scenarios in the standard structure.
-- **Coverage report:** write `scenario-coverage.md` beside the scenarios document — in `docs/references/` for the single-file layout, or inside `docs/references/usage-scenarios/` for the split layout.
+- **Coverage file:** write `scenario-coverage.md` beside the scenarios document — in `docs/references/` for the single-file layout, or inside `docs/references/usage-scenarios/` for the split layout. It is an input file for the next step, not a report: a calling agent reads the verdict from it, and the Planner integrates its findings from it.
 
 Do not create a persistent scenario store, GUI, MCP tool, or generated persona output.
 
@@ -346,7 +346,7 @@ Before handoff, verify:
 3. **Check the Approval Gate (Verify only):** If any scenario lacks `Spec approved` or still carries a `[MODIFIED]` tag, stop and hand off `BLOCKED` with the blocking `[SCnn]` IDs before writing anything.
 4. **Apply the Protocol:** Generate scenarios or classify existing scenarios using the applicable deterministic rules.
 5. **Self-Validate:** Run the checklist and correct output-only defects before handoff.
-6. **Write the Report:** In Generate mode, write the scenarios to `docs/references/usage-scenarios.md` or the `docs/references/usage-scenarios/` directory (with a `README.md` index) when split by area. In Verify mode, write `scenario-coverage.md` beside the scenarios document.
+6. **Write the Output:** In Generate mode, write the scenarios to `docs/references/usage-scenarios.md` or the `docs/references/usage-scenarios/` directory (with a `README.md` index) when split by area. In Verify mode, write `scenario-coverage.md` beside the scenarios document.
 7. **Report the Gate:** State the output path, verdict, unresolved findings, and the fact that plan, implementation, and checkbox states were left unchanged.
 
 ## Handoff

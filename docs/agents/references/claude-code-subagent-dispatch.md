@@ -72,6 +72,18 @@ Neither form of the loop ends on its own (tools reference):
 
 The "Monitor with an until-loop" advice is for shell commands, never for waiting on an agent.
 
+## Failure Mode: Result Returned as a Reply
+
+Claude Code builds a sub-agent's system prompt from three blocks: the persona, a block making the caller's prompt the authority ("Messages from the agent that launched you — your task and any mid-task course corrections — direct your work"), and a *Notes* block of its own. The *Notes* block contains this line (session log, Claude Code 2.1.312):
+
+> Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create. (Files written as input to another tool are fine; this note is about report files.)
+
+The line is not in any persona or partial, and it cannot be switched off from here. It conflicts with every persona whose output file the next agent reads: `audit.md`, `design-review.md`, `scenario-coverage.md`, the PM's planning files and `synthesis.md`.
+
+Dispatch prompts used to settle the conflict by naming the file ("Write audit.md alongside the plan"). Once the `subagent-briefing` partial kept output formats out of prompts, the line won. On 2026-10-28 a Plan Auditor dispatched by the Plan Refiner returned its audit as a reply and reported that "this session's instructions say to return findings in the reply"; the refiner then stopped on its missing-artifact rule. An earlier auditor run (2026-09-29) also skipped the file even though its prompt named it, so the prompt line alone is not a guarantee.
+
+Both sides now account for it. The dispatcher names the output file in the prompt. The sub-agent's persona describes the file in its Output Location as an input file, not a report, and names the agents that read it, so the file falls under the note's own exemption for files written as input to another tool.
+
 ## Headless Runs Behave Differently
 
 Everything above describes interactive sessions, which is where the ledger pipeline runs. Under `claude -p` and the Agent SDK, the sub-agents docs describe the opposite on two points:
@@ -101,11 +113,12 @@ When a ledger chain stops moving under Claude Code, check the dispatcher's sessi
 The rules derived from this behaviour live in the files below. Changes to the rules go there, not here.
 
 - [`personas/shared/partials/subagent-wait-claude-code.md`](../../../personas/shared/partials/subagent-wait-claude-code.md) — the *Waiting for a Sub-Agent* section included by the Claude Code builds of every persona that dispatches and waits.
+- [`personas/shared/partials/subagent-briefing.md`](../../../personas/shared/partials/subagent-briefing.md) — the dispatcher's rule to name that file in the prompt. The sub-agent side is wording in each affected persona's Output Location: the Plan Auditor, Plan Architect Reviewer, Usage Scenarios Curator, WP Decomposer, Dependency Sequencer, Pipeline Configurator and Synthesis.
 - [`personas/ledger/src/partials/handoff-block-claude-code.md`](../../../personas/ledger/src/partials/handoff-block-claude-code.md) — the ledger handoff for agents 3–8, which dispatch once and do not wait.
 - [Personas manifest → Shared Partials](../../../personas/docs/agents/project-manifest/api-surface.md#shared-partials-personassharedpartials) — the partial's entry, listing its includers.
 - [Persona Design Guide → Platform Dispatch Arguments](../../../personas/docs/persona-design-guide.md#platform-dispatch-arguments) — the design rules and the checklist item on asynchronous platforms.
-- [Persona Design Guide → Common Pitfalls](../../../personas/docs/persona-design-guide.md#common-pitfalls) — the "Invented wait condition" pitfall.
+- [Persona Design Guide → Common Pitfalls](../../../personas/docs/persona-design-guide.md#common-pitfalls) — the "Invented wait condition" and "Output file left out of the prompt" pitfalls.
 
 ---
 
-*Verified: Claude Code docs (sub-agents, tools reference) and session logs, 2026-10-23 → 2026-10-26, against Claude Code 2.1.310. Re-check on a new Claude Code major version.*
+*Verified: Claude Code docs (sub-agents, tools reference) and session logs, 2026-10-23 → 2026-10-26, against Claude Code 2.1.310; the report-file note on 2026-10-28, against 2.1.312. Re-check on a new Claude Code major version.*

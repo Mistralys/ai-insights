@@ -5,6 +5,10 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.2.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   3.2.0 (2026-10-27): Includes the shared `subagent-briefing` section. The "project path is the whole prompt" rule
     and the ban on restating ledger content now name the pipeline agents of the dispatch table, which read their task
     from the ledger. The Ledger Doctor becomes an official sub-agent through a new Repair Dispatch route: the ledger

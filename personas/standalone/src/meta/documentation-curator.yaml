@@ -5,6 +5,10 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.7.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.7.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
