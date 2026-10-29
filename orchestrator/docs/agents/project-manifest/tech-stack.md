@@ -9,7 +9,7 @@
 | Component | Version | Notes |
 |-----------|---------|-------|
 | **Language** | Python 3.11+ | CPython runtime |
-| **Package Manager** | pip (setuptools) | Extras: `dev`, `anthropic` |
+| **Package Manager** | pip (setuptools) | Extras: `anthropic`, `google`, `dev` |
 | **Test Framework** | pytest + pytest-asyncio | Async-aware; `live` mark for API-key tests |
 | **Linter** | ruff | Line-length 100, target Python 3.11 |
 
@@ -21,6 +21,35 @@
 
 | Package | Version | Purpose |
 |---------|---------|---------|
+| `langgraph` | `>=1.1,<2.0` | StateGraph-based workflow with deterministic routing |
+| `langgraph-checkpoint-sqlite` | *(unpinned)* | SQLite-backed run resume via `--resume` |
+| `aiosqlite` | `>=0.19.0` | Async SQLite driver used by the checkpointer |
+| `deepagents` | `>=0.6,<1` | Deep Agents runtime (`create_deep_agent()`) for agent nodes |
+| `langchain-mcp-adapters` | `>=0.2` | Wraps MCP tools for LangChain tool interface |
+| `langchain-core` | `>=1.2.22` | LangChain core abstractions shared by the graph and agent nodes |
+| `python-dotenv` | `>=1.0` | `.env`-based config with auto-detected LLM provider |
+
+### Optional Provider Extras
+
+An LLM provider package is installed through an extra; neither is a core dependency.
+
+| Extra | Package | Version | Purpose |
+|-------|---------|---------|---------|
+| `anthropic` | `langchain-anthropic` | `>=0.3.10` | Claude (Anthropic) LLM provider |
+| `google` | `langchain-google-genai` | `>=2.0` | Gemini (Google) LLM provider |
+
+### Development
+
+Installed through the `dev` extra.
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `pytest` | `>=8.0` | Test runner |
+| `pytest-asyncio` | `>=0.24` | Async test support |
+| `ruff` | `>=0.8` | Linting and formatting |
+| `pip-audit` | `>=2.7` | Dependency vulnerability audit |
+
+---------|---------|---------|
 | `langgraph` | `>=1.1,<2.0` | StateGraph-based workflow with deterministic routing |
 | `langgraph-checkpoint-sqlite` | *(unpinned)* | SQLite-backed run resume via `--resume` |
 | `langchain-mcp-adapters` | `>=0.2` | Wraps MCP tools for LangChain tool interface |

@@ -51,12 +51,15 @@
 ## Persona Content Philosophy
 
 <a name="c4"></a>
+<a name="c5"></a>
 5. **Persona content must add value the self-documenting tools cannot provide.** The ledger's `next_steps` arrays, `--- NEXT STEP ---` guidance blocks, and Zod parameter descriptions are the runtime source of truth. A persona's job is to provide **identity, methodology, and decision-making framework** — not to duplicate tool documentation. When tool self-documentation already covers a behavior (e.g., wait-action reasons, required parameters), do not restate it in persona content. When persona content enumerates tool parameters or action names, it must match the implementation exactly or defer to the tool descriptions entirely.
 
 <a name="c4a"></a>
+<a name="c5a"></a>
 5a. **Numbered workflow steps in persona content templates are immutable structural contracts.** When a new phase partial is added to a persona's content template, a corresponding numbered-step entry must be added in the same implementation change — never deferred to a follow-up. An agent following only the numbered steps will silently skip any phase that exists as a partial but has no matching step entry. Before closing a persona-modification PR, cross-check the count of numbered workflow steps against the count of phase partials included in that template to confirm parity. The Documentation pipeline is responsible for catching step/partial count mismatches during its review pass.
 
 <a name="c4b"></a>
+<a name="c5b"></a>
 5b. **Reference documents stay separate from persona content — never embed.** When a persona always loads an external reference document (e.g., the Persona Curator loads `personas/docs/persona-design-guide.md`), keep the document as a separate file read via tool call at session start. Do not embed reference material into the persona content, even though the effective per-session token cost is the same. Rationale:
 
    - **Single source of truth.** Reference documents evolve independently. Embedding creates a second copy that can drift from the canonical file without automated detection.
@@ -65,6 +68,7 @@
    - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
 
 <a name="c4c"></a>
+<a name="c5c"></a>
 5c. **Recurring Operating Philosophy principles use their canonical name from the registry below.** The [Persona Design Guide](../../persona-design-guide.md) § "Recurring Principles Across a Persona Suite" defines the naming rules; this registry is the project-local vocabulary those rules operate on. The guide is a distributed document used to curate persona suites in unrelated projects and domains, so the inventory of *this* project's principles belongs here rather than in the guide.
 
    **Canonical names:**
@@ -101,6 +105,7 @@
    A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
 
 <a name="c4d"></a>
+<a name="c5d"></a>
 5d. **Published artifacts carry no project-specific content.** Some files in this repository are consumed by unrelated downstream projects, which fetch them over HTTPS and overwrite their local copy on every sync. AI-Insights-specific content added to one of them ships to every consumer, and they cannot remove it — the next sync restores it.
 
    **Published artifacts:**
@@ -120,6 +125,7 @@
    > **Why this needs stating:** these files look exactly like ordinary project documentation from inside the workspace — same directory, same Markdown, same Git history. The only in-file signal is the header block, which is easy to read past. When in doubt, check whether the file appears in the table above.
 
 <a name="c4e"></a>
+<a name="c5e"></a>
 5e. **This project's persona layout is not the layout the Persona Curator can assume.** Because `persona-curator.md` is published (C5d), it describes persona work in role terms — "the project's copy of the guide", "the persona's metadata file", "per-target output directories" — rather than naming paths. Downstream consumers use a flat `personas/src/` + `personas/meta/` layout with no suite subdivision and different target directories, so a hardcoded path in that file is wrong everywhere except here.
 
    The concrete values for **this** workspace:
@@ -137,6 +143,7 @@
    An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
 
 <a name="c4f"></a>
+<a name="c5f"></a>
 <a name="nested-delegation"></a>
 5f. **Nested delegation between documentation personas follows the caller's plan.** The principle is stated in the [Persona Design Guide](../../persona-design-guide.md#nested-delegation), Pattern 9 → "Nested Delegation", and is not restated here. This entry records where this suite implements it. The guide is a published artifact (C5d), so these project-specific locations belong here rather than in the guide.
 

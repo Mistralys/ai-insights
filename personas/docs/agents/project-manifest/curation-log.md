@@ -12,6 +12,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `tech-stack.md` (test situation, dependency table) and `constraints.md` → Persona Content Philosophy anchors (entries 5 to 5f). Not a full reconcile.
+**Commit:** 1afef758 (working tree held uncommitted changes)
+**Changes:** Added a *Testing* subsection to `tech-stack.md`: the personas module has no test framework of its own, `--check` is a write-free validation run, and the `personas/plugins/ledger/` code is covered by the workspace-root Vitest suite in `scripts/tests/`. Reworded the `vitest` row to match. Corrected the `@mistralys/persona-builder` version from ^2.6.0 to ^3.0.1 (checked against `personas/package.json` and the installed package). In `constraints.md`, the entry labels (5, 5a to 5f) are the current side: other documents cite C5c, C5d and C5f, and the hub's cross-system dependencies cite C5c and C5d. The `c4*` anchors are a legacy ID scheme left over from earlier numbering. Added `c5` and `c5a` to `c5f` alias anchors beside the existing ones; no anchor was removed or renamed, so `constraints.md#c4d` and `#nested-delegation` in root `AGENTS.md` still resolve.
+**Notes:** Other anchors in `constraints.md` (for example `c11` for entry 6, `c19` for entry 14) follow the same legacy scheme and were left alone. The reverted-decision search, changed-code intersection, generated-artefacts check and adjacent-document check were not run, by the brief's scope.
+
 ### 2026-10-26 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: `api-surface.md` → Shared Partials, the `subagent-wait-claude-code.md` row only. Not a full reconcile.

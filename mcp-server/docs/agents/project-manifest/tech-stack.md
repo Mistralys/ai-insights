@@ -245,7 +245,7 @@ function resolveStore(
 | **predev** | *(auto)* | Runs sync-version before dev |
 | **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
-| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
+| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js` (a real build, which regenerates the persona output and may rewrite the tracked `personas/name-mapping.json`) and then `node ../scripts/build-personas.js --check` before every test run; a failing build or validation error blocks the test run. The `--check` pass renders in memory and does not compare against files on disk, so it does not detect stale output. This is **one of two** validation layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
 | **test** | `npm test` | Run all tests once (pretest fires first) |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
 | **check:roles** | `npm run check:roles` | Validate workflow manifest roles via `scripts/check-known-roles.js` |

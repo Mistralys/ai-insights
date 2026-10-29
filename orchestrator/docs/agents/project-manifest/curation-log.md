@@ -12,6 +12,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `tech-stack.md` dependency tables (Core Dependencies) and the extras note in Runtime & Language, reconciled against `orchestrator/pyproject.toml`. Not a full reconcile.
+**Commit:** 400f6aaa (working tree held uncommitted changes elsewhere in the repository)
+**Changes:** Moved `langchain-anthropic` and `langchain-google-genai` out of Production into a new Optional Provider Extras table; added `aiosqlite`, `deepagents` and `langchain-core`; added `pip-audit` to Development; filled in version constraints from `pyproject.toml`; the extras note now lists `anthropic`, `google` and `dev`.
+**Notes:** The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. The finding came from an AGENTS.md audit; the root `AGENTS.md` Project Statistics row for orchestrator dependencies already matches `pyproject.toml`.
+
 ### 2026-10-23 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: the module's generated-artefacts document and the links to it. Not a full reconcile.
