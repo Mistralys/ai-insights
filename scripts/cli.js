@@ -45,6 +45,7 @@ import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
+import { releaseStdinForChild } from './lib/stdin-handoff.js';
 import {
   storeInit,
   storeAdd,
@@ -310,8 +311,8 @@ const SETUP_COMPONENTS = [
     detect: () => shimConfigExists(),
     run() {
       try {
-        mcpGlobalInstall({ log: (msg) => log(msg) });
-        return true;
+        const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+        return res?.claudeCode !== 'failed';
       } catch (err) {
         log(`  \u2717 ${err.message}`, 'red');
         return false;
@@ -357,6 +358,9 @@ function cmdSyncPersonas(args) {
 }
 
 function cmdAgent(args) {
+  // The interactive picker in the child needs every keystroke; on Windows the
+  // menu's own stdin read would otherwise swallow them (see stdin-handoff.js).
+  releaseStdinForChild();
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'launch-agent.js'), ...args], { cwd: getOriginalCwd() });
   if (code !== 0) process.exit(code);
 }
@@ -600,7 +604,8 @@ async function cmdInstallMcp(args) {
     mcpGlobalDryRun();
   } else {
     try {
-      mcpGlobalInstall({ log: (msg) => log(msg) });
+      const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+      if (res?.claudeCode === 'failed') process.exitCode = 1;
     } catch (err) {
       log(`  \u2717 ${err.message}`, 'red');
       process.exit(1);

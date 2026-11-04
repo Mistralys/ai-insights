@@ -51,6 +51,7 @@ import {
 } from './lib/launch-agent-core.js';
 import { LaunchToggles, LAUNCH_TOGGLES } from './lib/launch-toggles.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
+import { releaseStdinForChild } from './lib/stdin-handoff.js';
 
 async function main() {
   const { filter, ownArgs, passthroughArgs: rawPassthrough } = parseLaunchArgs(process.argv.slice(2));
@@ -97,6 +98,10 @@ async function main() {
       process.exit(0);
       return;
     }
+
+    // The picker's restoreTerminal() leaves a stdin read active on Windows,
+    // which would compete with claude for every keystroke.
+    releaseStdinForChild();
 
     await new Promise((resolve) => {
       const child = spawn('claude', [...selected.claudeArgs, ...toggles.toClaudeArgs(), ...passthroughArgs], {

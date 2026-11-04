@@ -15,7 +15,7 @@
  *   installClaudeCode(opts?)    — register via claude CLI (optional)
  *   uninstall(opts?)            — remove all registrations
  *   dryRun(opts?)               — print diff without writing
- *   install(opts?)              — run full install flow
+ *   install(opts?)              — run full install flow; returns { claudeCode: 'registered' | 'skipped' | 'failed' }
  */
 
 import fs   from 'fs';
@@ -138,12 +138,12 @@ function _checkClaudeCodeStatus(opts = {}) {
   }
   const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
   const stdout = result.stdout ?? '';
-  const registered = result.status === 0 && stdout.includes('central_pm');
+  const line   = stdout.split('\n').find((l) => l.trim().startsWith('central_pm:')) ?? '';
+  const registered = result.status === 0 && line !== '';
   if (!registered) {
     return { available: true, registered: false, stale: false };
   }
   const { shimPath } = _resolvePaths(opts);
-  const line  = stdout.split('\n').find((l) => l.trim().startsWith('central_pm:')) ?? '';
   const stale = !line.includes(shimPath);
   return { available: true, registered: true, stale };
 }
@@ -297,10 +297,24 @@ export function installClaudeCode(opts = {}) {
     ['mcp', 'add', '--scope', 'user', '--transport', 'stdio', 'central_pm', '--', 'node', shimPath],
     { encoding: 'utf8', shell: false }
   );
+  const status = result.status ?? 1;
+
+  // Exit 0 from `add` is not proof: confirm the entry is actually readable back.
+  let verified = false;
+  let verifyOutput = '';
+  if (status === 0) {
+    const check = spawnSync('claude', ['mcp', 'get', 'central_pm'], { encoding: 'utf8', shell: false });
+    verified = check.status === 0;
+    verifyOutput = `${check.stdout ?? ''}${check.stderr ?? ''}`.trim();
+  }
+
   return {
-    status: result.status ?? 1,
+    status,
     stdout: result.stdout,
     stderr: result.stderr,
+    ...(result.error ? { error: result.error.message } : {}),
+    verified,
+    ...(verified ? {} : { verifyOutput }),
     ...(ccStatus.stale ? { repaired: true } : {}),
   };
 }
@@ -439,18 +453,39 @@ export function install(opts = {}) {
   }
 
   // Claude Code (optional)
+  const errFn = opts.error ?? console.error;
   const ccResult = installClaudeCode(opts);
+  let claudeCode = 'registered';
   if (ccResult.skipped) {
-    logFn(`  \u26a0 Claude Code registration skipped: ${ccResult.reason}`);
+    claudeCode = 'skipped';
+    errFn(
+      `  \u2717 Claude Code registration SKIPPED: ${ccResult.reason}.\n` +
+      `    This process could not find \`claude\` on PATH (PATH=${process.env.PATH ?? process.env.Path ?? ''}).\n` +
+      `    Register manually: claude mcp add --scope user --transport stdio central_pm -- node ${shimPath}`
+    );
   } else if (ccResult.alreadyRegistered) {
     logFn(`  \u2713 Claude Code already registered`);
-  } else if (ccResult.status === 0 && ccResult.repaired) {
+  } else if (ccResult.status === 0 && ccResult.verified && ccResult.repaired) {
     logFn(`  \u2713 Claude Code registration repaired (was pointing at a stale command)`);
-  } else if (ccResult.status === 0) {
+  } else if (ccResult.status === 0 && ccResult.verified) {
     logFn(`  \u2713 Claude Code registered`);
+  } else if (ccResult.status === 0) {
+    claudeCode = 'failed';
+    errFn(
+      `  \u2717 Claude Code registration NOT VERIFIED: \`claude mcp add\` exited 0 but ` +
+      `\`claude mcp get central_pm\` did not find the entry.\n` +
+      `    ${ccResult.verifyOutput || '(no output)'}`
+    );
   } else if (ccResult.command) {
     // dry run branch — should not happen here
   } else {
-    logFn(`  \u26a0 Claude Code registration may have failed (exit ${ccResult.status})`);
+    claudeCode = 'failed';
+    const detail = [ccResult.error, ccResult.stderr, ccResult.stdout]
+      .map((s) => (s ?? '').trim()).filter(Boolean).join('\n    ');
+    errFn(
+      `  \u2717 Claude Code registration FAILED (exit ${ccResult.status})` +
+      (detail ? `:\n    ${detail}` : '')
+    );
   }
+  return { claudeCode };
 }
