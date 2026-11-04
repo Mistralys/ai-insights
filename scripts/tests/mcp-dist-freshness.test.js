@@ -177,6 +177,7 @@ describe('ensureMcpDistFresh()', () => {
 
     const result = ensureMcpDistFresh({
       mcpServerDir,
+      platform: 'linux',
       spawn: (...args) => {
         callOrder.push('spawn');
         return spawn(...args);
