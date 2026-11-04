@@ -168,7 +168,7 @@ function renderStandalonePersona(p, slugMap) {
 // ─── Document generation ──────────────────────────────────────────────────────
 
 function generate(ledger, standalone, support, slugMap) {
-  const header     = fs.readFileSync(HEADER_FILE, 'utf8');
+  const header     = fs.readFileSync(HEADER_FILE, 'utf8').replace(/\r\n/g, '\n');
   const now        = new Date().toISOString().slice(0, 10);
   const total      = ledger.length + standalone.length + support.length;
 
