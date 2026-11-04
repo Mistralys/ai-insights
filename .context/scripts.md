@@ -44,6 +44,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
         ├── original-cwd.js
         ├── persona-model-resolution.js
         ├── philosophy-tone.js
+        ├── stdin-handoff.js
         ├── store-commands.js
         ├── subagent-reference-validation.js
         ├── yaml-utils.js
@@ -1252,6 +1253,7 @@ import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
+import { releaseStdinForChild } from './lib/stdin-handoff.js';
 import {
   storeInit,
   storeAdd,
@@ -1517,8 +1519,8 @@ const SETUP_COMPONENTS = [
     detect: () => shimConfigExists(),
     run() {
       try {
-        mcpGlobalInstall({ log: (msg) => log(msg) });
-        return true;
+        const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+        return res?.claudeCode !== 'failed';
       } catch (err) {
         log(`  \u2717 ${err.message}`, 'red');
         return false;
@@ -1564,6 +1566,9 @@ function cmdSyncPersonas(args) {
 }
 
 function cmdAgent(args) {
+  // The interactive picker in the child needs every keystroke; on Windows the
+  // menu's own stdin read would otherwise swallow them (see stdin-handoff.js).
+  releaseStdinForChild();
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'launch-agent.js'), ...args], { cwd: getOriginalCwd() });
   if (code !== 0) process.exit(code);
 }
@@ -1807,7 +1812,8 @@ async function cmdInstallMcp(args) {
     mcpGlobalDryRun();
   } else {
     try {
-      mcpGlobalInstall({ log: (msg) => log(msg) });
+      const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+      if (res?.claudeCode === 'failed') process.exitCode = 1;
     } catch (err) {
       log(`  \u2717 ${err.message}`, 'red');
       process.exit(1);
@@ -3239,7 +3245,7 @@ function renderStandalonePersona(p, slugMap) {
 // ─── Document generation ──────────────────────────────────────────────────────
 
 function generate(ledger, standalone, support, slugMap) {
-  const header     = fs.readFileSync(HEADER_FILE, 'utf8');
+  const header     = fs.readFileSync(HEADER_FILE, 'utf8').replace(/\r\n/g, '\n');
   const now        = new Date().toISOString().slice(0, 10);
   const total      = ledger.length + standalone.length + support.length;
 
@@ -4040,7 +4046,7 @@ console.log('Git hooks installed. Pre-commit persona guard active.');
  *   installClaudeCode(opts?)    — register via claude CLI (optional)
  *   uninstall(opts?)            — remove all registrations
  *   dryRun(opts?)               — print diff without writing
- *   install(opts?)              — run full install flow
+ *   install(opts?)              — run full install flow; returns { claudeCode: 'registered' | 'skipped' | 'failed' }
  */
 
 import fs   from 'fs';
@@ -4163,12 +4169,12 @@ function _checkClaudeCodeStatus(opts = {}) {
   }
   const result = spawnSync('claude', ['mcp', 'list'], { encoding: 'utf8', shell: false });
   const stdout = result.stdout ?? '';
-  const registered = result.status === 0 && stdout.includes('central_pm');
+  const line   = stdout.split('\n').find((l) => l.trim().startsWith('central_pm:')) ?? '';
+  const registered = result.status === 0 && line !== '';
   if (!registered) {
     return { available: true, registered: false, stale: false };
   }
   const { shimPath } = _resolvePaths(opts);
-  const line  = stdout.split('\n').find((l) => l.trim().startsWith('central_pm:')) ?? '';
   const stale = !line.includes(shimPath);
   return { available: true, registered: true, stale };
 }
@@ -4322,10 +4328,24 @@ export function installClaudeCode(opts = {}) {
     ['mcp', 'add', '--scope', 'user', '--transport', 'stdio', 'central_pm', '--', 'node', shimPath],
     { encoding: 'utf8', shell: false }
   );
+  const status = result.status ?? 1;
+
+  // Exit 0 from `add` is not proof: confirm the entry is actually readable back.
+  let verified = false;
+  let verifyOutput = '';
+  if (status === 0) {
+    const check = spawnSync('claude', ['mcp', 'get', 'central_pm'], { encoding: 'utf8', shell: false });
+    verified = check.status === 0;
+    verifyOutput = `${check.stdout ?? ''}${check.stderr ?? ''}`.trim();
+  }
+
   return {
-    status: result.status ?? 1,
+    status,
     stdout: result.stdout,
     stderr: result.stderr,
+    ...(result.error ? { error: result.error.message } : {}),
+    verified,
+    ...(verified ? {} : { verifyOutput }),
     ...(ccStatus.stale ? { repaired: true } : {}),
   };
 }
@@ -4464,20 +4484,41 @@ export function install(opts = {}) {
   }
 
   // Claude Code (optional)
+  const errFn = opts.error ?? console.error;
   const ccResult = installClaudeCode(opts);
+  let claudeCode = 'registered';
   if (ccResult.skipped) {
-    logFn(`  \u26a0 Claude Code registration skipped: ${ccResult.reason}`);
+    claudeCode = 'skipped';
+    errFn(
+      `  \u2717 Claude Code registration SKIPPED: ${ccResult.reason}.\n` +
+      `    This process could not find \`claude\` on PATH (PATH=${process.env.PATH ?? process.env.Path ?? ''}).\n` +
+      `    Register manually: claude mcp add --scope user --transport stdio central_pm -- node ${shimPath}`
+    );
   } else if (ccResult.alreadyRegistered) {
     logFn(`  \u2713 Claude Code already registered`);
-  } else if (ccResult.status === 0 && ccResult.repaired) {
+  } else if (ccResult.status === 0 && ccResult.verified && ccResult.repaired) {
     logFn(`  \u2713 Claude Code registration repaired (was pointing at a stale command)`);
-  } else if (ccResult.status === 0) {
+  } else if (ccResult.status === 0 && ccResult.verified) {
     logFn(`  \u2713 Claude Code registered`);
+  } else if (ccResult.status === 0) {
+    claudeCode = 'failed';
+    errFn(
+      `  \u2717 Claude Code registration NOT VERIFIED: \`claude mcp add\` exited 0 but ` +
+      `\`claude mcp get central_pm\` did not find the entry.\n` +
+      `    ${ccResult.verifyOutput || '(no output)'}`
+    );
   } else if (ccResult.command) {
     // dry run branch — should not happen here
   } else {
-    logFn(`  \u26a0 Claude Code registration may have failed (exit ${ccResult.status})`);
+    claudeCode = 'failed';
+    const detail = [ccResult.error, ccResult.stderr, ccResult.stdout]
+      .map((s) => (s ?? '').trim()).filter(Boolean).join('\n    ');
+    errFn(
+      `  \u2717 Claude Code registration FAILED (exit ${ccResult.status})` +
+      (detail ? `:\n    ${detail}` : '')
+    );
   }
+  return { claudeCode };
 }
 
 ```
@@ -4945,6 +4986,7 @@ import {
 } from './lib/launch-agent-core.js';
 import { LaunchToggles, LAUNCH_TOGGLES } from './lib/launch-toggles.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
+import { releaseStdinForChild } from './lib/stdin-handoff.js';
 
 async function main() {
   const { filter, ownArgs, passthroughArgs: rawPassthrough } = parseLaunchArgs(process.argv.slice(2));
@@ -4991,6 +5033,10 @@ async function main() {
       process.exit(0);
       return;
     }
+
+    // The picker's restoreTerminal() leaves a stdin read active on Windows,
+    // which would compete with claude for every keystroke.
+    releaseStdinForChild();
 
     await new Promise((resolve) => {
       const child = spawn('claude', [...selected.claudeArgs, ...toggles.toClaudeArgs(), ...passthroughArgs], {
@@ -7155,6 +7201,8 @@ import { spawnSync } from 'child_process';
 const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const IS_WIN          = process.platform === 'win32';
 const NPM_BIN          = IS_WIN ? 'npm.cmd' : 'npm';
+// Node refuses to spawn .cmd files without a shell on Windows (EINVAL).
+const USE_SHELL        = IS_WIN;
 
 /**
  * Read the `name` field from a package.json, defaulting to the workspace root.
@@ -7186,7 +7234,7 @@ export function isCliLinked({ cwd = WORKSPACE_ROOT } = {}) {
   const result = spawnSync(NPM_BIN, ['ls', '-g', '--depth=0', name], {
     cwd,
     encoding: 'utf8',
-    shell: false,
+    shell: USE_SHELL,
   });
   return result.status === 0;
 }
@@ -7201,9 +7249,10 @@ export function linkCli({ cwd = WORKSPACE_ROOT, log } = {}) {
   const result = spawnSync(NPM_BIN, ['link'], {
     cwd,
     encoding: 'utf8',
-    shell: false,
+    shell: USE_SHELL,
   });
-  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+  const spawnError = result.error ? `${result.error.code || 'spawn error'}: ${result.error.message}\n` : '';
+  const output = `${spawnError}${result.stdout || ''}${result.stderr || ''}`.trim();
   if (log && output) {
     log(output);
   }
@@ -7722,6 +7771,98 @@ export function checkPhilosophyToneInDirs(contentDirs, { stripComments } = {}) {
   }
 
   return warnings;
+}
+
+```
+###  Path: `/scripts/lib/stdin-handoff.js`
+
+```js
+/**
+ * Hands the console's stdin over to a child process spawned with
+ * `stdio: 'inherit'`, so that the parent process stops consuming keystrokes
+ * meant for the child.
+ *
+ * Why this is needed (Windows only):
+ *
+ * `@mistralys/cli-menu`'s `restoreTerminal()` calls `setRawMode(false)` and
+ * then `pause()`. Neither of these actually stops the underlying libuv read:
+ *
+ * - libuv's `uv_tty_set_mode()` *restarts* an active read in the new mode, so
+ *   switching back to cooked mode while reading starts a line-mode read.
+ *   On Windows, a line-mode read is a `ReadConsoleW` call parked on a
+ *   libuv worker thread — it keeps running even while the event loop is
+ *   blocked (e.g. inside `spawnSync()`).
+ * - `Readable#pause()` on a `tty.ReadStream` only flips the stream into
+ *   paused mode; the handle's `readStop()` is called lazily, once the
+ *   internal buffer fills up.
+ *
+ * The result: the parent's worker thread and the child both read from the
+ * same console input buffer, and the parent wins. Arrow keys, typing, Esc
+ * and Ctrl+C (which arrives as a plain key while the child is in raw mode)
+ * never reach the child — the picker launched from the CLI menu appears
+ * frozen. macOS/Linux are unaffected because their TTY reads happen on the
+ * (blocked or idle) event loop thread rather than on a worker thread.
+ *
+ * {@link releaseStdinForChild} stops the handle read explicitly and resets
+ * the two "reading" flags Node uses to decide whether a later `resume()`
+ * must restart it, so the parent can take stdin back afterwards with the
+ * usual `setRawMode(true)` + `resume()` sequence (as cli-menu does).
+ */
+
+/**
+ * Stop the parent process from reading stdin so an inherited-stdio child
+ * receives every keystroke. Safe to call repeatedly and on non-TTY stdin.
+ *
+ * @param {object} [opts]
+ * @param {NodeJS.ReadStream} [opts.stdin=process.stdin] - stream to release (injectable for tests)
+ * @param {string} [opts.platform=process.platform] - only `win32` needs the handle-level stop
+ * @param {(msg: string) => void} [opts.onError] - receives a diagnostic when the handle refuses to stop
+ * @returns {boolean} `true` when an active handle read was stopped
+ */
+export function releaseStdinForChild(opts = {}) {
+  const {
+    stdin = process.stdin,
+    platform = process.platform,
+    onError = (msg) => console.error(msg),
+  } = opts;
+
+  if (!stdin) return false;
+
+  if (stdin.isTTY && typeof stdin.setRawMode === 'function') {
+    try {
+      stdin.setRawMode(false);
+    } catch {
+      // A closed/detached console can reject mode changes; nothing to undo.
+    }
+  }
+  if (typeof stdin.pause === 'function') stdin.pause();
+
+  if (platform !== 'win32') return false;
+
+  // Internal Node fields, accessed defensively: `_handle` is the libuv TTY
+  // wrap and `_handle.reading` is the flag net.Socket#_read() checks before
+  // calling readStart() again.
+  const handle = stdin._handle;
+  if (!handle || !handle.reading || typeof handle.readStop !== 'function') return false;
+
+  const err = handle.readStop();
+  if (err) {
+    onError(`[stdin-handoff] Could not stop reading stdin (libuv error ${err}); keyboard input may not reach the child process.`);
+    return false;
+  }
+  handle.reading = false;
+
+  // Readable#read() skips _read() while `reading` is set, which would leave
+  // stdin dead on the next resume() because the pending read never completes.
+  if (stdin._readableState) {
+    try {
+      stdin._readableState.reading = false;
+    } catch {
+      // Older/newer Node versions without a writable flag: resume() may then
+      // need a keystroke to wake up, but the child handoff itself succeeded.
+    }
+  }
+  return true;
 }
 
 ```

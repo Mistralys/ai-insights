@@ -72,6 +72,10 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.7.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   2.7.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -473,6 +477,10 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.19.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.19.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -583,6 +591,10 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.7.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.7.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -725,6 +737,10 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  1.10.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -943,6 +959,14 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.5.1 (2026-10-28): The Output Location now describes `design-review.md` as an input file and names the Planner as
+    its reader. Claude Code tells every sub-agent to write no report or findings files and to return findings as a
+    reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan Refiner on
+    2026-10-28 read its audit as a report and skipped `audit.md`. Workflow step 10 is renamed Write the Planner's
+    Input. The shared `subagent-briefing` section now has a dispatch prompt name the file the next step reads the sub-
+    agent's result from: the output file is part of the task, not the method. Without it, Claude Code's own note
+    telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that skipped
+    `audit.md`.
   2.5.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -1028,6 +1052,11 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.13.1 (2026-10-28): The Output Location now describes `audit.md` as an input file and names the Planner and the
+    Plan Refiner as its readers. Claude Code tells every sub-agent to write no report or findings files and to return
+    findings as a reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan
+    Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`. Workflow step 13 is renamed Write the
+    Planner's Input.
   1.13.0 (2026-10-27): Accepts an optional differential summary on a re-audit, with its own checkpoint step 3:
     modified sections are verified in full, each previous finding's area is checked for whether its fix holds, and
     unchanged sections are spot-checked rather than skipped, since an edit in one section can break a reference in
@@ -1117,6 +1146,11 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.10.0 (2026-10-28): The Plan Architect Reviewer, Plan Auditor and Usage Scenarios Curator dispatches now pass the
+    output path (`design-review.md`, `audit.md`, `scenario-coverage.md` under `{PLAN_DIR}`) on every target. The
+    shared `subagent-briefing` section now has a dispatch prompt name the file the next step reads the sub-agent's
+    result from: the output file is part of the task, not the method. Without it, Claude Code's own note telling sub-
+    agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that skipped `audit.md`.
   1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks. The
     re-audit differential summary now carries facts only (cycle number, previous finding counts and severities,
@@ -1288,6 +1322,10 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.10.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -1452,6 +1490,10 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.4.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.4.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -1567,6 +1609,11 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.2.3 (2026-10-28): The Output Location now describes `scenario-coverage.md` as an input file and names the
+    calling agent and the Planner as its readers. Claude Code tells every sub-agent to write no report or findings
+    files and to return findings as a reply, but exempts files written as input to another tool; a Plan Auditor
+    dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`. The Verify output
+    list and workflow step 6 no longer call it a report.
   1.2.2 (2026-09-18): Added cc_tools override — the builder resolves cc_tools → tools and never falls
     through to default_cc_tools, so the VS Code tool names reached the Claude Code frontmatter verbatim
     and a `--agent` session opened with no Bash, Grep or Glob; Task omitted, since this persona
@@ -1625,6 +1672,10 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.9.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -1804,6 +1855,10 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.9.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   1.9.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in

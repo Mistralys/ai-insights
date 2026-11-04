@@ -114,6 +114,10 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.2.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   3.2.0 (2026-10-27): Includes the shared `subagent-briefing` section. The "project path is the whole prompt" rule
     and the ban on restating ledger content now name the pipeline agents of the dispatch table, which read their task
     from the ledger. The Ledger Doctor becomes an official sub-agent through a new Repair Dispatch route: the ledger
@@ -226,6 +230,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.5.1 (2026-10-28): The Output Location now describes `dependency-analysis.md` as an input file and names the
+    Pipeline Configurator and the Ledger Bootstrapper as its readers. Claude Code tells every sub-agent to write no
+    report or findings files and to return findings as a reply, but exempts files written as input to another tool; a
+    Plan Auditor dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.5.0 (2026-10-15): New Step 7 renumbers `work-packages-draft.md` by phase whenever a WP depends on a
     higher-numbered one, translating every reference from one complete old → new mapping, and records the
     mapping in a new Renumbering section; the ledger assigns IDs in registration order and copies
@@ -557,6 +565,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-28"
 
 changelog: |
+  1.4.1 (2026-10-28): The Output Location now describes `pipeline-configuration.md` as an input file and names the
+    Project Manager and the Ledger Bootstrapper as its readers. Claude Code tells every sub-agent to write no report
+    or findings files and to return findings as a reply, but exempts files written as input to another tool; a Plan
+    Auditor dispatched by the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.4.0 (2026-10-08): Added a Baseline-Capture Chain — a WP whose deliverable is an early diff-oracle
     snapshot always gets ["implementation", "qa"], never verification-only, cross-referenced from the
     verification-only chain's state-changing-operations pre-requisite as an exception
@@ -693,6 +705,10 @@ audit_guide_version: "3.4"
 audit_date: "2026-08-27"
 
 changelog: |
+  1.10.1 (2026-10-28): The Output Location now describes `work-packages-draft.md` as an input file and names the
+    four later planning steps that read it. Claude Code tells every sub-agent to write no report or findings files and
+    to return findings as a reply, but exempts files written as input to another tool; a Plan Auditor dispatched by
+    the Plan Refiner on 2026-10-28 read its audit as a report and skipped `audit.md`.
   1.10.0 (2026-10-08): No WP outruns its own baseline — a new constraint keeps a before/after diff
     oracle's early capture step as its own WP, named in the Notes of every WP that mutates the files the
     snapshot covers, so the Dependency Sequencer orders the capture first

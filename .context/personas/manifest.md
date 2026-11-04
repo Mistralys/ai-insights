@@ -761,7 +761,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `knowledge-ownership.md` | Agent 1, Agent 9, Standalone Developer | `{{agent_ledger_knowledge_archiver}}`, `{{agent_ledger_knowledge_curator}}`. Emits its own `## Knowledge Base Ownership` heading — consumers include it at top level, never under a wrapper heading. Answers *who to ask* via a need→custodian routing table, and points an overtaken entry at the Curator's Targeted Reconciliation mode. Deliberately names no MCP tools: the tool grants belong to the custodians, and a consuming persona holds none of them, so listing them describes capabilities the reader cannot use. Carries one constraint (report an overtaken entry) — the prohibitions it once repeated were dropped as redundant with naming the owner. Agent 9 and the Standalone Developer follow it with one paragraph naming where their dispatch happens; Agent 1 adds none, since its own workflow step and the plan template state the duty at the point it fires. |
 | `documentation-ownership.md` | Documentation Curator, README Curator, AGENTS.md Curator (standalone) | `{{agent_agents_md_curator}}`, `{{agent_documentation_curator}}`, `{{agent_readme_curator}}`, `{{agent_changelog_curator}}`, `{{agent_manifest_curator}}`, `{{agent_ctx_architect}}` and their `{{agent_slug_*}}` counterparts; `{{#if ownership_read_only}}`; `{{#if target_vscode}}` / `{{else if target_claude_code}}` / `{{else}}` (deep-agents) for the dispatch call shape. Carries no heading of its own; each includer supplies the lead-in. A document → owning-agent routing table covering the whole documentation set. Under `ownership_read_only` it renders a report-only rule; otherwise it renders the small/large/no-owner triage (small edits made in place, large ones dispatched to the owner), the per-target dispatch instructions, the **When a caller passes a plan** paragraph and the dispatch constraints. **Caller's-plan rule:** a document whose owner the caller's plan has still to run, or whose stage the plan marks skipped, counts as already decided — it is left to the plan and reported to the caller, never dispatched; dispatches to agents the plan does not mention stay allowed. None of the current includers sets `ownership_read_only`, so each renders the dispatch branch, which is the only one carrying the caller's-plan rule. Each includer declares every owner but itself in its YAML `subagents` list. The suite's wider nested-delegation implementation is recorded in [C5f](constraints.md#nested-delegation). |
 | `pm-output-format.md` | Agent 2 | *(none)* |
-| `subagent-briefing.md` | Agents 2, 7, 8, 9, Ledger Claude Coordinator; standalone AGENTS.md Curator, Developer, Documentation Curator, Manifest Curator, Plan Architect Reviewer, Plan Refiner, README Curator, Researcher, Web GUI Specialist, Workspace Architect (all targets) | *(none)*. Emits its own `## Briefing a Sub-Agent` heading and a `### Constraints` block. A persona sub-agent is briefed with the task and the facts it cannot find by itself, never its role, steps, output format or quality checks; a generic agent with no persona is briefed in full. Placed directly before `subagent-wait-claude-code` where a persona includes both. The Ledger Claude Coordinator narrows it further for its stage agents, whose whole prompt is the project path. Design Guide Pattern 9 (v3.10). |
+| `subagent-briefing.md` | Agents 2, 7, 8, 9, Ledger Claude Coordinator; standalone AGENTS.md Curator, Developer, Documentation Curator, Manifest Curator, Plan Architect Reviewer, Plan Refiner, README Curator, Researcher, Web GUI Specialist, Workspace Architect (all targets) | *(none)*. Emits its own `## Briefing a Sub-Agent` heading and a `### Constraints` block. A persona sub-agent is briefed with the task and the facts it cannot find by itself, never its role, steps, output layout or quality checks; where the next step reads its result from a file, the prompt names that file, since Claude Code otherwise tells sub-agents to return findings as a reply. The sub-agent side is covered by wording, not a partial: each persona whose file the next agent reads describes it in its Output Location as an input file and names its readers, which the Claude Code note exempts. A generic agent with no persona is briefed in full. Placed directly before `subagent-wait-claude-code` where a persona includes both. The Ledger Claude Coordinator narrows it further for its stage agents, whose whole prompt is the project path. Design Guide Pattern 9 (v3.10, v3.11). |
 | `subagent-wait-claude-code.md` | Agents 2, 7, 8, 9, Ledger Claude Coordinator; standalone AGENTS.md Curator, Developer, Documentation Curator, Manifest Curator, Plan Architect Reviewer, Plan Refiner, README Curator, Researcher, Web GUI Specialist, Workspace Architect (Claude Code target only) | *(none)*. Emits its own `## Waiting for a Sub-Agent` heading and a `### Constraints` block. In an interactive session Claude Code runs every sub-agent in the background and ignores `run_in_background: false`, so the dispatch call returns a launch acknowledgement at once; the dispatcher waits by ending its turn, and the sub-agent's hand-back and then its `<task-notification>` arrive as new turns. Forbids polling (`sleep`, `until` loops, waiting on an expected file), starting a dependent step on the hand-back instead of the task notification, and passing `name` or `run_in_background`, since a named sub-agent can start as an agent-team teammate told to report through a `SendMessage` tool it does not have. Every persona that dispatches sub-agents under Claude Code includes it under `{{#if target_claude_code}}`, before its Workflow or directly after the section holding its dispatch call (the documentation-ownership includers, the Manifest Curator's CTX Context Delegation, the Workspace Architect's Delegation Protocol). The Coordinator, built for Claude Code only, includes it unconditionally before its Agent Dispatch Map. A launch that fails twice defers to the calling step's own failure handling, so non-blocking dispatches (Agent 9's Knowledge Archiver, the Synthesis Maintainer calls) stay non-blocking. The `handoff-block-claude-code` partial carries the same no-`name`, nothing-to-wait-for rule in two sentences, since agents 3–8 dispatch once and do not wait. The observed behaviour behind these rules, its evidence and a hung-chain debugging checklist are in [Claude Code — Sub-Agent Dispatch and Waiting](../../../../docs/agents/references/claude-code-subagent-dispatch.md). |
 | `pm-subagent-roster.md` | Ledger WP Decomposer, Ledger Dependency Sequencer, Ledger Pipeline Configurator, Ledger Bootstrapper | `{{agent_ledger_wp_decomposer}}`, `{{agent_ledger_dependency_sequencer}}`, `{{agent_ledger_pipeline_configurator}}`, `{{agent_ledger_bootstrapper}}`. Carries no heading of its own; included in each sub-agent's Mission section. States that the persona is a sub-agent of the Project Manager and lists the decomposition pipeline in its order of work, each stage building on the ones before it. |
 | `developer-operational-protocol.md` | Agent 3 | *(none)* |
@@ -1187,12 +1187,15 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
 ## Persona Content Philosophy
 
 <a name="c4"></a>
+<a name="c5"></a>
 5. **Persona content must add value the self-documenting tools cannot provide.** The ledger's `next_steps` arrays, `--- NEXT STEP ---` guidance blocks, and Zod parameter descriptions are the runtime source of truth. A persona's job is to provide **identity, methodology, and decision-making framework** — not to duplicate tool documentation. When tool self-documentation already covers a behavior (e.g., wait-action reasons, required parameters), do not restate it in persona content. When persona content enumerates tool parameters or action names, it must match the implementation exactly or defer to the tool descriptions entirely.
 
 <a name="c4a"></a>
+<a name="c5a"></a>
 5a. **Numbered workflow steps in persona content templates are immutable structural contracts.** When a new phase partial is added to a persona's content template, a corresponding numbered-step entry must be added in the same implementation change — never deferred to a follow-up. An agent following only the numbered steps will silently skip any phase that exists as a partial but has no matching step entry. Before closing a persona-modification PR, cross-check the count of numbered workflow steps against the count of phase partials included in that template to confirm parity. The Documentation pipeline is responsible for catching step/partial count mismatches during its review pass.
 
 <a name="c4b"></a>
+<a name="c5b"></a>
 5b. **Reference documents stay separate from persona content — never embed.** When a persona always loads an external reference document (e.g., the Persona Curator loads `personas/docs/persona-design-guide.md`), keep the document as a separate file read via tool call at session start. Do not embed reference material into the persona content, even though the effective per-session token cost is the same. Rationale:
 
    - **Single source of truth.** Reference documents evolve independently. Embedding creates a second copy that can drift from the canonical file without automated detection.
@@ -1201,6 +1204,7 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
    - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
 
 <a name="c4c"></a>
+<a name="c5c"></a>
 5c. **Recurring Operating Philosophy principles use their canonical name from the registry below.** The [Persona Design Guide](../../persona-design-guide.md) § "Recurring Principles Across a Persona Suite" defines the naming rules; this registry is the project-local vocabulary those rules operate on. The guide is a distributed document used to curate persona suites in unrelated projects and domains, so the inventory of *this* project's principles belongs here rather than in the guide.
 
    **Canonical names:**
@@ -1237,6 +1241,7 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
    A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
 
 <a name="c4d"></a>
+<a name="c5d"></a>
 5d. **Published artifacts carry no project-specific content.** Some files in this repository are consumed by unrelated downstream projects, which fetch them over HTTPS and overwrite their local copy on every sync. AI-Insights-specific content added to one of them ships to every consumer, and they cannot remove it — the next sync restores it.
 
    **Published artifacts:**
@@ -1256,6 +1261,7 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
    > **Why this needs stating:** these files look exactly like ordinary project documentation from inside the workspace — same directory, same Markdown, same Git history. The only in-file signal is the header block, which is easy to read past. When in doubt, check whether the file appears in the table above.
 
 <a name="c4e"></a>
+<a name="c5e"></a>
 5e. **This project's persona layout is not the layout the Persona Curator can assume.** Because `persona-curator.md` is published (C5d), it describes persona work in role terms — "the project's copy of the guide", "the persona's metadata file", "per-target output directories" — rather than naming paths. Downstream consumers use a flat `personas/src/` + `personas/meta/` layout with no suite subdivision and different target directories, so a hardcoded path in that file is wrong everywhere except here.
 
    The concrete values for **this** workspace:
@@ -1273,6 +1279,7 @@ The build script (`scripts/build-personas.js`) uses bracket-prefixed severity le
    An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
 
 <a name="c4f"></a>
+<a name="c5f"></a>
 <a name="nested-delegation"></a>
 5f. **Nested delegation between documentation personas follows the caller's plan.** The principle is stated in the [Persona Design Guide](../../persona-design-guide.md#nested-delegation), Pattern 9 → "Nested Delegation", and is not restated here. This entry records where this suite implements it. The guide is a published artifact (C5d), so these project-specific locations belong here rather than in the guide.
 
@@ -1552,6 +1559,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 | 2026-10-16 | The practice for generated artefacts on feature branches is the one the Git Committer persona (`personas/standalone/src/content/git-committer.md`) enforces. On a feature branch, generator drift (including all `.context/` output) stays out of commits and is reverted by path before upstream integration. A generated file whose source the branch changed is committed with that change. `.context/` is committed only on the default branch `main`, as a `CTX: Updated docs` commit. Date-only diffs of generated files are never committed. `generated-artefacts.md` and `constraints.md` → Generated Artefacts summarise this and cite the Git Committer rather than restating its procedure. | Decided by the user. The Git Committer is the agent that commits and discards these files, so making its rules the project practice keeps one source of truth. Where the two disagree, the Git Committer persona wins and the manifest is corrected. |
 
 ## History
+
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `tech-stack.md` (test situation, dependency table) and `constraints.md` → Persona Content Philosophy anchors (entries 5 to 5f). Not a full reconcile.
+**Commit:** 1afef758 (working tree held uncommitted changes)
+**Changes:** Added a *Testing* subsection to `tech-stack.md`: the personas module has no test framework of its own, `--check` is a write-free validation run, and the `personas/plugins/ledger/` code is covered by the workspace-root Vitest suite in `scripts/tests/`. Reworded the `vitest` row to match. Corrected the `@mistralys/persona-builder` version from ^2.6.0 to ^3.0.1 (checked against `personas/package.json` and the installed package). In `constraints.md`, the entry labels (5, 5a to 5f) are the current side: other documents cite C5c, C5d and C5f, and the hub's cross-system dependencies cite C5c and C5d. The `c4*` anchors are a legacy ID scheme left over from earlier numbering. Added `c5` and `c5a` to `c5f` alias anchors beside the existing ones; no anchor was removed or renamed, so `constraints.md#c4d` and `#nested-delegation` in root `AGENTS.md` still resolve.
+**Notes:** Other anchors in `constraints.md` (for example `c11` for entry 6, `c19` for entry 14) follow the same legacy scheme and were left alone. The reverted-decision search, changed-code intersection, generated-artefacts check and adjacent-document check were not run, by the brief's scope.
 
 ### 2026-10-26 · Update · Curator v1.8.0
 
@@ -2360,13 +2374,17 @@ scripts/
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `js-yaml` | ^4.1.0 | Parse YAML metadata files (`_shared.yaml`, per-persona YAMLs) |
-| `@mistralys/persona-builder` | ^2.6.0 | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
+| `@mistralys/persona-builder` | ^3.0.1 | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
 
 ### Workspace-level Dependencies
 
 | Package | Version | Scope | Purpose |
 |---------|---------|-------|---------|
-| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner — no longer used for persona-build tests post-migration; retained for other workspace test suites |
+| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner for the workspace-root suite in `scripts/tests/` (`npm test` at the workspace root). Not a dependency of `personas/package.json` |
+
+### Testing
+
+The personas module has no test framework of its own: `personas/package.json` declares no test script or test dependency, and the persona build logic lives in the external `@mistralys/persona-builder` library, which carries its own tests. `--check` on `build-personas.js` is a write-free validation run, not a test suite. The `ledgerPlugin` code under `personas/plugins/ledger/` is exercised by the workspace-root Vitest suite in `scripts/tests/` (for example `ledger-plugin.test.js`), which belongs to the root tooling rather than to this module.
 
 The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/persona-builder` via its CLI binary (`dist/cli.js`). The wrapper itself only resolves paths and forwards CLI flags (`--check`, `--strict`) to the library.
 

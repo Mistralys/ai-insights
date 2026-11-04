@@ -21,18 +21,21 @@ _SOURCE: Top-level directory tree_
     ├── agents/
     │   ├── bug-reports/
     │   │   ├── 2026-10-26-claude-code-subagent-dispatch-and-waiting.md
-    │   │   ├── send-message-reproduction.zip
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
+    │   ├── insights/
+    │   │   ├── 2026-10-17-windows-agent-picker-input.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
+    │   │   ├── constraints.md
     │   │   ├── cross-system-dependencies.md
     │   │   ├── curation-log.md
+    │   │   ├── development-commands.md
     │   │   ├── generated-artefacts.md
+    │   │   ├── live-workspace.md
+    │   │   ├── plan-folders.md
     │   │   ├── root-tooling.md
-    │   ├── projects/
-    │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
     │   │   ├── claude-code-subagent-dispatch.md
@@ -117,22 +120,6 @@ _SOURCE: Top-level directory tree_
     ├── AGENTS.md
     ├── README.md
     ├── changelog.md
-    ├── coverage/
-    │   ├── base.css
-    │   ├── block-navigation.js
-    │   ├── clover.xml
-    │   ├── coverage-final.json
-    │   ├── favicon.png
-    │   ├── gui/
-    │   │   ├── api.ts.html
-    │   │   ├── chunk-renderer.ts.html
-    │   │   ├── index.html
-    │   │   ├── server.ts.html
-    │   ├── index.html
-    │   ├── prettify.css
-    │   ├── prettify.js
-    │   ├── sort-arrow-sprite.png
-    │   ├── sorter.js
     ├── gui/
     │   ├── api-knowledge.ts
     │   ├── api-models.ts
@@ -728,6 +715,7 @@ _SOURCE: Top-level directory tree_
     │   ├── original-cwd.js
     │   ├── persona-model-resolution.js
     │   ├── philosophy-tone.js
+    │   ├── stdin-handoff.js
     │   ├── store-commands.js
     │   ├── subagent-reference-validation.js
     │   ├── yaml-utils.js
@@ -762,6 +750,7 @@ _SOURCE: Top-level directory tree_
     │   ├── helpers/
     │   │   ├── timeouts.js
     │   ├── insight-validation.test.js
+    │   ├── install-mcp-claude.test.js
     │   ├── install-mcp.test.js
     │   ├── launch-agent.test.js
     │   ├── launch-toggles.test.js
@@ -773,6 +762,7 @@ _SOURCE: Top-level directory tree_
     │   ├── philosophy-tone.test.js
     │   ├── publish-locations.test.js
     │   ├── publish-skills.test.js
+    │   ├── stdin-handoff.test.js
     │   ├── store-commands.test.js
     │   ├── subagent-reference-validation.test.js
     │   ├── yaml-utils.test.js

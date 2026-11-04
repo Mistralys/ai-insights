@@ -179,6 +179,11 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.14.0 (2026-10-28): The WP Decomposer (both modes), Dependency Sequencer and Pipeline Configurator dispatches now
+    carry the path of the file named under Expected output. The shared `subagent-briefing` section now has a dispatch
+    prompt name the file the next step reads the sub-agent's result from: the output file is part of the task, not the
+    method. Without it, Claude Code's own note telling sub-agents to return findings as a reply wins, as it did for a
+    Plan Auditor on 2026-10-28 that skipped `audit.md`.
   3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -768,6 +773,10 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.11.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   3.11.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -880,6 +889,10 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.13.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
   3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
@@ -1010,6 +1023,13 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.15.1 (2026-10-28): The Output Format's Report Document is now the Synthesis Document, described as input for
+    `ledger_complete_synthesis` and the Knowledge Archiver rather than as a report. Claude Code tells every sub-agent
+    to write no report or summary files and to return findings as a reply, but exempts files written as input to
+    another tool; a Plan Auditor dispatched on 2026-10-28 read its audit as a report and skipped `audit.md`. The
+    shared `subagent-briefing` section now has a dispatch prompt name the file the next step reads the sub-agent's
+    result from: the output file is part of the task, not the method. Without it, Claude Code's own note telling sub-
+    agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that skipped `audit.md`.
   3.15.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
     and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
     a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in

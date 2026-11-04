@@ -13,9 +13,13 @@ _SOURCE: Unified entry point linking all module manifests, cross-system dependen
     └── agents/
         └── project-manifest/
             └── README.md
+            └── constraints.md
             └── cross-system-dependencies.md
             └── curation-log.md
+            └── development-commands.md
             └── generated-artefacts.md
+            └── live-workspace.md
+            └── plan-folders.md
             └── root-tooling.md
 
 ```
@@ -50,7 +54,11 @@ Documents that belong to the workspace hub itself, beside this index.
 |----------|---------|
 | [cross-system-dependencies.md](cross-system-dependencies.md) | Synchronisation points between sub-projects, root scripts and shared files, plus the validation commands that check them |
 | [root-tooling.md](root-tooling.md) | Root-level scripts, shared libraries and shared configuration (`scripts/`, `shared/`, `context.yaml`) |
+| [development-commands.md](development-commands.md) | Install, build, test, single-test, lint, typecheck and run commands for each part of the workspace, the toolchain versions, and the checks to run for each kind of change |
+| [live-workspace.md](live-workspace.md) | What the running Ledger MCP server reads and which changes can break it or the workflow that depends on it |
+| [plan-folders.md](plan-folders.md) | Layout of `docs/agents/plans/` and `implementation-history/`: which files a plan folder holds, who writes each and how the folder is archived |
 | [generated-artefacts.md](generated-artefacts.md) | Tracked and ignored generated files across the repository, what writes each, and when a modified copy can be discarded |
+| [constraints.md](constraints.md) | Workspace-wide binding rules: a digest of the critical rules (each linking to its owning document), git operations, the live workspace, the Cross-Platform Policy and the Changelog Convention (file locations, rules, archive locations, workflow). Module rules stay in each module's `constraints*.md` |
 | [curation-log.md](curation-log.md) | Standing decisions about how this hub manifest is arranged, plus the dated trail of curation passes |
 
 ---
@@ -160,6 +168,14 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Understand the whole workspace | [README.md](../../../README.md) |
 | Look up a cross-system sync point | [Cross-System Dependencies](cross-system-dependencies.md) |
 | Find a root-level script | [Root-Level Tooling](root-tooling.md) |
+| Find the install, build, test, lint or run command for a part | [Development Commands](development-commands.md#commands-by-part) |
+| Find which checks a kind of change needs | [Verification by Change Type](development-commands.md#verification-by-change-type) |
+| Check what a change can break in the running MCP server | [Live Workspace](live-workspace.md) |
+| Find what a plan folder holds | [Plan Folders](plan-folders.md#files-in-a-plan-folder) |
+| Skim the highest-impact workspace rules | [Critical Rules](constraints.md#critical-rules) |
+| Check who may commit or write to git | [Git Operations](constraints.md#git-operations) |
+| Check platform-support rules before touching OS-specific code | [Cross-Platform Policy](constraints.md#cross-platform-policy) |
+| Edit, release or archive a changelog | [Changelog Convention](constraints.md#changelog-convention) |
 | Understand how agents should operate | [AGENTS.md](../../../AGENTS.md) |
 | Look up an MCP tool signature | [MCP server api-surface.md](../../../mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [Personas api-surface.md](../../../personas/docs/agents/project-manifest/api-surface.md) |
@@ -171,6 +187,150 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | See an end-to-end visual workflow map | [Ledger Workflow Visual Guide](../references/ledger-workflow-visual-guide.md) |
 | Review deferred implementation decisions | [Deferred Topics](../deferred-topics.md) |
 | Get a full codebase snapshot | `.context/` (run `node scripts/cli.js ctx-generate`) |
+
+```
+###  Path: `/docs/agents/project-manifest/constraints.md`
+
+```md
+# Constraints & Conventions — Workspace Level
+
+The workspace-wide rules that are not owned by a single sub-project. Each module's own rules live in its `constraints*.md`, linked from the [hub index](README.md). Generated-file handling is bound by the module `constraints.md` → Generated Artefacts sections, described in [generated-artefacts.md](generated-artefacts.md); sync points are tabulated in [cross-system-dependencies.md](cross-system-dependencies.md).
+
+This document opens with a digest of the highest-impact rules, then holds the workspace-wide rules that no module owns: git operations, the live workspace, platform support for all code, and the changelog convention. The platform and changelog sections are only needed when touching platform-specific code or editing changelogs.
+
+---
+
+## Critical Rules
+
+The rules whose violation does the most damage across the workspace. Each line states the rule and links to the document that owns it; the owning document carries the detail and the exceptions.
+
+- Treat the manifests as authoritative: when code contradicts a manifest, flag the code and do not rewrite the manifest to fit it. Missing manifest facts are flagged, never invented. See the root `AGENTS.md`, *Failure Protocol & Decision Matrix*.
+- Never edit generated output. Change its source and regenerate. See [generated-artefacts.md](generated-artefacts.md#tracked-generated-artefacts) and, for persona output, the personas [Source Editing Rules](../../../personas/docs/agents/project-manifest/constraints.md#source-editing-rules).
+- Classify a modified tracked file against [generated-artefacts.md](generated-artefacts.md) before discarding it, and never revert a hand-maintained neighbour as build noise. See [Hand-maintained Neighbours](generated-artefacts.md#hand-maintained-neighbours).
+- Update every counterpart of a cross-system sync point in the same change, and run the checks that go with it. This covers agent role names and `personas/name-mapping.json` as well. See the [Dependency Table](cross-system-dependencies.md#dependency-table) and [Validation Scripts](cross-system-dependencies.md#validation-scripts).
+- Change workflow logic in the workflow specification first, then in code, then in tests, then in the manifest. See [The Workflow Specification Is the Source of Truth](../../../mcp-server/docs/agents/project-manifest/constraints.md#the-workflow-specification-is-the-source-of-truth-for-all-workflow-logic).
+- Never write to `stdout` from the MCP server; logs go to `stderr`. See [STDIO Logging Discipline](../../../mcp-server/docs/agents/project-manifest/constraints.md#stdio-logging-discipline).
+- Never open a second work-in-progress changelog entry, and never archive one. See [Changelog Rules](#changelog-rules), rule 9, and [Changelog Convention](#changelog-convention) before editing, releasing or archiving any changelog.
+- Treat the published artifacts as downstream-consumed: keep project-specific content out of them, and flag a heading rename to the user instead of applying it. See [Published artifacts carry no project-specific content](../../../personas/docs/agents/project-manifest/constraints.md#c5d).
+- Keep every script and test working on Windows, macOS and Linux. See [Cross-Platform Policy](#cross-platform-policy).
+- Leave every git write operation to the Git Committer. See [Git Operations](#git-operations).
+- Keep risky changes out of the live workspace. See [Live Workspace](#live-workspace).
+- Verify a change with the checks that belong to its type. See [Verification by Change Type](development-commands.md#verification-by-change-type).
+
+---
+
+## Git Operations
+
+Only the [Git Committer](../../../personas/standalone/src/content/git-committer.md) agent makes commits in this workspace. This is the owner's stated policy. The Git Committer persona is the authority for how it groups, messages and executes them, and for how generated artefacts are treated on a branch.
+
+- Never perform a git write operation from any agent other than the Git Committer. That covers staging, committing, reverting, resetting, checking out a path, stashing and pushing.
+- Never run `git add`, `git commit`, `git restore`, `git checkout -- <path>`, `git reset`, `git revert`, `git stash` or `git push` to tidy up after your own work, however small the change.
+- Use read-only git commands (`status`, `diff`, `log`, `show`, `blame`, `ls-files`, `check-ignore`) to inspect state.
+- Report the files you created or changed instead, so the user can hand them to the Git Committer.
+- When the work needs a discard, such as generator drift, name the file and its verdict from [generated-artefacts.md](generated-artefacts.md) and leave the revert to the Git Committer.
+
+---
+
+## Live Workspace
+
+The workspace that hosts the installed Ledger MCP server also hosts the agentic workflow that depends on it. [live-workspace.md](live-workspace.md) lists what feeds the running server and what can break it; the owner uses a dedicated DEV workspace for bigger projects.
+
+- Defer a large or risky change to a dedicated DEV workspace and tell the user, instead of making it in the workspace that hosts the running server.
+- Run a GUI on a development checkout with `--port 3460`, never on 3420.
+- Construct test stores on a temporary directory, never on `mcp-server/storage/ledger/`. See [constraints-testing.md](../../../mcp-server/docs/agents/project-manifest/constraints-testing.md).
+
+---
+
+## Cross-Platform Policy
+
+**Supported platforms:** Windows, macOS, and Linux. All sub-projects (MCP server, orchestrator, personas build system, root-level scripts) must work correctly on all three.
+
+### Platform Rules
+
+1. **No OS-specific APIs without a cross-platform fallback.** When platform-specific code is unavoidable (e.g., file locking), provide per-platform implementations gated by runtime detection (`process.platform` / `sys.platform`) and document the invariants for each OS. Prefer stdlib-only solutions over third-party wrappers when the stdlib covers all three targets.
+2. **Use framework path utilities — never hardcode separators.** Use `path.join()` / `path.resolve()` (Node.js) and `pathlib.Path` / `os.path.join()` (Python). Never assume `/` or `\` as a path separator in string literals.
+3. **Shell commands must be cross-platform.** Root-level `scripts/` run on Node.js and must not rely on Unix-only utilities (e.g., `grep`, `sed`). Use Node.js built-in APIs or npm packages instead. When a script delegates to a shell, document any OS-specific invocation difference (e.g., venv activation).
+4. **File locking must work on all platforms.** The MCP server uses `proper-lockfile` (cross-platform). The orchestrator uses `src/utils/filelock.py` (`msvcrt` on Windows, `fcntl` on Unix). Any new locking mechanism must support all three OSs.
+5. **Tests must be platform-agnostic.** Avoid hardcoded Unix paths (`/tmp/…`) in test fixtures. Use the language's temp-directory API (`os.tmpdir()` / `tempfile.mkdtemp()`). Do not assert path separators — compare via `path.resolve()` or `pathlib` equivalents.
+6. **Line endings:** Rely on Git's `core.autocrlf` / `.gitattributes` for normalization. Never assume `\n` when reading user-edited files; use language-level line-splitting APIs.
+
+### Existing Cross-Platform Implementations
+
+| Component | Mechanism | Reference |
+|-----------|-----------|----------|
+| MCP server file locking | `proper-lockfile` (npm) | `mcp-server/src/storage/file-lock.ts` |
+| Orchestrator file locking | `msvcrt` (Win) / `fcntl` (Unix) | `orchestrator/src/utils/filelock.py` |
+| Root scripts | Node.js `fs`, `path`, `child_process` — no Unix shell deps | `scripts/` |
+| Personas build | Node.js CJS — inherently cross-platform | `scripts/build-personas.js` |
+
+> **Rationale:** The MCP server runs alongside the user's IDE on their desktop OS. The orchestrator is a developer tool that must work on contributor machines across all major platforms. Failing on any OS is a shipping bug.
+
+---
+
+## Changelog Convention
+
+This workspace uses a **hub-and-spoke changelog model**: each sub-project maintains its own detailed changelog, and the root changelog aggregates the highlights into versioned releases.
+
+### File Locations
+
+| File | Scope | Versioning |
+|------|-------|------------|
+| `changelog.md` (root) | Workspace-wide release summary | SemVer, tagged in Git (`v1.9.0`, …) |
+| `mcp-server/changelog.md` | MCP server changes only | Own SemVer (`v1.14.0`, …), **not** Git-tagged |
+| `orchestrator/changelog.md` | Orchestrator changes only | Own SemVer (`v0.5.0`, …), **not** Git-tagged |
+| `personas/changelog.md` | Summary of the most relevant persona and build-system changes; individual persona changes are tracked in each persona's integrated changelog | Own SemVer (`v3.9.1`, …), **not** Git-tagged |
+
+### Changelog Rules
+
+1. **Only the root changelog triggers Git tags/releases.** Module changelogs track internal history but have no corresponding Git tags.
+2. **Module changelogs come first.** When preparing a release, update each affected module changelog before writing the root entry.
+3. **Root entries reference module versions.** Use the blockquote line format to link back: `> mcp v1.14.0 · personas v3.9.1 · orchestrator v0.4.0`. Omit modules that had no changes.
+4. **Root entries summarize, not duplicate.** Each root bullet condenses multiple module-level bullets into one outcome-oriented line. Implementation detail stays in the module changelog.
+5. **House style applies everywhere.** All changelogs follow the Changelog Curator's house style: flat bullet list with category prefixes, no `### Added/Changed/Fixed` sub-headers, ≤ 100-char lines.
+6. **Version bumps:** Root version follows SemVer based on the most significant change across all modules. Module versions are incremented independently.
+7. **`scripts/extract-changelog-entry.js`** parses the topmost root changelog entry for CI/GitHub Actions release automation.
+8. **Personas changelog is summary-only:** Since each persona has an integrated changelog, `personas/changelog.md` entries summarize outcomes only — rationale, implementation mechanism, and file-level detail belong exclusively in that persona's own YAML `changelog` field, never here.
+   - **Guardrail:** cap each release entry at roughly one bullet per affected persona or per cross-cutting theme (shared partials, build tooling, docs). Needing 5+ individual per-persona bullets under one theme is a sign to group them into a single thematic bullet instead.
+   - **Anti-pattern** (rationale-laden, restates mechanism — do not write this): *"Standalone: Redesigned the Persona Curator to fix a tone violation in its Core Philosophy section, converting three imperative-mood principles to indicative mood and adding a Philosophy Tone Pass step to its own validation workflow so it can catch the same issue in personas it audits going forward."*
+   - **Good pattern** (outcome-only, one line — write this instead): *"Standalone: Persona Curator gained a Philosophy Tone Pass and accepted-deviation reporting."*
+   - This duplication risk is specific to `personas/changelog.md`, since personas carry their own integrated changelogs to defer detail to. `mcp-server/changelog.md` and `orchestrator/changelog.md` have no equivalent per-item changelog — rule 5's single-line house style is the existing safeguard there.
+   - `scripts/build-personas.js` now warns (never fails) when the newest entry exceeds mechanical line/bullet/sentence-per-bullet/line-length thresholds, via `scripts/lib/changelog-size-check.js`.
+
+9. **One work-in-progress entry, never archived.** A changelog's topmost version heading reads `## v{VERSION} - **WIP; UNRELEASED**` while the version is unreleased. New changes go into that entry; never open a second one. Where the topmost entry is not marked, the next version is the last released version plus the bump the change needs, found from the last release tag (`git describe --tags --abbrev=0`) and the changelog as it stood there. Keep package version fields at the WIP version and never lower it. The marker comes off only when the Changelog Curator finalizes the entry for release, and archiving never moves a WIP entry. The authority is the [WIP Changelog Version](../../../personas/shared/partials/wip-changelog-version.md) partial, which the Changelog Curator persona includes.
+
+### Archive Locations
+
+Older releases are moved out of each changelog by the Changelog Curator's **Archive** mode. All four changelogs share one central archive folder, with a sub-folder per changelog and the standard layout `v{MAJOR}/v{MAJOR}.{MINOR}.md` inside it.
+
+| Changelog | Archive folder | Footer link base (relative to the changelog) |
+|-----------|----------------|----------------------------------------------|
+| `changelog.md` (root) | `docs/changelog-history/root/` | `docs/changelog-history/root` |
+| `mcp-server/changelog.md` | `docs/changelog-history/mcp-server/` | `../docs/changelog-history/mcp-server` |
+| `orchestrator/changelog.md` | `docs/changelog-history/orchestrator/` | `../docs/changelog-history/orchestrator` |
+| `personas/changelog.md` | `docs/changelog-history/personas/` | `../docs/changelog-history/personas` |
+
+- **Separate sessions.** Archiving never happens during release preparation; run the [archive prompt](../../../.github/prompts/changelog-archive.prompt.md) as its own session, one changelog at a time.
+- **Verbatim moves.** Archived releases are copied unchanged; wording problems are handled in a separate Rewrite session.
+- **Align the cut.** Module cuts should land near the root cut, using the module versions in the root entries' blockquote lines as the guide, so the live files tell the same period.
+- **Footer stays last.** The archive footer is the last block of each changelog. `scripts/extract-changelog-entry.js` and the personas build only read the topmost entry, so the footer does not affect them.
+
+### Two-Step Workflow
+
+```
+Step 1 — Module changelogs
+    For each module with changes since the last Git tag:
+      → Run git log / diff for that module's directory
+      → Add a new entry to {module}/changelog.md
+
+Step 2 — Root changelog
+    → Read the new module entries
+    → Write a single new root entry summarizing the highlights
+    → Assign the next SemVer version
+```
+
+### Prompt Template
+
+See the [Changelog Workflow](../../references/development.md#changelog-workflow) section of the Developer Guide for the copy-paste prompt template.
 
 ```
 ###  Path: `/docs/agents/project-manifest/cross-system-dependencies.md`
@@ -247,8 +407,23 @@ This log covers the workspace hub manifest (`docs/agents/project-manifest/`) onl
 | 2026-10-23 | Generated-artefact documentation for the repository is one file, the hub's `docs/agents/project-manifest/generated-artefacts.md`. The personas manifest no longer carries its own copy; its `README.md` and `constraints.md` link to the hub file, and its `constraints.md` → Generated Artefacts section stays as the binding rules. Each table carries a *Source* column naming the owning module, and the former *Source* column (the inputs a file is built from) is now *Derived from*. The `mcp-server` and `orchestrator` manifests no longer keep module-scoped documents either; see the 2026-10-23 decision on module copies below. | Decided by the owner. Two documents that were meant to agree needed every edit made twice and drifted; a single file is cheaper to keep correct. |
 | 2026-10-23 | The hub's `generated-artefacts.md` also covers the MCP server and the orchestrator; neither `mcp-server/docs/agents/project-manifest/` nor `orchestrator/docs/agents/project-manifest/` holds a copy, and their `README.md` and `constraints.md` link to the hub file. The `mcp-server/coverage/**` Vitest report is a temporary file that is not meant to be tracked; its row records that and that the repository still tracks it until the owner untracks it. The *Source* / *Derived from* column split is approved. | Decided by the owner, who had assumed the unification included every file. One document per repository avoids edits made in several places; the coverage report is regenerated output that nothing reads. |
 | 2026-10-23 | `mcp-server/coverage/` (Vitest's HTML, clover and JSON coverage report) is untracked and ignored through the root `.gitignore` entry `/mcp-server/coverage/`. It is listed under Ignored Generated Artefacts in `generated-artefacts.md` and carries no Known Contradictions entry. This supersedes the clause in the preceding decision that the repository still tracks it. | Decided by the owner, who untracked the folder and added the ignore rule: the report is a temporary file, regenerated by `npm run test:coverage`, and nothing reads it. |
+| 2026-10-27 | Only the Git Committer agent (`personas/standalone/src/content/git-committer.md`) makes commits in this workspace. Every other agent performs no git write operation: no staging, committing, reverting, resetting, path checkout, stashing or pushing. The rule is recorded in the hub `constraints.md` → Git Operations. | Stated by the owner as policy in the 2026-10-27 request. It is a workspace-wide rule that no module manifest owns, so it sits in the hub's only binding document. |
 
 ## History
+
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: close six manifest gaps found while reviewing the root `AGENTS.md` (commands by part, live-workspace caution, verification by change type, plan-folder layout, a critical-rules digest, the git-write policy). Not a full reconcile; the reverted-decision search and the changed-code intersection were not run.
+**Commit:** 1afef758 (working tree held uncommitted changes from other sessions, none reverted)
+**Changes:** Created `development-commands.md` (toolchain versions, commands per part, verification by change type), `live-workspace.md` and `plan-folders.md`, and linked all three from the hub `README.md` with Navigation rows. `constraints.md` gained a Critical Rules digest at the top, Git Operations and Live Workspace sections, and Changelog Rule 9 (one WIP entry, never archived; sourced from the `wip-changelog-version` partial). Corrections found on the way: the MCP server `tech-stack.md` pretest row said the hook runs `--check` only, but `package.json` runs a real build and then `--check`; the `generated-artefacts.md` intro said the hub had no `constraints.md`, which no longer holds; its log-schema link pointed at a path that does not exist.
+**Notes:** Commands were checked against the package files, `pyproject.toml`, the CI workflow and `scripts/`; `tsc --noEmit`, a single Vitest file in each suite, `ruff check src/`, pytest collection of one file, and the read-only validators ran clean. No document states a Node version: CI runs 20, the READMEs say >= 18 and `@types/node` targets 22, so `development-commands.md` records that and carries a verify marker. The Live Workspace rules in `constraints.md` are limited to the owner's stated DEV-workspace practice and existing GUI and test-store conventions; stronger prohibitions were deliberately not written. The orchestrator `tech-stack.md` (uncommitted edits by another session) still holds a stale duplicate dependency fragment after its Development table; left untouched.
+
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: carry the root `AGENTS.md` sections Cross-Platform Policy and Changelog Convention into the hub, register them in the hub `README.md`, and check that `cross-system-dependencies.md` covers the role-sync facts. Not a full reconcile.
+**Commit:** 400f6aaa (working tree held uncommitted changes)
+**Changes:** Created `constraints.md` carrying both sections in full (rules, tables, rationale, workflow, archive locations). The two `Rules` subheadings were renamed *Platform Rules* and *Changelog Rules* so each heading anchor is unique; the text is otherwise unchanged. Relative links were rebased for the new location. Added the `constraints.md` row to the hub index and two Navigation rows.
+**Notes:** Referenced files (`file-lock.ts`, `filelock.py`, `build-personas.js`, `extract-changelog-entry.js`, `changelog-size-check.js`, archive folders, both prompt files) exist on disk. The reverted-decision search, changed-code intersection and full adjacent-document check were not run, by the brief's scope. Placement in a new hub `constraints.md` follows the Register Map (binding rules in the one imperative document); this is a judgement call, not a ruling by the owner.
 
 ### 2026-10-23 · Update · Curator v1.8.0
 
@@ -345,12 +520,139 @@ Observed but untouched, outside this pass's scope:
 - Adjacent documents: root `AGENTS.md` does not link the hub's two new documents and still describes generated agent-instruction mirrors, so it routes readers to the personas copy of the artefact table. Owner: AGENTS.md Curator v2.4.0. Root `README.md` was not read for this pass.
 
 ```
+###  Path: `/docs/agents/project-manifest/development-commands.md`
+
+```md
+# Development Commands
+
+The commands for installing, building, testing, linting and running each part of the workspace, the toolchain versions they assume, and the checks that belong to each kind of change. Every command here was checked against the `package.json` files, `orchestrator/pyproject.toml`, the CI workflow and `scripts/`. Where a part has no command for a step, the table says so.
+
+Root-level scripts and their options are inventoried in [root-tooling.md](root-tooling.md). The synchronisation points the checks protect are in [cross-system-dependencies.md](cross-system-dependencies.md). Which commands write tracked files is in [generated-artefacts.md](generated-artefacts.md).
+
+## Toolchain Versions
+
+| Toolchain | Version facts in the repository |
+|-----------|---------------------------------|
+| **Node.js** | No version is pinned: no `engines` field in any `package.json`, no `.nvmrc`. The GitHub Actions workflow runs Node 20. The root and MCP server READMEs state Node.js >= 18, and the MCP server's `@types/node` targets 22. The sources do not settle a single value, so Node 20 or newer is the safe working range <!-- TODO: verify — the owner has not recorded a supported minimum -->. |
+| **Python** | `orchestrator/pyproject.toml` declares `requires-python = ">=3.11"`; CI runs Python 3.11. |
+| **Package managers** | npm for the root, `mcp-server/` and `personas/` (CI installs with `npm ci`); pip inside `orchestrator/.venv` for the orchestrator. |
+
+There is no workspace-wide install command. Each part below has its own `node_modules/` or virtual environment, and the root `node_modules/` is separate from both module ones. `node scripts/preflight-bootstrap.js`, which `menu.sh` and `menu.cmd` launch first, installs the root dependencies on a first run.
+
+## Commands by Part
+
+Run each command from the directory named in the heading. "None" means the part has no such tool configured, not that the step is optional in spirit.
+
+### Workspace Root
+
+Run from the workspace root.
+
+| Step | Command |
+|------|---------|
+| Install | `npm install` |
+| Build | None. The root has no build of its own; the persona build is `node scripts/build-personas.js`. |
+| Test | `npm test` (Vitest over `scripts/tests/`; also covers the persona build checks and the `scripts/lib/` modules) |
+| Run a single test | `npx vitest run scripts/tests/<file>.test.js` |
+| Lint | None |
+| Typecheck | None (plain JavaScript) |
+| Interactive command center | `node scripts/cli.js`, or `./menu.sh` (macOS, Linux) / `menu.cmd` (Windows) |
+| Build & Maintain | `node scripts/cli.js build-maintain` |
+
+Build & Maintain syncs the module versions from their changelogs, builds every persona suite, regenerates the agents overview and runs CTX generation. The full list of files it writes, and the side effects of the other build commands, is in [Commands That Touch More Than They Generate](generated-artefacts.md#commands-that-touch-more-than-they-generate). The rule for when to run it before a commit is in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy).
+
+### MCP Server (`mcp-server/`)
+
+Run from `mcp-server/`.
+
+| Step | Command |
+|------|---------|
+| Install | `npm install` |
+| Build | `npm run build` (`tsc`, output in `dist/`; a type error writes nothing because of `noEmitOnError`) |
+| Test | `npm test` (Vitest). The `pretest` hook first runs `node ../scripts/build-personas.js` and then `node ../scripts/build-personas.js --check`, so every full test run rebuilds the persona output and can rewrite tracked files such as `personas/name-mapping.json`. |
+| Run a single test | `npx vitest run tests/<path>/<file>.test.ts`, optionally with `-t "<test name>"`. Calling Vitest directly skips the `pretest` persona rebuild. |
+| Watch / coverage | `npm run test:watch`; `npm run test:coverage` (writes the ignored `coverage/` folder) |
+| Lint | None (no ESLint or Prettier configuration) |
+| Typecheck | `npx tsc --noEmit`. There is no script for it; it reads the same `tsconfig.json` as the build, which includes `src/**/*` only. |
+| Role check | `npm run check:roles` |
+| Run locally (development) | `npm run dev` (`tsx src/index.ts`, STDIO transport; the `predev` hook syncs the version first) |
+| Run the built server | `node dist/index.js`, optionally `--ledger-dir <path>` |
+
+The built server is a STDIO process started by an MCP client, not a long-running service you open in a browser. How the installed copy is registered with IDE clients is described in [live-workspace.md](live-workspace.md).
+
+### MCP Server GUI (`mcp-server/gui/`)
+
+The GUI has no `package.json` of its own. It is TypeScript run through `tsx`, and its dependencies, scripts and tests belong to `mcp-server/`.
+
+| Step | Command |
+|------|---------|
+| Install | The `mcp-server/` install above |
+| Build | None. The server runs through `tsx` and the frontend in `gui/public/` is served as written, with no build step. |
+| Test | The `mcp-server/` suite (GUI tests live in `mcp-server/tests/gui/` and `mcp-server/tests/gui-server.test.ts`) |
+| Run a single test | As for the MCP server, for example `npx vitest run tests/gui/<file>.test.ts` from `mcp-server/` |
+| Lint | None |
+| Typecheck | None. `mcp-server/tsconfig.json` includes `src/**/*` only, so `gui/*.ts` is not type-checked by the build or by `tsc --noEmit`. |
+| Start | From the workspace root: `node scripts/cli.js gui` (prompts for a port) or `node scripts/run-gui.js [--port <n>]`; from `mcp-server/`: `npm run gui` |
+
+The GUI's default port is 3420, which `scripts/run-gui.js` documents as reserved for the live workspace. A GUI started from a development checkout takes `--port 3460`; the convention is in the GUI manifest's [GUI Port Convention](../../../mcp-server/gui/docs/agents/project-manifest/constraints.md#23-gui-port-convention--live-3420-vs-dev-3460).
+
+### Personas (`personas/`)
+
+The personas module has no test framework and no linter of its own. The build logic is the external `@mistralys/persona-builder` library, driven by the root scripts. The workspace-root Vitest suite covers the `scripts/lib/` validation modules the build uses.
+
+| Step | Command |
+|------|---------|
+| Install | `cd personas && npm install` |
+| Build | `node scripts/build-personas.js` from the workspace root (or `npm run build` in `personas/`, which calls the same script). It builds every suite and every output target; there is no flag to narrow it. |
+| Check (validate without writing) | `node scripts/build-personas.js --check` (`--dry-run` is an alias). It renders in memory and fails only on error-severity validation results; it never compares against files on disk. |
+| Test | The workspace-root `npm test` |
+| Run a single test | `npx vitest run scripts/tests/<file>.test.js` from the workspace root |
+| Lint / typecheck | None (JavaScript CommonJS, no transpilation) |
+| Deploy to IDE agent folders | `node scripts/sync-personas.js` (builds first; see [live-workspace.md](live-workspace.md) for what it overwrites) |
+
+### Orchestrator (`orchestrator/`)
+
+Run from `orchestrator/` with its virtual environment active (`.venv/bin/activate` on macOS and Linux, `.venv\Scripts\activate` on Windows).
+
+| Step | Command |
+|------|---------|
+| Install | `python -m venv .venv`, activate it, then `pip install -e ".[anthropic,dev]"` (add the `google` extra for Gemini). The `dev` extra carries pytest, pytest-asyncio, ruff and pip-audit. |
+| Build | None. It is a source install; `pyproject.toml` defines the `orchestrate` entry point. |
+| Test | `pytest` (configuration in `pyproject.toml`: `tests/` is the test path, asyncio mode is `auto`) |
+| Run a single test | `pytest tests/<file>.py::<TestClass>::<test_name>`, or `pytest tests/<file>.py` for one file. Markers `integration`, `live` and `deepagent` select groups with `-m`. |
+| Lint | `ruff check src/` (the CI step and the pre-commit hook both run exactly this) |
+| Typecheck | None (no mypy or pyright configuration) |
+| Run | `orchestrate <plan.md> [options]` with the environment active; from the workspace root `node scripts/run-orchestrator.js <plan.md>` or `node scripts/cli.js orchestrator --plan <path>`, which rebuild a stale `mcp-server/dist/` first |
+| Pre-flight | `node scripts/cli.js preflight` |
+| Dependency audit | `node scripts/cli.js audit-orchestrator` |
+
+The orchestrator spawns the MCP server from `mcp-server/dist/`, which is why its launchers check that the build is current.
+
+## Verification by Change Type
+
+Which checks to run after which kind of change. This section builds on the [Validation Scripts](cross-system-dependencies.md#validation-scripts) table, which lists the scripts that check individual sync points; the rows below name which of them a change calls for, plus the module test suites and the documents the change obliges. The documents that must be updated alongside a change are listed in the root `AGENTS.md` under *Manifest Maintenance Rules*.
+
+| Change | Checks to run |
+|--------|---------------|
+| **Persona source** (YAML under any `personas/*/src/meta/`, content, partials, shared partials) | `node scripts/build-personas.js` (real build, so the generated files and `personas/name-mapping.json` are rewritten), then `node scripts/build-personas.js --check`; the workspace-root `npm test`. When a persona's `role`, `id`, `cc_file_name`, `vs_file_name` or `subagents` changed, walk the matching rows of the [Dependency Table](cross-system-dependencies.md#dependency-table). Run `node scripts/generate-agents-overview.js --check` when overview metadata changed. Deploying with `node scripts/sync-personas.js` is a separate decision; see [live-workspace.md](live-workspace.md). |
+| **Persona version or changelog block** | The persona build above, then `node scripts/check-version-sync.js` |
+| **Workflow logic** (state machines, routing, handoffs, edge cases) | Change the [workflow specification](../../../mcp-server/docs/agents/workflow-specification/README.md) first, then the implementation, then the tests, then [`constraints-workflow.md`](../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md). Run `npm test` and `npx tsc --noEmit` in `mcp-server/`. |
+| **`shared/workflow-manifest.json`** (roles, pipelines, status enums) | `node scripts/validate-workflow-manifest.js`; `npm run check:roles` in `mcp-server/`; `npm test` in `mcp-server/`; the persona build, because persona `role` values are validated against it. The running server only sees the change after a restart (see [live-workspace.md](live-workspace.md)). |
+| **MCP server code** (`mcp-server/src/`) | `npm run build` (type errors stop it), `npx tsc --noEmit`, `npm test` in `mcp-server/`. Update the module manifest documents the change touches. |
+| **GUI** (`mcp-server/gui/`) | The `mcp-server/` test suite. The GUI is not type-checked by `tsc`, so start it on port 3460 and exercise the changed view <!-- TODO: verify — the repository states no manual GUI verification step -->. |
+| **Root script or shared library** (`scripts/`, `scripts/lib/`) | The workspace-root `npm test`, plus a run of the changed script with `--dry-run` or `--check` where it offers one. Update [root-tooling.md](root-tooling.md) and the root `README.md`. |
+| **Orchestrator** (`orchestrator/src/`) | `ruff check src/` and `pytest` in `orchestrator/`. A change to its prompts, persona-file lookups or model slugs also calls for the matching rows of the Dependency Table. |
+| **Changelog entry or archive** | `node scripts/check-version-sync.js` (module changelog versus package manifest); the personas build warns when the newest `personas/changelog.md` entry is oversized. The rules are in [Changelog Convention](constraints.md#changelog-convention). |
+| **Manifest or documentation only** | No build. Where the change edited a document that CTX imports, the generated `.context/` output is stale until the owner regenerates it. |
+
+The pre-commit hook runs the persona `--check`, the version sync check and `ruff check orchestrator/src/` on staged orchestrator Python, as described in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy). Passing the hook does not substitute for the test suites above.
+
+```
 ###  Path: `/docs/agents/project-manifest/generated-artefacts.md`
 
 ```md
 # Generated Artefacts
 
-Which tracked files a build step writes anywhere in the repository, which command writes each, which module owns it, and when a modified copy can be discarded. This is the single document for the whole workspace: personas build output, the MCP server and the orchestrator are all covered here, and no module manifest keeps a copy. The binding rules derived from this table live in each module manifest's own *Generated Artefacts* section of `constraints.md`: [personas](../../../personas/docs/agents/project-manifest/constraints.md#generated-artefacts), [MCP server](../../../mcp-server/docs/agents/project-manifest/constraints.md#generated-artefacts) and [orchestrator](../../../orchestrator/docs/agents/project-manifest/constraints.md#generated-artefacts). The hub has no `constraints.md` of its own, and the [Curation Log](curation-log.md) records the deferral.
+Which tracked files a build step writes anywhere in the repository, which command writes each, which module owns it, and when a modified copy can be discarded. This is the single document for the whole workspace: personas build output, the MCP server and the orchestrator are all covered here, and no module manifest keeps a copy. The binding rules derived from this table live in each module manifest's own *Generated Artefacts* section of `constraints.md`: [personas](../../../personas/docs/agents/project-manifest/constraints.md#generated-artefacts), [MCP server](../../../mcp-server/docs/agents/project-manifest/constraints.md#generated-artefacts) and [orchestrator](../../../orchestrator/docs/agents/project-manifest/constraints.md#generated-artefacts). The hub's own [constraints.md](constraints.md) does not repeat them; its [Critical Rules](constraints.md#critical-rules) point back to this document.
 
 ## Purpose and Branch Policy
 
@@ -405,7 +707,7 @@ These are not tracked, so there is nothing to revert or commit.
 | `mcp-server/storage/ledger/{repo}/{slug}/orchestrator/{logs,chunks,dialogues}/` — run artefacts stored in the MCP server's ledger tree, ignored through `mcp-server/.gitignore` (`storage/ledger/`). Layout rules are in [constraints-storage.md](../../../mcp-server/docs/agents/project-manifest/constraints-storage.md) and the [orchestrator constraints](../../../orchestrator/docs/agents/project-manifest/constraints.md#storage-layout) | Orchestrator | Written by a run (the log copy in `src/cli.py`, `ChunkWriter`, `dialogue_writer`); not regenerable on demand |
 | `orchestrator/checkpoints/workflow.sqlite` — resumable run state for `--resume` | Orchestrator | Written by a run: the LangGraph SQLite checkpointer (`src/graph.py`). Location set by `CHECKPOINT_DIR`, default `./checkpoints`. Not regenerable on demand |
 | `orchestrator/checkpoints/{thread_id}.terminal` — zero-content markers telling a later `--resume` the thread is finished | Orchestrator | Written by a run that reaches a terminal state (`src/cli.py`) |
-| `orchestrator/logs/{timestamp}-{slug}.jsonl` — JSONL run log, see the [log schema](../../jsonl-log-schema.md) | Orchestrator | Written by every run (`src/utils/logging.py`) |
+| `orchestrator/logs/{timestamp}-{slug}.jsonl` — JSONL run log, see the [log schema](../../../orchestrator/docs/jsonl-log-schema.md) | Orchestrator | Written by every run (`src/utils/logging.py`) |
 | `orchestrator/logs/{plan-hash}-run-status.json` — tombstone for GUI polling, deleted at the start of the next run of the same plan | Orchestrator | Written by every run (`src/cli.py`) |
 | `orchestrator/logs/.run-queue.json`, `.run-queue.lock` — queue state and its file lock | Orchestrator | The run queue (`src/utils/run_queue.py`) |
 | `{plan_dir}/.orchestrator-run.json` (and a `.tmp` sibling during the atomic write) — lives beside the plan document, so it can appear in any repository the orchestrator is pointed at; ignored by the root `.gitignore` pattern `.orchestrator-run.json` | Orchestrator | Written by a run via `_write_run_metadata()` in `src/cli.py` |
@@ -458,6 +760,90 @@ Files that sit next to generated output or feed a generator, but are source. Nev
 - **`personas/name-mapping.json` depends on untracked, machine-local files.** Its `model`, `model_slug` and `cc_model` fields are resolved through `scripts/lib/persona-model-resolution.js` from `personas/model-registry/local.json` (falling back to `default.json`) and `assignments.json`. Both are gitignored, so two machines building the same commit write different model fields into a tracked file. This cannot be fixed by regenerating; a diff confined to those fields is machine drift, not a defect to "fix". A pending plan (`docs/agents/plans/2026-10-15-untrack-name-mapping/`) proposes untracking the file; until it lands the file is tracked and this row stands.
 
 ```
+###  Path: `/docs/agents/project-manifest/live-workspace.md`
+
+```md
+# Live Workspace
+
+What a workspace that hosts the running Ledger MCP server can break by being edited, and which files and folders carry that risk. The agentic development workflow itself, with its ledger tools, depends on that server, so a change here can affect the session making it.
+
+The workspace folder is named *STABLE* in the owner's checkout. The workspace-level description in the parent folder's `AGENTS.md` (outside this repository) states the owner's practice: STABLE is used for regular persona maintenance and smaller improvements and fixes, and bigger projects use a dedicated DEV workspace so the stable one keeps running. That is a stated practice, not something the code enforces. The code does support the distinction in two places: the installed server is launched from one specific checkout, and the GUI reserves port 3420 for the live copy and 3460 for a development copy. The binding rule derived from this is in [constraints.md](constraints.md#live-workspace).
+
+## How the Live Server Is Wired
+
+| Piece | Behaviour |
+|-------|-----------|
+| **Launcher shim** | `node scripts/cli.js install-mcp` writes `~/.ai-insights/bin/launch-server.js` and a sibling `config.json` holding the checkout's path. The shim spawns `mcp-server/dist/index.js` of that checkout over STDIO. It exits with an error when the configured path no longer exists, and the server fails to start when `dist/index.js` is missing. |
+| **Client registration** | The same command merges the `central_pm` server into `~/.copilot/mcp-config.json` and, where the `claude` CLI is on `PATH`, registers it with Claude Code. Both point at the shim, not at a checkout, so the checkout named in `config.json` is the live one. |
+| **Build output** | `mcp-server/dist/` is gitignored and written by `npm run build`. Several root scripts also rebuild it silently when `mcp-server/src/` is newer: the ledger-directory discovery used by root scripts, standalone import and the orchestrator launcher (through `scripts/lib/mcp-dist-freshness.js`), and the bootstrap guard `scripts/preflight-bootstrap.js` (its own check). |
+| **Startup reads** | At process start the server parses and validates `shared/workflow-manifest.json` (a malformed file stops startup with a validation error), loads `personas/name-mapping.json`, scans the VS Code agents folder (`~/.copilot/agents/` by default, or `--agents-dir`) for `*.agent.md` files to build the agent registry, and runs the one-time storage migration on each configured store. |
+| **Ledger storage** | Defaults to `mcp-server/storage/ledger/` (gitignored), or the path given with `--ledger-dir`. When `~/.ai-insights/stores.json` exists the server runs in multi-store mode and the stores it lists are the live data; its absence means single-store mode. |
+
+## What Can Break the Running Server or Workflow
+
+| Change or action | Effect |
+|------------------|--------|
+| Editing `mcp-server/src/` and running `npm run build` (or any root script that triggers a rebuild) | Replaces `dist/`. A server process already running keeps the code it started with; the next start, such as a new agent session, runs the new build. A type error leaves the previous `dist/` in place because the build writes nothing on error. Deleting `dist/` stops every new start. |
+| Editing `shared/workflow-manifest.json` | Takes effect at the next server start, not in running processes. An invalid edit prevents the next start. It also drives role names, pipelines and status enums in the personas and orchestrator, so the [sync points](cross-system-dependencies.md#dependency-table) apply. |
+| A persona build that rewrites `personas/name-mapping.json` | Read at server start. Changed agent names or versions reach the server at its next start, and stale or machine-local model fields in the file affect what it loads (see [Known Contradictions](generated-artefacts.md#known-contradictions)). `npm test` in `mcp-server/` triggers such a build through its `pretest` hook. |
+| `node scripts/sync-personas.js` | Overwrites persona files in `~/.copilot/agents/` and `~/.claude/agents/` (and skills in `~/.claude/skills/`), which are the files the live workflow dispatches. The server's agent registry is built from the VS Code folder at start. A broken persona build deployed here changes every agent a new session launches. |
+| `node scripts/cli.js clean-agents` | Deletes persona files from every publish location. With the VS Code folder emptied, the registry built at the next server start finds no agents. |
+| Writing to `mcp-server/storage/ledger/` or a configured store by hand, or running a one-time migration script (`migrate-knowledge-uuids.js`, `backfill-duration.js`) | Changes live project data. Test code must construct its `LedgerStore` on a temporary directory for this reason; see [constraints-testing.md](../../../mcp-server/docs/agents/project-manifest/constraints-testing.md). |
+| Running a GUI on port 3420 from a development checkout | Shadows or is shadowed by the live GUI, so agents mid-workflow may read the wrong server's data. Use 3460; see the [GUI Port Convention](../../../mcp-server/gui/docs/agents/project-manifest/constraints.md#23-gui-port-convention--live-3420-vs-dev-3460). |
+| Running the orchestrator | Spawns its own MCP server process from `dist/` and writes `orchestrator/logs/` and `orchestrator/checkpoints/` (both gitignored). It does not touch the live process, but it rebuilds `dist/` when stale. |
+
+## Where the Code Supports Isolation
+
+- Running `npm run dev` or `node dist/index.js --ledger-dir <path>` against a scratch ledger directory leaves the live storage untouched.
+- A GUI started with `--port 3460` and a `--ledger-dir` runs beside the live one.
+- Vitest suites use temporary directories, not the live storage.
+- `node scripts/sync-personas.js --dry-run` and `node scripts/build-personas.js --check` write nothing to the deploy folders.
+
+Nothing in the code detects which workspace is the live one, so keeping a risky change out of the live checkout is a matter of working in a separate checkout.
+
+```
+###  Path: `/docs/agents/project-manifest/plan-folders.md`
+
+```md
+# Plan Folders
+
+The layout of `docs/agents/plans/` and `docs/agents/implementation-history/`, which files agents find in a plan folder, and which agent writes each. The persona sources named below are the authority for each file's contents; this document records where the files sit and how they travel.
+
+## Location and Naming
+
+A plan lives in its own folder, `docs/agents/plans/{YYYY-MM-DD}-{slug}/`, in the repository the plan is about. The folder holds `plan.md` and whatever companions the session produced. Tools that receive a plan folder or file derive the project root by finding the `docs/agents` segment in its path, so a plan folder has to sit beneath `docs/agents/plans/` to be recognised. The orchestrator also reads the repository name from the folder's position, as described in the orchestrator manifest's [Log-Copy Path Derives `repo_name` From `plan_dir.parents[3]`](../../../orchestrator/docs/agents/project-manifest/constraints.md#23-log-copy-path-derives-repo_name-from-plan_dirparents3).
+
+Completed plans move to `docs/agents/implementation-history/{YYYY-MM}/{slug}/`.
+
+## Files in a Plan Folder
+
+The Git Committer persona sorts the files into three classes: source documents, research material and generated evidence. The table follows that grouping.
+
+| File | Class | Written by | Notes |
+|------|-------|------------|-------|
+| `plan.md` | Source | The Planner (standalone `planner`, or the ledger Planner) | The plan itself. Read-only for the Developer and for every later stage. The Planner keeps the plan-audit cycle counter in it. |
+| `request.md` | Source | Supplied with the request; no persona source writes it | The original request the plan answers, present only for some plans. Treated as the carrier of requester intent. |
+| `usage-scenarios.md` | Source | The Usage Scenarios Curator (Generate mode), then edited by humans | Authored, optional companion; its absence is normal. Preserved through archival and ledger import. |
+| `research-brief.md` | Research material | The Planner, enriched by the Plan Refiner's review cycles | Verified codebase references the plan was built from, which the implementing session reads first. Committed while the plan is under `plans/`; removed rather than moved on archival, and gitignored under `implementation-history/`. |
+| `audit.md` | Generated evidence | The Plan Auditor | Blocking technical audit of the plan. Gitignored. |
+| `design-review.md` | Generated evidence | The Plan Architect Reviewer | Advisory decision-level review, produced in parallel with the audit and never merged with it. Gitignored. |
+| `scenario-coverage.md` | Generated evidence | The Usage Scenarios Curator (Verify mode) | Per-scenario coverage verdict. Not archived and never handed on as source. |
+| `insights.jsonl` | Generated evidence | The standalone Developer, appended to during implementation | Insight sink, opened with a `session-start` marker and appended to across rework passes. Gitignored, yet part of the archival set: it moves with the plan folder. |
+| `synthesis.md` | Source | The standalone Developer on completion, or the ledger workflow's Synthesis agent (which also archives it into ledger storage through `ledger_complete_synthesis`) | The record of what was done. Its presence is the signal that a plan is finished. A rework pass amends it in place. |
+
+Files the ledger workflow produces during planning and decomposition are also gitignored under `docs/agents/`: `work.md`, `work/`, `dependency-analysis.md`, `pipeline-configuration.md` and `work-packages-draft.md`. The root `.gitignore` is authoritative for the exact patterns.
+
+## How a Plan Folder Travels
+
+1. The Planner writes `plan.md` and `research-brief.md`; the Plan Auditor and Plan Architect Reviewer add `audit.md` and `design-review.md`.
+2. A Developer session writes `insights.jsonl` and, at the end, `synthesis.md`.
+3. When a folder holds a `synthesis.md`, the Git Committer moves its archival set (`plan.md`, `synthesis.md`, `request.md`, an authored `usage-scenarios.md` and `insights.jsonl`, where present) to `implementation-history/{YYYY-MM}/{slug}/` before committing.
+4. The Ledger Synthesis Maintainer imports a standalone plan into the project ledger with `ledger_import_standalone`, which archives `plan.md`, `synthesis.md` and an authored `usage-scenarios.md` into ledger storage, and refreshes the ledger copy of `synthesis.md` afterwards. It treats `scenario-coverage.md` and `insights.jsonl` as generated evidence, never as import sources.
+5. The orchestrator takes a `plan.md` path as its input and derives its plan folder from it.
+
+The persona sources behind these rules: [Git Committer](../../../personas/standalone/src/content/git-committer.md) (file classes, archival set), [Developer](../../../personas/standalone/src/content/developer.md) (insight sink, synthesis) and [Ledger Synthesis Maintainer](../../../personas/ledger-support/src/content/ledger-synthesis-maintainer.md) (import and refresh).
+
+```
 ###  Path: `/docs/agents/project-manifest/root-tooling.md`
 
 ```md
@@ -507,7 +893,7 @@ Persona-build details live in the [personas manifest](../../../personas/docs/age
 | `scripts/lib/insight-validation.js` | **`insight_agent` field validation** for persona YAML metadata. Exports `validateInsightFields(meta, filePath)` (single-file) and `validateInsightFieldsInDirs(dirs)` (batch). Fails the build when: (a) `insight_agent` differs from `role` (ledger personas only — standalone personas without `role` are exempt); (b) exactly one of `insight_agent` / `insight_report_target` is defined. Called unconditionally by `scripts/build-personas.js` in both real and `--check` modes. |
 | `scripts/lib/subagent-reference-validation.js` | **Rendered sub-agent reference check** across all three suites and all three output targets. Exports `validateSubagentReferences(suites)` (batch), `checkRenderedReferences({ persona, target, text, subagents, index })` (single file) and `readRenderedName(text)`. Fails the build when a declared `subagents` slug is never referenced in a target's rendered output by the identifier that target matches (VS Code frontmatter `name`, Claude Code frontmatter `name`, or the slug for deep-agents); when a literal `agentName` / `subagent_type` names an undeclared or nonexistent agent; or when a Claude Code dispatch names its agent only in `description`, or a deep-agents dispatch passes a `task` parameter. Validates the library's in-memory render (`build({ ...config, check: true })`), not the gitignored files on disk, in both real and `--check` modes. Each persona's targets are derived directly from which `r.target` values the library's own build results carry for its `personaYamlPath` — the library already skips excluded-target renders, so there is no separate target-resolution or pruning step here. `cc_tools` / dispatch-grant validation (previously this file's sibling `scripts/lib/cc-tools-validation.js`, now deleted) and target resolution (previously this file's own `resolvePersonaTargets()`, now removed) both live in `@mistralys/persona-builder`'s `validateToolRequirements()`, configured via the `toolRequirements` build option. **Fails hard**, since a wrong identifier makes the platform start another agent, or none, without an error. |
 | `scripts/lib/philosophy-tone.js` | **Operating Philosophy mood check** for persona content files (Persona Design Guide v3.0). Exports `extractPhilosophyPrinciples(markdown)`, `checkPhilosophyTone(markdown, filename, { stripComments })` (single-file) and `checkPhilosophyToneInDirs(dirs, { stripComments })` (batch, forwards the option). Flags verb-initial principle titles and imperative body openings, which the guide requires to be stated in the indicative mood. Comment-aware: `stripComments` is applied to each extracted principle's title/body individually (not to the whole file), so a comment never shifts the reported line number, and a comment-only title is skipped; the seam defaults to the identity function, matching `agent-slug-validation.js`. Known edge, pinned by a characterization test: a bullet sitting *inside* a multi-line comment is still extracted and checked, since extraction scans raw lines. Called unconditionally by `scripts/build-personas.js` (passing its hoisted `stripCommentsFn`) over the three suite `src/content/` directories **and `personas/shared/partials/`** — a philosophy section extracted into a partial must stay within tone coverage. **Warns, never fails**, since the detector is a heuristic and a legitimate declarative may open with an unrecognised verb. |
-| `scripts/lib/changelog-size-check.js` | **Newest-entry size/verbosity check** for `personas/changelog.md` (Changelog Convention rule 8, summary-only). Exports `extractLatestChangelogEntry(markdown)` and `checkChangelogEntrySize(markdown, filename, options)`, plus the `MAX_ENTRY_LINES` / `MAX_BULLETS` / `MAX_SENTENCES_PER_BULLET` / `MAX_LINE_LENGTH` threshold constants. `MAX_LINE_LENGTH` (100) flags any newest-entry line — heading included — whose code-point count exceeds the threshold, counting a Markdown link `[label](target)` as `label` only (the `(target)` portion is excluded, per house style). Scoped to only the first `## v` heading in the file — the entry about to land, never historical entries. Called unconditionally by `scripts/build-personas.js` as the final warning block. **Warns, never fails**, since a mechanical line/bullet/sentence/length count cannot judge prose quality on its own. |
+| `scripts/lib/changelog-size-check.js` | **Newest-entry size/verbosity check** for `personas/changelog.md` ([Changelog Convention](constraints.md#changelog-convention), rule 8, summary-only). Exports `extractLatestChangelogEntry(markdown)` and `checkChangelogEntrySize(markdown, filename, options)`, plus the `MAX_ENTRY_LINES` / `MAX_BULLETS` / `MAX_SENTENCES_PER_BULLET` / `MAX_LINE_LENGTH` threshold constants. `MAX_LINE_LENGTH` (100) flags any newest-entry line — heading included — whose code-point count exceeds the threshold, counting a Markdown link `[label](target)` as `label` only (the `(target)` portion is excluded, per house style). Scoped to only the first `## v` heading in the file — the entry about to land, never historical entries. Called unconditionally by `scripts/build-personas.js` as the final warning block. **Warns, never fails**, since a mechanical line/bullet/sentence/length count cannot judge prose quality on its own. |
 | `scripts/lib/agent-slug-validation.js` | **`{{agent_slug_*}}` cross-reference check** for ledger persona content files. Exports `validateAgentSlugReferences(metaDir, contentDir, { stripComments })` (returns an array of error strings; empty = valid) and `extractSubagentsList(text, key)` (parses a flat dash-prefixed YAML block list). Extracted from `scripts/build-personas.js`'s former inline block; now comment-aware — a `{{agent_slug_*}}` reference written inside a template comment is ignored when the caller passes the library's real `stripComments()` (falls back to the identity function for a stale `dist/` predating that export). Called unconditionally by `scripts/build-personas.js` as one of the `runBuildChecks()` descriptors (see `scripts/lib/build-checks.js`). |
 | `scripts/lib/build-checks.js` | **Check-runner descriptor pattern** used by `scripts/build-personas.js` to run every build check unconditionally, regardless of whether an earlier one failed. Exports `runBuildChecks(checks, { log, warn, error })` — executes an ordered list of `{ id, label, severity, run() }` descriptors, awaits async ones, prints non-empty results under `[ERROR]`/`[WARN]` prefixes, and returns `{ errorCount, warningCount }`; a descriptor whose `run()` throws or rejects is recorded as an error-severity result and the loop continues — and `resolveExitCode(libraryStatus, { errorCount })` (returns the library CLI's own exit status when non-zero, else `1` when `errorCount > 0`, else `0`). `scripts/build-personas.js` now calls `process.exit` exactly once, via `resolveExitCode()`, after every check has run. |
 | `scripts/lib/name-mapping.js` | **Name-mapping generator** for `personas/name-mapping.json`, extracted verbatim from `scripts/build-personas.js`'s former inline post-build block. Exports `generateNameMapping({ personasDir, warn, info })` (returns `{ entries, ledgerCount, nonLedgerCount }` by reading the ledger, standalone and ledger-support `src/meta/` persona YAML — each `_shared.yaml` included for model defaults — plus `personas/model-registry/`), `writeNameMapping(outPath, entries)` (two-space-indented JSON with a trailing newline; entry fields per [`api-surface.md` → `name-mapping.json` — All Suites](personas/docs/agents/project-manifest/api-surface.md#name-mappingjson--all-suites)), and the exported helpers `resolveVersionFromChangelog(text)`, `validateChangelogField(raw, filename, { warn, info })`, and `deriveRole(name)`. Deliberately does not call the library's own `resolveChangelogMeta()` — that would break name-mapping generation whenever `dist/` fails to load, which the wrapper tolerates. Called by `scripts/build-personas.js` on real builds only — never under `--check` / `--dry-run`. |

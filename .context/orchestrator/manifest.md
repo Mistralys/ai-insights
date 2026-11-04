@@ -1319,6 +1319,13 @@ Written by the Manifest Curator only; no other agent edits this file.
 
 ## History
 
+### 2026-10-27 · Update · Curator v1.8.0
+
+**Scope:** Narrow, by instruction: `tech-stack.md` dependency tables (Core Dependencies) and the extras note in Runtime & Language, reconciled against `orchestrator/pyproject.toml`. Not a full reconcile.
+**Commit:** 400f6aaa (working tree held uncommitted changes elsewhere in the repository)
+**Changes:** Moved `langchain-anthropic` and `langchain-google-genai` out of Production into a new Optional Provider Extras table; added `aiosqlite`, `deepagents` and `langchain-core`; added `pip-audit` to Development; filled in version constraints from `pyproject.toml`; the extras note now lists `anthropic`, `google` and `dev`.
+**Notes:** The reverted-decision search, changed-code intersection and adjacent-document check were not run, by the brief's scope. The finding came from an AGENTS.md audit; the root `AGENTS.md` Project Statistics row for orchestrator dependencies already matches `pyproject.toml`.
+
 ### 2026-10-23 · Update · Curator v1.8.0
 
 **Scope:** Narrow, by instruction: the module's generated-artefacts document and the links to it. Not a full reconcile.
@@ -1768,7 +1775,7 @@ tree but are tracked in Git when committed alongside the plan.
 | Component | Version | Notes |
 |-----------|---------|-------|
 | **Language** | Python 3.11+ | CPython runtime |
-| **Package Manager** | pip (setuptools) | Extras: `dev`, `anthropic` |
+| **Package Manager** | pip (setuptools) | Extras: `anthropic`, `google`, `dev` |
 | **Test Framework** | pytest + pytest-asyncio | Async-aware; `live` mark for API-key tests |
 | **Linter** | ruff | Line-length 100, target Python 3.11 |
 
@@ -1780,6 +1787,35 @@ tree but are tracked in Git when committed alongside the plan.
 
 | Package | Version | Purpose |
 |---------|---------|---------|
+| `langgraph` | `>=1.1,<2.0` | StateGraph-based workflow with deterministic routing |
+| `langgraph-checkpoint-sqlite` | *(unpinned)* | SQLite-backed run resume via `--resume` |
+| `aiosqlite` | `>=0.19.0` | Async SQLite driver used by the checkpointer |
+| `deepagents` | `>=0.6,<1` | Deep Agents runtime (`create_deep_agent()`) for agent nodes |
+| `langchain-mcp-adapters` | `>=0.2` | Wraps MCP tools for LangChain tool interface |
+| `langchain-core` | `>=1.2.22` | LangChain core abstractions shared by the graph and agent nodes |
+| `python-dotenv` | `>=1.0` | `.env`-based config with auto-detected LLM provider |
+
+### Optional Provider Extras
+
+An LLM provider package is installed through an extra; neither is a core dependency.
+
+| Extra | Package | Version | Purpose |
+|-------|---------|---------|---------|
+| `anthropic` | `langchain-anthropic` | `>=0.3.10` | Claude (Anthropic) LLM provider |
+| `google` | `langchain-google-genai` | `>=2.0` | Gemini (Google) LLM provider |
+
+### Development
+
+Installed through the `dev` extra.
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `pytest` | `>=8.0` | Test runner |
+| `pytest-asyncio` | `>=0.24` | Async test support |
+| `ruff` | `>=0.8` | Linting and formatting |
+| `pip-audit` | `>=2.7` | Dependency vulnerability audit |
+
+---------|---------|---------|
 | `langgraph` | `>=1.1,<2.0` | StateGraph-based workflow with deterministic routing |
 | `langgraph-checkpoint-sqlite` | *(unpinned)* | SQLite-backed run resume via `--resume` |
 | `langchain-mcp-adapters` | `>=0.2` | Wraps MCP tools for LangChain tool interface |
