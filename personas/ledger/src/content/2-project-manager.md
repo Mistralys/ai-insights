@@ -112,7 +112,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    - `description`: `"Decompose plan into work packages"`
    - `prompt`: the plan document path, the project name, and the mode name `Decompose`
 {{else if target_claude_code}}
-   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Decompose`. Then end your turn: the agent's task notification starts the next step (see Waiting for a Sub-Agent).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Decompose`. Then end your turn: the agent's report starts the next step (see Waiting for a Sub-Agent).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
@@ -131,7 +131,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    - `description`: `"Consistency pass over the WP draft"`
    - `prompt`: the plan document path, the project name, and the mode name `Consistency Pass`
 {{else if target_claude_code}}
-   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Consistency Pass`. Then end your turn: the agent's task notification starts the next step (see Waiting for a Sub-Agent).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_wp_decomposer}}"`. Pass: the plan document path, the project name, and the mode name `Consistency Pass`. Then end your turn: the agent's report starts the next step (see Waiting for a Sub-Agent).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
@@ -155,7 +155,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    - `description`: `"Map WP dependencies and execution order"`
    - `prompt`: the plan folder path — the agent reads `work-packages-draft.md` from it
 {{else if target_claude_code}}
-   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_dependency_sequencer}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` from it. Then end your turn: the agent's task notification starts the next step (see Waiting for a Sub-Agent).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_dependency_sequencer}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` from it. Then end your turn: the agent's report starts the next step (see Waiting for a Sub-Agent).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_dependency_sequencer}}"`
@@ -174,7 +174,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    - `description`: `"Configure pipeline stages per work package"`
    - `prompt`: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it
 {{else if target_claude_code}}
-   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_pipeline_configurator}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it. Then end your turn: the agent's task notification starts the next step (see Waiting for a Sub-Agent).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_pipeline_configurator}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it. Then end your turn: the agent's report starts the next step (see Waiting for a Sub-Agent).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_pipeline_configurator}}"`
@@ -202,7 +202,7 @@ To proceed, re-run the Planner against this plan folder so it writes a fresh
    - `description`: `"Initialize project ledger with all work packages"`
    - `prompt`: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder
 {{else if target_claude_code}}
-   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_bootstrapper}}"`. Pass: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder. Then end your turn: the agent's task notification starts the next step (see Waiting for a Sub-Agent).
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_bootstrapper}}"`. Pass: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder. Then end your turn: the agent's report starts the next step (see Waiting for a Sub-Agent).
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_bootstrapper}}"`

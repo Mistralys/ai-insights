@@ -13,6 +13,7 @@ and MCP config now deploy to the global Copilot home.
 - MCP: Standalone import and synthesis refresh accept agent-supplied outcome summaries.
 - Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
 - Personas: Claude Code handoffs and sub-agent dispatches start the intended agent.
+- Personas: Claude Code dispatchers continue on a sub-agent's final report instead of stalling.
 - CLI: Persona sync, skill publishing and MCP install now target the global Copilot home.
 - CLI: Files deployed to the old VS Code locations are not removed automatically.
 - MCP: Agent registry looks for agents in the same folder as persona sync.

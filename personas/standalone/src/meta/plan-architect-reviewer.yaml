@@ -5,6 +5,10 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.5.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   2.5.1 (2026-10-28): The Output Location now describes `design-review.md` as an input file and names the Planner as
     its reader. Claude Code tells every sub-agent to write no report or findings files and to return findings as a
     reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan Refiner on

@@ -7,6 +7,13 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.15.0 (2026-10-29): The five sub-agent dispatch steps now continue on the agent's report rather than its task
+    notification. The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed. The Claude Code handoff block now ends the turn
+    with `HANDED OFF: {next_agent}` after launching a successor, so whoever dispatched this agent knows the chain is
+    still running.
   3.14.0 (2026-10-28): The WP Decomposer (both modes), Dependency Sequencer and Pipeline Configurator dispatches now
     carry the path of the file named under Expected output. The shared `subagent-briefing` section now has a dispatch
     prompt name the file the next step reads the sub-agent's result from: the output file is part of the task, not the

@@ -140,7 +140,7 @@ Evidence comes from an automated scan of local Claude Code session transcripts (
 All dispatching agents carry a shared instruction block:
 - Never poll for a sub-agent (no `sleep`, until-loop, Monitor, or watching for files).
 - End the turn; the task notification starts the next step. Ending the turn is not ending the task.
-- Act on the task notification, not the hand-back.
+- Act on the task notification, not the hand-back. *Withdrawn 2026-10-29: see Follow-up below.*
 - Pass only `subagent_type`, `description` and `prompt`.
 - Re-issue a dispatch that returned an error once, then fall back to the step's failure handling.
 
@@ -227,3 +227,11 @@ The two effects touch different code paths and differ in severity, so they go to
 **Issue 2 — A named `Agent` call from a sub-agent loses the teammate's result.** With agent teams enabled, a named `Agent` call made by a sub-agent spawns a teammate of the session's team. The teammate is detached from the sub-agent's task: the sub-agent's task ends without waiting. The teammate's messages and idle notification are written to the lead's mailbox, but the lead's `InboxPoller` never starts, so the lead never receives them. This contradicts the documented idle notification. The docs do not describe this path at all; their "no nested teams" limitation covers teammates spawning teammates, not sub-agents doing so. Evidence: cases B, D, B2, H1 and H2 (five of five), with the `--debug` mailbox lines from H1 against G. Include the `[handback-send-enforce]` message verbatim.
 
 Neither issue changes the workaround. Dropping `name` avoids all three effects, and a named sub-agent dispatch offers nothing the completion notification does not already provide.
+
+## Follow-up (2026-10-29): Waiting Past a Final Hand-Back Stalls the Dispatcher
+
+The workaround "act on the task notification, not the hand-back" deadlocked the Plan Refiner. Its reviewer, Planner and auditor dispatches each sent a hand-back carrying the final report. The refiner ended its turn to wait for the notification. The notification arrived 1–3 seconds later, but Claude Code recorded it in the transcript only (`queueTranscriptOnly`) and it started no turn. Each step waited until the user typed "continue".
+
+Across the session logs, 125 of the 181 notifications that followed a hand-back were recorded only, between 1 and 37 seconds after it. The other 56 started a turn a median of 14 minutes later, which is the case where the sub-agent handed work on to another agent. The notification itself says the report "was delivered to you as a message … it is not repeated here". The tools reference calls the hand-back the sub-agent's "final report". Neither the docs nor the logs support this report's earlier claim that an intermediate turn-end produces a hand-back.
+
+The shared partial now continues on a hand-back that carries the final report and waits for the notification only when work is still running. The [dispatch reference](../references/claude-code-subagent-dispatch.md#two-messages-per-dispatch) records the behaviour.

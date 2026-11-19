@@ -5,6 +5,13 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.3.0 (2026-10-29): Monitoring Protocol step 6 now tells a seeded agent's hand-back that ends in `HANDED OFF:`
+    (chain still running, wait) from one with no handoff (run stopped, continue at step 7 at once). A Repair Dispatch
+    ends on the Doctor's report. The Status Report's Result line and the run-activity constraints follow. The shared
+    `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it carries the final report, and
+    waits for the task notification only when the report says another agent is still running. Claude Code records the
+    notification that follows a final hand-back without starting a turn, so the old rule to wait for it stalled every
+    dispatch until the user typed.
   3.2.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that

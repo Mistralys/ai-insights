@@ -5,6 +5,10 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.9.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.9.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that

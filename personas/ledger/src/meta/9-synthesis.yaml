@@ -6,6 +6,10 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.15.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   3.15.1 (2026-10-28): The Output Format's Report Document is now the Synthesis Document, described as input for
     `ledger_complete_synthesis` and the Knowledge Archiver rather than as a report. Claude Code tells every sub-agent
     to write no report or summary files and to return findings as a reply, but exempts files written as input to
