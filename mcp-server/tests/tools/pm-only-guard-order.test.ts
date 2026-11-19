@@ -22,7 +22,7 @@
  *    tool is added — this is deliberately independent of the hand-maintained
  *    table so it can't drift silently.
  *
- * NOTE for the role-alias stub plan (`docs/agents/plans/2026-10-19-role-alias-alignment/`):
+ * NOTE for the role-alias stub plan (`docs/agents/plans/2026-10-19-p08-role-alias-alignment/`):
  * this scan is coupled to the *name* `requirePmRole` as exported by
  * `pm-role-guard.ts`. If that plan renames or wraps the guard behind a new
  * export, `collectPmGuardedTools()`'s `requirePmRole` identifier below must be

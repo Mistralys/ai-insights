@@ -9,8 +9,8 @@
 This is the second rework of P04. Rework-1 (`docs/agents/plans/2026-10-16-p04-pipeline-stage-adjustment-rework-1/`) completed 12/12 WPs with no rework cycles. Its changes are still uncommitted and its changelog entries are marked WIP. Its synthesis lists five follow-ups. This plan takes three of them and moves the other two to Human Actions. Rework-1's own deferred items were re-verified, and none has become actionable here.
 
 The user decided that the two authorisation items need focused, separate plans, so both are out of this plan:
-- **Role-alias asymmetry:** to be resolved by following spec §6.5 (accept the short and long forms). Stub plan: `docs/agents/plans/2026-10-19-role-alias-alignment/`.
-- **`updateWorkPackageStatus` guards lag spec v2.4.0:** found during this research. Stub plan: `docs/agents/plans/2026-10-19-status-guard-spec-alignment/`.
+- **Role-alias asymmetry:** to be resolved by following spec §6.5 (accept the short and long forms). Stub plan: `docs/agents/plans/2026-10-19-p08-role-alias-alignment/`.
+- **`updateWorkPackageStatus` guards lag spec v2.4.0:** found during this research. Stub plan: `docs/agents/plans/2026-10-19-p07-status-guard-spec-alignment/`.
 
 Insights that shaped the design:
 - `b37db114-…`: a true dry-run replays the real code path. Check mode keeps the same generation path and only narrows recovery.
@@ -59,7 +59,7 @@ A completeness case derives the set of guarded tool names from source and assert
 - A scanner function in the test (`collectPmGuardedTools(sourceText)`) reads every `import { … } from '…/pm-role-guard.js'` statement and collects each imported binding, including `X as Y` aliases. It then matches calls to any of those bindings whose first argument is a quoted tool-name literal, tolerating whitespace and line breaks between `(` and the literal.
 - The scan covers every `.ts` file under `mcp-server/src/tools/` that imports from `pm-role-guard`, not only `work-package-admin.ts`, so a PM-only tool added in another module is also caught.
 - Non-vacuity: the scan must find at least one importing file and at least one guarded name. A guard-form change that the scanner no longer recognises (for example, a helper exported under a new module path) then fails loudly instead of yielding an empty set that a reduced table would match.
-- A header comment in the test names the coupling: the role-alias plan (`docs/agents/plans/2026-10-19-role-alias-alignment/`) may route the guard through a role-identity helper, and whoever changes the guard's module or call shape updates `collectPmGuardedTools` in the same change.
+- A header comment in the test names the coupling: the role-alias plan (`docs/agents/plans/2026-10-19-p08-role-alias-alignment/`) may route the guard through a role-identity helper, and whoever changes the guard's module or call shape updates `collectPmGuardedTools` in the same change.
 - Synthetic fixtures (insight `48607cdb-…`): a reduced table is reported as missing a name, and an inline source string using an aliased import and a multi-line call (`import { requirePmRole as guard } …` / `guard(\n  'ledger_x', …)`) yields `ledger_x`.
 
 ### 2. `ctx-generate` failure truthfulness
@@ -167,7 +167,7 @@ Every unreleased changelog head carries the `**WIP; UNRELEASED**` marker, so thi
 | `orchestrator/tests/` (22 findings) | Lint debt since at least P03 | Promoted to step 4 | Synthesis Deferred (WP-008), widened. Prerequisite for widening the gate. |
 | `.github/workflows/ci.yml` `ruff` job; `.githooks/pre-commit` L19–L41 | Lint `src/` only | Promoted to step 4 | Keeps the cleanup from regressing. |
 | `.github/workflows/ci.yml` | No job for the root scripts suite | Promoted to step 5 | The suite guards rework-1's `ctx-generate` fix and runs nowhere automatically. |
-| `mcp-server/src/tools/work-package.ts` `updateWorkPackageStatus` alias lists and guards | Five hand-written alias lists; guards lag spec v2.4.0 | Rejected | User decision: each gets its own focused plan (stub plans `2026-10-19-role-alias-alignment` and `2026-10-19-status-guard-spec-alignment`). |
+| `mcp-server/src/tools/work-package.ts` `updateWorkPackageStatus` alias lists and guards | Five hand-written alias lists; guards lag spec v2.4.0 | Rejected | User decision: each gets its own focused plan (stub plans `2026-10-19-p08-role-alias-alignment` and `2026-10-19-p07-status-guard-spec-alignment`). |
 | `mcp-server/src/utils/pm-role-guard.ts` | Could be widened to an alias-aware role helper | Rejected | Belongs to the role-alias stub plan. |
 | CI `ctx-generate --check` job | Would catch stale `.context/` in pull requests | Rejected | Needs a `ctx` install in CI and can only be validated by a push. Stays in Deferred Items. |
 | `mcp-server/tests/tools/knowledge-help.test.ts` presence blocks | Redundant with the help coverage suite | Rejected | Harmless overlap; deletion is churn (rework-1 decision stands). |
@@ -251,7 +251,7 @@ Every unreleased changelog head carries the `**WIP; UNRELEASED**` marker, so thi
 
 - The rework-1 working tree (uncommitted, branch `feature-pipeline-adjustments`) is the baseline. Line references were verified against it on 2026-10-19. If the user commits it first, nothing in this plan changes.
 - The rework-1 changelog entries remain unreleased while this plan runs.
-- The stub plans `2026-10-19-role-alias-alignment` and `2026-10-19-status-guard-spec-alignment` run after this plan. Neither touches the files this plan changes, apart from `help-content.ts`, which the role-alias plan edits in other entries.
+- The stub plans `2026-10-19-p08-role-alias-alignment` and `2026-10-19-p07-status-guard-spec-alignment` run after this plan. Neither touches the files this plan changes, apart from `help-content.ts`, which the role-alias plan edits in other entries.
 
 ## Constraints
 
@@ -263,8 +263,8 @@ Every unreleased changelog head carries the `**WIP; UNRELEASED**` marker, so thi
 
 ## Out of Scope
 
-- Role-alias handling in `requirePmRole` and `updateWorkPackageStatus` (stub plan `2026-10-19-role-alias-alignment`).
-- Aligning `updateWorkPackageStatus`'s COMPLETE, reopen and blocker-replacement guards with spec v2.4.0 (stub plan `2026-10-19-status-guard-spec-alignment`).
+- Role-alias handling in `requirePmRole` and `updateWorkPackageStatus` (stub plan `2026-10-19-p08-role-alias-alignment`).
+- Aligning `updateWorkPackageStatus`'s COMPLETE, reopen and blocker-replacement guards with spec v2.4.0 (stub plan `2026-10-19-p07-status-guard-spec-alignment`).
 - The halted sweep's direct route to synthesis (owned by P05).
 - CI on macOS or Windows runners.
 - The design exclusions P04 recorded, and the self-declared `agent_role` trust model.
@@ -374,8 +374,8 @@ Every unreleased changelog head carries the `**WIP; UNRELEASED**` marker, so thi
 
 | # | Deferred Item | Origin | Reason Deferred | Notes |
 |---|---------------|--------|-----------------|-------|
-| 1 | Accept the role aliases in `requirePmRole` as spec §6.5 requires, through one role-identity helper | Synthesis Deferred (WP-004); rework-1 Deferred 3 | User decision: separate focused plan | Stub: `docs/agents/plans/2026-10-19-role-alias-alignment/` |
-| 2 | Align `updateWorkPackageStatus` guards with spec v2.4.0 (§6.2, §6.5, §21.10) | Found during this plan's research | User decision: separate focused plan | Stub: `docs/agents/plans/2026-10-19-status-guard-spec-alignment/` |
+| 1 | Accept the role aliases in `requirePmRole` as spec §6.5 requires, through one role-identity helper | Synthesis Deferred (WP-004); rework-1 Deferred 3 | User decision: separate focused plan | Stub: `docs/agents/plans/2026-10-19-p08-role-alias-alignment/` |
+| 2 | Align `updateWorkPackageStatus` guards with spec v2.4.0 (§6.2, §6.5, §21.10) | Found during this plan's research | User decision: separate focused plan | Stub: `docs/agents/plans/2026-10-19-p07-status-guard-spec-alignment/` |
 | 3 | Halted sweep routes straight to synthesis | rework-1 Deferred 1 (P03 → P04) | Owned by pending plan P05 | Reconsider when P05 executes. |
 | 4 | GUI control for editing a WP's stage list | rework-1 Deferred 2 | Needs an authorisation model the GUI lacks | Own plan if requested. |
 | 5 | `ctx-generate --check` as a CI job | rework-1 Deferred 4 | Needs a `ctx` install in CI and is only verifiable by a push | Reconsider once the root scripts job has proven stable. |

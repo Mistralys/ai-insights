@@ -107,9 +107,10 @@ Input: `docs/agents/projects/revise-specification.md` (the "Spec Amendment Brief
 
 ### Structural Observations
 - `edge-cases.md` §21.40 and §21.43: the amendment brief retitles both headings. Retitling changes their anchors, and `edge-cases.md` L214 and L746 link to them by anchor.
+- Repository-wide search (design-review integration, 2026-10-23) for the anchors `#2140-abandoned-wp-detection-claimed-but-no-pipeline` and `#2143-post-technical-blocker-unblock-routing`, and for the heading texts, outside `docs/agents/plans/` and `node_modules`: the only hits are `edge-cases.md` L214 and L746, their regenerated copies in `.context/mcp-server/workflow-spec-edge-cases.md` (L233, L765), and the amendment brief `docs/agents/projects/revise-specification.md` (which proposes the retitles: L172 "Abandoned WP Detection (No Derivable Next Actor)", L244 "Post-Technical-Blocker Unblock Routing (untargeted blockers)"). No source, test, persona or manifest file links to either anchor.
 
 ### Constraints
-- Preserve existing anchors (amendment brief constraint).
+- Preserve existing anchors (amendment brief constraint, `revise-specification.md` L32: "Preserve existing cross-reference anchors"). The brief itself retitles §21.40 and §21.43, so the constraint is read as "every existing cross-reference keeps resolving", which repairing the two in-file links satisfies.
 
 ## Area 7: Walkthrough and README (`walkthrough.md` 220 lines, `README.md` 227 lines)
 
