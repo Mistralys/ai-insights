@@ -5,6 +5,13 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  2.0.0 (2026-11-10): Retired `api-surface.md` in favour of `architecture-notes.md`, which keeps only what the code
+    cannot show about itself: cross-boundary contracts with their producers and consumers, architectural decisions
+    with the source of their rationale, and runtime substrate outside the tracked tree. The One-File Test decides
+    what qualifies. Per-class and per-method descriptions belong in code comments, and gaps there are reported to the
+    file's owner, never written by the curator. Update proposes an item-by-item migration of an existing
+    `api-surface.md` and waits for approval; Audit flags one still present. The internal-consistency check now
+    resolves every named symbol in the codebase, and rationale may be sourced from commits, plans or the user.
   1.10.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
     carries the final report, and waits for the task notification only when the report says another agent is still
     running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old

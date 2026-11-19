@@ -20,6 +20,7 @@ summaries and applies requested synthesis edits.
 - Ledger, Standalone: Changelog writers collect changes in one WIP version based on the last tag.
 - Standalone: AGENTS.md Curator infers its mode from the request and never re-asks a decision.
 - Standalone: Manifest Curator documents generated files; other curators and Git Committer use it.
+- Standalone: Manifest Curator replaces `api-surface.md` with `architecture-notes.md` (breaking).
 - Standalone: Workspace Architect gained Amend mode, a plan file, return passes, artefact handling.
 - Standalone: Documentation curators leave work to a caller's plan and may still call specialists.
 - Standalone: WHATSNEW Curator writes self-contained items and completes existing versions.
