@@ -1,4 +1,5 @@
 import { readdir, readFile, stat } from 'fs/promises';
+import type { Dirent } from 'fs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { validateProvider } from './provider-validation.js';
@@ -21,6 +22,23 @@ import type { ErrorCodeProvider } from './provider-api.js';
  *   `exports` maps (conditions, subpaths) — a folder with neither `main`
  *   nor `index.mjs` is reported as a load error that says so, rather than
  *   partially re-implementing Node's resolver.
+ *
+ * A symbolic link in the plugin directory is followed: a link to a `*.mjs`
+ * or `*.js` file, or to a folder, loads like the file or folder itself. The
+ * extension check uses the link's own name, and the reported `path` stays the
+ * link path (the name the user placed in the directory). A link whose target
+ * is missing or unreadable (dangling, or a link loop) is recorded as a load
+ * error rather than skipped silently. Following a link adds no trust: whoever
+ * can write a link into this directory could write the code there directly.
+ *
+ * Each import is bounded by {@link PLUGIN_IMPORT_TIMEOUT_MS}. When a module
+ * has not settled by then, the plugin is recorded as a load error and the scan
+ * moves on, so one hanging plugin cannot block server startup indefinitely.
+ * The budget is per plugin and the scan is sequential, so the worst-case
+ * delay is (number of hanging plugins) x the timeout. A dynamic `import()`
+ * cannot be cancelled: a timed-out module may keep evaluating in the
+ * background, but it is never registered. A plugin that blocks the event loop
+ * synchronously at the top level cannot be interrupted at all.
  *
  * Modules are imported through `pathToFileURL(path).href`, which is the
  * form Node's dynamic `import()` accepts correctly on Windows as well as
@@ -56,6 +74,58 @@ export interface PluginLoadError {
 export interface LoadPluginProvidersResult {
   providers: LoadedPlugin[];
   errors: PluginLoadError[];
+}
+
+/** Default per-plugin budget, in milliseconds, for a plugin module's `import()` to settle. */
+export const PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
+
+/** Optional settings for {@link loadPluginProviders}. */
+export interface LoadPluginProvidersOptions {
+  /** Per-plugin import timeout in milliseconds. Defaults to {@link PLUGIN_IMPORT_TIMEOUT_MS}. */
+  importTimeoutMs?: number;
+}
+
+/** How a plugin directory entry is handled by the scan loop. */
+type EntryKind = 'file' | 'directory' | 'dangling-link' | 'other';
+
+/**
+ * Classifies a directory entry, looking through symbolic links.
+ * `stat` follows links, so a link is classified by its target; a failing
+ * `stat` (missing target, or a link loop) yields `'dangling-link'`.
+ */
+async function classifyEntry(entry: Dirent, entryPath: string): Promise<EntryKind> {
+  if (entry.isSymbolicLink()) {
+    try {
+      const target = await stat(entryPath);
+      if (target.isFile()) return 'file';
+      if (target.isDirectory()) return 'directory';
+      return 'other';
+    } catch {
+      return 'dangling-link';
+    }
+  }
+  if (entry.isFile()) return 'file';
+  if (entry.isDirectory()) return 'directory';
+  return 'other';
+}
+
+/**
+ * Races `promise` against a timer. The timer is unref'd and always cleared,
+ * so a fast import leaves no pending handle. The losing promise is given a
+ * no-op rejection handler so a late failure is not reported as unhandled.
+ */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`import timed out after ${timeoutMs} ms`)), timeoutMs);
+    timer.unref();
+  });
+  promise.catch(() => undefined);
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** `true` for an entry file this loader attempts to import directly: `*.mjs` or `*.js`. */
@@ -114,13 +184,18 @@ async function loadOneModule(
   modulePath: string,
   source: string,
   providers: LoadedPlugin[],
-  errors: PluginLoadError[]
+  errors: PluginLoadError[],
+  importTimeoutMs: number
 ): Promise<void> {
   let moduleExports: unknown;
   try {
-    moduleExports = await import(pathToFileURL(modulePath).href);
+    moduleExports = await withTimeout(import(pathToFileURL(modulePath).href), importTimeoutMs);
   } catch (error) {
-    errors.push({ source, message: `failed to import plugin: ${messageOf(error)}` });
+    const message = messageOf(error);
+    errors.push({
+      source,
+      message: message.startsWith('import timed out') ? message : `failed to import plugin: ${message}`,
+    });
     return;
   }
 
@@ -152,8 +227,14 @@ async function loadOneModule(
  *
  * @param pluginDir - Absolute path to the plugin directory, normally
  *   `resolveErrorCodePluginDir()`.
+ * @param options - Optional settings; `importTimeoutMs` overrides the
+ *   per-plugin import timeout (used by tests).
  */
-export async function loadPluginProviders(pluginDir: string): Promise<LoadPluginProvidersResult> {
+export async function loadPluginProviders(
+  pluginDir: string,
+  options: LoadPluginProvidersOptions = {}
+): Promise<LoadPluginProvidersResult> {
+  const importTimeoutMs = options.importTimeoutMs ?? PLUGIN_IMPORT_TIMEOUT_MS;
   const providers: LoadedPlugin[] = [];
   const errors: PluginLoadError[] = [];
 
@@ -168,24 +249,29 @@ export async function loadPluginProviders(pluginDir: string): Promise<LoadPlugin
   for (const entry of entries) {
     const entryPath = join(pluginDir, entry.name);
 
-    if (entry.isFile()) {
-      if (!isPluginFile(entry.name)) {
-        continue;
+    switch (await classifyEntry(entry, entryPath)) {
+      case 'file':
+        if (isPluginFile(entry.name)) {
+          await loadOneModule(entryPath, entryPath, providers, errors, importTimeoutMs);
+        }
+        break;
+      case 'directory': {
+        const resolvedEntry = await resolveFolderEntryPath(entryPath);
+        if (resolvedEntry === null) {
+          errors.push({
+            source: entryPath,
+            message: `folder plugin has neither a package.json "main" nor an index.mjs entry file`,
+          });
+          break;
+        }
+        await loadOneModule(resolvedEntry, entryPath, providers, errors, importTimeoutMs);
+        break;
       }
-      await loadOneModule(entryPath, entryPath, providers, errors);
-      continue;
-    }
-
-    if (entry.isDirectory()) {
-      const resolvedEntry = await resolveFolderEntryPath(entryPath);
-      if (resolvedEntry === null) {
-        errors.push({
-          source: entryPath,
-          message: `folder plugin has neither a package.json "main" nor an index.mjs entry file`,
-        });
-        continue;
-      }
-      await loadOneModule(resolvedEntry, entryPath, providers, errors);
+      case 'dangling-link':
+        errors.push({ source: entryPath, message: 'symbolic link target is missing or unreadable' });
+        break;
+      default:
+        break;
     }
   }
 

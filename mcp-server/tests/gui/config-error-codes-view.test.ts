@@ -54,6 +54,8 @@ declare global {
   // eslint-disable-next-line no-var
   var ecTestInFlight: boolean;
   // eslint-disable-next-line no-var
+  var ecSaveInFlight: boolean;
+  // eslint-disable-next-line no-var
   var configDirty: { errorCodes: boolean; [key: string]: boolean };
   // eslint-disable-next-line no-var
   var API: {
@@ -156,6 +158,7 @@ function resetEcModuleState(): void {
   (globalThis as Record<string, unknown>)['ecTemporaryCodes'] = null;
   globalThis.ecSelectedProviderId = null;
   globalThis.ecTestInFlight = false;
+  globalThis.ecSaveInFlight = false;
 }
 
 beforeEach(() => {
@@ -501,5 +504,82 @@ describe('ecRenderTab — AC-2: accessibility and interaction contracts', () => 
     interactive.forEach((el) => {
       expect(['INPUT', 'SELECT', 'BUTTON']).toContain(el.tagName);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Save in-flight guard (rework: AC-01..AC-03)
+// ---------------------------------------------------------------------------
+
+describe('ecHandleSave — in-flight guard', () => {
+  const submitForm = (): void => {
+    (contentEl().querySelector('#ec-form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  };
+
+  it('ignores a second submit while pending and re-enables after success', async () => {
+    await renderAndLoad();
+    let resolveSave: (value: unknown) => void = () => {};
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
+
+    submitForm();
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+
+    resolveSave(makeConfigResponse());
+    await flushPromises();
+    expect(globalThis.ecSaveInFlight).toBe(false);
+
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockResolvedValue(makeConfigResponse());
+    submitForm();
+    await flushPromises();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a second submit while pending and re-enables after failure', async () => {
+    await renderAndLoad();
+    let rejectSave: (reason: unknown) => void = () => {};
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockReturnValue(new Promise((_resolve, reject) => { rejectSave = reject; }));
+
+    submitForm();
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+
+    rejectSave(new Error('boom'));
+    await flushPromises();
+    const saveBtn = contentEl().querySelector('#ec-save-btn') as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(false);
+    expect(saveBtn.textContent).toBe('Save');
+
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no second request for requestSubmit() while pending', async () => {
+    await renderAndLoad();
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockReturnValue(new Promise(() => {}));
+    const form = contentEl().querySelector('#ec-form') as HTMLFormElement;
+
+    form.requestSubmit();
+    form.requestSubmit();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('a Save blocked by validation does not set the in-flight flag', async () => {
+    await renderAndLoad();
+    const form = contentEl().querySelector('#ec-form') as HTMLFormElement;
+    const validity = vi.spyOn(form, 'reportValidity').mockReturnValueOnce(false).mockReturnValue(true);
+
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).not.toHaveBeenCalled();
+    expect(globalThis.ecSaveInFlight).toBe(false);
+
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+    expect(validity).toHaveBeenCalledTimes(2);
+  });
+
+  it('index.html loads config-error-codes.js with the bumped cache-buster', () => {
+    const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf-8');
+    expect(indexHtml).toContain('/views/config-error-codes.js?v=2');
   });
 });

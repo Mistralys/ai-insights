@@ -11,6 +11,8 @@ request/temporary-code rules across all three personas.
   `TEMPORARY ERROR CODE` marker, and never choosing or configuring a provider.
 - Standalone: Developer and Web GUI Specialist gained the same two error-code tools, scoped
   narrowly to error-code allocation rather than full ledger workflow access.
+- Build: The persona build keeps `docs/references/agents-overview.md` current;
+  `--check` fails when it is stale.
 
 ## v3.38.0 - Check-Only Chains Prevented, Handoffs Fixed
 

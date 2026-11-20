@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, writeFile, stat, chmod } from 'fs/promises';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, platform } from 'os';
 import { issueTemporaryCode, listTemporaryCodes } from '../../src/error-codes/temporary-codes.js';
 import type { TemporaryCodeEntryInput } from '../../src/error-codes/temporary-codes.js';
 
@@ -28,6 +28,20 @@ describe('temporary-codes', () => {
   });
 
   describe('issueTemporaryCode', () => {
+    it.skipIf(platform() === 'win32')('writes temporary-codes.json with mode 0600', async () => {
+      await issueTemporaryCode(tempDir, '777', entry());
+      const info = await stat(join(tempDir, 'temporary-codes.json'));
+      expect(info.mode & 0o777).toBe(0o600);
+    });
+
+    it.skipIf(platform() === 'win32')('tightens an existing 0644 file to 0600 on the next issuance', async () => {
+      await issueTemporaryCode(tempDir, '777', entry());
+      const file = join(tempDir, 'temporary-codes.json');
+      await chmod(file, 0o644);
+      await issueTemporaryCode(tempDir, '777', entry());
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    });
+
     it('zero-pads to six digits after the configured prefix, starting at 1', async () => {
       const first = await issueTemporaryCode(tempDir, '777', entry());
       const second = await issueTemporaryCode(tempDir, '777', entry());

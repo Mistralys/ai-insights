@@ -12,6 +12,10 @@ configuration failure. `ledger_list_temporary_error_codes` lists what's still ou
 - Startup: The error-code provider registry (built-ins plus any plugin dropped into
   `~/.ai-insights/plugins/error-codes/`) is now initialized before tool registration;
   a plugin load failure is logged to stderr without stopping startup.
+- GUI: The Error Codes tab's Save ignores a second submit while a save is pending.
+- Storage: `temporary-codes.json` is written with owner-only (`0600`) permissions, like `config.json`.
+- Plugins: Symlinked plugin files and folders are followed; a dangling link is reported as a load error.
+- Plugins: Each plugin import times out after 10 s, so one hanging plugin can no longer block startup.
 - Docs: Tool help, manifest and README document both tools, every `fallback_reason`,
   and the temporary-code format.
 

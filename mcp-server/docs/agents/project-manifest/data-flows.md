@@ -2227,7 +2227,7 @@ withLock(dir, async () => {
     → throw (counter exhausted)
   code = prefix + String(n).padStart(6, '0')  ← e.g. "777000001"; "{prefix}000000" is reserved, never issued
   fullEntry = { ...entry, code, issued_at: now().toISOString() }
-  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...file.entries, fullEntry] })
+  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...file.entries, fullEntry] }, { mode: 0o600 })
   return code
 })
 ```
@@ -2269,14 +2269,17 @@ loadPluginProviders(pluginDir)
   ↓
   readdir(pluginDir) — missing directory → { providers: [], errors: [] }, not a failure
   ↓
-  For each top-level entry:
+  For each top-level entry (symlinks resolved via stat; entry path stays the link path):
     *.mjs / *.js file → import it directly
+    dangling symlink  → load error "symbolic link target is missing or unreadable"; scan continues
     folder            → resolve entry = package.json "main", else index.mjs
                          (no "exports" map resolution)
                          neither present → load error naming the folder
     other              → skipped
     ↓
-    import(pathToFileURL(entryModulePath).href)
+    import(pathToFileURL(entryModulePath).href), raced against a 10 s per-plugin timeout
+      not settled in time?
+        → load error "import timed out after {n} ms"; scan continues (import not cancelled, never registered)
       throws (syntax error, throw during evaluation)?
         → load error { source, message } — message is stack-free; scan continues
       default export fails validateProvider()?

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile, symlink } from 'fs/promises';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, platform } from 'os';
 import { fileURLToPath } from 'url';
-import { loadPluginProviders } from '../../src/error-codes/plugin-loader.js';
+import { loadPluginProviders, PLUGIN_IMPORT_TIMEOUT_MS } from '../../src/error-codes/plugin-loader.js';
 import type { AllocationOutcome, ProviderContext } from '../../src/error-codes/provider-api.js';
 
 /** Absolute path to `docs/examples/`, the parent of the shipped example plugin folder. */
@@ -199,5 +199,86 @@ describe('plugin-loader', () => {
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }
+  });
+
+  describe('symbolic links', () => {
+    let outsideDir: string;
+
+    beforeEach(async () => {
+      outsideDir = await mkdtemp(join(tmpdir(), 'plugin-loader-target-'));
+    });
+
+    afterEach(async () => {
+      await rm(outsideDir, { recursive: true, force: true });
+    });
+
+    it.skipIf(platform() === 'win32')('loads a plugin through a file symlink, reporting the link path', async () => {
+      const target = join(outsideDir, 'real.mjs');
+      await writeFile(target, validProviderSource('linked-file'), 'utf-8');
+      const link = join(pluginDir, 'linked.mjs');
+      await symlink(target, link);
+
+      const result = await loadPluginProviders(pluginDir);
+      expect(result.errors).toEqual([]);
+      expect(result.providers).toHaveLength(1);
+      expect(result.providers[0]?.provider.id).toBe('linked-file');
+      expect(result.providers[0]?.path).toBe(link);
+    });
+
+    it('loads a folder plugin through a directory link', async () => {
+      const target = join(outsideDir, 'folder-plugin');
+      await mkdir(target);
+      await writeFile(join(target, 'index.mjs'), validProviderSource('linked-folder'), 'utf-8');
+      const link = join(pluginDir, 'folder-link');
+      await symlink(target, link, 'junction');
+
+      const result = await loadPluginProviders(pluginDir);
+      expect(result.errors).toEqual([]);
+      expect(result.providers).toHaveLength(1);
+      expect(result.providers[0]?.provider.id).toBe('linked-folder');
+      expect(result.providers[0]?.path).toBe(link);
+    });
+
+    it.skipIf(platform() === 'win32')('reports a dangling symlink as a load error and keeps loading the rest', async () => {
+      const link = join(pluginDir, 'dangling.mjs');
+      await symlink(join(outsideDir, 'missing.mjs'), link);
+      await writeFile(join(pluginDir, 'good.mjs'), validProviderSource('still-loads'), 'utf-8');
+
+      const result = await loadPluginProviders(pluginDir);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.source).toBe(link);
+      expect(result.errors[0]?.message).toContain('symbolic link target is missing or unreadable');
+      expect(result.providers.map((p) => p.provider.id)).toEqual(['still-loads']);
+    });
+  });
+
+  describe('import timeout', () => {
+    it('exports PLUGIN_IMPORT_TIMEOUT_MS as the default timeout', () => {
+      expect(PLUGIN_IMPORT_TIMEOUT_MS).toBe(10_000);
+    });
+
+    it('times out a plugin whose top-level await never settles, and still loads the others', async () => {
+      const hanging = join(pluginDir, 'a-hanging.mjs');
+      await writeFile(hanging, 'await new Promise(() => {});\nexport default {};\n', 'utf-8');
+      await writeFile(join(pluginDir, 'b-good.mjs'), validProviderSource('after-hang'), 'utf-8');
+
+      const result = await loadPluginProviders(pluginDir, { importTimeoutMs: 200 });
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]?.source).toBe(hanging);
+      expect(result.errors[0]?.message).toBe('import timed out after 200 ms');
+      expect(result.providers.map((p) => p.provider.id)).toEqual(['after-hang']);
+    });
+
+    it('a fast plugin import clears its timeout timer', async () => {
+      await writeFile(join(pluginDir, 'fast.mjs'), validProviderSource('fast'), 'utf-8');
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      try {
+        const result = await loadPluginProviders(pluginDir);
+        expect(result.providers).toHaveLength(1);
+        expect(clearSpy.mock.calls.some(([timer]) => typeof timer === 'object' && timer !== null)).toBe(true);
+      } finally {
+        clearSpy.mockRestore();
+      }
+    });
   });
 });

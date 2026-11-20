@@ -21,6 +21,13 @@
                         the same confirm() dialog as the tab-bar switch.
    ecTestInFlight:      true while a "Test connection" request is pending —
                         guards against a second click firing a second request.
+   ecSaveInFlight:      true while a Save (PUT config) request is pending —
+                        guards against a second submit (button click, a
+                        second `submit` event or form.requestSubmit(), all of
+                        which bypass the button's DOM `disabled` attribute).
+                        Deliberately NOT reset by ecCleanup(): a PUT still
+                        pending after leaving and re-entering the tab keeps
+                        blocking a second save until it settles.
    ecClickHandler / ecChangeHandler / ecInputHandler / ecSubmitHandler:
                         currently-attached delegated listeners on
                         #config-tab-content / #ec-form. Tracked so
@@ -35,6 +42,7 @@ var ecConfig             = null;
 var ecTemporaryCodes     = null;
 var ecSelectedProviderId = null;
 var ecTestInFlight       = false;
+var ecSaveInFlight       = false;
 var ecClickHandler       = null;
 var ecChangeHandler      = null;
 var ecInputHandler       = null;
@@ -422,6 +430,7 @@ function ecHandleTestClick(btn) {
 }
 
 function ecHandleSave(form) {
+  if (ecSaveInFlight) return;
   if (typeof form.reportValidity === 'function' && !form.reportValidity()) return;
 
   var provider = ecFindProvider(ecSelectedProviderId);
@@ -431,6 +440,7 @@ function ecHandleSave(form) {
   var core = ecCollectCoreSettings();
   if (core === null) return;
 
+  ecSaveInFlight = true;
   var saveBtn = document.getElementById('ec-save-btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
@@ -445,11 +455,13 @@ function ecHandleSave(form) {
   };
 
   API.updateErrorCodeConfig(body).then(function (updatedConfig) {
+    ecSaveInFlight = false;
     ecConfig = updatedConfig;
     configDirty.errorCodes = false;
     ecRenderTab();
     ecShowLiveMessage('Configuration saved.', false);
   }).catch(function (err) {
+    ecSaveInFlight = false;
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
     ecShowLiveMessage('Save failed: ' + (err.message || String(err)), true);
   });

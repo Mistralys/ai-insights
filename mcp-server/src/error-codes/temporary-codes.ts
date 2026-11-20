@@ -17,6 +17,15 @@ import { withLock } from '../storage/file-lock.js';
 /** File name for the temporary-code log, nested under `resolveErrorCodesDir()`. */
 const TEMPORARY_CODES_FILENAME = 'temporary-codes.json';
 
+/**
+ * File mode for the temporary-code log (owner read/write only). Entries carry
+ * `context`, `repository` and provider `detail` text, so the log is as
+ * sensitive as `config.json` beside it. `atomicWriteJson` applies the mode on
+ * every write, so a file written earlier with wider permissions is tightened
+ * on its next issuance. No effect on Windows.
+ */
+const TEMPORARY_CODES_FILE_MODE = 0o600;
+
 /** The highest counter value this log can issue before `issueTemporaryCode` throws. */
 const MAX_COUNTER = 999999;
 
@@ -114,7 +123,7 @@ export async function issueTemporaryCode(
       entries: [...file.entries, fullEntry],
     };
 
-    await atomicWriteJson(resolveFilePath(dir), next);
+    await atomicWriteJson(resolveFilePath(dir), next, { mode: TEMPORARY_CODES_FILE_MODE });
     return code;
   });
 }
