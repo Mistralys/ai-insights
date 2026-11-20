@@ -8,6 +8,8 @@ import {
   saveStoresConfig,
   expandStorePath,
   resolveGuiConfigPath,
+  resolveErrorCodesDir,
+  resolveErrorCodePluginDir,
 } from '../../src/storage/store-registry.js';
 import type { StoresConfig } from '../../src/schema/store-config.js';
 
@@ -80,6 +82,32 @@ describe('store-registry storage module', () => {
 
     it('throws for ~username/path syntax', () => {
       expect(() => expandStorePath('~bob/data')).toThrow('~username syntax which is not supported');
+    });
+  });
+
+  // ─── resolveErrorCodesDir ────────────────────────────────────────────
+
+  describe('resolveErrorCodesDir', () => {
+    it('resolves to ~/.ai-insights/error-codes/', () => {
+      const result = resolveErrorCodesDir();
+      expect(result).toBe(join(homedir(), '.ai-insights', 'error-codes'));
+    });
+
+    it('starts with the user home directory', () => {
+      expect(resolveErrorCodesDir().startsWith(homedir())).toBe(true);
+    });
+  });
+
+  // ─── resolveErrorCodePluginDir ──────────────────────────────────────
+
+  describe('resolveErrorCodePluginDir', () => {
+    it('resolves to ~/.ai-insights/plugins/error-codes/', () => {
+      const result = resolveErrorCodePluginDir();
+      expect(result).toBe(join(homedir(), '.ai-insights', 'plugins', 'error-codes'));
+    });
+
+    it('starts with the user home directory', () => {
+      expect(resolveErrorCodePluginDir().startsWith(homedir())).toBe(true);
     });
   });
 

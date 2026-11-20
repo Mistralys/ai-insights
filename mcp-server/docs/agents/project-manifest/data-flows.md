@@ -2149,3 +2149,214 @@ For detectProjectByCwd(cwdPath):
 - Store-order priority applies to both `getMergedRegistry()` and conflict detection: the first store in `stores.json` order is always `winner_store_id`.
 - All collation is read-only — no write occurs during a read collation pass.
 - `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).
+
+---
+
+## Flow R: Error-Code Allocation — Config, Repository Resolution & Temporary-Code Log
+
+**Entry point:** `allocateErrorCode()` (`mcp-server/src/error-codes/allocator.ts`) and the GUI's error-code config/test routes. This flow documents only the three storage primitives those consumers share — `config-store.ts`, `project-info.ts` and `temporary-codes.ts` — not the allocator's provider-dispatch or retry logic, which is Flow T below.
+
+**a. Config read (every allocation, no cache, no watcher):**
+
+```
+loadErrorCodeConfig()
+  ↓
+readFile(resolveErrorCodesDir() + '/config.json')
+  ↓
+  File missing, malformed JSON, or fails ErrorCodeConfigSchema validation?
+    → return documented defaults (version 1, active_provider 'file',
+      temporary_prefix '777', timeout_ms 10000,
+      retry { default_wait_ms 11000, max_wait_ms 30000 }, providers {})
+  ↓
+  Otherwise → return the validated ErrorCodeConfig
+```
+
+No in-memory cache: both the MCP server process and the GUI server process always read the file as it is on disk at call time, trading a per-call read for never needing a cache-invalidation signal between the two processes.
+
+**b. Config write (GUI save, or any future core mutation):**
+
+```
+updateErrorCodeConfig(mutator)
+  ↓
+withLock(resolveErrorCodesDir(), async () => {
+  current = await loadErrorCodeConfig()   ← read happens INSIDE the lock
+  next = mutator(current)
+  validated = ErrorCodeConfigSchema.parse(next)
+  atomicWriteJson(configPath, validated, { mode: 0o600 })
+  return validated
+})
+```
+
+Reading `current` inside the lock (rather than before acquiring it) is what makes concurrent `updateErrorCodeConfig` calls lose no update: each caller's mutator always starts from the version just written by whichever caller held the lock immediately before it. Settings stored under `providers.<id>` for a provider that is not currently installed are never inspected or stripped by this path, so they round-trip untouched across a save.
+
+**c. Repository resolution (per allocation, keyed to the agent's `cwd_path`):**
+
+```
+resolveRepositoryInfo(cwdPath)
+  ↓
+Walk upward from cwdPath until a directory containing `.git` is found
+  (no match before the filesystem root → return null)
+  ↓
+`.git` is a directory?
+  → that directory's parent is root_path (already the main checkout)
+`.git` is a file (linked worktree or submodule)?
+  → read its `gitdir:` line (relative or absolute)
+  → that git directory has a `commondir` file?
+      YES → resolve it to the shared main `.git` directory
+            → its parent is root_path (worktree → main checkout)
+      NO (submodule), or any read failure along the way
+            → root_path = the walked directory itself
+  ↓
+folder_name = basename(root_path)
+package_name = readProjectName(root_path)   ← package.json / composer.json / pyproject.toml
+  ↓
+return { root_path, folder_name, package_name }
+```
+
+**Key invariant:** every linked worktree of one repository resolves to the same `root_path`/`folder_name` as the main checkout, so a provider that scopes its sequence by repository (e.g. the `file` provider's `scope: 'repository'`) never splits one repository's sequence across its worktrees. No shell or `git` subprocess is ever invoked — the walk is a handful of `stat`/`readFile` calls over git's documented repository layout.
+
+**d. Temporary-code fallback (issued when the agent requests `temporary: true`, or when the allocator's provider dispatch — Flow T below — falls back):**
+
+```
+issueTemporaryCode(dir, prefix, entry)
+  ↓
+withLock(dir, async () => {
+  file = readFileOrDefault(dir)              ← { next_counter: 1, entries: [] } when absent/invalid
+  n = file.next_counter
+  n exceeds 999999 (or is the reserved 0)?
+    → throw (counter exhausted)
+  code = prefix + String(n).padStart(6, '0')  ← e.g. "777000001"; "{prefix}000000" is reserved, never issued
+  fullEntry = { ...entry, code, issued_at: now().toISOString() }
+  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...file.entries, fullEntry] })
+  return code
+})
+```
+
+Each logged entry carries `code`, `issued_at`, `provider`, `fallback_reason`, `detail`, `repository` and `context` — every field the allocator (Flow T below) and the GUI's temporary-codes list need, with no provider ever able to see or influence this log.
+
+**e. Temporary-code listing (GUI `GET /api/error-codes/temporary`, a later WP):**
+
+```
+listTemporaryCodes(dir, filter?)
+  ↓
+readFileOrDefault(dir) → entries[]
+  ↓
+filter supplied?
+  YES → keep entries whose context OR repository contains filter as a substring
+  NO  → return every entry unchanged
+```
+
+**Key invariants:**
+- `config-store.ts`, `project-info.ts` and `temporary-codes.ts` never call each other — the allocator (Flow T below) is the only consumer that sequences all three.
+- Both config writes and temporary-code issuance serialize through `withLock`. Both normally lock the same `resolveErrorCodesDir()` directory (`temporary-codes.ts` takes `dir` as a parameter rather than hard-coding it, so a test, or a future caller, can point it elsewhere) — a concurrent config save and a concurrent temporary-code issuance therefore do briefly serialize against each other through the shared `.lock` file, which is acceptable because both operations are rare.
+- A missing or corrupt file is never a fatal error for either `config-store.ts` or `temporary-codes.ts` — each treats it as the documented empty/default state and keeps going.
+
+---
+
+## Flow S: Error-Code Provider Loading at Startup
+
+**Entry point:** `initProviderRegistry({ pluginDir })` (`mcp-server/src/error-codes/provider-registry.ts`), called once at startup by each process that needs the error-code provider registry — the MCP server and the GUI server independently. Each process builds and holds its own registry in module-level state; neither reads the other's.
+
+```
+initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })
+  ↓
+nextRegistry = new Map()
+  ↓
+For each provider in BUILTIN_PROVIDERS (populated by later WPs: `file`, `errorcode-incrementor`):
+  nextRegistry.set(provider.id, { provider, source: 'builtin' })
+  ↓
+loadPluginProviders(pluginDir)
+  ↓
+  readdir(pluginDir) — missing directory → { providers: [], errors: [] }, not a failure
+  ↓
+  For each top-level entry:
+    *.mjs / *.js file → import it directly
+    folder            → resolve entry = package.json "main", else index.mjs
+                         (no "exports" map resolution)
+                         neither present → load error naming the folder
+    other              → skipped
+    ↓
+    import(pathToFileURL(entryModulePath).href)
+      throws (syntax error, throw during evaluation)?
+        → load error { source, message } — message is stack-free; scan continues
+      default export fails validateProvider()?
+        → load error; scan continues
+      id already loaded from an earlier entry in this same scan?
+        → load error naming the earlier path; this one is discarded; scan continues
+      otherwise → providers.push({ provider, path: source })
+  ↓
+  return { providers, errors }
+  ↓
+nextErrors = [...pluginResult.errors]
+For each loaded plugin provider:
+  id already in nextRegistry (a built-in)?
+    YES → nextErrors.push({ source: path, message: "clashes with a built-in…" }) — built-in keeps the id
+    NO  → nextRegistry.set(id, { provider, source: 'plugin', path })
+  ↓
+registry = nextRegistry; errors = nextErrors   ← replaces any previous call's result wholesale
+```
+
+**Consumers, read-only after startup:** `getProvider(id)` (used by the allocator, Flow T below, to dispatch an allocation) and `listProviders()`/`listProviderLoadErrors()` (used by the GUI's `GET /api/error-codes/providers` route, a later WP, to render the provider selector and any load-error list).
+
+**Key invariants:**
+- A broken plugin never halts the scan or blocks server startup — it is recorded in `errors` and every other entry still loads.
+- A built-in `id` always wins over a plugin declaring the same `id`; the clash is recorded as a load error, not silently dropped.
+- Calling `initProviderRegistry` again (the MCP server and the GUI server each call it once, independently, but a test may call it repeatedly) replaces the whole registry and error list, so no stale or duplicate entry from a previous call survives.
+
+---
+
+## Flow T: Error-Code Allocation — Provider Dispatch, Retry & Fallback
+
+**Entry point:** `allocateErrorCode(input, deps)` (`mcp-server/src/error-codes/allocator.ts`), called by the `ledger_generate_error_code` MCP tool (a later WP). This flow is the policy pipeline that sequences Flow R's config/repository/temporary-code primitives with Flow S's provider registry and a provider's own `allocate` hook — see "Policy Lives in the Allocator, Not in Providers" (`constraints.md`) for why every retry/fallback/redaction decision below lives here and nowhere in a provider.
+
+```
+allocateErrorCode({ cwd_path, context, temporary? }, deps)
+  ↓
+config = deps.loadConfig()
+repository = cwd_path !== null ? deps.resolveRepositoryInfo(cwd_path) : null
+  ↓
+temporary === true?
+  YES → deps.temporaryCodes.issue(config.temporary_prefix, { fallback_reason: 'requested', provider: null, ... })
+        → return ErrorCodeResult { temporary: true, fallback_reason: 'requested', provider: null, ... }
+  ↓ NO
+provider = deps.getProvider(config.active_provider)
+  undefined? → fall back: misconfigured, detail "provider '{id}' is not installed or failed to load"
+  ↓
+storedSettings = config.providers[provider.id] ?? {}
+parsed = buildSettingsSchema(provider.settings).safeParse(storedSettings)
+  fails? → fall back: misconfigured, detail "settings invalid: {invalid key names only, never values}"
+  ↓
+secrets = collectSecrets(provider.settings, parsed.data)
+ctx = { settings: parsed.data, signal: AbortSignal.timeout(config.timeout_ms),
+        data_dir: resolveErrorCodesDir() + '/data/' + provider.id, log: createRedactingLogger(provider.id, secrets) }
+  ↓
+outcome = provider.allocate(request, ctx)
+  throws?  → treated as { reason: 'failed', ambiguous: true }
+  aborts?  → treated as { reason: 'unavailable', ambiguous: true }
+  ↓
+validateOutcome(outcome):
+  ok && value is not a positive safe integer → { reason: 'invalid_response', ambiguous: false }
+  !ok && reason not one of the six FailureReason values → normalised to 'failed'
+  ↓
+ok?
+  YES → return ErrorCodeResult { temporary: false, code: String(value), provider: provider.id, ... }
+  ↓ NO
+reason === 'throttled' && !ambiguous?
+  YES → waitMs = min(retry_after_ms ?? config.retry.default_wait_ms, config.retry.max_wait_ms)
+        start = deps.now(); deps.sleep(waitMs); waited_ms = deps.now() - start
+        retry: outcome2 = provider.allocate(request, ctx) → validateOutcome(outcome2)
+        ok?  → return ErrorCodeResult { temporary: false, code, provider: provider.id, waited_ms, ... }
+        !ok? → fall back with outcome2's own reason/detail, carrying waited_ms
+  ↓ NO (every other failing reason, or an ambiguous throttled — never retried)
+fall back: deps.temporaryCodes.issue(config.temporary_prefix, { fallback_reason: reason, detail: redact(detail, secrets), ... })
+  ↓
+return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repository, first_component_code: code + '01', message, instruction }
+```
+
+**Key invariants:**
+- At most one retry ever happens, and only for a non-ambiguous `throttled` outcome — a second `throttled`, or any ambiguous failure on the first attempt, goes straight to the temporary-code fallback.
+- `secrets` is computed once per call (after settings validation succeeds) and reused for both the provider's `ctx.log` and the final `redact()` pass on `detail` — a secret the provider echoes back in a failure's `detail`, or logs itself, is redacted the same way either path reaches the caller.
+- `provider.allocate` is never called at all for a `temporary: true` request, a missing provider, or settings that fail validation — the fallback happens before any provider code runs.
+- `deps.now()` only measures the actual elapsed time around the one retry `sleep()` for the reported `waited_ms` — it is never consulted to decide whether to retry.
+- The only way this function rejects (rather than returning a temporary-code `ErrorCodeResult`) is a failure inside `deps.temporaryCodes.issue` itself (e.g. the temporary-code counter exhausted), which the calling MCP tool turns into an MCP error.
+- Plugins are picked up only at the next call to `initProviderRegistry` — normally, that means only at the next process restart. There is no file watcher and no hot-reload endpoint.

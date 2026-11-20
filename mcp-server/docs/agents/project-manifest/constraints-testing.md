@@ -21,6 +21,9 @@
 - [Test Helper Infrastructure Mandate](#test-helper-infrastructure-mandate)
 - [Mock `McpServer` Intercept Pattern](#mock-mcpserver-intercept-pattern-for-tool-metadata-tests)
 - [Acceptance Criteria Field-Name Verification](#acceptance-criteria-field-name-verification)
+- [Path-Traversal Acceptance Criteria Use 404 Wording](#path-traversal-acceptance-criteria-use-404-wording)
+- [New Error-Code Providers Must Pass `describeProviderContract`](#new-error-code-providers-must-pass-describeprovidercontract)
+- [Network-Backed Providers Never Call a Real Service](#network-backed-providers-never-call-a-real-service)
 
 ---
 
@@ -243,3 +246,35 @@ describe('pipeline schemas', () => {
 Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection.
 
 **Reference:** See [error-ledger.md](../../../../docs/history/error-ledger.md) — deviation recorded in the 2026-03-04 project-reset rework synthesis. The guard itself is documented in the [GUI constraints](../../../gui/docs/agents/project-manifest/constraints.md).
+
+---
+
+### New Error-Code Providers Must Pass `describeProviderContract`
+
+**Rule:** A provider's test file calls `describeProviderContract(name, makeProvider, makeCtx)` (`tests/error-codes/provider-contract.ts`) alongside its own provider-specific tests, for every built-in provider and every reference-example plugin shipped in the repository (e.g. `docs/examples/error-code-provider-example/`). `makeProvider` must return a fresh provider instance per call, and `makeCtx` must accept an optional `Partial<ProviderContext>` override (used by the suite's abort-handling check to supply an already-aborted `signal`).
+
+**Rationale:** The shared suite checks only what every `ErrorCodeProvider` must hold regardless of backend — a well-formed `settings` array, a positive-integer result, a monotonically increasing sequence, tolerance of unknown request fields, and settling instead of hanging on an aborted signal. Writing these checks once, and running them against every provider, catches a contract violation the moment a provider is added or changed, rather than only when the allocator's own tests happen to exercise that provider.
+
+**Anti-pattern:** A new provider's test file re-implementing "returns a positive integer" and "increases monotonically" assertions inline instead of calling `describeProviderContract`.
+
+**Correct pattern (see `file-provider.test.ts`):**
+```typescript
+describeProviderContract(
+  'file provider',
+  () => fileProvider,
+  (overrides) => makeCtx(dataDir, overrides)
+);
+```
+
+---
+
+### Network-Backed Providers Never Call a Real Service
+
+**Rule:** A provider that performs I/O over the network (e.g. the `errorcode-incrementor` provider) stubs the global `fetch` with `vi.stubGlobal('fetch', ...)` in every test, including the `describeProviderContract` run against it. No test file under `tests/error-codes/` ever makes a real HTTP request. `tests/error-codes/no-private-config.test.ts` additionally proves that no private host, counter name or credential string for the user's own service ships anywhere under `mcp-server/src`, `mcp-server/gui`, `mcp-server/docs` or `mcp-server/tests` — only the setting *descriptors* (with no `default`) are allowed to exist in the repository.
+
+**Rationale:** The Errorcode Incrementor service is reachable only with the user's own private host and credentials, which never belong in a public repository or in CI. Stubbing `fetch` keeps the suite deterministic, fast, and independent of any real backend being reachable, while the no-private-config test is a standing guard against a credential accidentally being pasted into source, docs, or a test fixture.
+
+**Correct pattern (see `errorcode-incrementor-provider.test.ts`):**
+```typescript
+vi.stubGlobal('fetch', vi.fn(async () => new Response('52001', { status: 200 })));
+```

@@ -99,7 +99,7 @@ LIVE/DEV port convention. Do not document GUI rules in the manifest above.
 
 | Change Made | Manifest Documents to Update | Notes |
 |-------------|------------------------------|-------|
-| **Add new MCP tool** | `api-surface.md`, `file-tree.md` (if new file), `data-flows.md` (if new flow) | Document signature, parameters, and data flow |
+| **Add new MCP tool** | `api-surface.md`, `file-tree.md` (if new file), `data-flows.md` (if new flow) | Document signature, parameters, and data flow; register the module in `src/tools/registry.ts`'s `TOOL_MODULES` and add a `TOOL_HELP` entry (`src/tools/help-content.ts`) — `tests/tools/tool-registry.test.ts` fails on either omission |
 | **Add new class/service** | `api-surface.md`, `file-tree.md` | Document public constructors, properties, and methods |
 | **Add new dependency** | `tech-stack.md` | Add to Production or Development dependencies table |
 | **Add new file/directory** | `file-tree.md` | Add to tree structure with brief annotation |
@@ -112,6 +112,7 @@ LIVE/DEV port convention. Do not document GUI rules in the manifest above.
 | **Change schema/validation** | `constraints.md`, `tech-stack.md` (if pattern), `api-surface.md` (if signature) | Document new validation rules |
 | **Add/change a test convention** | `constraints-testing.md` | Keep all test rules in one document |
 | **Change anything under `gui/`** | `gui/docs/agents/project-manifest/` | The GUI owns its own manifest |
+| **Change the error-code provider contract** | `docs/error-code-providers.md` (the plugin-author guide), `docs/agents/project-manifest/api-surface.md` (Error Code Tools section) | `src/error-codes/provider-api.ts`'s `apiVersion: 1` stability rules are additive-only — nothing required is ever added, and nothing is ever removed or renamed; a breaking change requires a new `apiVersion` and an adapter for the old one, never an in-place change to the existing contract |
 
 **Enforcement:** Before completing any work package, verify you have updated ALL relevant manifest documents.
 

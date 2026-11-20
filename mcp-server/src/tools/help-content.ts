@@ -22,6 +22,8 @@ export const TOOL_HELP: Record<string, string> = {
 
 | Tool | Required Params | Purpose |
 |------|----------------|---------|
+| ledger_help | None (tool_name optional) | Get usage documentation for any ledger tool — START HERE if unsure |
+| ledger_detect_project | cwd_path | Detect the active project from the current workspace path |
 | ledger_get_project_status | cwd_path or project_path | Read project overview |
 | ledger_initialize_project | project_path, plan_file | Create new project ledger |
 | ledger_list_projects | None (status filter optional) | List all tracked projects with status, dates, and plan paths |
@@ -32,6 +34,9 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_claim_work_package | cwd_path or project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
 | ledger_begin_work | cwd_path or project_path, work_package_id, type, agent_role | Claim + start pipeline in one atomic call |
 | ledger_update_work_package_status | cwd_path or project_path, work_package_id, status, agent | Update WP status |
+| ledger_reset_rework_count | cwd_path or project_path, work_package_id, pipeline_type, agent_role, reason | PM-only: reset a WP's rework counter for a pipeline type back to 0 |
+| ledger_reopen_cancelled_wp | cwd_path or project_path, work_package_id, agent_role, reason | PM-only: reopen an incorrectly cancelled WP back to READY/BLOCKED |
+| ledger_update_acceptance_criteria | cwd_path or project_path, work_package_id, agent_role, operations | PM-only: remove or modify a WP's acceptance criteria text |
 | ledger_start_pipeline | cwd_path or project_path, work_package_id, type | Start a pipeline for a work package (ordering determined by WP's active_pipeline_stages) |
 | ledger_complete_pipeline | cwd_path or project_path, work_package_id, type, status, summary | Complete a pipeline |
 | ledger_cancel_pipeline | cwd_path or project_path, work_package_id, type, reason | Cancel a stale IN_PROGRESS pipeline (sets to FAIL) |
@@ -49,6 +54,8 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
 | ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for a COMPLETE project (any runner) |
 | ledger_ping | None | Health check — verify reachability and detect stale instances (use for preflight instead of ledger_help) |
+| ledger_generate_error_code | None (cwd_path, context, temporary all optional) | Allocate a new error-code base number through the configured provider, with automatic fallback to a temporary code |
+| ledger_list_temporary_error_codes | None (filter optional) | List logged temporary error codes that still need replacing with a real provider-issued base |
 
 ## Common Mistakes
 
@@ -1286,6 +1293,224 @@ Use \`ledger_ping\` instead of \`ledger_help\` for all preflight connectivity ch
   "stale": true,
   "uptime_seconds": 3601,
   "stale_detail": "Running v1.14.0 but dist was rebuilt as v1.14.1. Restart the MCP server."
+}
+\`\`\`
+`,
+
+  ledger_help: `
+# ledger_help
+
+Get usage documentation, examples, and required parameters for all ledger tools. START HERE if you are unsure how to use the ledger tools.
+
+## Optional Parameters
+- **tool_name** (string): Specific tool name to get help for (e.g., "ledger_update_work_package_status"). Omit to get the full overview with all tools listed.
+
+## Notes
+Use \`ledger_ping\` instead for all preflight connectivity checks — it returns ~50 tokens vs ~2,000 tokens for the full \`ledger_help\` overview.
+
+## Example: Full overview
+\`\`\`json
+{}
+\`\`\`
+
+## Example: Help for a specific tool
+\`\`\`json
+{ "tool_name": "ledger_update_work_package_status" }
+\`\`\`
+`,
+
+  ledger_detect_project: `
+# ledger_detect_project
+
+Detect the active project from the current workspace path when \`project_path\` is not explicitly provided. Cross-references \`cwd_path\` against all project roots stored in the centralized ledger and returns the unique project \`plan_path\`.
+
+## Required Parameters
+- **cwd_path** (string): Absolute path to the directory the agent is currently working from (e.g. the VS Code workspace root). Must not be a file path — pass the directory only.
+
+## Response
+Returns \`NOT_FOUND\` if no known project root is an ancestor of the given path, or \`AMBIGUOUS\` (with a candidate list) if more than one project matches.
+
+## Example
+\`\`\`json
+{ "cwd_path": "/Users/me/Workspaces/my-repo" }
+\`\`\`
+`,
+
+  ledger_reset_rework_count: `
+# ledger_reset_rework_count
+
+PM-only: resets the rework counter for a specific pipeline type on a work package back to 0. Records an audit comment. No-op if the counter is already 0.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): WP ID (format: WP-001)
+- **pipeline_type** (string): Which pipeline type rework count to reset — "implementation", "qa", "security-audit", "code-review", "release-engineering", or "documentation"
+- **agent_role** (string): Must be "Project Manager"
+- **reason** (string): Mandatory reason for the reset (audit trail)
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-003",
+  "pipeline_type": "implementation",
+  "agent_role": "Project Manager",
+  "reason": "QA bounce was a false positive after re-investigation"
+}
+\`\`\`
+`,
+
+  ledger_reopen_cancelled_wp: `
+# ledger_reopen_cancelled_wp
+
+PM-only administrative override: reopens an incorrectly cancelled work package back to READY (or BLOCKED if its dependencies are unsatisfied). Clears assignment, resets rework counts, adjusts the pending counter, invalidates synthesis, and fires a cascade reblock on downstream dependents.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): ID of the work package to reopen
+- **agent_role** (string): Must be "Project Manager"
+- **reason** (string): Mandatory reason for reopening the cancelled WP (audit trail)
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-005",
+  "agent_role": "Project Manager",
+  "reason": "Cancelled by mistake — scope is still needed"
+}
+\`\`\`
+`,
+
+  ledger_update_acceptance_criteria: `
+# ledger_update_acceptance_criteria
+
+PM-only: remove or modify acceptance criteria text on a work package. Rejects operations that would leave zero criteria.
+
+## Required Parameters
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
+- **work_package_id** (string): ID of the work package
+- **agent_role** (string): Must be "Project Manager"
+- **operations** (array): List of operations to apply. Each operation is one of:
+  - \`{ "action": "remove", "criterion": "<exact text of the criterion to remove>" }\`
+  - \`{ "action": "modify_text", "old_criterion": "<exact existing text>", "new_criterion": "<new text, non-empty>" }\`
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-002",
+  "agent_role": "Project Manager",
+  "operations": [
+    { "action": "modify_text", "old_criterion": "All tests pass", "new_criterion": "All unit and integration tests pass" }
+  ]
+}
+\`\`\`
+`,
+
+  ledger_generate_error_code: `
+# ledger_generate_error_code
+
+Allocates a new error-code base number through the user's configured error-code provider (set up in the GUI's Error Codes tab — this tool never lets an agent choose or configure a provider). Never throws for a provider, network, or configuration failure: every one of those falls back to a temporary code instead, so the agent always gets a usable base back.
+
+## Optional Parameters
+- **cwd_path** (string): Your current workspace root, or a repository path. Passed through to repository resolution. Matters whenever the active provider scopes by repository (e.g. the built-in \`file\` provider's "Per repository" scope) — omitting it then forces a global sequence or a \`misconfigured\` fallback, depending on the provider's settings. Omit only when no repository context applies.
+- **context** (string): Free text describing what the code is for (e.g. a class or namespace name). Logged alongside a temporary code and passed to the active provider; purely descriptive, never required.
+- **temporary** (boolean): \`true\` skips the provider entirely and issues a temporary code directly (\`fallback_reason: "requested"\`). Use when a placeholder is needed immediately regardless of provider state.
+
+## Result Fields (ErrorCodeResult)
+- **code** (string): The allocated (or temporary) base number, as a string of digits.
+- **temporary** (boolean): \`true\` when \`code\` is a placeholder rather than a real provider-issued base.
+- **provider** (string | null): The provider id that produced \`code\`, or \`null\` for a temporary code issued before any provider was consulted.
+- **fallback_reason** (string): Present only when \`temporary\` is \`true\`. One of:
+  - \`throttled\` — the provider asked to back off; the core already retried once before falling back.
+  - \`misconfigured\` — the active provider is not installed, or its stored settings are invalid. Fix the configuration in the GUI's Error Codes tab, then replace the temporary code.
+  - \`unavailable\` — the provider's backend could not be reached (network/DNS/5xx/timeout).
+  - \`rejected\` — the provider's backend explicitly refused the request.
+  - \`invalid_response\` — the provider responded, but not in a shape the core accepts (e.g. a non-positive value).
+  - \`failed\` — anything else, including an uncaught throw from the provider.
+  - \`requested\` — the caller passed \`temporary: true\`; no provider was consulted.
+- **detail** (string, optional): Free-text explanation, already redacted of any configured secret. Absent when \`fallback_reason\` alone says enough.
+- **waited_ms** (number, optional): Present only when a \`throttled\` retry actually occurred — milliseconds waited for that single backoff.
+- **repository** (object | null): The repository resolved for \`cwd_path\` (\`root_path\`, \`folder_name\`, \`package_name\`), or \`null\` when none resolved.
+- **first_component_code** (string): \`code\` with \`"01"\` appended — the first component code ready to use immediately.
+- **message** / **instruction** (string): Human-readable summary and the concrete next step (e.g. add a \`TEMPORARY ERROR CODE\` marker and call \`ledger_list_temporary_error_codes\` later).
+
+## The Code Format
+A real, provider-issued \`code\` is whatever digit string the active provider returns — its shape depends on the provider (the built-in \`file\` provider issues a plain incrementing integer, for example). A **temporary** code is always the configured \`temporary_prefix\` (\`"777"\` by default) followed by six zero-padded digits counting up from \`1\` — e.g. \`777000001\`, \`777000002\`. \`{prefix}000000\` (e.g. \`777000000\`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is therefore never issued by this tool.
+
+## Component-Code Convention
+Treat \`code\` as a *base*: append a two-digit, zero-padded component number in the order components are introduced — \`{base}01\`, \`{base}02\`, and so on. \`first_component_code\` already gives you \`{base}01\` so the very first call site never has to compute it by hand.
+
+## Action on a Temporary Code
+1. Add a \`TEMPORARY ERROR CODE\` marker at the call site and report it (per \`instruction\`).
+2. If \`fallback_reason\` is \`misconfigured\`, also flag that the GUI's Error Codes tab needs attention — the provider itself is not working, not just this one call.
+3. Call \`ledger_list_temporary_error_codes\` later to find and replace it with a real base once the provider is working again.
+
+## Example Response (success)
+\`\`\`json
+{
+  "code": "42",
+  "temporary": false,
+  "provider": "file",
+  "repository": { "root_path": "/repo", "folder_name": "repo", "package_name": "my-package" },
+  "first_component_code": "4201",
+  "message": "Allocated error-code base 42.",
+  "instruction": "Use this as the base for the new class/module's component codes, e.g. {base}01, {base}02, in the order they are introduced."
+}
+\`\`\`
+
+## Example Response (fallback)
+\`\`\`json
+{
+  "code": "777000001",
+  "temporary": true,
+  "provider": "file",
+  "fallback_reason": "misconfigured",
+  "detail": "settings invalid: counter_file",
+  "repository": null,
+  "first_component_code": "77700000101",
+  "message": "Issued temporary error-code base 777000001 (misconfigured): settings invalid: counter_file",
+  "instruction": "Add a TEMPORARY ERROR CODE marker at the call site and report it, then check the GUI's Error Codes tab once the configuration is fixed, and call ledger_list_temporary_error_codes to replace this code with a real base later."
+}
+\`\`\`
+`,
+
+  ledger_list_temporary_error_codes: `
+# ledger_list_temporary_error_codes
+
+Lists every temporary error code logged by \`ledger_generate_error_code\`'s fallback path, so an agent (or the user, via the GUI's Error Codes tab) can find and replace placeholder codes once the configured provider is working again.
+
+## Optional Parameters
+- **filter** (string): When supplied, only entries whose \`context\` or \`repository\` contains this substring (case-sensitive) are returned. Omit to list every logged entry.
+
+## Response Fields
+- **entries** (array): Each entry has:
+  - **code** (string): The issued temporary code (\`{prefix}\` + six zero-padded digits, e.g. \`777000001\`).
+  - **issued_at** (string): ISO timestamp.
+  - **provider** (string | null): The provider id in effect at issuance, or \`null\` for a directly requested temporary code.
+  - **fallback_reason** (string | null): Same vocabulary as \`ledger_generate_error_code\`'s \`fallback_reason\` (\`throttled\`, \`misconfigured\`, \`unavailable\`, \`rejected\`, \`invalid_response\`, \`failed\`, \`requested\`).
+  - **detail** (string | null): Redacted free-text detail, or \`null\`.
+  - **repository** (string | null): The resolved repository's folder name at issuance, or \`null\`.
+  - **context** (string | null): The caller-supplied \`context\`, or \`null\`.
+
+## Example Response
+\`\`\`json
+{
+  "entries": [
+    {
+      "code": "777000001",
+      "issued_at": "2026-11-19T10:00:00.000Z",
+      "provider": "file",
+      "fallback_reason": "misconfigured",
+      "detail": "settings invalid: counter_file",
+      "repository": null,
+      "context": "ErrorCodeService"
+    }
+  ]
 }
 \`\`\`
 `,

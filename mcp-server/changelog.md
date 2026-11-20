@@ -1,5 +1,20 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.12.0 - **WIP; UNRELEASED** - Pluggable Error-Code Allocation
+
+**Agents can now ask for a real error-code base number instead of guessing one.**
+`ledger_generate_error_code` allocates a base through a user-configured, third-party-
+extensible provider (built-in `file` and `errorcode-incrementor` providers ship out of
+the box), falling back to a logged temporary code on any provider, network, or
+configuration failure. `ledger_list_temporary_error_codes` lists what's still outstanding.
+
+- Tools: Added `ledger_generate_error_code` and `ledger_list_temporary_error_codes`.
+- Startup: The error-code provider registry (built-ins plus any plugin dropped into
+  `~/.ai-insights/plugins/error-codes/`) is now initialized before tool registration;
+  a plugin load failure is logged to stderr without stopping startup.
+- Docs: Tool help, manifest and README document both tools, every `fallback_reason`,
+  and the temporary-code format.
+
 ## v2.11.0 - Outcome Summaries and Stricter Chain Validation
 
 **A work package whose verifier stage cannot be fixed now fails at creation, not at run time.**

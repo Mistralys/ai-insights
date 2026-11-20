@@ -16,6 +16,18 @@ const AI_INSIGHTS_DIR = '.ai-insights';
  */
 const STORES_CONFIG_FILENAME = 'stores.json';
 
+/**
+ * Directory name for error-code allocator state (config, temporary-code log,
+ * per-provider data directories), nested under `AI_INSIGHTS_DIR`.
+ */
+const ERROR_CODES_DIR = 'error-codes';
+
+/**
+ * Directory name for third-party error-code provider plugins, nested under
+ * `AI_INSIGHTS_DIR/plugins/`.
+ */
+const PLUGINS_DIR = 'plugins';
+
 // ==================== Path Utilities ====================
 
 /**
@@ -78,6 +90,30 @@ export function resolveGuiConfigPath(
     return join(homedir(), AI_INSIGHTS_DIR, 'gui-config.json');
   }
   return join(ledgerRoot, 'gui-config.json');
+}
+
+/**
+ * Returns the absolute path of the error-code allocator's user-level state
+ * directory: `~/.ai-insights/error-codes/`.
+ *
+ * Holds `config.json` (active provider, timeouts, retry policy, per-provider
+ * settings), `temporary-codes.json` (the logged fallback-code history), and
+ * per-provider `data/{provider-id}/` directories.
+ */
+export function resolveErrorCodesDir(): string {
+  return join(homedir(), AI_INSIGHTS_DIR, ERROR_CODES_DIR);
+}
+
+/**
+ * Returns the absolute path of the directory scanned for third-party
+ * error-code provider plugins: `~/.ai-insights/plugins/error-codes/`.
+ *
+ * Each entry is either a `*.mjs`/`*.js` file whose default export is an
+ * `ErrorCodeProvider`, or a folder carrying its own `package.json` and
+ * dependencies.
+ */
+export function resolveErrorCodePluginDir(): string {
+  return join(homedir(), AI_INSIGHTS_DIR, PLUGINS_DIR, ERROR_CODES_DIR);
 }
 
 // ==================== I/O ====================

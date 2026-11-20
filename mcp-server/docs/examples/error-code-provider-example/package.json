@@ -1,0 +1,8 @@
+{
+  "name": "error-code-provider-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A minimal, working example error-code provider — see ../../error-code-providers.md for the plugin-authoring guide this example accompanies.",
+  "type": "module",
+  "main": "index.mjs"
+}
