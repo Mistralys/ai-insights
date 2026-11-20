@@ -4155,3 +4155,150 @@ th[data-sort="total_work_packages"] {
 .cs-row-actions {
   white-space: nowrap;
 }
+
+/* ============================================================
+   Error Codes Tab Classes (config-error-codes.js)
+   All classes prefixed `ec-` to avoid collision with shared
+   component classes.
+   ============================================================ */
+
+.ec-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 20px 0 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ec-field-group {
+  max-width: 480px;
+}
+
+.ec-secret-status {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 4px 0 0;
+}
+
+.ec-clear-secret-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+.ec-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ec-live-region {
+  margin-top: 10px;
+}
+
+/* ── Plugins panel ────────────────────────────────────────── */
+.ec-plugin-dir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ec-plugin-dir-row .form-control {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ec-plugin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ec-plugin-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.ec-plugin-item:last-child {
+  border-bottom: none;
+}
+
+.ec-plugin-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+.ec-plugin-errors {
+  margin-top: 12px;
+}
+
+.ec-plugin-error-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ec-plugin-error-item {
+  color: var(--color-blocked);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* ── Temporary codes list ─────────────────────────────────── */
+.ec-temporary-wrapper {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.ec-temporary-table {
+  width: 100%;
+}
+
+.ec-tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 900px) {
+  .ec-temporary-wrapper {
+    max-height: none;
+  }
+
+  .ec-temporary-table,
+  .ec-temporary-table thead,
+  .ec-temporary-table tbody,
+  .ec-temporary-table th,
+  .ec-temporary-table td,
+  .ec-temporary-table tr {
+    display: block;
+  }
+
+  .ec-temporary-table thead {
+    display: none;
+  }
+
+  .ec-temporary-table tr {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    padding: 8px 10px;
+  }
+
+  .ec-temporary-table td {
+    padding: 2px 0;
+    white-space: normal;
+  }
+
+  .ec-temporary-table td:first-child {
+    font-weight: 600;
+  }
+}

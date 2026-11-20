@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-11-04
+> **Generated:** 2026-11-19
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.14.0)
+### Stage 2 — Project Manager (v3.15.0)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.19.1)
+### Stage 3 — Developer (v3.20.0)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.10.2)
+### Stage 4 — QA (v3.10.3)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.10.4)
+### Stage 5 — Security Auditor (v3.10.5)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.12.1)
+### Stage 6 — Reviewer (v3.12.2)
 
 **Identity:** Principal Systems Architect
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.11.1)
+### Stage 7 — Release Engineer (v3.11.2)
 
 **Identity:** Release Engineer
 
@@ -140,7 +140,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.13.1)
+### Stage 8 — Documentation (v3.13.2)
 
 **Identity:** Technical Writing Manager
 
@@ -153,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.15.1)
+### Stage 9 — Synthesis (v3.15.2)
 
 **Identity:** Head of Operations (OPS)
 
@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.7.1)
+### AGENTS.md Curator (v2.7.2)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -234,19 +234,19 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.19.1)
+### Developer — Standalone (v1.20.0)
 
 **Identity:** Staff Software Engineer
 
 Implement scoped plan documents without ledger workflow, including code insights and end-of-plan synthesis.
 
-- **Use When:** Implementing a plan document outside the ledger workflow (no MCP server needed)
+- **Use When:** Implementing a plan document outside the ledger workflow; MCP server optional — used only for error-code allocation
 - **Sub-agents:** Ledger Synthesis Maintainer
 - **Notes:** Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis
 
 ---
 
-### Documentation — Standalone (v1.7.1)
+### Documentation — Standalone (v1.7.2)
 
 **Identity:** Technical Writing Manager
 
@@ -268,7 +268,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.10.1)
+### Manifest Curator (v2.0.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -301,7 +301,7 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.5.1)
+### Plan Architect Reviewer (v2.5.2)
 
 **Identity:** Principal Software Architect
 
@@ -324,7 +324,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.10.0)
+### Plan Refiner (v1.10.1)
 
 **Identity:** Plan Quality Director
 
@@ -346,7 +346,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.10.1)
+### README Curator (v1.10.2)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -368,7 +368,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.4.1)
+### Researcher (v1.4.2)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -399,7 +399,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.9.1)
+### Web GUI Specialist (v1.10.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -421,7 +421,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.9.1)
+### Workspace Architect (v1.9.2)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -446,7 +446,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v3.2.1)
+### Ledger Claude Coordinator (v3.3.0)
 
 **Identity:** Technical Workflow Director
 

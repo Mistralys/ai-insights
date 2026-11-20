@@ -21,6 +21,8 @@
 | `zod` | ^3.24.1 | Runtime schema validation and type inference |
 | `proper-lockfile` | ^4.1.2 | Cross-platform file locking with retry logic |
 
+No HTTP client dependency is added for the `errorcode-incrementor` error-code provider (`src/error-codes/providers/errorcode-incrementor-provider.ts`): it uses Node's global `fetch` directly, and the core's own `AbortSignal.timeout()`-derived `ctx.signal` (see `allocator.ts`) for its request timeout — both already available on the Node version this project targets.
+
 ### Development
 
 | Package | Version | Purpose |

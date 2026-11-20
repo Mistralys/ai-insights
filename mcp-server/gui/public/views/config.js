@@ -2,9 +2,10 @@
    views/config.js — Configuration view coordinator
    Section 4d of the MCP Server Dashboard SPA
    Depends on: API, UI, escapeHtml, showLoading, showError
-   Tab modules: config-model-registry.js, config-persona-models.js (load first)
+   Tab modules: config-model-registry.js, config-persona-models.js,
+     config-stores.js, config-error-codes.js (load first)
    Exports (global): configDirty — shared mutable object read/written by all
-     three tab modules. Companion files must mutate its properties only; never
+     four tab modules. Companion files must mutate its properties only; never
      reassign configDirty itself (object identity must be preserved so all
      file-level references stay in sync).
    ============================================================ */
@@ -24,7 +25,8 @@ var configDirty = {
   general: false,
   personaModels: false,
   modelRegistry: false,
-  stores: false
+  stores: false,
+  errorCodes: false
 };
 
 /* ── Entry point ─────────────────────────────────────────── */
@@ -49,7 +51,7 @@ function renderConfig(app) {
 
 function renderConfigPage(app, config, models, personas, assignments, stores) {
   /* Reset dirty flags and all tab module state — fresh server data loaded. */
-  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = configDirty.stores = false;
+  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = configDirty.stores = configDirty.errorCodes = false;
   mrModels = mrOriginal = mrEditingId = null;
   pmModels = pmPersonas = pmAssignments = pmOriginal = null;
   pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
@@ -57,6 +59,9 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
   csModalMode = csModalStoreId = null; csModalCreateDir = true;
   csClickHandler = null;
   if (typeof csCloseModal === 'function') csCloseModal();
+  ecProviders = ecConfig = null; ecPluginDir = ''; ecLoadErrors = []; ecTemporaryCodes = null;
+  ecSelectedProviderId = null; ecTestInFlight = false;
+  ecClickHandler = ecChangeHandler = ecInputHandler = ecSubmitHandler = null;
 
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
@@ -65,6 +70,7 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
       '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
       '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
       '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
+      '<button class="config-tab' + (configActiveTab === 'errorCodes'    ? ' active' : '') + '" data-tab="errorCodes">Error Codes</button>' +
     '</div>' +
     '<div id="config-tab-content"></div>';
 
@@ -101,6 +107,16 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
         if (typeof csCloseModal === 'function') csCloseModal();
       }
 
+      /* Error Codes tab cleanup runs unconditionally too — the dirty-guard
+         confirm() above already handled the discard decision; this just
+         releases listeners and drops cached state so the next visit
+         re-fetches fresh data (the lazy-load contract). */
+      if (configActiveTab === 'errorCodes' && typeof ecCleanup === 'function') {
+        ecCleanup();
+        ecProviders = ecConfig = null; ecPluginDir = ''; ecLoadErrors = []; ecTemporaryCodes = null;
+        ecSelectedProviderId = null; ecTestInFlight = false;
+      }
+
       configActiveTab = tab;
       tabBar.querySelectorAll('.config-tab').forEach(function (b) {
         b.classList.toggle('active', b.getAttribute('data-tab') === tab);
@@ -128,6 +144,8 @@ function renderConfigTabContent(config, models, personas, assignments, stores) {
   } else if (configActiveTab === 'modelRegistry') {
     contentEl.innerHTML = renderModelRegistryTab(models);
     mrWireEvents();
+  } else if (configActiveTab === 'errorCodes') {
+    ecRenderTab();
   }
 }
 

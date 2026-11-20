@@ -62,6 +62,10 @@ Follow these steps for every plan:
 9. **Documentation Update Pass:** Update project documentation to reflect the implementation. Where no documentation change is warranted, the synthesis records the reasoning.
 10. **Code Insight Observations:** Compile the observations gathered while working (see the **Code Insight Observer** section below).
 
+### Error Codes
+
+{{> error-code-generation}}
+
 {{> insight-observer-intro}}
 
 {{> insight-scope-and-types}}

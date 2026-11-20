@@ -5,6 +5,11 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.20.0 (2026-11-19): Added an Error Codes subsection (new shared error-code-generation partial) covering
+    `ledger_generate_error_code` and `ledger_list_temporary_error_codes` — one base per new class/module that
+    throws coded exceptions, the `TEMPORARY ERROR CODE` marker and synthesis-report location for a temporary or
+    placeholder code, and never choosing or configuring a provider; gained a narrow, two-tool `central_pm` MCP
+    grant and `use_when` no longer claims no MCP server is needed.
   1.19.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
     carries the final report, and waits for the task notification only when the report says another agent is still
     running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
@@ -63,8 +68,14 @@ tools:
   - browser
   - agent
   - todo
+  # Narrow MCP grant: only error-code allocation, never full ledger workflow access
+  - central_pm/ledger_generate_error_code
+  - central_pm/ledger_list_temporary_error_codes
 
-# Differs from default: no WebFetch/WebSearch, matching the vs-code grant (no `web` tool)
+# Differs from default: no WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+# The two mcp__central_pm__… entries are Claude Code's required double-underscore form of
+# the narrow `central_pm/ledger_*` grants above — raw `central_pm/ledger_*` is VS Code-only
+# syntax and never resolves under Claude Code `--agent` invocation.
 cc_tools:
   - Bash
   - Read
@@ -75,6 +86,13 @@ cc_tools:
   - Task
   - TodoRead
   - TodoWrite
+  - mcp__central_pm__ledger_generate_error_code
+  - mcp__central_pm__ledger_list_temporary_error_codes
+
+# Required for the mcpServers block in the Claude Code output — this persona otherwise
+# has no shared MCP dependency, hence the narrow per-tool grants above rather than a
+# server-level wildcard.
+mcp_server_name: central_pm
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
@@ -85,6 +103,9 @@ dev_work_scope: "the plan"
 
 # no-stale-counts partial substitution
 stale_counts_targets: "documentation, summaries, or synthesis output"
+
+# error-code-generation partial substitution
+temporary_code_report_location: "as an insights.jsonl entry (type `debt`, priority `medium`), so it surfaces in the **Code Insights** section of `synthesis.md`"
 
 # insight-reporting-rules partial substitutions
 insight_reporting_intro: "The `### Code Insights` section of `synthesis.md` is where observations reach the reader."
@@ -109,5 +130,5 @@ subagents:
 
 # overview metadata
 identity: "Staff Software Engineer"
-use_when: "Implementing a plan document outside the ledger workflow (no MCP server needed)"
+use_when: "Implementing a plan document outside the ledger workflow; MCP server optional — used only for error-code allocation"
 notes: "Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis"

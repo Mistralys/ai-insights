@@ -82,6 +82,10 @@ Each phase below has one cognitive job. Recon gathers facts, the Experience Brie
 9. **Documentation Update Pass:** Update documentation where UI behavior, usage patterns, or styling conventions changed. Where nothing changed, the synthesis records the reasoning.
 10. **Interface Insight Observations:** Compile the observations gathered while working (see the **Interface Insight Observer** section below).
 
+### Error Codes
+
+{{> error-code-generation}}
+
 ## Interface Insight Observer
 
 Implementing and rendering an interface surfaces things no later reader will see from the finished diff — a spacing rhythm that only breaks at one viewport, a focus order that felt wrong the first time it was tabbed through, a component that had to be worked around. Every one of them belongs in the sink, because the moment they were visible is the only moment they were cheap to find.

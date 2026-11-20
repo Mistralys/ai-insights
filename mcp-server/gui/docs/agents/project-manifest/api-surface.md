@@ -15,6 +15,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `VALIDATION_ERROR` | 400 |
 | `CONFLICT` | 409 |
 | `PAYLOAD_TOO_LARGE` | 413 |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 |
 | *(unhandled)* | 500 |
 
 ---
@@ -327,6 +328,62 @@ Body: `{ order: string[] }` — must contain exactly the current store IDs, no d
 
 ---
 
+### 1.9 Error Codes
+
+All handlers live in `gui/api-error-codes.ts`. Every route carries the `requireLoopbackRequest` guard (`gui/route-guards.ts`); the two body-carrying routes additionally carry `requireJsonContentType`. These routes reach third-party provider plugin code and the user's own stored secrets — see `constraints.md` → §7 "Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge" for why they are guarded rather than relying on the response-only CORS header the rest of the server sends. `GET /api/error-codes/providers` and `GET /api/error-codes/config` are safe to poll; `POST /api/error-codes/test` never calls a provider's `allocate`.
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/error-codes/providers` | `handleListErrorCodeProviders` | Lists every registered provider (built-in and plugin), the scanned plugin directory, and any plugin load errors. |
+| `GET` | `/api/error-codes/config` | `handleGetErrorCodeConfig` | The allocator's config, with every secret masked to `{ set: boolean }`. |
+| `PUT` | `/api/error-codes/config` | `handleUpdateErrorCodeConfig` | Updates top-level config fields and/or one provider's settings. |
+| `POST` | `/api/error-codes/test` | `handleTestErrorCodeProvider` | Connection-tests a provider's settings without allocating a code. |
+| `GET` | `/api/error-codes/temporary` | `handleListTemporaryErrorCodesGui` | Logged temporary codes, newest-first, capped by `?limit` (default 200). |
+
+#### `ProviderListItem` — `GET /api/error-codes/providers` Response Shape
+
+```typescript
+interface ProviderListItem {
+  id: string;
+  label: string;
+  description?: string;
+  settings: SettingField[];     // descriptors only — never a settings value
+  supports_test: boolean;       // true when the provider offers test or peek
+  source: 'builtin' | 'plugin';
+  path?: string;                // present only for source: 'plugin' — a deliberate, loopback-guarded exception to "no internal paths in responses"
+}
+```
+
+Full response: `{ providers: ProviderListItem[], plugin_dir: string, load_errors: { source: string, message: string }[] }`.
+
+#### `ErrorCodeConfigResponse` — `GET`/`PUT /api/error-codes/config` Response Shape
+
+```typescript
+interface ErrorCodeConfigResponse {
+  active_provider: string;
+  temporary_prefix: string;
+  timeout_ms: number;
+  retry: { default_wait_ms: number; max_wait_ms: number };
+  providers: Record<string, Record<string, unknown>>; // secret fields rendered as { set: boolean }; only currently-registered providers appear
+}
+```
+
+`PUT` body: `{ active_provider?, temporary_prefix?, timeout_ms?, retry?, provider_id?, settings?, clear_secrets? }` — `settings`/`clear_secrets` apply only when `provider_id` is present and names a currently-registered provider; an absent/empty secret in `settings` keeps the stored value, a key listed in `clear_secrets` clears it. An uninstalled provider's stored settings are left untouched by any update that does not target its `provider_id`, which is how they survive the round trip — but omitted from the response, since this route has no settings descriptors to mask their secrets safely.
+
+#### `POST /api/error-codes/test` Body and Response
+
+Body: `{ provider_id: string, settings?: Record<string, unknown> }`.
+
+Response: `{ supported: boolean, secrets_merged: boolean, ok?: boolean, reason?: string, detail?: string, value?: number, message?: string }`. `supported: false` (with `message`) when the provider offers neither `test` nor `peek` — `allocate` is never called by this route. `secrets_merged` is `true` only when every non-secret setting field equals its stored value (see `mergeSettingsForTest` in `src/error-codes/settings-schema.ts`) — any other difference tests the incoming settings only, so a changed destination is never tested with a password meant for a different one.
+
+#### `GET /api/error-codes/temporary` Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | number | 200 | Maximum entries returned, newest-first. Must be a positive integer. |
+
+---
+
 ## 1.X Server-side TypeScript Modules
 
 ### `chunk-accumulator.ts` — Shared accumulation layer
@@ -403,6 +460,14 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as defense-in-depth alongside the compile-time union.
 
+#### `RouteGuard`
+
+```typescript
+export type RouteGuard = (req: IncomingMessage, port: number) => void;
+```
+
+A request-level check `dispatchRoute` runs, in `Route.guards` array order, after the route matches and before `readJsonBody`. Throws `ApiError` to reject the request — `dispatchRoute`'s existing `ApiError` handling maps it to a status code and error body exactly as it would for a handler-thrown error. Implemented by `requireLoopbackRequest` and `requireJsonContentType` in `gui/route-guards.ts`.
+
 #### `Route` (interface)
 
 A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
@@ -414,12 +479,13 @@ A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
 | `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), named capture groups, and query parameters. |
 | `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses. |
 | `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations. |
+| `guards` | `readonly RouteGuard[]` | — | Run in array order after the route matches and before `readJsonBody`. A route with no `guards` behaves exactly as before this field existed. |
 
 ### Exported Functions
 
 #### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
 
-Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9).
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to eight non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildErrorCodeRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9). `buildErrorCodeRoutes()` takes no arguments — its handlers operate on the user-level `~/.ai-insights/error-codes/` directory, not on any ledger root or project path.
 
 #### `getRouteDescriptors(): Route[]`
 
@@ -472,6 +538,11 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 | `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
 | `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
+| `getErrorCodeProviders` | `() → Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>` | `GET /api/error-codes/providers` |
+| `getErrorCodeConfig` | `() → Promise<object>` | `GET /api/error-codes/config` |
+| `updateErrorCodeConfig` | `(data: object) → Promise<object>` | `PUT /api/error-codes/config` |
+| `testErrorCodeProvider` | `(providerId: string, settings?: object) → Promise<object>` | `POST /api/error-codes/test` |
+| `getTemporaryErrorCodes` | `(limit?: number) → Promise<{ entries: object[] }>` | `GET /api/error-codes/temporary` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
 | `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
@@ -569,9 +640,11 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderConfig` | `config.js` | `#/config` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
 
+The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash route of its own — it is a tab within `#/config`, entered via `renderConfigTabContent()`'s dispatcher (see below).
+
 #### `config.js` — Internal Functions
 
-`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (implemented in `config-persona-models.js`), and Model Registry (implemented in `config-model-registry.js`).
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has five tabs — General, Stores (implemented in `config-stores.js`), Persona Models (implemented in `config-persona-models.js`), Model Registry (implemented in `config-model-registry.js`), and Error Codes (implemented in `config-error-codes.js`).
 
 **Scaffold functions:**
 
@@ -641,20 +714,44 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
 | `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. On success, refreshes state and displays slug-collision conflicts if any were returned. |
 
+**Error Codes tab** (defined in `config-error-codes.js` — loaded before `config.js`):
+
+| Function | Description |
+|----------|-------------|
+| `ecRenderTab()` | Entry point called by `renderConfigTabContent()`. Lazily fetches `API.getErrorCodeProviders()`, `API.getErrorCodeConfig()`, and `API.getTemporaryErrorCodes()` in parallel on first activation only (`ecProviders === null`); every later call (including a provider switch) re-renders synchronously from cached state. This lazy-load contract is why Error Codes data is never added to `renderConfig()`'s own `Promise.all`. |
+| `ecBuildTabHtml()` | Builds the full tab HTML: provider `<select>`, the selected provider's descriptor-driven settings form, the core (non-provider) settings fields, Save/Test buttons, the plugins panel, and the temporary-codes list. |
+| `ecRenderField(field, storedValue)` | Renders one settings descriptor as a form control: `string`/`path` → text, `url` → `type="url"`, `secret` → password input (never pre-filled) with a Set/Not-set indicator and a conditional Clear-stored-value checkbox, `integer` → number input with `min`/`max`, `boolean` → checkbox, `select` → `<select>`, any unrecognised type → text. Every label/description/value is passed through `escapeHtml()`. |
+| `ecRenderCoreSettings()` | Renders the temporary-code prefix, allocation timeout, and the two retry-wait fields. |
+| `ecRenderPluginsPanel()` | Renders the plugin directory path + copy button, installed plugins (source: `'plugin'`), load errors, and the empty state. |
+| `ecRenderTemporaryList()` | Renders the temporary-codes table (server already returns newest-first, capped) or the empty state. |
+| `ecCollectProviderSettings(provider)` | Reads the current form values for one provider's descriptors into `{ settings, clear_secrets }`. A secret field whose Clear-stored-value checkbox is ticked is omitted from `settings` and listed in `clear_secrets`; a secret left blank (and not cleared) is omitted entirely so the server keeps the stored value. |
+| `ecCollectCoreSettings()` | Reads and validates the core settings fields; returns `null` (after showing an error in the live region) when a value is not a positive integer. |
+| `ecHandleSave(form)` | The `#ec-form` submit handler. Guarded by `ecSaveInFlight` (returns before validation while a PUT is pending, so a second submit, `submit` event or `requestSubmit()` sends nothing). Calls `form.reportValidity()`, then `PUT /api/error-codes/config` with the selected provider's id as both `active_provider` and `provider_id`, its collected settings/`clear_secrets`, and the core settings. On success, re-renders the tab (so masked secret state reflects the save) and writes to `#ec-live-region`. |
+| `ecHandleTestClick(btn)` | The "Test connection" click handler. Guarded by `ecTestInFlight` so a second click while a request is pending never fires a second one. Disables the button and sets its text to "Testing…" for the duration. |
+| `ecHandleProviderChange(selectEl)` | The provider `<select>`'s change handler. When `configDirty.errorCodes` is true, shows the same `confirm()` discard dialog as the tab-bar guard; reverts the selection on cancel. |
+| `ecHandleCopyPluginDir(btn)` | Copies the plugin directory path to the clipboard (or a `document.execCommand('copy')` fallback), mirroring `config-stores.js`'s `.cs-copy-btn` pattern. |
+| `ecWireEvents()` | Wires delegated `change`/`input`/`click` listeners on `#config-tab-content` plus the `#ec-form` `submit` handler. Calls `ecCleanup()` first as a duplicate-listener guard. |
+| `ecCleanup()` | Removes every listener `ecWireEvents()` attached. Called both before re-wiring within a visit and from `config.js`'s tab-switch cleanup branch when the user leaves the tab. |
+
 **Module-level state** (`config.js` globals):
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
-| `configDirty` | `{ general, personaModels, modelRegistry, stores: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`, `'errorCodes'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
+| `configDirty` | `{ general, personaModels, modelRegistry, stores, errorCodes: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
 | `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
 | `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+| `ecProviders` | `ProviderListItem[] \| null` | Providers from the most recent `GET /api/error-codes/providers`. `null` until the tab's first lazy load, and nulled again by the tab-switch cleanup branch — each tab visit re-fetches. |
+| `ecConfig` | `ErrorCodeConfigResponse \| null` | The allocator's config (secrets masked to `{ set: boolean }`). `null` until first lazy load. |
+| `ecSelectedProviderId` | `string \| null` | Id of the provider currently shown in the settings form. Defaults to `ecConfig.active_provider` on load; changed only via the provider `<select>`, guarded by the unsaved-changes `confirm()`. |
+| `ecSaveInFlight` | `boolean` | `true` while a Save (`PUT /api/error-codes/config`) request is pending. Set right before the PUT, cleared first in both settle callbacks; deliberately not reset by `ecCleanup()`. |
+| `ecTestInFlight` | `boolean` | `true` while a "Test connection" request is pending — guards a second click from firing a second request. |
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with four boolean keys — `general`, `personaModels`, `modelRegistry`, and `stores`. It is declared and owned by `config.js` but mutated directly by all four tab modules:
+`configDirty` is a shared mutable object with five boolean keys — `general`, `personaModels`, `modelRegistry`, `stores`, and `errorCodes`. It is declared and owned by `config.js` but mutated directly by all five tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
@@ -662,11 +759,19 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
 | `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
+| `config-error-codes.js` | `.errorCodes` | `change`/`input` on any form field → `true` (except the provider `<select>` itself and a Clear-stored-value toggle, which route through `ecHandleProviderChange`/the clear-checkbox branch first); successful save → `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
-2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all four known keys on fresh load.
-3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, and `config-stores.js` must load _before_ `config.js` (see `index.html`). All three files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all five known keys on fresh load.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, `config-stores.js`, and `config-error-codes.js` must load _before_ `config.js` (see `index.html`). All four files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+
+**Integration points a future tab module must follow** (established by `config-stores.js`, confirmed again by `config-error-codes.js`):
+- Add a boolean key to the `configDirty` literal in `config.js` (mutate only, per Rule 1 above).
+- Reset the tab's own module-level state (and null its handler references) inside `renderConfigPage()`'s reset block.
+- Add a cleanup branch inside the tab-bar click handler, alongside the Stores/Error Codes branches, that unconditionally releases listeners and drops cached state when the user switches away — run it regardless of whether the dirty-guard `confirm()` fired, so leaving-and-returning never accumulates duplicate listeners.
+- Add a dispatcher branch in `renderConfigTabContent()`.
+- If the tab's data is not part of the page's initial load, fetch it lazily on first activation inside the tab's own render-entry function rather than adding it to `renderConfig()`'s `Promise.all` — `config-error-codes.js`'s `ecRenderTab()` is the reference implementation.
 
 The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
 

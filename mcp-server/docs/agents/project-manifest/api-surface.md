@@ -680,6 +680,71 @@ Lightweight health check — verifies MCP server reachability and detects stale 
 
 ---
 
+### Error Code Tools
+
+Expose the pluggable error-code allocator (`src/error-codes/allocator.ts`) and its temporary-code fallback log (`src/error-codes/temporary-codes.ts`) to agents. Both tools are user-level — scoped to `~/.ai-insights/error-codes/`, not to a ledger plan folder — so neither accepts `project_path`. The active provider is configured by the user in the GUI's Error Codes tab, never by an agent call.
+
+#### `ledger_generate_error_code`
+
+```typescript
+(args: { cwd_path?: string; context?: string; temporary?: boolean }) => Promise<MCPResult>
+```
+
+Allocates a new error-code base number through the configured provider. Never throws for a provider, network, or configuration failure — every one of those falls back to a temporary code instead (see `fallback_reason` below). `cwd_path` is passed through to repository resolution (`src/error-codes/project-info.ts`) and matters whenever the active provider scopes by repository.
+
+**Response shape** (`ErrorCodeResult`, `src/error-codes/allocator.ts`):
+
+```typescript
+{
+  code: string;                // The allocated (or temporary) base number, as digits
+  temporary: boolean;          // true when code is a placeholder, not a real provider-issued base
+  provider: string | null;     // The provider id that produced code, or null for a pre-provider temporary code
+  fallback_reason?: 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed' | 'requested';
+  detail?: string;             // Redacted free-text detail; absent when fallback_reason says enough
+  waited_ms?: number;          // Present only when a throttled retry occurred
+  repository: RepositoryInfo | null;
+  first_component_code: string; // code + "01" — the first component code ready to use
+  message: string;
+  instruction: string;
+}
+```
+
+**Temporary-code format:** `{temporary_prefix}` (`"777"` by default, configurable) followed by six zero-padded digits counting up from `1` (e.g. `777000001`). `{prefix}000000` (e.g. `777000000`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is never issued here. A real, provider-issued `code` has whatever shape the active provider returns.
+
+**Component-code convention:** treat `code` as a base; append a two-digit, zero-padded component number in introduction order (`{base}01`, `{base}02`, …). `first_component_code` already supplies `{base}01`.
+
+**Error handling:** an MCP error (`isError: true`) is returned only when the temporary-code store itself fails (disk full, lock timeout, counter exhausted) — never for a provider failure, which falls back instead.
+
+**Implementation:** `src/tools/error-codes.ts`, wiring `allocateErrorCode` with real dependencies: the live provider registry (`src/error-codes/provider-registry.ts`), `loadErrorCodeConfig` (`src/error-codes/config-store.ts`), `resolveRepositoryInfo` (`src/error-codes/project-info.ts`), a real `setTimeout`-backed sleep, and `Date.now()`.
+
+#### `ledger_list_temporary_error_codes`
+
+```typescript
+(args: { filter?: string }) => Promise<MCPResult>
+```
+
+Lists every temporary code logged by `ledger_generate_error_code`'s fallback path, so an agent can find and replace placeholder codes once the configured provider is working again. `filter`, when supplied, matches entries whose `context` or `repository` contains it as a (case-sensitive) substring.
+
+**Response shape:**
+
+```typescript
+{
+  entries: Array<{
+    code: string;
+    issued_at: string;             // ISO timestamp
+    provider: string | null;
+    fallback_reason: string | null;
+    detail: string | null;         // Already redacted
+    repository: string | null;     // folder_name at issuance
+    context: string | null;
+  }>;
+}
+```
+
+**Implementation:** `src/tools/error-codes.ts`, delegating to `listTemporaryCodes` (`src/error-codes/temporary-codes.ts`) against `resolveErrorCodesDir()` (`src/storage/store-registry.ts`).
+
+---
+
 ### Help & Documentation Tools
 
 #### `ledger_help`
@@ -2165,10 +2230,20 @@ type DetectProjectResult =
 ### `atomicWriteJson()`
 
 ```typescript
-function atomicWriteJson(filePath: string, data: unknown): Promise<void>;
+interface AtomicWriteJsonOptions {
+  mode?: number;   // POSIX file mode, e.g. 0o600; a documented no-op on Windows
+}
+
+function atomicWriteJson(
+  filePath: string,
+  data: unknown,
+  options?: AtomicWriteJsonOptions
+): Promise<void>;
 ```
 
 Writes JSON data to a file atomically using the write-to-temp-then-rename pattern. Ensures directory exists, pretty-prints JSON with 2-space indentation and trailing newline.
+
+`options.mode`, when supplied, is passed directly to `fs.writeFile`'s own `mode` option at temp-file creation time (not applied via a separate `fs.chmod` call afterward), so the temp file is never briefly world-readable at default permissions between the write and the rename — the OS applies the mode atomically via the underlying `open()` flags. On Windows, the `mode` bits passed to `fs.writeFile` only toggle the read-only attribute, so this is a documented no-op there — callers that need a restrictive mode (e.g. the error-code allocator's `config.json`, which holds provider secrets, written with `{ mode: 0o600 }`) get it on POSIX and silently get the platform default elsewhere.
 
 ---
 
@@ -2535,6 +2610,26 @@ function expandStorePath(pathStr: string): string;
  */
 function resolveGuiConfigPath(storeConfig: StoresConfig | null, ledgerRoot: string): string;
 
+/**
+ * Returns the absolute path of the error-code allocator's user-level state
+ * directory: ~/.ai-insights/error-codes/
+ *
+ * Holds config.json (active provider, timeouts, retry policy, per-provider
+ * settings), temporary-codes.json (the logged fallback-code history), and
+ * per-provider data/{provider-id}/ directories.
+ */
+function resolveErrorCodesDir(): string;
+
+/**
+ * Returns the absolute path of the directory scanned for third-party
+ * error-code provider plugins: ~/.ai-insights/plugins/error-codes/
+ *
+ * Each entry is either a *.mjs/*.js file whose default export is an
+ * ErrorCodeProvider, or a folder carrying its own package.json and
+ * dependencies (see the Error-Code Provider Contract section below).
+ */
+function resolveErrorCodePluginDir(): string;
+
 // ── I/O ────────────────────────────────────────────────────────────────────
 
 /**
@@ -2843,6 +2938,311 @@ One-shot startup migration: scans `ledgerRoot` for depth-1 directories that cont
 **Startup wiring:** Called from `src/index.ts` after `mkdirSync(ledgerRoot)` and before `readConfigFromDisk()`, wrapped in `try/catch` to prevent fatal startup failures.
 
 **`withLock` constraint:** Never calls `withLock(ledgerRoot)`. Race safety relies on the sentinel file and startup sequencing (no tool-call handlers are reachable during migration).
+
+---
+
+## Error-Code Provider Contract
+
+`src/error-codes/` holds the pluggable error-code allocator introduced for `ledger_generate_error_code`. This section is the single documentation home for every module under `src/error-codes/` as each lands, built-in providers (`providers/`) included; the MCP tools that call `allocateErrorCode()` are documented in their own WPs' manifest updates.
+
+### `provider-api.ts`
+
+The provider contract itself — pure types and constants, no runtime logic (so it carries no dedicated unit test; `provider-validation.test.ts` and the built-in provider tests exercise it indirectly). This is the only module a provider depends on, conceptually: plugins are plain ESM and import nothing from the server, and the types below are the documentation handed to plugin authors.
+
+```typescript
+const PROVIDER_API_VERSION = 1;
+const SUPPORTED_PROVIDER_API_VERSIONS: readonly number[]; // = [1]
+
+interface ErrorCodeProvider {
+  apiVersion: 1;
+  id: string;                 // /^[a-z][a-z0-9-]{1,47}$/, unique
+  label: string;
+  description?: string;
+  settings: SettingField[];   // declarative; drives validation, the GUI form, and secret handling
+  allocate(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  // Optional hooks. Presence IS the capability — no separate capability flag.
+  peek?(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  test?(ctx: ProviderContext): Promise<TestOutcome>;  // core falls back to peek when absent
+}
+
+type SettingField =
+  | { key: string; label: string; type: 'string' | 'url' | 'path'; required?: boolean; default?: string; description?: string; placeholder?: string }
+  | { key: string; label: string; type: 'secret'; required?: boolean; description?: string }
+  | { key: string; label: string; type: 'integer'; required?: boolean; default?: number; min?: number; max?: number; description?: string }
+  | { key: string; label: string; type: 'boolean'; default?: boolean; description?: string }
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[]; default?: string; description?: string };
+
+interface AllocationRequest {
+  request_id: string;             // uuid, for provider-side logging/idempotency only
+  cwd_path: string | null;
+  repository: RepositoryInfo | null;
+  context: string | null;
+}
+
+// root_path/folder_name identify the MAIN repository root — every linked
+// worktree of one repository resolves to the same values.
+interface RepositoryInfo { root_path: string; folder_name: string; package_name: string | null; }
+
+interface ProviderContext {
+  settings: Readonly<Record<string, unknown>>;  // validated against the provider's `settings`, secrets included
+  signal: AbortSignal;             // core-owned allocation timeout
+  data_dir: string;                // ~/.ai-insights/error-codes/data/{provider-id}/, created on demand
+  log: { info(msg: string): void; warn(msg: string): void };  // stderr-only, secrets redacted
+}
+
+type AllocationOutcome =
+  | { ok: true; value: number }
+  | { ok: false; reason: FailureReason; ambiguous?: boolean; retry_after_ms?: number; detail?: string };
+
+type FailureReason = 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed';
+type TestOutcome = { ok: true; detail?: string; value?: number } | { ok: false; reason: FailureReason; detail?: string };
+```
+
+**Stability rules** (`apiVersion: 1`), restated from the module's own JSDoc — read it there for the authoritative version:
+- Every change within `apiVersion: 1` is additive: new optional request fields, context members, provider hooks, and setting-field types.
+- An optional hook is detected by its presence (`typeof provider.peek === 'function'`) — no `capabilities` flag, no `ctx.api_version`.
+- Providers must ignore unknown request/context fields. The core treats unknown outcome `reason`s as `failed` and ignores unknown provider properties.
+- A breaking change requires `apiVersion: 2`; `SUPPORTED_PROVIDER_API_VERSIONS` lists what the core currently accepts.
+
+### `provider-validation.ts`
+
+```typescript
+interface ProviderValidationSuccess { ok: true; provider: ErrorCodeProvider; }
+interface ProviderValidationFailure { ok: false; errors: string[]; }
+type ProviderValidationResult = ProviderValidationSuccess | ProviderValidationFailure;
+
+function validateProvider(candidate: unknown): ProviderValidationResult;
+```
+
+A Zod-backed runtime check of a candidate provider object — used uniformly for built-in and plugin-loaded providers. Never throws. Rejects: an unsupported `apiVersion`; an `id` that fails the pattern; a missing/empty `label`; a missing `allocate`; a malformed `settings` array (unknown `type`, missing `options` for `select`, an `integer`'s `min` greater than its `max`, or a duplicate `key` across entries — the one rule a per-element schema cannot express, checked via `z.discriminatedUnion(...).superRefine(...)`); and a `peek`/`test` that is present but not a function. On success, returns the original candidate object, typed as `ErrorCodeProvider`.
+
+### `settings-schema.ts`
+
+```typescript
+function buildSettingsSchema(fields: readonly SettingField[]): z.ZodObject<Record<string, z.ZodTypeAny>>;
+
+function toPublicSettings(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): Record<string, unknown>;
+
+function mergeSettingsUpdate(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>,
+  clearKeys?: readonly string[]
+): Record<string, unknown>;
+
+interface MergeSettingsForTestResult {
+  settings: Record<string, unknown>;
+  secrets_merged: boolean;
+}
+function mergeSettingsForTest(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>
+): MergeSettingsForTestResult;
+
+function collectSecrets(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): string[];
+```
+
+One descriptor array (`SettingField[]`) drives every function here:
+
+- **`buildSettingsSchema`** — `integer` respects `min`/`max`; `select` must be one of its declared `options`; a field's `default` is applied by Zod when the value is absent. The `url` type enforces a scheme rule in the core (not behind a per-descriptor flag, so a plugin author cannot weaken it): `https://` is always accepted; `http://` is accepted **only** for a loopback host (`localhost`, `127.0.0.1`, `[::1]` — `URL#hostname` keeps the brackets on the IPv6 literal). Every other scheme, and every other `http://` host, is rejected.
+- **`toPublicSettings`** — renders every `secret` field as `{ set: boolean } ` (never the raw value); every other field passes through unchanged. Feeds the GUI's `GET /api/error-codes/config` response.
+- **`mergeSettingsUpdate`** — the save-time merge. A secret field left absent or empty in `incoming` keeps the stored value, so the GUI never has to resend a password to save an unrelated field; a key listed in `clearKeys` is forced to `''` regardless of `incoming`, which is the only way to clear a stored secret. Non-secret fields apply the incoming value when the key is present in `incoming`, otherwise keep the stored one.
+- **`mergeSettingsForTest`** — the fail-closed merge behind the GUI's "Test connection" flow. Stored secrets are merged into `incoming` **only when every non-secret field** — of any type, not only `url` — **equals its stored value**, after each field's `default` is applied to both sides via an internal, lenient `applyDefaults` helper (never throws, never enforces `required`, since this is a pure comparison over possibly-partial objects). Any other difference means the result carries the incoming secrets only. Pure and synchronous: the rule is unit-tested without ever making an HTTP call. Value comparison uses `===`, which is correct because every current `SettingField` value type is a primitive (string, number, boolean) — a future structured setting type would need a deep-equal here instead.
+- **`collectSecrets`** — returns every non-empty secret value present in `values`, feeding `redact()`/`createRedactingLogger()` (see below). Kept here, alongside the descriptors it reads, rather than in `redact.ts`.
+
+### `redact.ts`
+
+```typescript
+function redact(text: string, secrets: readonly string[]): string;
+
+interface RedactingLogger { info(msg: string): void; warn(msg: string): void; }
+function createRedactingLogger(prefix: string, secrets: readonly string[]): RedactingLogger;
+```
+
+The single owner of secret redaction for the error-code allocator — plain functions, no state. Lives in its own module (not inside `settings-schema.ts`) because the plugin loader and provider registry need to redact log/error text without needing Zod or the descriptor logic.
+
+- **`redact`** — replaces every occurrence of each non-empty secret in `text` with `[REDACTED]`. Secrets are matched **literally**: any regex metacharacters they contain are escaped first. Secrets are replaced **longest-first**, so a secret that is a substring of another is never partially exposed by the shorter match running first. Empty or whitespace-only secrets are ignored, so an unset settings field cannot blank out unrelated text.
+- **`createRedactingLogger`** — returns the `{ info, warn }` logger handed to providers as `ctx.log`, and used internally by the allocator, registry and loader. Writes `[{prefix}] {message}` to **stderr only** (never stdout, keeping the MCP JSON-RPC stream on stdout clean), passing every message through `redact` first.
+
+### `config-store.ts`
+
+```typescript
+const ErrorCodeConfigSchema: z.ZodType<ErrorCodeConfig>; // version, active_provider, temporary_prefix, timeout_ms, retry: { default_wait_ms, max_wait_ms }, providers: Record<string, Record<string, unknown>>
+type ErrorCodeConfig = z.infer<typeof ErrorCodeConfigSchema>;
+
+function loadErrorCodeConfig(): Promise<ErrorCodeConfig>;
+function updateErrorCodeConfig(mutator: (current: ErrorCodeConfig) => ErrorCodeConfig): Promise<ErrorCodeConfig>;
+```
+
+Owns `~/.ai-insights/error-codes/config.json`. `loadErrorCodeConfig()` re-reads the file on every call — no cache, no watcher, so the MCP server process and the GUI server process always observe the latest saved settings without coordinating invalidation. A missing file, malformed JSON, or a value failing `ErrorCodeConfigSchema` validation all yield the documented defaults (`active_provider: 'file'`, `temporary_prefix: '777'`) rather than throwing — a corrupt or absent config file never blocks an allocation. `providers` is a free-form `{ [provider-id]: settings }` bag whose values this schema does not validate (a provider's settings shape is runtime-defined, see `settings-schema.ts`), which is also why settings for a currently-uninstalled provider round-trip untouched. `updateErrorCodeConfig(mutator)` is the only write path: a read-modify-write under `withLock(resolveErrorCodesDir(), …)` that re-validates the mutator's result before persisting it with `atomicWriteJson(..., { mode: 0o600 })`, so concurrent callers never lose an update and a mutator cannot silently write an invalid shape.
+
+### `project-info.ts`
+
+```typescript
+function resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+```
+
+Resolves the MAIN repository root for an arbitrary working directory with no `git` subprocess — walks upward from `cwdPath` to the first `.git` entry, following git's own repository-layout convention. A `.git` directory means `cwdPath`'s ancestor is already the main checkout. A `.git` file (a linked worktree or a submodule) is read for its `gitdir:` line and, when that git directory holds a `commondir` file, resolved further to the shared main checkout — so every linked worktree of one repository yields the same `root_path`/`folder_name`, which matters for a provider scoping its sequence by repository (the `file` provider's `scope: 'repository'`). A submodule (no `commondir`) or any read failure along the way falls back to the walked directory rather than throwing. Returns `null` outside any repository. `package_name` comes from the existing `readProjectName()` (`utils/read-project-name.ts`), reused as-is.
+
+### `temporary-codes.ts`
+
+```typescript
+const TemporaryCodeEntrySchema: z.ZodType<TemporaryCodeEntry>; // code, issued_at, provider, fallback_reason, detail, repository, context — all nullable except code/issued_at
+type TemporaryCodeEntry = z.infer<typeof TemporaryCodeEntrySchema>;
+type TemporaryCodeEntryInput = Omit<TemporaryCodeEntry, 'code' | 'issued_at'>;
+
+function issueTemporaryCode(dir: string, prefix: string, entry: TemporaryCodeEntryInput): Promise<string>;
+function listTemporaryCodes(dir: string, filter?: string): Promise<TemporaryCodeEntry[]>;
+```
+
+Owns `~/.ai-insights/error-codes/temporary-codes.json`, entirely core-side — no provider ever sees or influences this log, which is what makes the fallback guarantee unconditional. `issueTemporaryCode` runs its whole read-modify-write under `withLock(dir, …)`; the returned code is `prefix + String(n).padStart(6, '0')` with `n` starting at `1` (`{prefix}000000` is reserved as the "tool unavailable" placeholder and is never issued by this module), and the persisted file tracks an explicit `next_counter` field — rather than re-deriving "next" from `entries.length` — so a manually edited or truncated log can never reissue a previously-used code. Once `n` would exceed `999999` the counter is exhausted and the function throws instead of wrapping around. `listTemporaryCodes` filters by a case-sensitive substring match against `context` or `repository` (a `null` field never matches a non-empty filter); an absent or empty `filter` returns every entry.
+
+### `plugin-loader.ts`
+
+```typescript
+interface LoadedPlugin { provider: ErrorCodeProvider; path: string; }
+interface PluginLoadError { source: string; message: string; } // message never carries stack trace text
+interface LoadPluginProvidersResult { providers: LoadedPlugin[]; errors: PluginLoadError[]; }
+
+interface LoadPluginProvidersOptions { importTimeoutMs?: number; } // defaults to PLUGIN_IMPORT_TIMEOUT_MS
+const PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
+
+function loadPluginProviders(pluginDir: string, options?: LoadPluginProvidersOptions): Promise<LoadPluginProvidersResult>;
+```
+
+The only place in the server that dynamically imports code discovered at runtime, and it only ever scans one fixed directory: `resolveErrorCodePluginDir()` (`~/.ai-insights/plugins/error-codes/`) — see "Plugins Load Only From the Plugin Directory" (`constraints.md`). Each top-level entry is either a `*.mjs`/`*.js` file (its default export is the provider) or a folder, whose entry module is `package.json`'s `main` field when present, else `index.mjs` — `exports` maps are deliberately not resolved, so a folder with neither is reported as a load error naming the expected entry rather than partially re-implementing Node's resolver. Entries are classified by a private `classifyEntry()` that looks through symbolic links (`stat` follows them): a link to a file or folder loads like its target, reported under the link path, and a dangling link (or link loop) is a load error. Each import is raced against `options.importTimeoutMs` (default `PLUGIN_IMPORT_TIMEOUT_MS`, 10 s, per plugin, unref'd timer cleared in `finally`); a timeout is recorded as `import timed out after {n} ms` and the scan continues (the import itself cannot be cancelled). Modules are imported via `pathToFileURL(path).href` for correctness on Windows as well as POSIX. A syntax error, a thrown error during evaluation, an invalid provider shape, or a plugin `id` clashing with another plugin already loaded from this directory (first-loaded wins by readdir order) is recorded in `errors` and never thrown — one broken plugin never blocks the rest of the scan or server startup. A missing plugin directory yields no providers and no errors (absence is not a failure). This loader knows nothing of built-in providers; a plugin `id` clashing with a built-in is accepted here and resolved by `provider-registry.ts`.
+
+### `provider-registry.ts`
+
+```typescript
+const BUILTIN_PROVIDERS: ErrorCodeProvider[]; // in registration order; built-ins always win an id clash over a plugin
+
+interface ProviderRegistryEntry { provider: ErrorCodeProvider; source: 'builtin' | 'plugin'; path?: string; } // path present only for source: 'plugin'
+interface ProviderLoadError { source: string; message: string; }
+
+function initProviderRegistry(options: { pluginDir: string }): Promise<void>;
+function getProvider(id: string): ErrorCodeProvider | undefined;
+function listProviders(): ProviderRegistryEntry[];
+function listProviderLoadErrors(): ProviderLoadError[];
+```
+
+Merges `BUILTIN_PROVIDERS` with every provider `loadPluginProviders()` discovers under `options.pluginDir`, into process-local module state (`registry`/`errors`, a `Map` keyed by provider `id` — not plain-object property access, so an `id` cannot cause prototype pollution). A plugin `id` clashing with a built-in is rejected and recorded as a load error while the built-in keeps working; a plugin-vs-plugin clash is already resolved inside `loadPluginProviders` and never reaches this function. `initProviderRegistry` is safe to call more than once per process — each call replaces the whole registry and error list with a freshly built one rather than accumulating, so the MCP server and the GUI server each calling it once at their own startup never produces duplicates. `getProvider`/`listProviders`/`listProviderLoadErrors` are plain synchronous readers over that state.
+
+### `allocator.ts`
+
+```typescript
+interface AllocateErrorCodeInput {
+  cwd_path: string | null;
+  context: string | null;
+  temporary?: boolean;
+}
+
+type FallbackReason = FailureReason | 'requested';
+
+interface ErrorCodeResult {
+  code: string;                       // digits only, real or temporary
+  temporary: boolean;
+  provider: string | null;            // null only for a `requested`/no-provider-resolved temporary code
+  fallback_reason?: FallbackReason;   // absent for a successful, non-temporary allocation
+  detail?: string;                    // always redacted
+  waited_ms?: number;                 // present only after a throttled retry
+  repository: RepositoryInfo | null;
+  first_component_code: string;       // code + '01'
+  message: string;
+  instruction: string;
+}
+
+interface TemporaryCodesDep {
+  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<string>;
+}
+
+interface AllocatorDeps {
+  loadConfig(): Promise<ErrorCodeConfig>;
+  getProvider(id: string): ErrorCodeProvider | undefined;
+  resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+  temporaryCodes: TemporaryCodesDep;
+  sleep(ms: number): Promise<void>;
+  now(): number;                      // measures the retry backoff for `waited_ms`, never used for policy
+}
+
+function allocateErrorCode(input: AllocateErrorCodeInput, deps: AllocatorDeps): Promise<ErrorCodeResult>;
+```
+
+The single policy pipeline behind `ledger_generate_error_code`: load config, resolve the repository, call the active provider, validate its outcome, retry once on throttling, and fall back to a temporary code on every other failure. See "Policy Lives in the Allocator, Not in Providers" (`constraints.md`) for why every one of those decisions lives here and nowhere in a provider. `ErrorCodeResult` is exported from this module rather than a separate `types.ts`, matching the config schema living in `config-store.ts` and the temporary-entry schema living in `temporary-codes.ts`.
+
+`deps` is fully injected, so the allocator's own unit tests (`tests/error-codes/allocator.test.ts`) exercise no real file I/O, network call or timer:
+- `temporaryCodes` is a narrow façade over `temporary-codes.ts` — the allocator only ever issues a code through it, never lists the log.
+- `now()` is called immediately before and after the single retry `sleep()`, purely to report the actually-elapsed `waited_ms` — it plays no part in deciding whether to retry or how long to wait.
+- `resolveRepositoryInfo` is called only when `input.cwd_path` is non-null.
+
+Never thrown by this function: a missing/failed-to-load provider, a provider whose stored settings fail `buildSettingsSchema(...).safeParse(...)` validation, a provider that throws, an aborted `allocate` call, or a non-positive/non-safe-integer returned value — every one of these falls back to a temporary code instead (`misconfigured`, `failed`, `unavailable`, or `invalid_response` respectively). The only way this function rejects is a failure in the temporary-code store itself (e.g. its counter exhausted), which the MCP tool that calls it turns into an MCP error. An outcome whose `reason` is not one of the six documented `FailureReason` values is normalised to `failed` before the fallback.
+
+Retry: on `{ ok: false, reason: 'throttled', ambiguous: false|undefined }`, the allocator waits once for `min(retry_after_ms ?? retry.default_wait_ms, retry.max_wait_ms)` and calls `allocate` exactly one more time. A `throttled` outcome marked `ambiguous: true`, and every outcome of any other failing reason, is never retried — it falls straight to a temporary code. A second `throttled` response (after the one retry) also falls back.
+
+Redaction: a provider's stored settings are validated once per call and their secret values (`collectSecrets`) are reused for both `createRedactingLogger` (handed to the provider as `ctx.log`) and `redact()` on the final `detail` text — so a secret echoed back in a failure's `detail`, or logged by the provider via `ctx.log`, never reaches the caller or stderr unredacted.
+
+`data_dir` is built as `${resolveErrorCodesDir()}/data/{provider.id}` via a direct import of `resolveErrorCodesDir` (`storage/store-registry.ts`) — not an injected dependency, since building the path performs no I/O; only `loadConfig`'s own implementation touches the filesystem.
+
+### `providers/file-provider.ts`
+
+```typescript
+interface FileProviderSettings {
+  scope: 'global' | 'repository';
+  counter_file: string;  // '' means {ctx.data_dir}/counters.json; may contain a {repo} placeholder
+  counter_name: string;  // sequence key used in 'global' scope only
+  start_value: number;
+}
+
+const fileProvider: ErrorCodeProvider; // id 'file', apiVersion 1; allocate + peek, no test()
+```
+
+The zero-setup default provider (`active_provider: 'file'` is the documented config default — see `config-store.ts` above). Keeps one monotonic integer per sequence key inside a JSON counter file (`{ counters: Record<string, number> }`, Zod-validated, corrupt/unreadable/missing treated as `{}` rather than throwing — a deliberate zero-setup choice: a damaged counter file resets every sequence to `start_value` instead of failing the allocation).
+
+- **Counter file resolution** (`resolveCounterLocation`, not exported) — `counter_file === ''` resolves to `{ctx.data_dir}/counters.json`; a `{repo}` placeholder (detected via `.includes('{repo}')`, checked **before** any `repository` access) expands to `repository.root_path` via a global string replace; any other non-empty value is used verbatim and never touches `repository`, even when `repository` is `null`. `scope: 'repository'`, or a `{repo}` placeholder, with no repository resolved both return `{ ok: false, reason: 'misconfigured', detail: 'no repository found for cwd_path' }` — this exact detail string is a documented contract surface, not an incidental message.
+- **Sequence key** — `repository.folder_name` for `scope: 'repository'` (shared by every linked worktree of one repository, since `project-info.ts` normalises worktrees to the same `folder_name`); `counter_name` for `scope: 'global'`.
+- **`allocate`** — runs the whole read-modify-write under `withLock(ctx.data_dir, …)`, **never** a lock on the counter file's own directory (`withLock` creates a `.lock` entry inside whatever it locks, and a `{repo}/...` counter file would otherwise leave an untracked `.lock` inside the user's repository). Writes via `atomicWriteJson`.
+- **`peek`** — read-only; returns the value the *next* `allocate()` call would issue (`current ?? start_value - 1, then +1`), without acquiring the lock or writing anything, so it agrees with `allocate` on what "the current value" means even for a sequence never allocated from.
+- **Settings** (`FILE_PROVIDER_SETTINGS`, inline in the provider object, not a separate exported constant): `scope` (`select`, default `'global'`), `counter_file` (`path`, default `''`), `counter_name` (`string`, default `'default'`), `start_value` (`integer`, default `1`, `min: 1`).
+
+### `providers/errorcode-incrementor-provider.ts`
+
+```typescript
+interface ErrorcodeIncrementorSettings {
+  base_url: string;    // url, required, no default
+  password: string;    // secret, required
+  counter: string;     // string, required
+  response_suffix: string; // default '01'
+  throttle_delay_ms: number; // default 10000
+}
+
+const errorcodeIncrementorProvider: ErrorCodeProvider; // id 'errorcode-incrementor', label "Errorcode Incrementor (HTTP)", apiVersion 1; allocate + peek, no test()
+```
+
+A driver for the user's own self-hosted instance of the public, MIT-licensed Errorcode Incrementor counter service — the host and credentials are private settings, never checked into this repository (`tests/error-codes/no-private-config.test.ts` mechanically enforces this). Uses Node's global `fetch` and the core-supplied `ctx.signal` directly; no HTTP client dependency (see `tech-stack.md`).
+
+- **Request shape** — both `allocate` and `peek` build `GET {base_url}?pw={password}&counter={counter}[&increment=yes]` exclusively via `URL`/`URLSearchParams`, which percent-encodes every value; `allocate` adds `increment=yes`, `peek` omits it. The response body is trimmed, matched against the configured `response_suffix` (stripped from the end), and parsed as a `Number.isSafeInteger` digit string; a non-matching shape maps to `invalid_response` rather than throwing.
+- **Status/error mapping** (`mapStatusToOutcome`) — `400`/`401`/`404` → `misconfigured`; `403` → `throttled` with `retry_after_ms = throttle_delay_ms + 1000`; `500` → `unavailable`, `ambiguous: true`; any other HTTP status → `rejected`; an aborted request (`ctx.signal`) → `unavailable`, `ambiguous: true`; a DNS failure or connection refusal (`err.cause.code` of `ENOTFOUND`/`ECONNREFUSED`/`EAI_AGAIN`, the only signal Node's `fetch` rejection exposes for "never reached a server") → `unavailable`, `ambiguous: false`; any other network error → `unavailable`, `ambiguous: true`.
+- **Secrets** — `password` is never logged or echoed; the provider calls neither `ctx.log` nor `console`, and the allocator's own `redact()`/`createRedactingLogger()` layer (see `allocator.ts` above) additionally guards any `detail` text that reaches the caller.
+- **Settings**: `base_url` (`url`, required, **no default** — the absence of a default is itself part of the no-private-config guarantee), `password` (`secret`, required), `counter` (`string`, required), `response_suffix` (`string`, default `'01'`), `throttle_delay_ms` (`integer`, default `10000`).
+
+### `../../tests/error-codes/provider-contract.ts` — shared provider test helper
+
+```typescript
+function describeProviderContract(
+  name: string,
+  makeProvider: () => ErrorCodeProvider,
+  makeCtx: (overrides?: Partial<ProviderContext>) => ProviderContext
+): void;
+```
+
+A `describe`-block factory (Vitest), not a production module — lives under `tests/`, not `src/`, but documented here because every current and future provider's test file is expected to call it (see "New Error-Code Providers Must Pass `describeProviderContract`" in `constraints-testing.md`). Exercises, against any `ErrorCodeProvider`: well-formed `settings`, a positive-integer `allocate` result, a monotonically increasing sequence across repeated calls, tolerance of unknown `AllocationRequest` fields, and settling (not hanging) when `makeCtx` is given an already-aborted `signal`. `makeProvider` must return a fresh instance per call so one test's state never leaks into another's; `makeCtx` must accept the `Partial<ProviderContext>` override the abort-handling check relies on. Consumed by `file-provider.test.ts` (WP-008) and `errorcode-incrementor-provider.test.ts` (WP-009).
 
 ---
 
@@ -7031,5 +7431,26 @@ Each tool module exports:
 ```typescript
 function register(server: McpServer): void;
 ```
+
+### `src/tools/registry.ts`
+
+```typescript
+interface ToolModuleEntry {
+  id: string;              // short label for debugging TOOL_MODULES itself — not an MCP tool name
+  register(server: McpServer): void;
+}
+
+const TOOL_MODULES: readonly ToolModuleEntry[];
+
+function registerAllTools(server: McpServer): string[];
+```
+
+The single derived source of truth for "which tool modules does this server register", replacing three previously hand-maintained lists: `src/index.ts`'s per-module registration calls and its startup log literal, and `tests/tools/schema-integrity.test.ts`'s hand-written import list (which had already drifted — it omitted `ping.ts` and `standalone-import.ts`).
+
+`TOOL_MODULES` lists every tool module's `register` function, one entry per module file. `help-content.ts` is excluded: it is data-only (`TOOL_HELP`) and exports no `register`. `workflow.ts` is one entry covering two source files (`workflow-next-action.ts`, `workflow-handoff.ts`) that each contain their own `server.registerTool(` call — `workflow.ts` only delegates to both; `tests/tools/tool-registry.test.ts` verifies completeness by scanning source directly, so this delegation does not require a 1:1 file-to-entry mapping.
+
+`registerAllTools(server)` calls every `TOOL_MODULES` entry's `register(server)` and returns the full, duplicate-free list of MCP tool names that were registered, in registration order. It captures the names by temporarily wrapping `server.registerTool` for the duration of the call (then restoring the original) rather than requiring each tool module to separately report what it registered — `McpServer` exposes no public API to list registered tools afterward (`_registeredTools` is private). `src/index.ts` registers through this function and derives its startup log from the returned names, so the log can no longer drift from the real tool set.
+
+`tests/tools/schema-integrity.test.ts` iterates `TOOL_MODULES` to build its captured-schema map, so a newly added tool module is covered automatically. `tests/tools/tool-registry.test.ts` (replacing the removed `tests/startup/tool-log-sync.test.ts`) asserts: every `server.registerTool(` call found by scanning `src/tools/*.ts` directly is registered by `TOOL_MODULES`; `registerAllTools` returns no duplicate names and restores the original `registerTool` method afterward; and every registered name has a `TOOL_HELP` entry containing `# {name}`.
 
 These are called in `src/index.ts` to register all tools on the server instance.

@@ -32,6 +32,7 @@ Run from the workspace root.
 | Typecheck | None (plain JavaScript) |
 | Interactive command center | `node scripts/cli.js`, or `./menu.sh` (macOS, Linux) / `menu.cmd` (Windows) |
 | Build & Maintain | `node scripts/cli.js build-maintain` |
+| Fetch PR review comments | `node scripts/fetch-pr-review-comments.js [--pr <n>]` from inside the repository under review (needs an authenticated `gh`; `--help` lists the options) |
 
 Build & Maintain syncs the module versions from their changelogs, builds every persona suite, regenerates the agents overview and runs CTX generation. The full list of files it writes, and the side effects of the other build commands, is in [Commands That Touch More Than They Generate](generated-artefacts.md#commands-that-touch-more-than-they-generate). The rule for when to run it before a commit is in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy).
 
@@ -108,7 +109,7 @@ Which checks to run after which kind of change. This section builds on the [Vali
 
 | Change | Checks to run |
 |--------|---------------|
-| **Persona source** (YAML under any `personas/*/src/meta/`, content, partials, shared partials) | `node scripts/build-personas.js` (real build, so the generated files and `personas/name-mapping.json` are rewritten), then `node scripts/build-personas.js --check`; the workspace-root `npm test`. When a persona's `role`, `id`, `cc_file_name`, `vs_file_name` or `subagents` changed, walk the matching rows of the [Dependency Table](cross-system-dependencies.md#dependency-table). Run `node scripts/generate-agents-overview.js --check` when overview metadata changed. Deploying with `node scripts/sync-personas.js` is a separate decision; see [live-workspace.md](live-workspace.md). |
+| **Persona source** (YAML under any `personas/*/src/meta/`, content, partials, shared partials) | `node scripts/build-personas.js` (real build, so the generated files and `personas/name-mapping.json` are rewritten), then `node scripts/build-personas.js --check`; the workspace-root `npm test`. When a persona's `role`, `id`, `cc_file_name`, `vs_file_name` or `subagents` changed, walk the matching rows of the [Dependency Table](cross-system-dependencies.md#dependency-table). `build-personas.js --check` also covers `docs/references/agents-overview.md` (a real build regenerates it). Deploying with `node scripts/sync-personas.js` is a separate decision; see [live-workspace.md](live-workspace.md). |
 | **Persona version or changelog block** | The persona build above, then `node scripts/check-version-sync.js` |
 | **Workflow logic** (state machines, routing, handoffs, edge cases) | Change the [workflow specification](../../../mcp-server/docs/agents/workflow-specification/README.md) first, then the implementation, then the tests, then [`constraints-workflow.md`](../../../mcp-server/docs/agents/project-manifest/constraints-workflow.md). Run `npm test` and `npx tsc --noEmit` in `mcp-server/`. |
 | **`shared/workflow-manifest.json`** (roles, pipelines, status enums) | `node scripts/validate-workflow-manifest.js`; `npm run check:roles` in `mcp-server/`; `npm test` in `mcp-server/`; the persona build, because persona `role` values are validated against it. The running server only sees the change after a restart (see [live-workspace.md](live-workspace.md)). |

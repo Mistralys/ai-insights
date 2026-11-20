@@ -18,6 +18,8 @@ and MCP config now deploy to the global Copilot home.
 - CLI: Files deployed to the old VS Code locations are not removed automatically.
 - MCP: Agent registry looks for agents in the same folder as persona sync.
 - Personas: Workspace Architect gained Amend mode and keeps its session plan in a file.
+- CLI: New `fetch-pr-review-comments.js` script prints a PR's unresolved Copilot review threads as JSON.
+- Skills: New `insights-pr-review` skill fixes a PR's Copilot review comments locally, from a PR URL or number.
 - Personas: Manifest Curator documents generated files; related curators and Git Committer follow.
 - Personas: Documentation curators defer to a caller's plan and check docblocks against READMEs.
 - Personas: Changelog and WHATSNEW Curators can now archive older releases.

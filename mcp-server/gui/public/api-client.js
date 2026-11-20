@@ -699,6 +699,73 @@ var API = (function () {
       return request('PUT', '/stores/order', { order: order });
     },
 
+    // -- Error Codes -----------------------------------------------------
+
+    /**
+     * List every registered error-code provider (built-in and plugin), the
+     * scanned plugin directory, and any plugin load errors.
+     *
+     * @returns {Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>}
+     *   Response from `GET /api/error-codes/providers`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getErrorCodeProviders: function () {
+      return request('GET', '/error-codes/providers');
+    },
+
+    /**
+     * Fetch the error-code allocator's config. Every secret field is masked
+     * to `{ set: boolean }` — never the raw value.
+     *
+     * @returns {Promise<object>} Config from `GET /api/error-codes/config`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getErrorCodeConfig: function () {
+      return request('GET', '/error-codes/config');
+    },
+
+    /**
+     * Update the error-code allocator's top-level config and/or one
+     * provider's settings.
+     *
+     * @param {{ active_provider?: string, temporary_prefix?: string, timeout_ms?: number,
+     *   retry?: { default_wait_ms?: number, max_wait_ms?: number }, provider_id?: string,
+     *   settings?: Record<string, unknown>, clear_secrets?: string[] }} data - Fields to update.
+     *   `settings`/`clear_secrets` apply only when `provider_id` is present.
+     * @returns {Promise<object>} Updated config from `PUT /api/error-codes/config`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    updateErrorCodeConfig: function (data) {
+      return request('PUT', '/error-codes/config', data);
+    },
+
+    /**
+     * Connection-tests a provider's settings without allocating a code.
+     *
+     * @param {string} providerId - Provider ID to test.
+     * @param {Record<string, unknown>} [settings] - Settings to test; an absent/empty
+     *   secret is merged from the stored value only when every non-secret field
+     *   matches its stored value (fail-closed — see `mergeSettingsForTest`).
+     * @returns {Promise<{ supported: boolean, secrets_merged: boolean, ok?: boolean,
+     *   reason?: string, detail?: string, value?: number, message?: string }>}
+     *   Response from `POST /api/error-codes/test`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    testErrorCodeProvider: function (providerId, settings) {
+      return request('POST', '/error-codes/test', { provider_id: providerId, settings: settings });
+    },
+
+    /**
+     * Fetch logged temporary error codes, newest-first.
+     *
+     * @param {number} [limit] - Maximum entries to return (default 200 server-side).
+     * @returns {Promise<{ entries: object[] }>} Response from `GET /api/error-codes/temporary`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getTemporaryErrorCodes: function (limit) {
+      return request('GET', '/error-codes/temporary' + buildQueryString({ limit: limit }));
+    },
+
     // -- Orchestrator --------------------------------------------------
 
     /**
