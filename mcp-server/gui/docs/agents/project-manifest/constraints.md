@@ -29,6 +29,7 @@
 - [18. CSS Class Derivation From API Values](#18-css-class-derivation-from-api-values-is-only-safe-for-zod-enum-validated-fields)
 - [19. JSDoc Closure-Dependency Documentation](#19-jsdoc-closure-dependency-documentation-for-gui-helpers)
 - [20. API Client `@throws` JSDoc](#20-api-client-methods-that-reject-on-server-error-must-carry-throws-jsdoc)
+- [25. Config Tab Modules](#25-config-tab-modules)
 
 **Backend**
 
@@ -188,6 +189,17 @@ Views must:
 - Ambiguous slug resolutions are downgraded to NOT_FOUND (cross-namespace existence leak prevention).
 - Malformed `.meta.json` files log to stderr but return NOT_FOUND to clients.
 - Error responses never include internal paths or stack traces.
+- **Deliberate, documented exception:** `GET /api/error-codes/providers` returns a plugin provider's file/folder path and the scanned plugin directory path (`gui/api-error-codes.ts` → `ProviderListItem.path`, `plugin_dir`). This is not an oversight — it is justified by `requireLoopbackRequest` (§7, "Request-Level Guards" below) gating every error-code route, and the GUI's Error Codes tab needs the path to let the user locate a misbehaving plugin on disk. Do not flag this as an information-hiding violation in review; do not extend the exception to any other route without updating this entry.
+
+### Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge
+
+The error-code provider routes (`/api/error-codes/*`, `gui/api-error-codes.ts`) reach third-party plugin code and the user's own stored secrets, over a server that binds every network interface (`server.listen(port, …)` passes no host — see Known Limitations §24) and serves no authentication. Three rules apply, together, to every route in this domain:
+
+1. **Loopback-only.** Every route carries the `requireLoopbackRequest` guard (`gui/route-guards.ts`, run by `dispatchRoute` via `Route.guards` — §9). It checks three things, in order: `req.socket.remoteAddress` must itself be loopback (`127.0.0.0/8`, `::1`, or the `::ffff:`-mapped IPv4 form) — this is the primary, non-spoofable gate, since a client cannot forge which socket the OS handed the server; then `Host` must be a loopback hostname; then, when present, `Origin` must be a loopback hostname at the same port. Any failure is `ApiError('FORBIDDEN')`. The `remoteAddress` check stops a direct, non-browser LAN/network client (the GUI binds every interface, so `Host`/`Origin` alone are fully attacker-controlled on such a client); the `Host`/`Origin` checks stop a hostile web page's cross-origin `fetch` from a browser on the *same* machine, whose `remoteAddress` is genuinely loopback. Neither layer alone covers both attacker classes, and the response-only `Access-Control-Allow-Origin` header does nothing to stop either.
+2. **JSON-only.** The two body-carrying routes (`PUT /api/error-codes/config`, `POST /api/error-codes/test`) additionally carry `requireJsonContentType`, rejecting a non-`application/json` body with `ApiError('UNSUPPORTED_MEDIA_TYPE')` (HTTP 415). Pair with `requireLoopbackRequest`, never as a substitute for it — a `Content-Type` check alone does not stop a non-browser client, which is not obligated to send a honest one.
+3. **Fail-closed secret merge.** `POST /api/error-codes/test` is the one route in the server that combines a provider's stored secrets with client-supplied settings (`mergeSettingsForTest`, `src/error-codes/settings-schema.ts`). Stored secrets are merged into the tested settings **only when every non-secret field equals its stored value** — any other difference tests the incoming settings only (including any incoming secret), so a stored secret for one destination is never tested against a changed one.
+
+**Anti-pattern:** adding a new error-code route without `requireLoopbackRequest`, or a `PUT`/`POST` one without `requireJsonContentType`, or implementing a settings merge for any future route that does not follow the fail-closed rule above.
 
 ### Security Headers
 
@@ -209,7 +221,7 @@ All responses include:
 
 ## 9. Route Dispatch Ordering and Sub-Builder Composition
 
-Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to non-exported domain sub-builders — `buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildProjectRoutes` — composed via spread. When adding a route, add it to the appropriate sub-builder; the spread ordering in `buildRoutes()` must not be changed, since it is what preserves the section ordering below. Each sub-builder receives only the closure variables its handlers require. The table is organized into three sections:
+Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to non-exported domain sub-builders — `buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildErrorCodeRoutes`, `buildProjectRoutes` — composed via spread. When adding a route, add it to the appropriate sub-builder; the spread ordering in `buildRoutes()` must not be changed, since it is what preserves the section ordering below. Each sub-builder receives only the closure variables its handlers require. The table is organized into three sections:
 
 - **Section A** — Body-parsing routes (`PUT`, `PATCH`, `POST`). These routes use `readJsonBody()` and have no `noBody` flag.
 - **Section B** — Keyword-specific body-free routes (`noBody: true`). Both active namespaced (`/:repo/:slug/keyword`) and deprecated flat (`/:slug/keyword`) variants live here. **Section B MUST precede Section C** — this is a load-bearing ordering constraint, not cosmetic. A Section C catch-all regex would shadow keyword-specific routes if declared first.
@@ -221,6 +233,7 @@ When adding new routes:
 - All parameterised routes must use RegExp with **named capture groups** (e.g., `(?<slug>[^/]+)`) — positional groups are not permitted.
 - Namespaced routes (`/:repo/:slug/...`) and legacy flat routes (`/:slug/...`) coexist within the same section — both are equally matched by `dispatchRoute()`.
 - Route handlers conform to the `Route` interface defined in `server.ts`. `Route.method` is typed as the `HttpMethod` union (`'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`) — not `string` — giving compile-time safety for route method values.
+- A route may declare `guards?: readonly RouteGuard[]` (`RouteGuard = (req, port) => void`, `gui/route-guards.ts`). `dispatchRoute` runs them in array order after the route matches and before `readJsonBody`; a guard throws `ApiError` to reject. A route with no `guards` is unaffected — this field is purely additive.
 
 ---
 
@@ -403,6 +416,7 @@ Each API domain owns a dedicated handler module imported by `server.ts`. No hand
 | `gui/api-repos.ts` | `/api/repos*` handlers, `RepoCreateBodySchema`, `RepoUpdateBodySchema`, `RepoListItem`, `assertNoFolderNameConflicts` |
 | `gui/api-stores.ts` | `/api/stores/*` handlers, their Zod body schemas, `StoreListItem` |
 | `gui/api-models.ts` | Model registry and persona-assignment handlers |
+| `gui/api-error-codes.ts` | `/api/error-codes/*` handlers, `PutErrorCodeConfigBodySchema`, `TestErrorCodeProviderBodySchema`, `ProviderListItem`, `ErrorCodeConfigResponse`, `TestConnectionResponse` |
 
 **Rationale:** `gui/api.ts` had grown into a maintenance liability. Extracting each domain into its own module isolates ownership and prevents drift back into `api.ts`. Each extracted module re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
 
@@ -492,4 +506,28 @@ node scripts/run-gui.js   # collides with the LIVE instance on port 3420
 | CORS locked to localhost | Cannot access from remote machines without modification. |
 | Queue file locking gap | TypeScript uses atomic rename; Python uses `.run-queue.lock`. Concurrent writes could race (low risk). |
 | No authentication | Local development tool; assumes trusted network. |
+| GUI binds every network interface | `server.listen(port, …)` in `gui/server.ts` passes no host, so the server accepts connections on any interface, not just loopback — it relies on the error-code routes' own `requireLoopbackRequest` guard (§7) rather than on the socket binding itself. Binding to `127.0.0.1` was rejected (see the error-code-generator plan's "Rejected Approaches") because it would change every existing route's reachability, outside that plan's blast radius. |
 | Markdown rendered without HTML sanitization | All markdown rendering (`work-package.js`, `project-detail-dialogues.js`, plan/synthesis views) passes content through `marked.parse()` without DOMPurify or equivalent. Acceptable because all rendered content is server-authored by MCP tools from agent pipelines. If the system ever accepts markdown from untrusted sources (user-submitted descriptions, external imports), a sanitization step must be added before rendering. |
+
+---
+
+## 25. Config Tab Modules
+
+The Configuration view (`views/config.js`) is a tab coordinator with no tabs of its own logic baked in beyond General — every other tab is a companion module loaded before `config.js` (see `index.html`'s script order).
+
+**Known tab modules:**
+
+| Tab key | Module | Dirty tracking |
+|---------|--------|-----------------|
+| `general` | `config.js` itself | `configDirty.general` |
+| `stores` | `config-stores.js` | Always `false` — immediate-write pattern, no batch save |
+| `personaModels` | `config-persona-models.js` | `configDirty.personaModels` |
+| `modelRegistry` | `config-model-registry.js` | `configDirty.modelRegistry` |
+| `errorCodes` | `config-error-codes.js` | `configDirty.errorCodes` |
+
+**The four integration points every tab module implements**, established by `config-stores.js` and confirmed again by `config-error-codes.js` (full detail: `api-surface.md`'s `configDirty` cross-module contract and the "Integration points a future tab module must follow" list under `config.js` — Internal Functions):
+
+1. **`configDirty`** — add a boolean key to the literal in `config.js`; mutate it only from the owning tab module (never reassign the object — see §3's Global Namespace Pattern for why).
+2. **Reset in `renderConfigPage()`** — null the tab's own module-level state (and any tracked listener references) in the reset block that runs on every fresh page load.
+3. **Cleanup on tab switch** — inside the tab-bar click handler, after the unsaved-changes `confirm()` guard has already run for the tab being left, unconditionally release the tab's delegated listeners and drop its cached state. This must run regardless of whether the guard's confirm fired, so a user who leaves and returns to the same tab never accumulates duplicate event handling (`config-stores.js`'s `csClickHandler` guard and `config-error-codes.js`'s `ecCleanup()` are the reference implementations — see §2's `removeEventListener` guard pattern).
+4. **Lazy load** — a tab whose data is not part of the Configuration page's initial load fetches it itself, on first activation, inside its own render-entry function — never by adding it to `renderConfig()`'s `Promise.all`. `config-error-codes.js`'s `ecRenderTab()` is the reference implementation: it checks its own cached state (`ecProviders === null`) before deciding whether to fetch.

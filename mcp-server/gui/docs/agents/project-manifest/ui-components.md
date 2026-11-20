@@ -388,6 +388,46 @@ All classes are prefixed `cs-` to avoid collision with shared component classes.
 | `.cs-move-disabled` | Visual-only disabled state: `opacity: 0.35`. Applied to boundary buttons (first row's Up, last row's Down). All move buttons receive this class during an API round-trip to prevent race conditions; it is removed when `csRenderReorderView()` re-renders after the API response. |
 | `#cs-reorder-error` | Error target placeholder rendered inside the reorder sub-view by `csRenderReorderView()`. Populated by `csShowTableError()` on API failure. The element is re-created on each re-render, so `csShowTableError()` must be called after the re-render to inject the error message into the newly created target. |
 
+### 11c. Error Codes Tab Classes
+
+All classes are prefixed `ec-` to avoid collision with shared component classes. Used exclusively by the Error Codes tab in `config-error-codes.js`. Dark-mode values come entirely from the existing theme-aware custom properties (`--color-blocked`, `--color-border`, `--color-text-muted`, etc.) — no dedicated `[data-theme="dark"]` override block was needed for this tab.
+
+**Form layout classes**
+
+| Class | Description |
+|-------|-------------|
+| `.ec-section-title` | Heading above the core (non-provider) settings fields ("Core Settings"). Adds a top border and padding, mirroring `.mr-section-title`'s role for the Model Registry Add Model form. |
+| `.ec-field-group` | Wraps one descriptor-driven settings field (`<div class="form-group ec-field-group">`). Caps width at 480px so long provider forms don't stretch full-width. |
+| `.ec-action-bar` | Flex row holding the Save and "Test connection" buttons. Wraps on narrow viewports. |
+| `.ec-live-region` | The `#ec-live-region` `aria-live="polite"` status element where Save/Test results are written — distinct from the General tab's `#config-msg`. |
+
+**Secret field classes**
+
+| Class | Description |
+|-------|-------------|
+| `.ec-secret-status` | Muted "Set" / "Not set" text below a secret field's password input. |
+| `.ec-clear-secret-label` | Wraps the "Clear stored value" checkbox, shown only when the secret is currently set. Ticking it disables and empties the paired password input and adds the field's key to the save payload's `clear_secrets`. |
+
+**Plugins panel classes**
+
+| Class | Description |
+|-------|-------------|
+| `.ec-plugin-dir-row` | Flex row holding the read-only plugin-directory path input and its copy button. |
+| `.ec-plugin-list` | Unstyled `<ul>` listing installed plugin providers. |
+| `.ec-plugin-item` | One plugin entry — label, id, and (when present) its absolute path. Bottom-bordered except the last item. |
+| `.ec-plugin-path` | Monospace, muted, word-break-all path line under a plugin's label. |
+| `.ec-plugin-errors` | Wrapper around the plugin load-errors list and the restart hint. |
+| `.ec-plugin-error-list` | Unstyled `<ul>` (`list-style: none`, no margin/padding) holding the load-error `<li>` items. |
+| `.ec-plugin-error-item` | One load-error line (`source: message`). Uses `--color-blocked` for its text color. |
+
+**Temporary codes list classes**
+
+| Class | Description |
+|-------|-------------|
+| `.ec-temporary-wrapper` | Scrollable container (`max-height: 360px; overflow-y: auto`) around the temporary-codes table. Below 900px the max-height is removed and the table stacks into cards instead (see the `@media (max-width: 900px)` block). |
+| `.ec-temporary-table` | Full-width table of logged temporary codes (newest first — already sorted/capped server-side). |
+| `.ec-tabular-nums` | Applied to the code column — monospace with `font-variant-numeric: tabular-nums` so digits align vertically. |
+
 ---
 
 ## 12. Form Classes

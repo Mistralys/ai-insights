@@ -12,6 +12,10 @@ main()
   ├── startConfigWatcher(configPath) → fs.watch for external changes
   ├── startAutoArchiveTimer() → periodic project archival
   ├── captureWorkspaceVersions() → snapshot boot versions (for stale detection)
+  ├── initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })
+  │     → built-in + plugin error-code providers; load errors logged, startup continues
+  │     → mirrors the same call at MCP server startup (src/index.ts), so both
+  │       processes' registries reflect the same built-in and plugin set
   └── createServer(handleRequest).listen(port)
         → Log "MCP GUI server running at http://localhost:{port}"
 ```
@@ -39,12 +43,14 @@ Incoming HTTP Request
           │   ├── Section A — body-parsing routes (PUT, PATCH, POST)
           │   ├── Section B — keyword-specific body-free routes (noBody:true; must precede §C)
           │   └── Section C — catch-all body-free routes (noBody:true)
+          ├── route.guards (when present) run in array order — each may throw ApiError to reject
+          │     e.g. the error-code routes' requireLoopbackRequest / requireJsonContentType (constraints.md §7)
           ├── readJsonBody(req) — enforce 1 MiB limit (skipped when noBody:true)
           ├── route.handler(body, groups?, query?) → result
           └── sendJson(res, statusCode ?? 200, result) | writeHead(204) + res.end()
           No match → 404 JSON error
 
-Error handling (any path):
+Error handling (any path, including a guard's throw):
   ApiError           → sendError(res, statusFromCode, code, message)
   PayloadTooLargeError → sendError(res, 413, ...)
   Unhandled          → stderr log + sendError(res, 500, 'INTERNAL_ERROR', ...)
@@ -471,4 +477,46 @@ Frontend on success:
 - Tab-switch cleanup runs **unconditionally** (not inside the `if (configDirty[configActiveTab])` guard) because the Stores tab has no pending state to lose.
 - `reloadStoreContext()` calls `setStoreContext()` with `skipDirCreate: true`. If a store path is temporarily unavailable (unmounted drive, offline NFS), the reload succeeds and the server continues in degraded mode — it does not throw a 500 that would leave the in-memory context stale.
 - `handleRemoveStore` uses `loadStoresConfig()` after `saveStoresConfig()` to rebuild the enriched list from the updated file, not from the stale pre-mutation snapshot.
+
+---
+
+## 14. Error-Code Provider Config & Test Flow
+
+Backend-only as of this revision — the GUI's Error Codes settings tab (the frontend consumer of these routes) is introduced by a later WP. All five routes are guarded by `requireLoopbackRequest`; `PUT`/`POST` additionally by `requireJsonContentType` (constraints.md §7, "Request-Level Guards").
+
+```
+PUT /api/error-codes/config  { provider_id, settings, clear_secrets? }
+  └── handleUpdateErrorCodeConfig (gui/api-error-codes.ts)
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → current config
+      ├── mergeSettingsUpdate(provider.settings, stored, settings, clear_secrets)
+      │     ├── non-secret field: incoming value applied when the key is present
+      │     ├── secret field, incoming absent/empty: keeps the stored value
+      │     └── secret field, key in clear_secrets: cleared to ''
+      ├── buildSettingsSchema(provider.settings).safeParse(merged) — invalid → 400, nothing written
+      └── updateErrorCodeConfig(mutator) — read-modify-write under withLock(); a provider_id
+            not targeted by this call is left byte-for-byte unchanged, which is how an
+            uninstalled provider's settings survive the round trip
+  └── Response: ErrorCodeConfigResponse — every secret masked to { set: boolean };
+        only currently-registered providers' blocks appear
+
+POST /api/error-codes/test  { provider_id, settings? }
+  └── handleTestErrorCodeProvider (gui/api-error-codes.ts)
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → stored settings for provider_id
+      ├── mergeSettingsForTest(provider.settings, stored, settings)
+      │     ├── every non-secret field unchanged → stored secrets merged in (secrets_merged: true)
+      │     └── any non-secret field changed     → incoming settings tested as-is (secrets_merged: false)
+      │           — a stored secret never reaches a provider whose destination just changed
+      ├── buildSettingsSchema(provider.settings).safeParse(merged.settings) — invalid → 400
+      ├── collectSecrets(provider.settings, validated) → redact() applied to every text field returned
+      └── provider.test(ctx) ?? provider.peek(request, ctx) ?? { supported: false, message: "…offers no connection test" }
+            — allocate() is never called by this route
+  └── Response: { supported, secrets_merged, ok?, reason?, detail?, value?, message? }
+```
+
+**Key invariants:**
+- The fail-closed merge (`mergeSettingsForTest`) is the one place the server combines a stored secret with client-supplied settings — see the rationale in `src/error-codes/settings-schema.ts`'s docblock and in the plan that introduced it (WP-011's "Rejected Approaches").
+- `GET /api/error-codes/providers` and `GET /api/error-codes/config` never execute provider code — they only read the registry (`listProviders()`, `listProviderLoadErrors()`) and the config file.
+- Both the MCP server (`src/index.ts`) and the GUI server (`gui/server.ts`) call `initProviderRegistry()` independently at their own startup against the same `resolveErrorCodePluginDir()` — the GUI's providers list reflects exactly the same built-in/plugin set the MCP server's `ledger_generate_error_code` tool allocates through.
 
