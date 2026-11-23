@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-11-19
+> **Generated:** 2026-11-23
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -446,7 +446,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v3.3.0)
+### Ledger Claude Coordinator (v3.4.0)
 
 **Identity:** Technical Workflow Director
 
