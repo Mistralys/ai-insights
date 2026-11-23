@@ -21,6 +21,9 @@
  * own; exercises the real settings-schema/redact logic unmocked.
  */
 
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ErrorCodeConfig } from '../../src/error-codes/config-store.js';
 import type { ErrorCodeProvider, AllocationOutcome, TestOutcome, ProviderContext, AllocationRequest } from '../../src/error-codes/provider-api.js';
@@ -32,9 +35,10 @@ import type { TemporaryCodeEntry } from '../../src/error-codes/temporary-codes.j
 // ---------------------------------------------------------------------------
 
 let mockConfig: ErrorCodeConfig;
+let mockConfigWarning: string | undefined;
 let mockRegistryEntries: ProviderRegistryEntry[];
 let mockLoadErrors: ProviderLoadError[];
-let mockListTemporaryCodes = vi.fn(async (): Promise<TemporaryCodeEntry[]> => []);
+let mockListTemporaryCodes = vi.fn(async (): Promise<{ entries: TemporaryCodeEntry[]; warning?: string }> => ({ entries: [] }));
 let mockUpdateErrorCodeConfig = vi.fn(async (mutator: (c: ErrorCodeConfig) => ErrorCodeConfig) => {
   mockConfig = mutator(mockConfig);
   return mockConfig;
@@ -66,10 +70,18 @@ function makeProvider(overrides: Partial<ErrorCodeProvider> = {}): ErrorCodeProv
   };
 }
 
-vi.mock('../../src/error-codes/config-store.js', () => ({
-  loadErrorCodeConfig: vi.fn(async () => mockConfig),
-  updateErrorCodeConfig: (mutator: (c: ErrorCodeConfig) => ErrorCodeConfig) => mockUpdateErrorCodeConfig(mutator),
-}));
+vi.mock('../../src/error-codes/config-store.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/error-codes/config-store.js')>();
+  return {
+    // The real prefix schema: the PUT body schema is built from it at module load.
+    TemporaryPrefixSchema: actual.TemporaryPrefixSchema,
+    loadErrorCodeConfig: vi.fn(async () => mockConfig),
+    readErrorCodeConfig: vi.fn(async () =>
+      mockConfigWarning === undefined ? { config: mockConfig } : { config: mockConfig, warning: mockConfigWarning }
+    ),
+    updateErrorCodeConfig: (mutator: (c: ErrorCodeConfig) => ErrorCodeConfig) => mockUpdateErrorCodeConfig(mutator),
+  };
+});
 
 vi.mock('../../src/error-codes/provider-registry.js', () => ({
   getProvider: vi.fn((id: string) => mockRegistryEntries.find((e) => e.provider.id === id)?.provider),
@@ -84,6 +96,9 @@ vi.mock('../../src/error-codes/temporary-codes.js', () => ({
 vi.mock('../../src/storage/store-registry.js', () => ({
   resolveErrorCodesDir: vi.fn(() => '/fake/.ai-insights/error-codes'),
   resolveErrorCodePluginDir: vi.fn(() => '/fake/.ai-insights/plugins/error-codes'),
+  resolveErrorCodeProviderDataDir: vi.fn(
+    (providerId: string) => `/fake/.ai-insights/error-codes/data/${providerId}`
+  ),
 }));
 
 const {
@@ -98,9 +113,10 @@ const { ApiError } = await import('../../src/gui/errors.js');
 beforeEach(() => {
   const provider = makeProvider();
   mockConfig = makeConfig();
+  mockConfigWarning = undefined;
   mockRegistryEntries = [{ provider, source: 'builtin' }];
   mockLoadErrors = [];
-  mockListTemporaryCodes = vi.fn(async () => []);
+  mockListTemporaryCodes = vi.fn(async () => ({ entries: [] }));
   mockUpdateErrorCodeConfig = vi.fn(async (mutator: (c: ErrorCodeConfig) => ErrorCodeConfig) => {
     mockConfig = mutator(mockConfig);
     return mockConfig;
@@ -228,6 +244,34 @@ describe('handleGetErrorCodeConfig / handleUpdateErrorCodeConfig', () => {
       'VALIDATION_ERROR'
     );
   });
+
+  it('rejects a non-digit temporary_prefix with VALIDATION_ERROR and writes nothing', async () => {
+    for (const bad of ['ERR', '', '0777', '1234567', '77a']) {
+      mockUpdateErrorCodeConfig.mockClear();
+      await expectApiError(() => handleUpdateErrorCodeConfig({ temporary_prefix: bad }), 'VALIDATION_ERROR');
+      expect(mockUpdateErrorCodeConfig).not.toHaveBeenCalled();
+      expect(mockConfig.temporary_prefix).toBe('777');
+    }
+  });
+
+  it('accepts a valid temporary_prefix', async () => {
+    const result = await handleUpdateErrorCodeConfig({ temporary_prefix: '4242' });
+    expect(result.temporary_prefix).toBe('4242');
+    expect(mockConfig.temporary_prefix).toBe('4242');
+  });
+
+  it('passes a config-store warning through to the GET response', async () => {
+    mockConfigWarning = 'config.json has invalid fields (timeout_ms); using their defaults and keeping the rest';
+    const result = await handleGetErrorCodeConfig();
+    expect(result.warning).toBe(mockConfigWarning);
+  });
+
+  it('omits warning from the GET response when config-store reports none', async () => {
+    mockConfigWarning = undefined;
+    const result = await handleGetErrorCodeConfig();
+    expect(result.warning).toBeUndefined();
+    expect('warning' in result).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -263,6 +307,20 @@ describe('handleTestErrorCodeProvider', () => {
     expect(result.supported).toBe(true);
     expect(result.ok).toBe(true);
     expect(result.value).toBe(7);
+  });
+
+  it("passes the shared resolveErrorCodeProviderDataDir(providerId) value as data_dir", async () => {
+    let capturedDataDir: string | undefined;
+    const test = vi.fn(async (ctx: ProviderContext) => {
+      capturedDataDir = ctx.data_dir;
+      return { ok: true } as TestOutcome;
+    });
+    const provider = makeProvider({ test });
+    mockRegistryEntries = [{ provider, source: 'builtin' }];
+
+    await handleTestErrorCodeProvider({ provider_id: 'file', settings: { host: 'db.internal' } });
+
+    expect(capturedDataDir).toBe('/fake/.ai-insights/error-codes/data/file');
   });
 
   it('reports "offers no connection test" and calls neither test, peek, nor allocate, when the provider offers neither hook', async () => {
@@ -327,6 +385,28 @@ describe('handleTestErrorCodeProvider', () => {
   it('rejects an unknown or uninstalled provider_id', async () => {
     await expectApiError(() => handleTestErrorCodeProvider({ provider_id: 'does-not-exist' }), 'VALIDATION_ERROR');
   });
+  it('reports failed with the counter-file detail when the file provider counter file is corrupt', async () => {
+    const { fileProvider } = await import('../../src/error-codes/providers/file-provider.js');
+    const dir = await mkdtemp(join(tmpdir(), 'ec-gui-corrupt-'));
+    try {
+      const counterFile = join(dir, 'counters.json');
+      await writeFile(counterFile, '{ not json', 'utf-8');
+      mockRegistryEntries = [{ provider: fileProvider, source: 'builtin' }];
+
+      const result = await handleTestErrorCodeProvider({
+        provider_id: 'file',
+        settings: { scope: 'global', counter_file: counterFile, counter_name: 'default', start_value: 1 },
+      });
+
+      expect(result.supported).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('failed');
+      expect(result.detail).toContain(counterFile);
+      expect(await readFile(counterFile, 'utf-8')).toBe('{ not json');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -347,22 +427,33 @@ describe('handleListTemporaryErrorCodesGui', () => {
   }
 
   it('returns entries newest-first', async () => {
-    mockListTemporaryCodes = vi.fn(async () => makeEntries(3));
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: makeEntries(3) }));
     const result = await handleListTemporaryErrorCodesGui();
     expect(result.entries.map((e) => e.code)).toEqual(['777000003', '777000002', '777000001']);
   });
 
   it('caps at the default limit (200) when limit is omitted', async () => {
-    mockListTemporaryCodes = vi.fn(async () => makeEntries(250));
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: makeEntries(250) }));
     const result = await handleListTemporaryErrorCodesGui();
     expect(result.entries).toHaveLength(200);
   });
 
   it('caps at the requested limit query parameter', async () => {
-    mockListTemporaryCodes = vi.fn(async () => makeEntries(10));
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: makeEntries(10) }));
     const result = await handleListTemporaryErrorCodesGui(new URLSearchParams('limit=3'));
     expect(result.entries).toHaveLength(3);
     expect(result.entries.map((e) => e.code)).toEqual(['777000010', '777000009', '777000008']);
+  });
+
+  it('passes a listing warning through, and omits it when there is none', async () => {
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: makeEntries(2), warning: 'temporary-codes.json is corrupt' }));
+    const withWarning = await handleListTemporaryErrorCodesGui();
+    expect(withWarning.warning).toBe('temporary-codes.json is corrupt');
+    expect(withWarning.entries).toHaveLength(2);
+
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: makeEntries(2) }));
+    const without = await handleListTemporaryErrorCodesGui();
+    expect('warning' in without).toBe(false);
   });
 
   it('rejects a non-positive-integer limit', async () => {

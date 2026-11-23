@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { allocateErrorCode, type AllocatorDeps } from '../../src/error-codes/allocator.js';
 import type { ErrorCodeConfig } from '../../src/error-codes/config-store.js';
 import type { AllocationOutcome, ErrorCodeProvider, ProviderContext } from '../../src/error-codes/provider-api.js';
+import { resolveErrorCodeProviderDataDir } from '../../src/storage/store-registry.js';
 
 /** Builds a complete, valid config, overridable per test. */
 function makeConfig(overrides: Partial<ErrorCodeConfig> = {}): ErrorCodeConfig {
@@ -37,7 +38,7 @@ function makeDeps(overrides: Partial<AllocatorDeps> = {}): AllocatorDeps {
     loadConfig: vi.fn(async () => makeConfig()),
     getProvider: vi.fn(() => undefined),
     resolveRepositoryInfo: vi.fn(async () => null),
-    temporaryCodes: { issue: vi.fn(async () => '777000001') },
+    temporaryCodes: { issue: vi.fn(async () => ({ code: '777000001' })) },
     sleep: vi.fn(async () => undefined),
     now: vi.fn(() => 0),
     ...overrides,
@@ -62,12 +63,28 @@ describe('allocateErrorCode', () => {
       expect(result.fallback_reason).toBeUndefined();
       expect(deps.temporaryCodes.issue).not.toHaveBeenCalled();
     });
+
+    it('passes the shared resolveErrorCodeProviderDataDir(providerId) value as data_dir', async () => {
+      let capturedDataDir: string | undefined;
+      const provider = makeProvider(async (_request, ctx) => {
+        capturedDataDir = ctx.data_dir;
+        return { ok: true, value: 1 };
+      });
+      const deps = makeDeps({
+        loadConfig: vi.fn(async () => makeConfig()),
+        getProvider: vi.fn(() => provider),
+      });
+
+      await allocateErrorCode({ cwd_path: null, context: null }, deps);
+
+      expect(capturedDataDir).toBe(resolveErrorCodeProviderDataDir('test-provider'));
+    });
   });
 
   describe('temporary: true shortcut', () => {
     it('issues a temporary code with reason "requested" without calling any provider', async () => {
       const getProvider = vi.fn(() => makeProvider(async () => ({ ok: true, value: 1 })));
-      const issue = vi.fn(async () => '777000005');
+      const issue = vi.fn(async () => ({ code: '777000005' }));
       const deps = makeDeps({ getProvider, temporaryCodes: { issue } });
 
       const result = await allocateErrorCode({ cwd_path: null, context: null, temporary: true }, deps);
@@ -78,6 +95,42 @@ describe('allocateErrorCode', () => {
       expect(result.provider).toBeNull();
       expect(getProvider).not.toHaveBeenCalled();
       expect(issue).toHaveBeenCalledWith('777', expect.objectContaining({ fallback_reason: 'requested' }));
+    });
+  });
+
+  describe('temporary-code warning', () => {
+    it('surfaces a warning from the temporary-code store without changing the code', async () => {
+      const issue = vi.fn(async () => ({ code: '777000042', warning: 'temporary-codes.json was corrupt; a copy was kept' }));
+      const deps = makeDeps({ temporaryCodes: { issue } });
+
+      const result = await allocateErrorCode({ cwd_path: null, context: null, temporary: true }, deps);
+
+      expect(result.warning).toBe('temporary-codes.json was corrupt; a copy was kept');
+      expect(result.code).toBe('777000042');
+      expect(result.first_component_code).toBe('77700004201');
+    });
+
+    it('omits the warning field when the store reports none', async () => {
+      const result = await allocateErrorCode({ cwd_path: null, context: null, temporary: true }, makeDeps());
+      expect('warning' in result).toBe(false);
+    });
+
+    it('falls back to a temporary code when the provider reports a corrupt counter file as failed', async () => {
+      const provider = makeProvider(async () => ({
+        ok: false,
+        reason: 'failed',
+        ambiguous: false,
+        detail: 'counter file /x/counters.json is not valid JSON; no code was issued from it — repair or remove the file',
+      }));
+      const sleep = vi.fn(async () => undefined);
+      const deps = makeDeps({ getProvider: vi.fn(() => provider), sleep });
+
+      const result = await allocateErrorCode({ cwd_path: null, context: null }, deps);
+
+      expect(result.temporary).toBe(true);
+      expect(result.fallback_reason).toBe('failed');
+      expect(result.detail).toContain('counters.json');
+      expect(sleep).not.toHaveBeenCalled();
     });
   });
 
@@ -130,7 +183,7 @@ describe('allocateErrorCode', () => {
 
     it('falls back to a temporary code when the retry also comes back throttled', async () => {
       const provider = makeProvider(async () => ({ ok: false, reason: 'throttled', retry_after_ms: 1000 }));
-      const issue = vi.fn(async () => '777000002');
+      const issue = vi.fn(async () => ({ code: '777000002' }));
       const deps = makeDeps({ getProvider: vi.fn(() => provider), temporaryCodes: { issue } });
 
       const result = await allocateErrorCode({ cwd_path: null, context: null }, deps);

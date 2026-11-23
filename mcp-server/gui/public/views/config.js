@@ -8,19 +8,38 @@
      four tab modules. Companion files must mutate its properties only; never
      reassign configDirty itself (object identity must be preserved so all
      file-level references stay in sync).
+
+   CONFIG_TABS is the single source of truth for which tabs exist and how to
+   render, leave and reset each one. This coordinator never reads or writes
+   another module's cs-, mr-, pm- or ec-prefixed fields directly — every tab
+   module owns its own state and exposes it to this file only through its
+   descriptor's three functions:
+     - render(config, models, personas, assignments, stores): populate
+       #config-tab-content and wire its events. Called on first load and on
+       every tab switch. A tab ignores arguments it does not need.
+     - leave(discarded): called when the tab-bar handler is about to switch
+       away from this tab, after its confirm() guard (if the tab was dirty)
+       has already run. `discarded` is true when the user just confirmed
+       discarding unsaved changes. A tab with no "keep state unless
+       discarded" case (Stores, Error Codes) ignores the argument and always
+       resets; Model Registry and Persona Models reset only when discarded,
+       since their render arguments are not refreshed after a save.
+     - reset(): called with no arguments by renderConfigPage() on every
+       fresh page load, where server data is always about to replace
+       whatever state existed.
+   Adding a sixth tab means adding one descriptor here — see GUI constraint
+   §25 "Config Tab Modules".
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
 
 var configActiveTab = 'general';
 
-/* Dirty-tracking: keyed by tab name, true when the tab has unsaved changes.
-   Ownership: declared here (config.js). Mutated by all three tab modules:
-     - config.js itself          → .general
-     - config-model-registry.js  → .modelRegistry
-     - config-persona-models.js  → .personaModels
-   Object identity is preserved throughout — companion files hold a reference
-   to this object and must never reassign configDirty (only mutate its keys). */
+/* Dirty-tracking: keyed by tab key, true when the tab has unsaved changes.
+   Ownership: declared here (config.js). Mutated by the owning tab module via
+   its own key (config.js itself mutates .general). Object identity is
+   preserved throughout — companion files hold a reference to this object and
+   must never reassign configDirty (only mutate its keys). */
 var configDirty = {
   general: false,
   personaModels: false,
@@ -28,6 +47,71 @@ var configDirty = {
   stores: false,
   errorCodes: false
 };
+
+/* ── Tab registry ─────────────────────────────────────────── */
+
+var CONFIG_TABS = [
+  {
+    key: 'general',
+    label: 'General',
+    render: function (config) {
+      var contentEl = document.getElementById('config-tab-content');
+      if (!contentEl) return;
+      contentEl.innerHTML = renderGeneralTab(config);
+      wireGeneralTabEvents();
+    },
+    leave: function () {},
+    reset: function () {}
+  },
+  {
+    key: 'stores',
+    label: 'Stores',
+    render: function (config, models, personas, assignments, stores) {
+      var contentEl = document.getElementById('config-tab-content');
+      if (!contentEl) return;
+      contentEl.innerHTML = renderStoresTab(stores || []);
+      csWireEvents();
+    },
+    leave: function () { csResetState(); },
+    reset: function () { csResetState(); }
+  },
+  {
+    key: 'personaModels',
+    label: 'Persona Models',
+    render: function (config, models, personas, assignments) {
+      var contentEl = document.getElementById('config-tab-content');
+      if (!contentEl) return;
+      contentEl.innerHTML = renderPersonaModelsTab(models, personas, assignments);
+      pmWireEvents();
+    },
+    leave: function (discarded) { pmLeaveTab(discarded); },
+    reset: function () { pmResetState(); }
+  },
+  {
+    key: 'modelRegistry',
+    label: 'Model Registry',
+    render: function (config, models) {
+      var contentEl = document.getElementById('config-tab-content');
+      if (!contentEl) return;
+      contentEl.innerHTML = renderModelRegistryTab(models);
+      mrWireEvents();
+    },
+    leave: function (discarded) { mrLeaveTab(discarded); },
+    reset: function () { mrResetState(); }
+  },
+  {
+    key: 'errorCodes',
+    label: 'Error Codes',
+    render: function () { ecRenderTab(); },
+    leave: function () { ecResetState(); },
+    reset: function () { ecResetState(); }
+  }
+];
+
+/** Find a CONFIG_TABS descriptor by key. Returns undefined when not found. */
+function configFindTab(key) {
+  return CONFIG_TABS.find(function (t) { return t.key === key; });
+}
 
 /* ── Entry point ─────────────────────────────────────────── */
 
@@ -50,28 +134,19 @@ function renderConfig(app) {
 /* ── Page scaffold ───────────────────────────────────────── */
 
 function renderConfigPage(app, config, models, personas, assignments, stores) {
-  /* Reset dirty flags and all tab module state — fresh server data loaded. */
-  configDirty.general = configDirty.personaModels = configDirty.modelRegistry = configDirty.stores = configDirty.errorCodes = false;
-  mrModels = mrOriginal = mrEditingId = null;
-  pmModels = pmPersonas = pmAssignments = pmOriginal = null;
-  pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
-  csStores = csOriginal = null; csReorderMode = false;
-  csModalMode = csModalStoreId = null; csModalCreateDir = true;
-  csClickHandler = null;
-  if (typeof csCloseModal === 'function') csCloseModal();
-  ecProviders = ecConfig = null; ecPluginDir = ''; ecLoadErrors = []; ecTemporaryCodes = null;
-  ecSelectedProviderId = null; ecTestInFlight = false;
-  ecClickHandler = ecChangeHandler = ecInputHandler = ecSubmitHandler = null;
+  /* Reset dirty flags and every tab module's own state — fresh server data
+     loaded. config.js holds no list of any tab module's fields; each
+     descriptor's reset() does its own module's cleanup. */
+  CONFIG_TABS.forEach(function (t) { configDirty[t.key] = false; });
+  CONFIG_TABS.forEach(function (t) { t.reset(); });
+
+  var tabButtonsHtml = CONFIG_TABS.map(function (t) {
+    return '<button class="config-tab' + (configActiveTab === t.key ? ' active' : '') + '" data-tab="' + t.key + '">' + escapeHtml(t.label) + '</button>';
+  }).join('');
 
   app.innerHTML =
     '<div class="page-header"><h1>Configuration</h1></div>' +
-    '<div class="config-tabs" id="config-tab-bar">' +
-      '<button class="config-tab' + (configActiveTab === 'general'       ? ' active' : '') + '" data-tab="general">General</button>' +
-      '<button class="config-tab' + (configActiveTab === 'stores'        ? ' active' : '') + '" data-tab="stores">Stores</button>' +
-      '<button class="config-tab' + (configActiveTab === 'personaModels' ? ' active' : '') + '" data-tab="personaModels">Persona Models</button>' +
-      '<button class="config-tab' + (configActiveTab === 'modelRegistry' ? ' active' : '') + '" data-tab="modelRegistry">Model Registry</button>' +
-      '<button class="config-tab' + (configActiveTab === 'errorCodes'    ? ' active' : '') + '" data-tab="errorCodes">Error Codes</button>' +
-    '</div>' +
+    '<div class="config-tabs" id="config-tab-bar">' + tabButtonsHtml + '</div>' +
     '<div id="config-tab-content"></div>';
 
   renderConfigTabContent(config, models, personas, assignments, stores);
@@ -85,37 +160,20 @@ function renderConfigPage(app, config, models, personas, assignments, stores) {
       if (tab === configActiveTab) return;
 
       /* Unsaved-changes guard */
+      var discarded = false;
       if (configDirty[configActiveTab]) {
         if (!confirm('You have unsaved changes. Discard them?')) return;
         configDirty[configActiveTab] = false;
-        if (configActiveTab === 'modelRegistry') {
-          mrModels = mrOriginal = mrEditingId = null;
-        }
-        if (configActiveTab === 'personaModels') {
-          pmModels = pmPersonas = pmAssignments = pmOriginal = null;
-          pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
-        }
+        discarded = true;
       }
 
-      /* Stores tab cleanup runs unconditionally (no dirty tracking). */
-      if (configActiveTab === 'stores') {
-        csStores = csOriginal = null; csReorderMode = false;
-        csModalMode = csModalStoreId = null; csModalCreateDir = true;
-        var _csEl = document.getElementById('config-tab-content');
-        if (_csEl && csClickHandler) _csEl.removeEventListener('click', csClickHandler);
-        csClickHandler = null;
-        if (typeof csCloseModal === 'function') csCloseModal();
-      }
-
-      /* Error Codes tab cleanup runs unconditionally too — the dirty-guard
-         confirm() above already handled the discard decision; this just
-         releases listeners and drops cached state so the next visit
-         re-fetches fresh data (the lazy-load contract). */
-      if (configActiveTab === 'errorCodes' && typeof ecCleanup === 'function') {
-        ecCleanup();
-        ecProviders = ecConfig = null; ecPluginDir = ''; ecLoadErrors = []; ecTemporaryCodes = null;
-        ecSelectedProviderId = null; ecTestInFlight = false;
-      }
+      /* Tell the tab being left to clean up. The confirm() guard above has
+         already decided whether this is a discard — leave() runs
+         unconditionally regardless of that outcome, so a tab re-entered
+         without ever being dirty (e.g. Stores, Error Codes) still releases
+         its delegated listeners and invalidates its visit token. */
+      var leavingTab = configFindTab(configActiveTab);
+      if (leavingTab) leavingTab.leave(discarded);
 
       configActiveTab = tab;
       tabBar.querySelectorAll('.config-tab').forEach(function (b) {
@@ -132,21 +190,9 @@ function renderConfigTabContent(config, models, personas, assignments, stores) {
   var contentEl = document.getElementById('config-tab-content');
   if (!contentEl) return;
 
-  if (configActiveTab === 'stores') {
-    contentEl.innerHTML = renderStoresTab(stores || []);
-    csWireEvents();
-  } else if (configActiveTab === 'general') {
-    contentEl.innerHTML = renderGeneralTab(config);
-    wireGeneralTabEvents();
-  } else if (configActiveTab === 'personaModels') {
-    contentEl.innerHTML = renderPersonaModelsTab(models, personas, assignments);
-    pmWireEvents();
-  } else if (configActiveTab === 'modelRegistry') {
-    contentEl.innerHTML = renderModelRegistryTab(models);
-    mrWireEvents();
-  } else if (configActiveTab === 'errorCodes') {
-    ecRenderTab();
-  }
+  var tab = configFindTab(configActiveTab);
+  if (!tab) return;
+  tab.render(config, models, personas, assignments, stores);
 }
 
 /* ── General tab ─────────────────────────────────────────── */

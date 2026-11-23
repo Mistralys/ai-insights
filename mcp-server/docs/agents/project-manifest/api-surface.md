@@ -706,14 +706,15 @@ Allocates a new error-code base number through the configured provider. Never th
   first_component_code: string; // code + "01" — the first component code ready to use
   message: string;
   instruction: string;
+  warning?: string;            // A non-fatal problem to report to the user, e.g. a corrupt temporary-code log that was recovered
 }
 ```
 
-**Temporary-code format:** `{temporary_prefix}` (`"777"` by default, configurable) followed by six zero-padded digits counting up from `1` (e.g. `777000001`). `{prefix}000000` (e.g. `777000000`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is never issued here. A real, provider-issued `code` has whatever shape the active provider returns.
+**Temporary-code format:** `{temporary_prefix}` (`"777"` by default, configurable; 1–6 digits, no leading zero — `TEMPORARY_PREFIX_PATTERN` in `config-store.ts`) followed by six zero-padded digits counting up from `1` (e.g. `777000001`). `{prefix}000000` (e.g. `777000000`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is never issued here. A real, provider-issued `code` has whatever shape the active provider returns.
 
 **Component-code convention:** treat `code` as a base; append a two-digit, zero-padded component number in introduction order (`{base}01`, `{base}02`, …). `first_component_code` already supplies `{base}01`.
 
-**Error handling:** an MCP error (`isError: true`) is returned only when the temporary-code store itself fails (disk full, lock timeout, counter exhausted) — never for a provider failure, which falls back instead.
+**Error handling:** an MCP error (`isError: true`) is returned only when the temporary-code store itself fails (an unreadable log, disk full, lock timeout, counter exhausted) — never for a provider failure, which falls back instead. A corrupt but readable temporary-code log does not fail the call: it is recovered (a copy is kept, numbering continues above every counter still visible) and the recovery is reported in `warning`. A corrupt `file`-provider counter file is a provider failure (`failed`), so it falls back to a temporary code with the counter-file detail rather than restarting the sequence.
 
 **Implementation:** `src/tools/error-codes.ts`, wiring `allocateErrorCode` with real dependencies: the live provider registry (`src/error-codes/provider-registry.ts`), `loadErrorCodeConfig` (`src/error-codes/config-store.ts`), `resolveRepositoryInfo` (`src/error-codes/project-info.ts`), a real `setTimeout`-backed sleep, and `Date.now()`.
 
@@ -738,6 +739,7 @@ Lists every temporary code logged by `ledger_generate_error_code`'s fallback pat
     repository: string | null;     // folder_name at issuance
     context: string | null;
   }>;
+  warning?: string;                // Present only when the log is corrupt; `entries` is then the recoverable subset
 }
 ```
 
@@ -2247,13 +2249,36 @@ Writes JSON data to a file atomically using the write-to-temp-then-rename patter
 
 ---
 
+### `readJsonStateFile()` / `keepCorruptCopy()` — `src/storage/json-state-file.ts`
+
+```typescript
+type JsonStateRead =
+  | { status: 'missing' }
+  | { status: 'parsed'; raw: string; value: unknown }
+  | { status: 'unparsable'; raw: string; error: string };
+
+function readJsonStateFile(path: string): Promise<JsonStateRead>;
+function keepCorruptCopy(path: string, now?: Date): Promise<string>;  // returns the copy's base name
+```
+
+The shared read primitive of the error-code state files (the `file` provider's counter file, `temporary-codes.json`, `config.json`). It enforces *a missing file is not a broken file*: `ENOENT` alone is `missing`; a read file is `parsed` or `unparsable` (schema validation stays with the caller); every other I/O error is rethrown unchanged with its `code`. Each store keeps its own corruption policy — see "Error-Code State Files Distinguish Missing From Broken" in `constraints.md`. `keepCorruptCopy` copies (never renames) the file to `{name}.corrupt-{YYYYMMDDTHHMMSSZ}{ext}` in the same directory with an exclusive copy (an existing file is never overwritten; a collision appends `-2`, `-3`, …); the stamp has no `:`, so the name is valid on Windows. The caller replaces the original with `atomicWriteJson`, so the path is never absent.
+
+---
+
 ### `withLock()`
 
 ```typescript
 function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
+
+const DEFAULT_LOCK_OPTIONS: Readonly<{ stale: 10000; retries: Readonly<{ retries: 50; minTimeout: 200; maxTimeout: 1000 }> }>; // deep-frozen
+
+function __setLockRetryForTesting(options: { minTimeout: number; maxTimeout: number }): void;  // @internal, test-only
+function __resetLockOptionsForTesting(): void;                                                  // @internal, test-only
 ```
 
-Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`. `withLock` reads its retry policy from a module-level `activeLockOptions`, initialised from `DEFAULT_LOCK_OPTIONS` and always replaced wholesale (never mutated in place) so the frozen default stays frozen.
+
+**Test-only retry seam:** `__setLockRetryForTesting({ minTimeout, maxTimeout })` swaps `activeLockOptions` to a faster policy — it derives `retries = Math.ceil(DEFAULT_LOCK_OPTIONS.stale / minTimeout)` so the retry window never drops below the 10s stale timeout, and rejects `minTimeout < 1` or `maxTimeout < minTimeout`. `__resetLockOptionsForTesting()` restores the exact defaults. Both are `@internal`/test-only; no production code path calls either. See "Slow Lock-Contention Tests Use the `withLock` Fast-Lock Test Seam" in `constraints-testing.md` for the adoption pattern used by the error-code concurrency tests.
 
 ---
 
@@ -2629,6 +2654,19 @@ function resolveErrorCodesDir(): string;
  * dependencies (see the Error-Code Provider Contract section below).
  */
 function resolveErrorCodePluginDir(): string;
+
+/**
+ * Returns the absolute path of a single error-code provider's data
+ * directory: join(resolveErrorCodesDir(), 'data', providerId).
+ *
+ * The single source of this path (WP-004, PR#64 rework) — both the
+ * allocator (src/error-codes/allocator.ts) and the GUI's provider
+ * Test-connection route (gui/api-error-codes.ts) call this helper rather
+ * than building the path themselves, which previously let a forward-slash
+ * template-string copy in the allocator diverge from the GUI's own
+ * path.join-based copy on Windows.
+ */
+function resolveErrorCodeProviderDataDir(providerId: string): string;
 
 // ── I/O ────────────────────────────────────────────────────────────────────
 
@@ -3074,14 +3112,25 @@ The single owner of secret redaction for the error-code allocator — plain func
 ### `config-store.ts`
 
 ```typescript
+const TEMPORARY_PREFIX_PATTERN: RegExp;        // /^[1-9][0-9]{0,5}$/ — 1–6 digits, no leading zero
+const DEFAULT_TEMPORARY_PREFIX: string;        // '777'
+const TemporaryPrefixSchema: z.ZodString;      // the pattern above, with the user-facing message; shared by the config schema and the GUI's PUT body schema
 const ErrorCodeConfigSchema: z.ZodType<ErrorCodeConfig>; // version, active_provider, temporary_prefix, timeout_ms, retry: { default_wait_ms, max_wait_ms }, providers: Record<string, Record<string, unknown>>
 type ErrorCodeConfig = z.infer<typeof ErrorCodeConfigSchema>;
 
+function readErrorCodeConfig(): Promise<{ config: ErrorCodeConfig; warning?: string }>;
 function loadErrorCodeConfig(): Promise<ErrorCodeConfig>;
 function updateErrorCodeConfig(mutator: (current: ErrorCodeConfig) => ErrorCodeConfig): Promise<ErrorCodeConfig>;
 ```
 
-Owns `~/.ai-insights/error-codes/config.json`. `loadErrorCodeConfig()` re-reads the file on every call — no cache, no watcher, so the MCP server process and the GUI server process always observe the latest saved settings without coordinating invalidation. A missing file, malformed JSON, or a value failing `ErrorCodeConfigSchema` validation all yield the documented defaults (`active_provider: 'file'`, `temporary_prefix: '777'`) rather than throwing — a corrupt or absent config file never blocks an allocation. `providers` is a free-form `{ [provider-id]: settings }` bag whose values this schema does not validate (a provider's settings shape is runtime-defined, see `settings-schema.ts`), which is also why settings for a currently-uninstalled provider round-trip untouched. `updateErrorCodeConfig(mutator)` is the only write path: a read-modify-write under `withLock(resolveErrorCodesDir(), …)` that re-validates the mutator's result before persisting it with `atomicWriteJson(..., { mode: 0o600 })`, so concurrent callers never lose an update and a mutator cannot silently write an invalid shape.
+Owns `~/.ai-insights/error-codes/config.json`.
+
+- **`readErrorCodeConfig()`** — the shared classification read, built on an internal `readConfigState()` helper (`missing | ok | salvaged | corrupt | unreadable`); the one read path both `loadErrorCodeConfig()` and the GUI's config route use, so they can never disagree about what counts as usable. Never throws: a missing file yields the documented defaults (`active_provider: 'file'`, `temporary_prefix: '777'`) with no `warning`; a valid file also has no `warning`; a salvaged file (some invalid fields) returns the defaults for just those fields — every other field, `providers` and its stored secrets included, is kept — plus a `warning` naming the invalid field paths only, never a value; a corrupt or unreadable file returns the defaults plus a `warning` carrying the same fixed, already-sanitized classification reason `readConfigState()` produced, never the raw JSON-parser message (which would quote file content holding secrets).
+- **`loadErrorCodeConfig()`** — a thin wrapper over `readErrorCodeConfig()`: re-reads the file on every call (no cache, no watcher, so the MCP server process and the GUI server process always observe the latest saved settings without coordinating invalidation), writes any `warning` to stderr as `[error-codes] {warning}`, and returns just the `config`. Its signature, return value and stderr output are unchanged from before `readErrorCodeConfig()` existed, for every config state.
+- **GUI surfacing** — `handleGetErrorCodeConfig` (`gui/api-error-codes.ts`) calls `readErrorCodeConfig()` directly instead, so the GUI's Error Codes tab can surface the same `warning` as a banner instead of only to a stderr stream the GET route's caller never sees. See the GUI manifest's `ErrorCodeConfigResponse.warning` and `config-error-codes.js`'s `ecConfigWarning`.
+- **Validation asymmetry** — the strict `ErrorCodeConfigSchema` is used on write; reads use a tolerant per-field salvage, so one bad field can no longer wipe the rest.
+- **`providers`** — a free-form `{ [provider-id]: settings }` bag whose values this schema does not validate (a provider's settings shape is runtime-defined, see `settings-schema.ts`); this is also why settings for a currently-uninstalled provider round-trip untouched.
+- **`updateErrorCodeConfig(mutator)`** — the only write path: a read-modify-write under `withLock(resolveErrorCodesDir(), …)` that re-validates the mutator's result before persisting it with `atomicWriteJson(..., { mode: 0o600 })`, so concurrent callers never lose an update and a mutator cannot silently write an invalid shape. It also never overwrites what it could not read: an **unreadable** `config.json` (e.g. `EACCES`) makes it throw without writing; an **unparsable** one is first copied byte-for-byte to `config.corrupt-{stamp}.json` (via `keepCorruptCopy`) and then replaced in one atomic rename, so a concurrent unlocked `loadErrorCodeConfig` never observes the file missing.
 
 ### `project-info.ts`
 
@@ -3098,11 +3147,20 @@ const TemporaryCodeEntrySchema: z.ZodType<TemporaryCodeEntry>; // code, issued_a
 type TemporaryCodeEntry = z.infer<typeof TemporaryCodeEntrySchema>;
 type TemporaryCodeEntryInput = Omit<TemporaryCodeEntry, 'code' | 'issued_at'>;
 
-function issueTemporaryCode(dir: string, prefix: string, entry: TemporaryCodeEntryInput): Promise<string>;
-function listTemporaryCodes(dir: string, filter?: string): Promise<TemporaryCodeEntry[]>;
+interface IssuedTemporaryCode { code: string; warning?: string; }                 // warning: the log was corrupt and was recovered
+interface TemporaryCodesListing { entries: TemporaryCodeEntry[]; warning?: string; } // warning: the log is corrupt; entries are the recoverable ones
+
+function issueTemporaryCode(dir: string, prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
+function listTemporaryCodes(dir: string, filter?: string): Promise<TemporaryCodesListing>;
 ```
 
-Owns `~/.ai-insights/error-codes/temporary-codes.json`, entirely core-side — no provider ever sees or influences this log, which is what makes the fallback guarantee unconditional. `issueTemporaryCode` runs its whole read-modify-write under `withLock(dir, …)`; the returned code is `prefix + String(n).padStart(6, '0')` with `n` starting at `1` (`{prefix}000000` is reserved as the "tool unavailable" placeholder and is never issued by this module), and the persisted file tracks an explicit `next_counter` field — rather than re-deriving "next" from `entries.length` — so a manually edited or truncated log can never reissue a previously-used code. Once `n` would exceed `999999` the counter is exhausted and the function throws instead of wrapping around. `listTemporaryCodes` filters by a case-sensitive substring match against `context` or `repository` (a `null` field never matches a non-empty filter); an absent or empty `filter` returns every entry.
+Owns `~/.ai-insights/error-codes/temporary-codes.json`, entirely core-side — no provider ever sees or influences this log, which is what makes the fallback guarantee unconditional.
+
+- **`issueTemporaryCode`** — runs its whole read-modify-write under `withLock(dir, …)`; the returned code is `prefix + String(n).padStart(6, '0')` with `n` starting at `1` (`{prefix}000000` is reserved as the "tool unavailable" placeholder and is never issued by this module); the persisted file tracks an explicit `next_counter` field — rather than re-deriving "next" from `entries.length` — so a manually edited or truncated log can never reissue a previously-used code. Once `n` would exceed `999999` the counter is exhausted and the function throws instead of wrapping around.
+- **`listTemporaryCodes`** — filters by a case-sensitive substring match against `context` or `repository` (a `null` field never matches a non-empty filter); an absent or empty `filter` returns every entry.
+- **Corruption handling** — the log is the last-resort fallback, so a *missing* file is a new empty log and a file that exists but is corrupt (unparsable, a failing entry, or a `next_counter` at or below a code already logged) is **recovered**, never reset: under the lock, `issueTemporaryCode` keeps a byte-identical copy as `temporary-codes.corrupt-{stamp}.json` (`keepCorruptCopy`), retains every valid entry, continues numbering above every counter still visible in the file (a text scan of the raw `"code"` values, so codes written with a non-digit prefix by an earlier version count too), replaces the original in one atomic write, and returns a `warning`. A second caller that met the same corrupt log waits on the lock and re-reads the repaired file, so recovery runs once.
+- **Read-only path** — `listTemporaryCodes` is read-only and unlocked: on a corrupt log it returns the recoverable entries plus a `warning`, and copies and writes nothing.
+- **Unreadable log** — a log that cannot be *read* at all (`EACCES`, `EISDIR`, …) fails closed: `issueTemporaryCode` rejects with `temporary-codes: cannot read {path} ({code})`.
 
 ### `plugin-loader.ts`
 
@@ -3157,10 +3215,11 @@ interface ErrorCodeResult {
   first_component_code: string;       // code + '01'
   message: string;
   instruction: string;
+  warning?: string;                   // non-fatal problem to report, e.g. a recovered temporary-code log
 }
 
 interface TemporaryCodesDep {
-  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<string>;
+  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
 }
 
 interface AllocatorDeps {
@@ -3182,13 +3241,10 @@ The single policy pipeline behind `ledger_generate_error_code`: load config, res
 - `now()` is called immediately before and after the single retry `sleep()`, purely to report the actually-elapsed `waited_ms` — it plays no part in deciding whether to retry or how long to wait.
 - `resolveRepositoryInfo` is called only when `input.cwd_path` is non-null.
 
-Never thrown by this function: a missing/failed-to-load provider, a provider whose stored settings fail `buildSettingsSchema(...).safeParse(...)` validation, a provider that throws, an aborted `allocate` call, or a non-positive/non-safe-integer returned value — every one of these falls back to a temporary code instead (`misconfigured`, `failed`, `unavailable`, or `invalid_response` respectively). The only way this function rejects is a failure in the temporary-code store itself (e.g. its counter exhausted), which the MCP tool that calls it turns into an MCP error. An outcome whose `reason` is not one of the six documented `FailureReason` values is normalised to `failed` before the fallback.
-
-Retry: on `{ ok: false, reason: 'throttled', ambiguous: false|undefined }`, the allocator waits once for `min(retry_after_ms ?? retry.default_wait_ms, retry.max_wait_ms)` and calls `allocate` exactly one more time. A `throttled` outcome marked `ambiguous: true`, and every outcome of any other failing reason, is never retried — it falls straight to a temporary code. A second `throttled` response (after the one retry) also falls back.
-
-Redaction: a provider's stored settings are validated once per call and their secret values (`collectSecrets`) are reused for both `createRedactingLogger` (handed to the provider as `ctx.log`) and `redact()` on the final `detail` text — so a secret echoed back in a failure's `detail`, or logged by the provider via `ctx.log`, never reaches the caller or stderr unredacted.
-
-`data_dir` is built as `${resolveErrorCodesDir()}/data/{provider.id}` via a direct import of `resolveErrorCodesDir` (`storage/store-registry.ts`) — not an injected dependency, since building the path performs no I/O; only `loadConfig`'s own implementation touches the filesystem.
+- **Never thrown** — a missing/failed-to-load provider, a provider whose stored settings fail `buildSettingsSchema(...).safeParse(...)` validation, a provider that throws, an aborted `allocate` call, or a non-positive/non-safe-integer returned value all fall back to a temporary code instead (`misconfigured`, `failed`, `unavailable`, or `invalid_response` respectively). The only way this function rejects is a failure in the temporary-code store itself (e.g. its counter exhausted), which the MCP tool that calls it turns into an MCP error. An outcome whose `reason` is not one of the six documented `FailureReason` values is normalised to `failed` before the fallback.
+- **Retry** — on `{ ok: false, reason: 'throttled', ambiguous: false|undefined }`, the allocator waits once for `min(retry_after_ms ?? retry.default_wait_ms, retry.max_wait_ms)` and calls `allocate` exactly one more time. A `throttled` outcome marked `ambiguous: true`, and every outcome of any other failing reason, is never retried — it falls straight to a temporary code. A second `throttled` response (after the one retry) also falls back.
+- **Redaction** — a provider's stored settings are validated once per call and their secret values (`collectSecrets`) are reused for both `createRedactingLogger` (handed to the provider as `ctx.log`) and `redact()` on the final `detail` text — so a secret echoed back in a failure's `detail`, or logged by the provider via `ctx.log`, never reaches the caller or stderr unredacted.
+- **`data_dir`** — built via a direct import of `resolveErrorCodeProviderDataDir(provider.id)` (`storage/store-registry.ts`), not an injected dependency, since building the path performs no I/O; only `loadConfig`'s own implementation touches the filesystem. This is the same helper the GUI's provider Test-connection route calls, so both paths always agree.
 
 ### `providers/file-provider.ts`
 
@@ -3203,12 +3259,12 @@ interface FileProviderSettings {
 const fileProvider: ErrorCodeProvider; // id 'file', apiVersion 1; allocate + peek, no test()
 ```
 
-The zero-setup default provider (`active_provider: 'file'` is the documented config default — see `config-store.ts` above). Keeps one monotonic integer per sequence key inside a JSON counter file (`{ counters: Record<string, number> }`, Zod-validated, corrupt/unreadable/missing treated as `{}` rather than throwing — a deliberate zero-setup choice: a damaged counter file resets every sequence to `start_value` instead of failing the allocation).
+The zero-setup default provider (`active_provider: 'file'` is the documented config default — see `config-store.ts` above). Keeps one monotonic integer per sequence key inside a JSON counter file (`{ counters: Record<string, number> }`, every value a safe integer >= 0). The file is read **strictly**: only a *missing* file starts a new sequence at `start_value`. A file that exists but cannot be read, parsed or validated makes `allocate` and `peek` return `{ ok: false, reason: 'failed', ambiguous: false, detail: 'counter file {path} … ; no code was issued from it — repair or remove the file' }` and the file is left untouched — restarting the sequence would reissue codes already embedded in source. The allocator turns `failed` into a temporary code, so allocation still succeeds. Counters are held in a `Map` (hand-validated, read with `Object.entries`, written with `Object.fromEntries`), so every string is a valid key — `__proto__`, `constructor`, `toString` included — and no key can resolve to an inherited property; there is no reserved-key policy.
 
 - **Counter file resolution** (`resolveCounterLocation`, not exported) — `counter_file === ''` resolves to `{ctx.data_dir}/counters.json`; a `{repo}` placeholder (detected via `.includes('{repo}')`, checked **before** any `repository` access) expands to `repository.root_path` via a global string replace; any other non-empty value is used verbatim and never touches `repository`, even when `repository` is `null`. `scope: 'repository'`, or a `{repo}` placeholder, with no repository resolved both return `{ ok: false, reason: 'misconfigured', detail: 'no repository found for cwd_path' }` — this exact detail string is a documented contract surface, not an incidental message.
 - **Sequence key** — `repository.folder_name` for `scope: 'repository'` (shared by every linked worktree of one repository, since `project-info.ts` normalises worktrees to the same `folder_name`); `counter_name` for `scope: 'global'`.
-- **`allocate`** — runs the whole read-modify-write under `withLock(ctx.data_dir, …)`, **never** a lock on the counter file's own directory (`withLock` creates a `.lock` entry inside whatever it locks, and a `{repo}/...` counter file would otherwise leave an untracked `.lock` inside the user's repository). Writes via `atomicWriteJson`.
-- **`peek`** — read-only; returns the value the *next* `allocate()` call would issue (`current ?? start_value - 1, then +1`), without acquiring the lock or writing anything, so it agrees with `allocate` on what "the current value" means even for a sequence never allocated from.
+- **`allocate`** — runs the whole read-modify-write (the strict read included) under `withLock(ctx.data_dir, …)`, **never** a lock on the counter file's own directory. `ctx.data_dir` is under the user's home directory, so every process of one user (both MCP servers, the GUI, parallel workflow runs) resolves the same one and all of them serialise on a single lock. The `.lock` directory exists only while an allocation holds it (left behind only by a hard kill, then reclaimed as stale after 10 s); locking `data_dir` keeps even that transient entry out of a `{repo}/…` directory. **A counter file shared between different users or machines is not protected by this lock and is not supported.** Writes via `atomicWriteJson`.
+- **`peek`** — read-only; returns the value the *next* `allocate()` call would issue (`current ?? start_value - 1, then +1`), without acquiring the lock or writing anything, so it agrees with `allocate` on what "the current value" means even for a sequence never allocated from. Safe without the lock: `atomicWriteJson` renames a complete temp file into place, so it sees the old or the new file, never a partial one. A corrupt counter file gives the same `failed` outcome as `allocate`.
 - **Settings** (`FILE_PROVIDER_SETTINGS`, inline in the provider object, not a separate exported constant): `scope` (`select`, default `'global'`), `counter_file` (`path`, default `''`), `counter_name` (`string`, default `'default'`), `start_value` (`integer`, default `1`, `min: 1`).
 
 ### `providers/errorcode-incrementor-provider.ts`
@@ -3227,7 +3283,7 @@ const errorcodeIncrementorProvider: ErrorCodeProvider; // id 'errorcode-incremen
 
 A driver for the user's own self-hosted instance of the public, MIT-licensed Errorcode Incrementor counter service — the host and credentials are private settings, never checked into this repository (`tests/error-codes/no-private-config.test.ts` mechanically enforces this). Uses Node's global `fetch` and the core-supplied `ctx.signal` directly; no HTTP client dependency (see `tech-stack.md`).
 
-- **Request shape** — both `allocate` and `peek` build `GET {base_url}?pw={password}&counter={counter}[&increment=yes]` exclusively via `URL`/`URLSearchParams`, which percent-encodes every value; `allocate` adds `increment=yes`, `peek` omits it. The response body is trimmed, matched against the configured `response_suffix` (stripped from the end), and parsed as a `Number.isSafeInteger` digit string; a non-matching shape maps to `invalid_response` rather than throwing.
+- **Request shape** — both `allocate` and `peek` build `GET {base_url}?pw={password}&counter={counter}[&increment=yes]` exclusively via `URL`/`URLSearchParams`, which percent-encodes every value; `allocate` sets `increment=yes`, `peek` *deletes* any `increment` parameter (a saved `base_url` already containing `increment=yes` would otherwise make `peek` — and the GUI's Test connection — consume a code). The provider owns `pw`, `counter` and `increment`: whatever `base_url` carries for them is always overridden. The response body is trimmed, matched against the configured `response_suffix` (stripped from the end), and parsed as a `Number.isSafeInteger` digit string; a non-matching shape maps to `invalid_response` rather than throwing.
 - **Status/error mapping** (`mapStatusToOutcome`) — `400`/`401`/`404` → `misconfigured`; `403` → `throttled` with `retry_after_ms = throttle_delay_ms + 1000`; `500` → `unavailable`, `ambiguous: true`; any other HTTP status → `rejected`; an aborted request (`ctx.signal`) → `unavailable`, `ambiguous: true`; a DNS failure or connection refusal (`err.cause.code` of `ENOTFOUND`/`ECONNREFUSED`/`EAI_AGAIN`, the only signal Node's `fetch` rejection exposes for "never reached a server") → `unavailable`, `ambiguous: false`; any other network error → `unavailable`, `ambiguous: true`.
 - **Secrets** — `password` is never logged or echoed; the provider calls neither `ctx.log` nor `console`, and the allocator's own `redact()`/`createRedactingLogger()` layer (see `allocator.ts` above) additionally guards any `detail` text that reaches the caller.
 - **Settings**: `base_url` (`url`, required, **no default** — the absence of a default is itself part of the no-private-config guarantee), `password` (`secret`, required), `counter` (`string`, required), `response_suffix` (`string`, default `'01'`), `throttle_delay_ms` (`integer`, default `10000`).
@@ -3242,7 +3298,7 @@ function describeProviderContract(
 ): void;
 ```
 
-A `describe`-block factory (Vitest), not a production module — lives under `tests/`, not `src/`, but documented here because every current and future provider's test file is expected to call it (see "New Error-Code Providers Must Pass `describeProviderContract`" in `constraints-testing.md`). Exercises, against any `ErrorCodeProvider`: well-formed `settings`, a positive-integer `allocate` result, a monotonically increasing sequence across repeated calls, tolerance of unknown `AllocationRequest` fields, and settling (not hanging) when `makeCtx` is given an already-aborted `signal`. `makeProvider` must return a fresh instance per call so one test's state never leaks into another's; `makeCtx` must accept the `Partial<ProviderContext>` override the abort-handling check relies on. Consumed by `file-provider.test.ts` (WP-008) and `errorcode-incrementor-provider.test.ts` (WP-009).
+A `describe`-block factory (Vitest), not a production module — lives under `tests/`, not `src/`, but documented here because every current and future provider's test file is expected to call it (see "New Error-Code Providers Must Pass `describeProviderContract`" in `constraints-testing.md`). Exercises, against any `ErrorCodeProvider`: well-formed `settings`, a positive-integer `allocate` result, a monotonically increasing sequence across repeated calls, tolerance of unknown `AllocationRequest` fields, and settling (not hanging) when `makeCtx` is given an already-aborted `signal`. `makeProvider` must return a fresh instance per call so one test's state never leaks into another's; `makeCtx` must accept the `Partial<ProviderContext>` override the abort-handling check relies on. Consumed by `file-provider.test.ts` and `errorcode-incrementor-provider.test.ts`.
 
 ---
 
@@ -4494,6 +4550,24 @@ async function resolveMultiStoreLedgerRoot(
 ): Promise<string | undefined>;
 ```
 
+### Node Error Guards — `src/utils/node-errors.ts`
+
+Consolidates the `isNodeError` type guard that previously existed as five identical (or near-identical) private copies across the storage and GUI modules, plus a `hasErrorCode` helper for the `isNodeError(err) && err.code === 'X'` idiom that recurred at every one of those call sites. Where the private copies differed, the strictest check was kept: some only tested `'code' in err` (true even when `code` holds a non-string value); this shared guard always requires `code` to be a `string`.
+
+```typescript
+// Exported from src/utils/node-errors.ts
+
+// Narrows err to NodeJS.ErrnoException when it is an Error instance
+// carrying a string `code` property (e.g. 'ENOENT', 'ENOTDIR').
+function isNodeError(err: unknown): err is NodeJS.ErrnoException;
+
+// Tests whether err is a Node.js error carrying the exact given code.
+// Equivalent to isNodeError(err) && err.code === code.
+function hasErrorCode(err: unknown, code: string): boolean;
+```
+
+Consumers: `src/storage/json-state-file.ts`, `src/gui/config.ts`, `src/gui/log-resolver.ts`, `src/gui/model-registry.ts` — each previously held its own private copy of the `isNodeError` check.
+
 ---
 
 ## Internal Testing Utilities
@@ -5338,12 +5412,39 @@ async function resolveProjectStore(
 ```
 
 ```typescript
+// Tracks every in-flight fire-and-forget self-heal write issued by handleGetProject (see below).
+// Production code never awaits these writes — they stay fire-and-forget so no request pays extra
+// lock latency on every project view. Each write's promise is added on start and removed in a
+// `finally` regardless of outcome, so the set never grows unbounded.
+const pendingSelfHeals: Set<Promise<void>>;
+
+// Test-only hook: resolves once every write currently tracked in pendingSelfHeals has settled.
+// Used by afterEach teardown hooks (tests/gui/api.test.ts, tests/gui/multi-store-api.test.ts) to
+// await a self-heal write's completion before removing the temp directory, instead of sleeping for
+// an arbitrary duration — see "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test
+// Seam" in constraints-testing.md.
+// @internal Test-only. Not part of the public API surface.
+export async function __awaitPendingSelfHealsForTesting(): Promise<void>;
+
 // Error type used by all handlers
 export class ApiError extends Error {
   code: string;       // 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_ERROR'
   message: string;
-  details?: unknown;
+  details?: unknown;  // server-side only — gui/server.ts's sendError() never serializes this onto the wire
 }
+
+// Summarizes a Zod safeParse() failure's issues array into a single, human-readable string for an
+// ApiError's message — never `details` (see above). Describes only the first issue, plus an
+// "(and N more)" suffix when more are present; path segments are joined with '.', an empty path
+// (the request body itself) renders as options.rootLabel ?? 'body'. `invalid_enum_value`,
+// `invalid_literal`, and `invalid_union_discriminator` get a fixed, value-free message instead of
+// Zod's default (which quotes the received value) — a rejected field may hold a secret. Wired into
+// all seven GUI validation call sites (gui/api-error-codes.ts x4, gui/api.ts x3) so a rejected
+// request's message names the failing field without ever echoing what was received.
+export function describeZodIssues(
+  issues: readonly ZodIssue[],
+  options?: { rootLabel?: string }  // rootLabel defaults to 'body'
+): string;
 
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one

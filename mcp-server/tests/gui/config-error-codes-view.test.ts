@@ -25,6 +25,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import { TEMPORARY_PREFIX_PATTERN } from '../../src/error-codes/config-store.js';
 
 // ---------------------------------------------------------------------------
 // Load real scripts
@@ -46,9 +47,17 @@ declare global {
   // eslint-disable-next-line no-var
   var ecCleanup: () => void;
   // eslint-disable-next-line no-var
+  var ecResetState: () => void;
+  // eslint-disable-next-line no-var
+  var ecVisit: number;
+  // eslint-disable-next-line no-var
+  var EC_TEMPORARY_PREFIX_PATTERN: RegExp;
+  // eslint-disable-next-line no-var
   var ecProviders: unknown;
   // eslint-disable-next-line no-var
   var ecConfig: unknown;
+  // eslint-disable-next-line no-var
+  var ecConfigWarning: string | null;
   // eslint-disable-next-line no-var
   var ecSelectedProviderId: string | null;
   // eslint-disable-next-line no-var
@@ -151,13 +160,8 @@ beforeAll(() => {
 });
 
 function resetEcModuleState(): void {
-  globalThis.ecProviders = null;
-  (globalThis as Record<string, unknown>)['ecConfig'] = null;
-  (globalThis as Record<string, unknown>)['ecPluginDir'] = '';
-  (globalThis as Record<string, unknown>)['ecLoadErrors'] = [];
-  (globalThis as Record<string, unknown>)['ecTemporaryCodes'] = null;
-  globalThis.ecSelectedProviderId = null;
-  globalThis.ecTestInFlight = false;
+  // The module's own reset (also invalidates any callback still pending from an earlier test), plus the one flag it deliberately keeps.
+  globalThis.ecResetState();
   globalThis.ecSaveInFlight = false;
 }
 
@@ -580,6 +584,283 @@ describe('ecHandleSave — in-flight guard', () => {
 
   it('index.html loads config-error-codes.js with the bumped cache-buster', () => {
     const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf-8');
-    expect(indexHtml).toContain('/views/config-error-codes.js?v=2');
+    expect(indexHtml).toContain('/views/config-error-codes.js?v=3');
+    expect(indexHtml).toContain('/views/config.js?v=6');
+    expect(indexHtml).toContain('/api-client.js?v=7');
+  });
+
+  it('config.js references the Error Codes module only through its CONFIG_TABS descriptor (ecResetState), never a direct field', () => {
+    const configJs = readFileSync(join(publicDir, 'views/config.js'), 'utf-8');
+    expect(configJs).toContain('ecResetState');
+    expect(configJs).toMatch(/leave:\s*function\s*\(\)\s*\{\s*ecResetState\(\);\s*\}/);
+    expect(configJs).toMatch(/reset:\s*function\s*\(\)\s*\{\s*ecResetState\(\);\s*\}/);
+    expect(configJs).not.toContain('ecProviders = ecConfig = null');
+    expect(configJs).not.toMatch(/\becProviders\b|\becConfig\b|\becSelectedProviderId\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale callbacks after leaving the tab (visit token)
+// ---------------------------------------------------------------------------
+
+describe('stale callbacks after leaving the tab', () => {
+  const SENTINEL = '<p id="other-tab">another tab</p>';
+
+  function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  const submitForm = (): void => {
+    (contentEl().querySelector('#ec-form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  };
+
+  /** Simulates config.js leaving the tab: reset state, then another tab renders into the shared container. */
+  function leaveTab(): void {
+    globalThis.ecResetState();
+    contentEl().innerHTML = SENTINEL;
+  }
+
+  it('(a) a pending initial load does not overwrite the next tab or repopulate cleared state', async () => {
+    const providers = deferred<ReturnType<typeof makeProvidersResponse>>();
+    globalThis.API.getErrorCodeProviders = vi.fn().mockReturnValue(providers.promise);
+
+    ecRenderTab();
+    leaveTab();
+    providers.resolve(makeProvidersResponse());
+    await flushPromises();
+
+    expect(contentEl().innerHTML).toBe(SENTINEL);
+    expect(globalThis.ecProviders).toBeNull();
+    expect(globalThis.ecConfig).toBeNull();
+  });
+
+  it('(a2) a pending initial load that then fails does not write an error into the next tab', async () => {
+    const providers = deferred<unknown>();
+    globalThis.API.getErrorCodeProviders = vi.fn().mockReturnValue(providers.promise);
+
+    ecRenderTab();
+    leaveTab();
+    providers.reject(new Error('network down'));
+    await flushPromises();
+
+    expect(contentEl().innerHTML).toBe(SENTINEL);
+  });
+
+  it('(b) leaving and re-entering while the first load is pending: the DOM reflects the second load', async () => {
+    const first = deferred<ReturnType<typeof makeProvidersResponse>>();
+    globalThis.API.getErrorCodeProviders = vi.fn().mockReturnValue(first.promise);
+    ecRenderTab();
+
+    globalThis.ecResetState();
+    globalThis.API.getErrorCodeProviders = vi.fn().mockResolvedValue(makeProvidersResponse());
+    globalThis.API.getErrorCodeConfig = vi.fn().mockResolvedValue({ ...makeConfigResponse(), temporary_prefix: '888' });
+    ecRenderTab();
+    await flushPromises();
+    expect((contentEl().querySelector('#ec-core-temporary-prefix') as HTMLInputElement).value).toBe('888');
+
+    first.resolve(makeProvidersResponse());
+    await flushPromises();
+    expect((contentEl().querySelector('#ec-core-temporary-prefix') as HTMLInputElement).value).toBe('888');
+  });
+
+  it('(c) a Save settling after the exit leaves the next tab and cleared state alone, and still clears ecSaveInFlight', async () => {
+    await renderAndLoad();
+    const save = deferred<ReturnType<typeof makeConfigResponse>>();
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockReturnValue(save.promise);
+
+    submitForm();
+    expect(globalThis.ecSaveInFlight).toBe(true);
+    leaveTab();
+    expect(globalThis.ecSaveInFlight).toBe(true); // spans visits: a pending PUT still blocks a second save
+
+    save.resolve(makeConfigResponse());
+    await flushPromises();
+
+    expect(contentEl().innerHTML).toBe(SENTINEL);
+    expect(globalThis.ecConfig).toBeNull();
+    expect(globalThis.ecSaveInFlight).toBe(false);
+  });
+
+  it('(d) a Save failing after the exit writes no message into the next tab', async () => {
+    await renderAndLoad();
+    const save = deferred<unknown>();
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockReturnValue(save.promise);
+
+    submitForm();
+    leaveTab();
+    save.reject(new Error('server said no'));
+    await flushPromises();
+
+    expect(contentEl().innerHTML).toBe(SENTINEL);
+    expect(globalThis.ecSaveInFlight).toBe(false);
+  });
+
+  it('(e) a Test settling late does not unlock a newer visit\'s pending test', async () => {
+    await renderAndLoad();
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    globalThis.API.testErrorCodeProvider = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+    (contentEl().querySelector('#ec-test-btn') as HTMLButtonElement).click();
+    expect(globalThis.ecTestInFlight).toBe(true);
+
+    globalThis.ecResetState();
+    expect(globalThis.ecTestInFlight).toBe(false);
+    await renderAndLoad();
+    (contentEl().querySelector('#ec-test-btn') as HTMLButtonElement).click();
+    expect(globalThis.ecTestInFlight).toBe(true);
+
+    first.resolve({ supported: true, ok: true, value: 1 });
+    await flushPromises();
+    expect(globalThis.ecTestInFlight).toBe(true); // still the second visit's test
+
+    second.resolve({ supported: true, ok: true, value: 2 });
+    await flushPromises();
+    expect(globalThis.ecTestInFlight).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Temporary-codes list failure / warning
+// ---------------------------------------------------------------------------
+
+describe('temporary codes card — failure and warning', () => {
+  it('a rejected temporary-codes fetch still renders the settings form, with an error banner in the card', async () => {
+    globalThis.API.getTemporaryErrorCodes = vi.fn().mockRejectedValue(new Error('log is unreadable'));
+
+    await renderAndLoad();
+
+    expect(contentEl().querySelector('#ec-form')).toBeTruthy();
+    expect(contentEl().innerHTML).toContain('Temporary codes could not be loaded: log is unreadable');
+  });
+
+  it('renders a listing warning as escaped text', async () => {
+    globalThis.API.getTemporaryErrorCodes = vi.fn().mockResolvedValue({
+      entries: makeTemporaryResponse().entries,
+      warning: 'temporary-codes.json is corrupt ' + XSS_LABEL,
+    });
+
+    await renderAndLoad();
+
+    expect(contentEl().innerHTML).toContain('temporary-codes.json is corrupt');
+    expect(contentEl().innerHTML).not.toContain('<script>alert(1)</script>');
+    expect(contentEl().innerHTML).toContain('&lt;script&gt;');
+    expect(contentEl().querySelector('.ec-temporary-table')).toBeTruthy(); // the recoverable entries still show
+  });
+
+  it('shows no banner when the listing carries no warning', async () => {
+    await renderAndLoad();
+    expect(contentEl().innerHTML).not.toContain('error-banner');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config salvage warning banner (WP-006)
+// ---------------------------------------------------------------------------
+
+describe('config warning banner', () => {
+  it('shows no banner when the config response carries no warning', async () => {
+    await renderAndLoad();
+    expect(contentEl().innerHTML).not.toContain('error-banner');
+  });
+
+  it('renders the config warning as an escaped banner above the settings form', async () => {
+    globalThis.API.getErrorCodeConfig = vi.fn().mockResolvedValue({
+      ...makeConfigResponse(),
+      warning: 'config.json has invalid fields (timeout_ms) ' + XSS_LABEL,
+    });
+
+    await renderAndLoad();
+
+    const html = contentEl().innerHTML;
+    expect(html).toContain('error-banner');
+    expect(html).toContain('config.json has invalid fields (timeout_ms)');
+    expect(html).not.toContain('<script>alert(1)</script>');
+    expect(html).toContain('&lt;script&gt;');
+    expect(contentEl().querySelector('#ec-form')).toBeTruthy(); // the form still renders
+  });
+
+  it('clears the warning on ecResetState() so a later tab re-entry starts clean', async () => {
+    globalThis.API.getErrorCodeConfig = vi.fn().mockResolvedValue({
+      ...makeConfigResponse(),
+      warning: 'config.json is not valid JSON; using the defaults',
+    });
+
+    await renderAndLoad();
+    expect(contentEl().innerHTML).toContain('error-banner');
+
+    globalThis.ecResetState();
+    expect(globalThis.ecConfigWarning).toBeNull();
+
+    document.body.innerHTML = '<div id="config-tab-content"></div>';
+    globalThis.API.getErrorCodeConfig = vi.fn().mockResolvedValue(makeConfigResponse());
+    await renderAndLoad();
+    expect(contentEl().innerHTML).not.toContain('error-banner');
+  });
+
+  it('clears the warning after a successful save, when the PUT response carries none', async () => {
+    globalThis.API.getErrorCodeConfig = vi.fn().mockResolvedValue({
+      ...makeConfigResponse(),
+      warning: 'config.json is not valid JSON; using the defaults',
+    });
+    await renderAndLoad();
+    expect(contentEl().innerHTML).toContain('error-banner');
+
+    globalThis.API.updateErrorCodeConfig = vi.fn().mockResolvedValue(makeConfigResponse());
+    (contentEl().querySelector('#ec-form') as HTMLFormElement).dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true })
+    );
+    await flushPromises();
+
+    expect(globalThis.ecConfigWarning).toBeNull();
+    expect(contentEl().innerHTML).not.toContain('error-banner');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Temporary prefix validation
+// ---------------------------------------------------------------------------
+
+describe('temporary prefix validation', () => {
+  const submitForm = (): void => {
+    (contentEl().querySelector('#ec-form') as HTMLFormElement).dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  };
+
+  it('the input carries the digit pattern, numeric inputmode, maxlength and a description', async () => {
+    await renderAndLoad();
+    const input = contentEl().querySelector('#ec-core-temporary-prefix') as HTMLInputElement;
+    expect(input.getAttribute('pattern')).toBe('[1-9][0-9]{0,5}');
+    expect(input.getAttribute('inputmode')).toBe('numeric');
+    expect(input.getAttribute('maxlength')).toBe('6');
+    expect(input.getAttribute('aria-describedby')).toBe('ec-core-temporary-prefix-desc');
+    expect(contentEl().querySelector('#ec-core-temporary-prefix-desc')).toBeTruthy();
+  });
+
+  it.each(['ERR', '0777', '1234567', ''])('rejects "%s" before sending, with the documented message', async (bad) => {
+    await renderAndLoad();
+    const form = contentEl().querySelector('#ec-form') as HTMLFormElement;
+    vi.spyOn(form, 'reportValidity').mockReturnValue(true); // exercise the script's own check, not the browser's
+    (contentEl().querySelector('#ec-core-temporary-prefix') as HTMLInputElement).value = bad;
+
+    submitForm();
+
+    expect(globalThis.API.updateErrorCodeConfig).not.toHaveBeenCalled();
+    expect(globalThis.ecSaveInFlight).toBe(false);
+    expect(contentEl().querySelector('#ec-live-region')!.textContent).toContain('Temporary prefix must be 1\u20136 digits and must not start with 0.');
+  });
+
+  it('sends a valid prefix', async () => {
+    await renderAndLoad();
+    (contentEl().querySelector('#ec-core-temporary-prefix') as HTMLInputElement).value = '4242';
+    submitForm();
+    expect(globalThis.API.updateErrorCodeConfig).toHaveBeenCalledTimes(1);
+    expect((globalThis.API.updateErrorCodeConfig.mock.calls[0]![0] as { temporary_prefix: string }).temporary_prefix).toBe('4242');
+  });
+
+  it('mirrors the server pattern exactly', () => {
+    expect(globalThis.EC_TEMPORARY_PREFIX_PATTERN.source).toBe(TEMPORARY_PREFIX_PATTERN.source);
   });
 });

@@ -4,6 +4,11 @@
    Depends on: API (api-client.js), UI (components.js), escapeHtml,
                formatDate, showError (utils.js), configDirty (config.js)
    Must be loaded BEFORE config.js.
+
+   Tab contract (see config.js's CONFIG_TABS registry): this module is
+   registered as { render: ecRenderTab, leave: ecResetState,
+   reset: ecResetState } — Error Codes has no "keep state unless discarded"
+   case (same as config-stores.js), so one reset function serves both roles.
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
@@ -14,7 +19,24 @@
    ecLoadErrors:        ProviderLoadError[] recorded by the most recent scan.
    ecConfig:            ErrorCodeConfigResponse from GET/PUT /api/error-codes/config
                         (every secret masked to { set: boolean }).
+   ecConfigWarning:     string|null — ecConfig.warning from the most recent
+                        GET/PUT /api/error-codes/config, set when config.json
+                        needed salvage or could not be used as stored. Shown
+                        as a banner above the settings form; never a stored
+                        value or parser message (the server already strips
+                        those before this reaches the GUI).
    ecTemporaryCodes:    TemporaryCodeEntry[], newest-first, capped server-side.
+   ecTemporaryWarning:  string|null — a notice about the temporary-code log
+                        (corrupt log recovered/listed partially, or the list
+                        could not be fetched). Shown in the Temporary Codes
+                        card; the settings form stays usable either way.
+   ecVisit:             Monotonic visit token, incremented by ecResetState()
+                        whenever the tab is left or the page re-rendered.
+                        Every async callback (lazy load, Save, Test) captures
+                        it before the request and returns early when it no
+                        longer matches, so a late response can never write
+                        into another tab's DOM or repopulate cleared state
+                        (same pattern as strategy.js's refreshSeq).
    ecSelectedProviderId: id of the provider currently shown in the settings
                         form. Defaults to ecConfig.active_provider on load;
                         changes only via the provider <select>, guarded by
@@ -39,7 +61,10 @@ var ecProviders          = null;
 var ecPluginDir          = '';
 var ecLoadErrors         = [];
 var ecConfig             = null;
+var ecConfigWarning      = null;
 var ecTemporaryCodes     = null;
+var ecTemporaryWarning   = null;
+var ecVisit              = 0;
 var ecSelectedProviderId = null;
 var ecTestInFlight       = false;
 var ecSaveInFlight       = false;
@@ -47,6 +72,33 @@ var ecClickHandler       = null;
 var ecChangeHandler      = null;
 var ecInputHandler       = null;
 var ecSubmitHandler      = null;
+
+/* Mirror of TEMPORARY_PREFIX_PATTERN in src/error-codes/config-store.ts (the
+   server is authoritative; a browser script cannot import TypeScript, so a
+   test pins the two patterns together): 1-6 digits, no leading zero. */
+var EC_TEMPORARY_PREFIX_PATTERN = /^[1-9][0-9]{0,5}$/;
+var EC_TEMPORARY_PREFIX_MESSAGE = 'Temporary prefix must be 1\u20136 digits and must not start with 0.';
+
+/**
+ * Leave the tab: invalidate every in-flight request and drop all cached
+ * state so the next visit re-fetches (the lazy-load contract).
+ *
+ * Increments ecVisit first, so any callback still pending is stale from this
+ * moment on. Does NOT reset ecSaveInFlight: that flag spans visits (a PUT
+ * still pending keeps blocking a second save), and the Save callback clears
+ * it itself even when stale.
+ *
+ * Called by config.js on every exit from this tab and on page re-render —
+ * config.js keeps no list of this module's fields.
+ */
+function ecResetState() {
+  ecVisit++;
+  ecCleanup();
+  ecProviders = ecConfig = null; ecPluginDir = ''; ecLoadErrors = []; ecTemporaryCodes = null;
+  ecConfigWarning = null;
+  ecTemporaryWarning = null;
+  ecSelectedProviderId = null; ecTestInFlight = false;
+}
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -168,7 +220,8 @@ function ecRenderCoreSettings() {
   return (
     '<div class="form-group">' +
       '<label class="form-label" for="ec-core-temporary-prefix">Temporary code prefix</label>' +
-      '<input type="text" class="form-control" id="ec-core-temporary-prefix" value="' + escapeHtml(cfg.temporary_prefix != null ? cfg.temporary_prefix : '') + '" required aria-required="true">' +
+      '<input type="text" class="form-control" id="ec-core-temporary-prefix" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" aria-describedby="ec-core-temporary-prefix-desc" value="' + escapeHtml(cfg.temporary_prefix != null ? cfg.temporary_prefix : '') + '" required aria-required="true">' +
+      '<p class="form-note" id="ec-core-temporary-prefix-desc">1\u20136 digits, not starting with 0. Temporary codes are this prefix followed by six digits.</p>' +
     '</div>' +
     '<div class="form-group">' +
       '<label class="form-label" for="ec-core-timeout-ms">Allocation timeout (ms)</label>' +
@@ -228,8 +281,9 @@ function ecRenderPluginsPanel() {
 
 /** Render the temporary-codes list (newest first — already sorted/capped server-side). */
 function ecRenderTemporaryList() {
+  var warningHtml = ecTemporaryWarning ? UI.banner('error', ecTemporaryWarning) : '';
   if (!ecTemporaryCodes || !ecTemporaryCodes.length) {
-    return UI.emptyState('No temporary codes logged.');
+    return warningHtml + UI.emptyState('No temporary codes logged.');
   }
   var rows = ecTemporaryCodes.map(function (entry) {
     return '<tr>' +
@@ -241,7 +295,7 @@ function ecRenderTemporaryList() {
       '<td>' + escapeHtml(entry.detail || '—') + '</td>' +
     '</tr>';
   }).join('');
-  return '<div class="ec-temporary-wrapper">' +
+  return warningHtml + '<div class="ec-temporary-wrapper">' +
     '<table class="ec-temporary-table">' +
       '<thead><tr><th>Code</th><th>Issued</th><th>Provider</th><th>Reason</th><th>Repository</th><th>Detail</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -276,7 +330,10 @@ function ecBuildTabHtml() {
     ? '<button type="button" class="btn btn-secondary" id="ec-test-btn">Test connection</button>'
     : '';
 
+  var configWarningHtml = ecConfigWarning ? UI.banner('error', ecConfigWarning) : '';
+
   var formHtml =
+    configWarningHtml +
     '<form id="ec-form">' +
       '<div class="form-group">' +
         '<label class="form-label" for="ec-provider-select">Provider</label>' +
@@ -308,22 +365,31 @@ function ecRenderTab() {
   if (!contentEl) return;
 
   if (ecProviders === null) {
+    var visit = ecVisit;
     showLoading(contentEl);
     Promise.all([
       API.getErrorCodeProviders(),
       API.getErrorCodeConfig(),
-      API.getTemporaryErrorCodes()
+      /* A failing temporary list must not block the settings form: the user
+         needs the form precisely when something is wrong with the log. */
+      API.getTemporaryErrorCodes().catch(function (err) {
+        return { entries: [], warning: 'Temporary codes could not be loaded: ' + ((err && err.message) || String(err)) };
+      })
     ]).then(function (results) {
+      if (visit !== ecVisit) return;
       var providersResp = results[0] || {};
       ecProviders = providersResp.providers || [];
       ecPluginDir = providersResp.plugin_dir || '';
       ecLoadErrors = providersResp.load_errors || [];
       ecConfig = results[1];
+      ecConfigWarning = (results[1] && results[1].warning) || null;
       ecTemporaryCodes = (results[2] && results[2].entries) || [];
+      ecTemporaryWarning = (results[2] && results[2].warning) || null;
       ecSelectedProviderId = ecConfig ? ecConfig.active_provider : null;
       contentEl.innerHTML = ecBuildTabHtml();
       ecWireEvents();
     }).catch(function (err) {
+      if (visit !== ecVisit) return;
       showError(contentEl, 'Failed to load error-code settings: ' + (err.message || String(err)));
     });
     return;
@@ -381,6 +447,7 @@ function ecCollectCoreSettings() {
   var retryDefault = parseInt(retryDefaultEl.value, 10);
   var retryMax     = parseInt(retryMaxEl.value, 10);
 
+  if (!EC_TEMPORARY_PREFIX_PATTERN.test(prefixEl.value)) { ecShowLiveMessage(EC_TEMPORARY_PREFIX_MESSAGE, true); return null; }
   if (isNaN(timeout) || timeout <= 0) { ecShowLiveMessage('Allocation timeout must be a positive integer.', true); return null; }
   if (isNaN(retryDefault) || retryDefault <= 0) { ecShowLiveMessage('Default retry wait must be a positive integer.', true); return null; }
   if (isNaN(retryMax) || retryMax <= 0) { ecShowLiveMessage('Max retry wait must be a positive integer.', true); return null; }
@@ -410,18 +477,24 @@ function ecHandleTestClick(btn) {
 
   var collected = ecCollectProviderSettings(provider);
 
+  var visit = ecVisit;
   ecTestInFlight = true;
   btn.disabled = true;
   var originalLabel = 'Test connection';
   btn.textContent = 'Testing…';
 
+  /* A stale callback (tab left meanwhile) touches nothing — in particular it
+     must not clear ecTestInFlight, which may now belong to a newer visit's
+     pending test (ecResetState() already reset it for the old visit). */
   API.testErrorCodeProvider(ecSelectedProviderId, collected.settings).then(function (result) {
+    if (visit !== ecVisit) return;
     ecTestInFlight = false;
     btn.disabled = false;
     btn.textContent = originalLabel;
     var isError = !result.supported || result.ok === false;
     ecShowLiveMessage(ecFormatTestResult(result), isError);
   }).catch(function (err) {
+    if (visit !== ecVisit) return;
     ecTestInFlight = false;
     btn.disabled = false;
     btn.textContent = originalLabel;
@@ -440,6 +513,7 @@ function ecHandleSave(form) {
   var core = ecCollectCoreSettings();
   if (core === null) return;
 
+  var visit = ecVisit;
   ecSaveInFlight = true;
   var saveBtn = document.getElementById('ec-save-btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
@@ -455,13 +529,16 @@ function ecHandleSave(form) {
   };
 
   API.updateErrorCodeConfig(body).then(function (updatedConfig) {
-    ecSaveInFlight = false;
+    ecSaveInFlight = false;            /* spans visits: always cleared, even when stale */
+    if (visit !== ecVisit) return;     /* the save is persisted; the next visit re-fetches it */
     ecConfig = updatedConfig;
+    ecConfigWarning = updatedConfig.warning || null;
     configDirty.errorCodes = false;
     ecRenderTab();
     ecShowLiveMessage('Configuration saved.', false);
   }).catch(function (err) {
     ecSaveInFlight = false;
+    if (visit !== ecVisit) return;
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
     ecShowLiveMessage('Save failed: ' + (err.message || String(err)), true);
   });

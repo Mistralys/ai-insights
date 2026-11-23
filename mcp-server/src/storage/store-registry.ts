@@ -116,6 +116,23 @@ export function resolveErrorCodePluginDir(): string {
   return join(homedir(), AI_INSIGHTS_DIR, PLUGINS_DIR, ERROR_CODES_DIR);
 }
 
+/**
+ * Returns the absolute path of a provider's scratch data directory:
+ * `~/.ai-insights/error-codes/data/{providerId}/`, the directory a
+ * provider's `ProviderContext.data_dir` points to.
+ *
+ * The single source of this path: both the allocator (`src/error-codes/allocator.ts`)
+ * and the GUI's Test-connection route (`gui/api-error-codes.ts`) call this
+ * helper rather than keeping their own copy, so the two can never diverge
+ * (a template-string copy once built a forward-slash-only path here, which
+ * broke on Windows — `join` does not have that problem).
+ *
+ * @param providerId - The provider's `id` (e.g. `'file'`).
+ */
+export function resolveErrorCodeProviderDataDir(providerId: string): string {
+  return join(resolveErrorCodesDir(), 'data', providerId);
+}
+
 // ==================== I/O ====================
 
 /**

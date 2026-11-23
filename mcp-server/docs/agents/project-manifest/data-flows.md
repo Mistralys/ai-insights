@@ -47,7 +47,7 @@ LedgerStore.writeRootIndex()
 atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
-  2. Write to {file}.tmp.{pid}
+  2. Write to {file}.tmp.{pid}.{uuid}
   3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
   ↓
 store.writeProjectMeta() — auto-synced after root index write
@@ -1281,7 +1281,7 @@ store.writeProjectMeta('', validated.status, { ...counters, duration_ms: duratio
 
 `active_ms` / `pipeline_runs` are not computed by `writeRootIndex()` — it has no access to WP detail files and runs on every WP write, so it cannot afford the fan-out read. They are instead written once, directly, by `completeSynthesis()` (Flow 14) via `computeWpActiveMs()`.
 
-**GUI read path (`handleGetProject`):** For `duration_ms` — prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file); when absent but computable from the loaded root index, computes it inline and returns it in `timing.project_elapsed_ms`. For `active_ms` / `pipeline_runs` — always recomputes the authoritative sum via `computeWpActiveMs()` across every already-loaded WP detail (the endpoint reads every WP file regardless, for `timing.total_active_ms` / `timing.pipeline_runs`), and compares it against the cached `meta.active_ms` / `meta.pipeline_runs`. When any correction is needed — a stale/absent `active_ms`/`pipeline_runs`, or a `duration_ms` computed via the legacy fallback — **all of it is collected into one `MetaCacheUpdates` object and flushed in a single non-blocking `writeProjectMeta(..., { preserveLastUpdated: true })` call**, never as separate calls: two independent unlocked read-modify-write calls against the same `.meta.json` would race, with the later write silently discarding the earlier one's update. `preserveLastUpdated: true` is mandatory — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order. The self-heal for both fields is gated on `rootIndex.synthesis_generated_at`: an unsynthesised project has `timing` returned to the caller but nothing written to `.meta.json`, keeping the list column blank for it exactly as before this change.
+**GUI read path (`handleGetProject`):** For `duration_ms` — prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file); when absent but computable from the loaded root index, computes it inline and returns it in `timing.project_elapsed_ms`. For `active_ms` / `pipeline_runs` — always recomputes the authoritative sum via `computeWpActiveMs()` across every already-loaded WP detail (the endpoint reads every WP file regardless, for `timing.total_active_ms` / `timing.pipeline_runs`), and compares it against the cached `meta.active_ms` / `meta.pipeline_runs`. When any correction is needed — a stale/absent `active_ms`/`pipeline_runs`, or a `duration_ms` computed via the legacy fallback — **all of it is collected into one `MetaCacheUpdates` object and flushed in a single non-blocking `writeProjectMeta(..., { preserveLastUpdated: true })` call**, never as separate calls: two independent unlocked read-modify-write calls against the same `.meta.json` would race, with the later write silently discarding the earlier one's update. `preserveLastUpdated: true` is mandatory — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order. The self-heal for both fields is gated on `rootIndex.synthesis_generated_at`: an unsynthesised project has `timing` returned to the caller but nothing written to `.meta.json`, keeping the list column blank for it exactly as before this change. The write itself stays fire-and-forget (no request ever awaits it); its promise is tracked in a module-level `pendingSelfHeals` set purely so tests can await completion via `__awaitPendingSelfHealsForTesting()` instead of sleeping — see "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam" in `constraints-testing.md`.
 
 **One-time backfill (`scripts/backfill-duration.js`):** For projects created before these fields existed, a root-level script scans every project directory, reads `date_created` / `synthesis_generated_at` for `duration_ms`, and separately reads every `WP-###.json` detail file (the same `${wpId}.json` convention as `LedgerStore.wpDetailPath()` — **not** the root index's `work_packages[].file`, which is not the actual on-disk path) to sum pipeline durations for `active_ms` / `pipeline_runs`. All three fields are patched into `.meta.json` directly (bypassing `writeRootIndex()`/`writeProjectMeta()` since the script runs outside the live server process). Idempotent — each field is skipped independently once already cached, so a project with `duration_ms` set still receives `active_ms` / `pipeline_runs` on a later run. Supports `--dry-run` and `--verbose`; invokable via `node scripts/cli.js backfill-duration`.
 
@@ -2159,19 +2159,30 @@ For detectProjectByCwd(cwdPath):
 **a. Config read (every allocation, no cache, no watcher):**
 
 ```
-loadErrorCodeConfig()
+readErrorCodeConfig()                       ← the shared classification read
   ↓
-readFile(resolveErrorCodesDir() + '/config.json')
+readJsonStateFile(resolveErrorCodesDir() + '/config.json')   ← ENOENT is the only "missing"
   ↓
-  File missing, malformed JSON, or fails ErrorCodeConfigSchema validation?
-    → return documented defaults (version 1, active_provider 'file',
+  missing?
+    → documented defaults (version 1, active_provider 'file',
       temporary_prefix '777', timeout_ms 10000,
       retry { default_wait_ms 11000, max_wait_ms 30000 }, providers {})
+      — { config, warning: undefined }
+  unreadable (EACCES, EISDIR, …), unparsable, or not a version-1 object?
+    → the same defaults + a `warning` carrying the fixed, sanitized
+      classification reason (never throws, never the raw parser message)
+  parsed, but fails the strict ErrorCodeConfigSchema?
+    → per-field salvage: each invalid field alone falls back to its own default,
+      every other field (providers and stored secrets included) is kept,
+      each providers.<id> that is not an object is dropped alone;
+      `warning` names the field paths, never their values
   ↓
-  Otherwise → return the validated ErrorCodeConfig
+  Otherwise → { config: validated ErrorCodeConfig, warning: undefined }
 ```
 
-No in-memory cache: both the MCP server process and the GUI server process always read the file as it is on disk at call time, trading a per-call read for never needing a cache-invalidation signal between the two processes.
+Two callers share this one read, so they can never disagree about what counts as usable:
+- `loadErrorCodeConfig()` — a thin wrapper used by `allocateErrorCode()` and every other core caller: calls `readErrorCodeConfig()`, writes any `warning` to stderr as `[error-codes] {warning}`, and returns just the `config`. No in-memory cache: both the MCP server process and the GUI server process always read the file as it is on disk at call time, trading a per-call read for never needing a cache-invalidation signal between the two processes.
+- `handleGetErrorCodeConfig` (`gui/api-error-codes.ts`) — calls `readErrorCodeConfig()` directly and returns its `warning` in the `GET /api/error-codes/config` response body, so the GUI's Error Codes tab can render the same classification as a banner (`ecConfigWarning` — see the GUI manifest's `data-flows.md`) instead of only to a stderr stream the HTTP caller never sees.
 
 **b. Config write (GUI save, or any future core mutation):**
 
@@ -2179,7 +2190,11 @@ No in-memory cache: both the MCP server process and the GUI server process alway
 updateErrorCodeConfig(mutator)
   ↓
 withLock(resolveErrorCodesDir(), async () => {
-  current = await loadErrorCodeConfig()   ← read happens INSIDE the lock
+  state = readConfigState()               ← read happens INSIDE the lock
+  state unreadable?  → throw, write nothing (never overwrite what could not be read)
+  state corrupt (unparsable / not a config)?
+    → keepCorruptCopy(configPath)         ← config.corrupt-{stamp}.json, byte-identical
+  current = state.config                  ← defaults (corrupt), salvaged config, or the file
   next = mutator(current)
   validated = ErrorCodeConfigSchema.parse(next)
   atomicWriteJson(configPath, validated, { mode: 0o600 })
@@ -2187,7 +2202,7 @@ withLock(resolveErrorCodesDir(), async () => {
 })
 ```
 
-Reading `current` inside the lock (rather than before acquiring it) is what makes concurrent `updateErrorCodeConfig` calls lose no update: each caller's mutator always starts from the version just written by whichever caller held the lock immediately before it. Settings stored under `providers.<id>` for a provider that is not currently installed are never inspected or stripped by this path, so they round-trip untouched across a save.
+The corrupt file is copied, never renamed: the original is replaced by the single atomic rename inside `atomicWriteJson`, so the path is never absent and an unlocked `loadErrorCodeConfig` in another process (every allocation runs one) never reads "missing" and falls back to defaults mid-repair. Reading `current` inside the lock (rather than before acquiring it) is what makes concurrent `updateErrorCodeConfig` calls lose no update: each caller's mutator always starts from the version just written by whichever caller held the lock immediately before it. Settings stored under `providers.<id>` for a provider that is not currently installed are never inspected or stripped by this path, so they round-trip untouched across a save.
 
 **c. Repository resolution (per allocation, keyed to the agent's `cwd_path`):**
 
@@ -2221,16 +2236,27 @@ return { root_path, folder_name, package_name }
 issueTemporaryCode(dir, prefix, entry)
   ↓
 withLock(dir, async () => {
-  file = readFileOrDefault(dir)              ← { next_counter: 1, entries: [] } when absent/invalid
-  n = file.next_counter
+  log = readTemporaryLog(dir)                ← INSIDE the lock
+    missing (ENOENT)?   → { next_counter: 1, entries: [] }
+    unreadable (EACCES, EISDIR, …)? → throw "cannot read {path} ({code})"  (fails closed; nothing is written)
+    corrupt (unparsable, an invalid entry, or next_counter missing / not above every logged code)?
+      → salvage: keep every valid entry; next_counter = max(1, stored next_counter,
+        1 + highest trailing-six-digit counter found by scanning the raw text for "code" values)
+      → mark corruption
+  n = log.next_counter
   n exceeds 999999 (or is the reserved 0)?
     → throw (counter exhausted)
+  corruption marked?
+    → keepCorruptCopy(path)                  ← temporary-codes.corrupt-{stamp}.json, byte-identical
+    → warning = "was corrupt … a copy was kept as … numbering continues from n"  (also written to stderr)
   code = prefix + String(n).padStart(6, '0')  ← e.g. "777000001"; "{prefix}000000" is reserved, never issued
   fullEntry = { ...entry, code, issued_at: now().toISOString() }
-  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...file.entries, fullEntry] }, { mode: 0o600 })
-  return code
+  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...log.entries, fullEntry] }, { mode: 0o600 })
+  return { code, warning? }
 })
 ```
+
+Detection, copy and repair all happen under the lock, so two callers that meet the same corrupt log serialise: the second re-reads the repaired file and does not recover again (one copy, one warning).
 
 Each logged entry carries `code`, `issued_at`, `provider`, `fallback_reason`, `detail`, `repository` and `context` — every field the allocator (Flow T below) and the GUI's temporary-codes list need, with no provider ever able to see or influence this log.
 
@@ -2239,17 +2265,21 @@ Each logged entry carries `code`, `issued_at`, `provider`, `fallback_reason`, `d
 ```
 listTemporaryCodes(dir, filter?)
   ↓
-readFileOrDefault(dir) → entries[]
+readTemporaryLog(dir) → entries[] (+ corruption)      ← unlocked, read-only
   ↓
 filter supplied?
   YES → keep entries whose context OR repository contains filter as a substring
   NO  → return every entry unchanged
+  ↓
+return { entries, warning? }   ← warning set when the log is corrupt (entries = the recoverable ones);
+                                  nothing is copied or written here — repair waits for the next issuance
 ```
 
 **Key invariants:**
 - `config-store.ts`, `project-info.ts` and `temporary-codes.ts` never call each other — the allocator (Flow T below) is the only consumer that sequences all three.
 - Both config writes and temporary-code issuance serialize through `withLock`. Both normally lock the same `resolveErrorCodesDir()` directory (`temporary-codes.ts` takes `dir` as a parameter rather than hard-coding it, so a test, or a future caller, can point it elsewhere) — a concurrent config save and a concurrent temporary-code issuance therefore do briefly serialize against each other through the shared `.lock` file, which is acceptable because both operations are rare.
-- A missing or corrupt file is never a fatal error for either `config-store.ts` or `temporary-codes.ts` — each treats it as the documented empty/default state and keeps going.
+- A *missing* file is the documented empty/default state for `config-store.ts` and `temporary-codes.ts`; a *corrupt* one is recovered (config: per-field fallback or defaults; temporary log: copy + salvage + warning) and never silently reset; an *unreadable* one never gets written over (config update throws; temporary-code issuance rejects). Reads never throw for config, so an allocation is never blocked by a damaged `config.json`. See "Error-Code State Files Distinguish Missing From Broken" in `constraints.md`.
+- **Concurrency with parallel processes of one user** (the MCP servers, the GUI and workflow runs share the same home-directory paths and locks): every writer re-reads inside the lock it holds; unlocked readers (`loadErrorCodeConfig`, `listTemporaryCodes`, a provider's `peek`) only ever see a complete old or new file, because `atomicWriteJson` renames a full temp file into place and nothing here ever renames a state file away.
 
 ---
 
@@ -2353,7 +2383,7 @@ reason === 'throttled' && !ambiguous?
   ↓ NO (every other failing reason, or an ambiguous throttled — never retried)
 fall back: deps.temporaryCodes.issue(config.temporary_prefix, { fallback_reason: reason, detail: redact(detail, secrets), ... })
   ↓
-return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repository, first_component_code: code + '01', message, instruction }
+return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repository, first_component_code: code + '01', message, instruction, warning? }   ← warning copied from the issue() result (recovered temporary-code log)
 ```
 
 **Key invariants:**
@@ -2361,5 +2391,5 @@ return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repos
 - `secrets` is computed once per call (after settings validation succeeds) and reused for both the provider's `ctx.log` and the final `redact()` pass on `detail` — a secret the provider echoes back in a failure's `detail`, or logs itself, is redacted the same way either path reaches the caller.
 - `provider.allocate` is never called at all for a `temporary: true` request, a missing provider, or settings that fail validation — the fallback happens before any provider code runs.
 - `deps.now()` only measures the actual elapsed time around the one retry `sleep()` for the reported `waited_ms` — it is never consulted to decide whether to retry.
-- The only way this function rejects (rather than returning a temporary-code `ErrorCodeResult`) is a failure inside `deps.temporaryCodes.issue` itself (e.g. the temporary-code counter exhausted), which the calling MCP tool turns into an MCP error.
+- The only way this function rejects (rather than returning a temporary-code `ErrorCodeResult`) is a failure inside `deps.temporaryCodes.issue` itself (the temporary-code counter exhausted, an unreadable log, a lock timeout), which the calling MCP tool turns into an MCP error. A *corrupt but readable* log does not reject: it is recovered and reported through `ErrorCodeResult.warning`. A corrupt `file`-provider counter file is a provider `failed` outcome, so it takes the ordinary fallback path with the counter-file detail.
 - Plugins are picked up only at the next call to `initProviderRegistry` — normally, that means only at the next process restart. There is no file watcher and no hot-reload endpoint.

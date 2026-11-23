@@ -68,7 +68,7 @@ New entries follow this structure:
 
 **Rationale:** Ensures readers never see partial writes or corrupt JSON.
 
-**Implementation:** Write to `{file}.tmp.{pid}`, then atomically rename to target.
+**Implementation:** Write to `{file}.tmp.{pid}.{uuid}`, then atomically rename to target. The `{uuid}` suffix (`crypto.randomUUID()`) makes the temp path unique per *call*, not just per process: two concurrent unlocked writers to the same target within one process (same `pid`) would otherwise share a temp path and race each other's write-then-rename, corrupting or losing one writer's payload. `withLock` callers are unaffected — they already serialize access — but several call sites in this codebase write without a lock, so the uniqueness has to live in the temp-path construction itself.
 
 **Anti-pattern:**
 ```typescript
@@ -78,7 +78,7 @@ await fs.writeFile(targetPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — write to .tmp.{pid}, then rename; readers never see a partial file
+// ✅ CORRECT — write to .tmp.{pid}.{uuid}, then rename; readers never see a partial file
 await atomicWriteJson(targetPath, data);
 ```
 
@@ -343,6 +343,8 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 
 **Implication:** If a process crashes while holding a lock, other processes will wait up to 10 seconds before retrying.
 
+**Test seam:** Production code never changes this policy. A test may install a faster retry policy only through `__setLockRetryForTesting({ minTimeout, maxTimeout })` (`src/storage/file-lock.ts`) — never by constructing its own options object — and must restore the default via `__resetLockOptionsForTesting()` afterwards. See "Lock-Heavy Tests Install the Fast Lock Policy" in `constraints-testing.md`.
+
 ---
 
 ### Lock Retry Count Is 50
@@ -350,6 +352,8 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 **Rule:** Lock acquisition is retried up to 50 times with 200ms–1000ms exponential backoff before failing.
 
 **Total retry window:** ~10–50 seconds, ensuring coverage of the 10s stale timeout.
+
+**Test seam invariant:** `__setLockRetryForTesting` derives `retries = Math.ceil(DEFAULT_LOCK_OPTIONS.stale / minTimeout)` rather than accepting a retry count directly, so an installed test policy's retry window can never drop below the 10s stale timeout above — only the backoff interval shrinks. It rejects `minTimeout < 1` or `maxTimeout < minTimeout`.
 
 ---
 
@@ -618,6 +622,28 @@ npm run sync-version
 **Anti-pattern:** A `PUT /api/error-codes/config` body field like `plugin_path`, or an MCP tool parameter that is passed through to `loadPluginProviders()`.
 
 **Correct pattern:** `initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })`, called once at each process's own startup, with every later `getProvider`/`listProviders` call reading that process's already-built registry.
+
+---
+
+### Error-Code State Files Distinguish Missing From Broken
+
+**Rule:** The error-code state files — the `file` provider's counter file, `temporary-codes.json` and `config.json` — are read through `readJsonStateFile` (`src/storage/json-state-file.ts`), which separates a *missing* file (`ENOENT` only) from a *corrupt* one (read, but not usable) and from an *unreadable* one (any other I/O error, rethrown with its `code`). Only a missing file may start from defaults. Each store then applies its own policy:
+
+| Store | Missing | Unreadable | Corrupt (unparsable or invalid) |
+|-------|---------|------------|---------------------------------|
+| `file` provider counter file | new sequence at `start_value` | `failed` outcome (non-ambiguous), file untouched | `failed` outcome, file untouched — the authority on real codes is never auto-repaired; the allocator issues a temporary code |
+| `temporary-codes.json` | empty log | `issueTemporaryCode` rejects (fails closed); nothing written | recovered under the lock: a byte-identical copy is kept, valid entries are retained, numbering continues above every counter still visible, a `warning` is returned |
+| `config.json` | defaults | read: defaults + stderr warning; update: throws, writes nothing | read: per-field fallback (unparsable: defaults) + stderr warning that names field paths, never values; update of an unparsable file: copy kept first |
+
+**GUI surfacing:** `config.json`'s read-side `warning` is not stderr-only — `readErrorCodeConfig()` (`src/error-codes/config-store.ts`) is also called directly by the GUI's `handleGetErrorCodeConfig`, which returns the same `warning` in the `GET /api/error-codes/config` response so the Error Codes tab can render it as a banner. Like the stderr copy, this value is always the fixed, already-sanitized classification reason or a list of invalid field *paths* — never a field value, and never the raw JSON-parser message.
+
+Every path that replaces broken state keeps the original bytes first with `keepCorruptCopy` (`{name}.corrupt-{stamp}{ext}`, exclusive copy, never overwrites) and then overwrites the original with `atomicWriteJson`. **Copy, never rename:** parallel processes of one user are routine (both MCP servers, the GUI, parallel workflow runs), and an unlocked reader in another process (`listTemporaryCodes`, `loadErrorCodeConfig`, a provider's `peek`) that met a renamed-away file would see "missing" and act on defaults. Every read that decides a file is corrupt and then leads to a write happens inside the lock that guards that write.
+
+**Rationale:** A read that answers every failure with "start from defaults" destroys state on its next write: a corrupt counter file restarts a sequence and reissues codes already embedded in source, a corrupt temporary log reissues `777000001` and drops the history, and one invalid config field wipes every stored provider secret. All three were found in review of the first implementation.
+
+**Anti-pattern:** `try { raw = await readFile(path) } catch { return defaults }` followed by `JSON.parse` in a second catch-all that also returns defaults, then writing the result back. Likewise a plain-object dictionary with untrusted keys (`counters[key] ?? start`), where `constructor` or `__proto__` resolves to an inherited property — the counter file uses a `Map` so every string is a valid key.
+
+**Correct pattern:** `const state = await readJsonStateFile(path); if (state.status === 'missing') { /* defaults */ } else if (state.status === 'unparsable') { /* store-specific: fail, or keepCorruptCopy then recover */ }`, letting an I/O error propagate to the store's own policy.
 
 ---
 

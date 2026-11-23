@@ -14,7 +14,9 @@ import type { AllocationOutcome, AllocationRequest, ErrorCodeProvider, ProviderC
  * The response body is the raw counter value followed by a configured
  * `response_suffix` (e.g. `52001` with suffix `01` means value `520`).
  * `allocate` always sends `increment=yes`; `peek` omits it, returning the
- * current value without consuming it.
+ * current value without consuming it. Query parameters named `pw`, `counter`
+ * or `increment` that `base_url` already carries are always overridden by the
+ * provider (and `increment` is removed for `peek`).
  *
  * Imports only from `../provider-api.js` — same rule every provider
  * (built-in or plugin) follows, so the contract stays proven sufficient by
@@ -43,13 +45,23 @@ const MISCONFIGURED_STATUSES = new Set([400, 401, 404]);
  */
 const NON_AMBIGUOUS_NETWORK_ERROR_CODES = new Set(['ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN']);
 
-/** Builds the request URL for `action`, URL-encoding every parameter via `URLSearchParams`. */
+/**
+ * Builds the request URL for `action`, URL-encoding every parameter via `URLSearchParams`.
+ *
+ * The provider owns three query parameters — `pw`, `counter` and `increment` —
+ * and always overrides whatever `base_url` carries for them. `increment` is
+ * set for `allocate` and *deleted* for `peek`: a saved `base_url` that already
+ * contains `increment=yes` would otherwise make a read-only `peek` (and the
+ * GUI's "Test connection", which falls back to it) consume a real code.
+ */
 function buildRequestUrl(settings: ErrorcodeIncrementorSettings, action: 'allocate' | 'peek'): URL {
   const url = new URL(settings.base_url);
   url.searchParams.set('pw', settings.password);
   url.searchParams.set('counter', settings.counter);
   if (action === 'allocate') {
     url.searchParams.set('increment', 'yes');
+  } else {
+    url.searchParams.delete('increment');
   }
   return url;
 }

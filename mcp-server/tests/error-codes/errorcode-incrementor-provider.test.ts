@@ -121,6 +121,21 @@ describe('errorcode-incrementor-provider', () => {
       expect(calls[0].searchParams.get('pw')).toBe(SENTINEL_SECRET);
     });
 
+    it('peek removes an increment parameter already present in base_url, and allocate sends exactly one', async () => {
+      const ctx = makeCtx({ settings: validatedSettings({ base_url: 'https://errorcodes.example.test/?increment=yes&x=1' }) });
+
+      const peekCalls: URL[] = [];
+      vi.stubGlobal('fetch', fakeCounterFetch(peekCalls, 519, '01'));
+      await errorcodeIncrementorProvider.peek?.(makeAllocationRequest(), ctx);
+      expect(peekCalls[0].searchParams.has('increment')).toBe(false);
+      expect(peekCalls[0].searchParams.get('x')).toBe('1');
+
+      const allocateCalls: URL[] = [];
+      vi.stubGlobal('fetch', fakeCounterFetch(allocateCalls, 519, '01'));
+      await errorcodeIncrementorProvider.allocate(makeAllocationRequest(), ctx);
+      expect(allocateCalls[0].searchParams.getAll('increment')).toEqual(['yes']);
+    });
+
     it('strips the configured response_suffix from the trimmed digit body (52001 -> 520)', async () => {
       const calls: URL[] = [];
       vi.stubGlobal('fetch', fakeFetch(calls, () => ({ status: 200, body: '52001\n' })));

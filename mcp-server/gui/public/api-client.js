@@ -717,7 +717,10 @@ var API = (function () {
      * Fetch the error-code allocator's config. Every secret field is masked
      * to `{ set: boolean }` — never the raw value.
      *
-     * @returns {Promise<object>} Config from `GET /api/error-codes/config`.
+     * @returns {Promise<object & { warning?: string }>} Config from
+     *   `GET /api/error-codes/config`. `warning` is present only when
+     *   `config.json` needed salvage or could not be used as stored — never
+     *   a stored value or a parser message.
      * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getErrorCodeConfig: function () {
@@ -759,7 +762,7 @@ var API = (function () {
      * Fetch logged temporary error codes, newest-first.
      *
      * @param {number} [limit] - Maximum entries to return (default 200 server-side).
-     * @returns {Promise<{ entries: object[] }>} Response from `GET /api/error-codes/temporary`.
+     * @returns {Promise<{ entries: object[], warning?: string }>} Response from `GET /api/error-codes/temporary`; `warning` is set when the log is corrupt.
      * @throws {{ code: string, message: string }} On HTTP error responses.
      */
     getTemporaryErrorCodes: function (limit) {

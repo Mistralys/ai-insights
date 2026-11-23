@@ -189,6 +189,7 @@ Views must:
 - Ambiguous slug resolutions are downgraded to NOT_FOUND (cross-namespace existence leak prevention).
 - Malformed `.meta.json` files log to stderr but return NOT_FOUND to clients.
 - Error responses never include internal paths or stack traces.
+- A Zod validation failure's rendered `message` (`describeZodIssues()`, `src/gui/errors.ts`) names the invalid field **path** only, never the value that failed validation — including for the three Zod issue codes whose default message would otherwise echo the received value. `ApiError.details` — the raw Zod issues, kept for tests and logs only — is never serialized onto the wire by `gui/server.ts`'s `sendError()`; the response body is always `{ error: { code, message } }`.
 - **Deliberate, documented exception:** `GET /api/error-codes/providers` returns a plugin provider's file/folder path and the scanned plugin directory path (`gui/api-error-codes.ts` → `ProviderListItem.path`, `plugin_dir`). This is not an oversight — it is justified by `requireLoopbackRequest` (§7, "Request-Level Guards" below) gating every error-code route, and the GUI's Error Codes tab needs the path to let the user locate a misbehaving plugin on disk. Do not flag this as an information-hiding violation in review; do not extend the exception to any other route without updating this entry.
 
 ### Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge
@@ -513,21 +514,29 @@ node scripts/run-gui.js   # collides with the LIVE instance on port 3420
 
 ## 25. Config Tab Modules
 
-The Configuration view (`views/config.js`) is a tab coordinator with no tabs of its own logic baked in beyond General — every other tab is a companion module loaded before `config.js` (see `index.html`'s script order).
+The Configuration view (`views/config.js`) is a tab coordinator with no tabs of its own logic baked in beyond General — every other tab is a companion module loaded before `config.js` (see `index.html`'s script order). `config.js` holds a `CONFIG_TABS` array that is the single source of truth for which tabs exist and how to render, leave and reset each one; it is the only place tab buttons, tab-content dispatch and cross-module cleanup are defined. `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly — only through a descriptor's three functions (see below).
 
-**Known tab modules:**
+**Known tab modules — `CONFIG_TABS` descriptors:**
 
-| Tab key | Module | Dirty tracking |
-|---------|--------|-----------------|
-| `general` | `config.js` itself | `configDirty.general` |
-| `stores` | `config-stores.js` | Always `false` — immediate-write pattern, no batch save |
-| `personaModels` | `config-persona-models.js` | `configDirty.personaModels` |
-| `modelRegistry` | `config-model-registry.js` | `configDirty.modelRegistry` |
-| `errorCodes` | `config-error-codes.js` | `configDirty.errorCodes` |
+| Tab key | Module | Dirty tracking | `leave`/`reset` functions |
+|---------|--------|-----------------|---------------------------|
+| `general` | `config.js` itself | `configDirty.general` | No-op (General has no cached state to release) |
+| `stores` | `config-stores.js` | Always `false` — immediate-write pattern, no batch save | `leave`/`reset` both map to `csResetState()` — always resets unconditionally |
+| `personaModels` | `config-persona-models.js` | `configDirty.personaModels` | `leave: pmLeaveTab(discarded)` (resets only when `discarded`), `reset: pmResetState()` (always resets, calls `pmLeaveTab(true)`) |
+| `modelRegistry` | `config-model-registry.js` | `configDirty.modelRegistry` | `leave: mrLeaveTab(discarded)` (resets only when `discarded`), `reset: mrResetState()` (always resets, calls `mrLeaveTab(true)`) |
+| `errorCodes` | `config-error-codes.js` | `configDirty.errorCodes` | `leave`/`reset` both map to `ecResetState()` — always resets unconditionally |
 
-**The four integration points every tab module implements**, established by `config-stores.js` and confirmed again by `config-error-codes.js` (full detail: `api-surface.md`'s `configDirty` cross-module contract and the "Integration points a future tab module must follow" list under `config.js` — Internal Functions):
+Each descriptor is `{ key, label, render, leave, reset }`. `render(config, models, personas, assignments, stores)` populates `#config-tab-content` and wires its events (a tab ignores arguments it does not need); `leave(discarded)` runs when the tab-bar handler is about to switch away from this tab, after its `confirm()` guard (if the tab was dirty) has already run; `reset()` runs with no arguments from `renderConfigPage()` on every fresh page load. `configFindTab(key)` looks up a descriptor by key.
+
+**Two `leave` semantics, by design:**
+
+- **Always-reset** (Stores, Error Codes): these tabs' `render` arguments are not meaningfully stale across visits, so `leave` and `reset` are the same function and both unconditionally drop cached state.
+- **Reset-only-on-discard** (Model Registry, Persona Models): these tabs' `render` arguments (`models`, `personas`, `assignments`) are *not* refreshed by `config.js` after a save — only the tab's own save handler updates its in-memory snapshot. Resetting unconditionally on every leave would re-initialise from the stale page-load arguments on return, discarding a successful save's effect. `leave(discarded)` therefore resets module state (and the visit-spanning edit/collapse state) only when `discarded` is `true`; `reset()` — used for a full page reload, where fresh server data is always about to replace whatever state existed — always resets by calling `leave(true)`.
+
+**The integration points every tab module implements**, established by `config-stores.js` and confirmed again by `config-error-codes.js`, `config-model-registry.js` and `config-persona-models.js` (full detail: `api-surface.md`'s `configDirty` cross-module contract and the "Integration points a future tab module must follow" list under `config.js` — Internal Functions):
 
 1. **`configDirty`** — add a boolean key to the literal in `config.js`; mutate it only from the owning tab module (never reassign the object — see §3's Global Namespace Pattern for why).
-2. **Reset in `renderConfigPage()`** — null the tab's own module-level state (and any tracked listener references) in the reset block that runs on every fresh page load.
-3. **Cleanup on tab switch** — inside the tab-bar click handler, after the unsaved-changes `confirm()` guard has already run for the tab being left, unconditionally release the tab's delegated listeners and drop its cached state. This must run regardless of whether the guard's confirm fired, so a user who leaves and returns to the same tab never accumulates duplicate event handling (`config-stores.js`'s `csClickHandler` guard and `config-error-codes.js`'s `ecCleanup()` are the reference implementations — see §2's `removeEventListener` guard pattern).
+2. **`CONFIG_TABS` descriptor** — add `{ key, label, render, leave, reset }` to the array in `config.js`. `reset()` is called by `renderConfigPage()` on every fresh page load; pick the always-reset or reset-only-on-discard shape above depending on whether the tab's `render` arguments go stale after a save.
+3. **Cleanup on tab switch** — the tab-bar click handler calls the left tab's `leave(discarded)` unconditionally, after the unsaved-changes `confirm()` guard (if it fired) has already decided `discarded`. This must run regardless of whether the guard's `confirm()` fired, so a user who leaves and returns to the same tab never accumulates duplicate event handling. An always-reset tab (`config-stores.js`'s `csClickHandler` guard, `config-error-codes.js`'s `ecCleanup()`) ignores the `discarded` argument; a reset-only-on-discard tab (`mrLeaveTab`, `pmLeaveTab`) branches on it.
 4. **Lazy load** — a tab whose data is not part of the Configuration page's initial load fetches it itself, on first activation, inside its own render-entry function — never by adding it to `renderConfig()`'s `Promise.all`. `config-error-codes.js`'s `ecRenderTab()` is the reference implementation: it checks its own cached state (`ecProviders === null`) before deciding whether to fetch.
+5. **Guard async callbacks with a visit token** — a tab module that fires requests (lazy load, save, test, rebuild) holds a monotonic token incremented by its `leave`/`reset` function (point 3). Every request callback captures the token before the request and returns early — in both `.then` and `.catch` — when it no longer matches, so a response that settles after the user left cannot write into the shared `#config-tab-content` or repopulate state that was just cleared. A flag that spans visits by design (`ecSaveInFlight`, `pmIsBuilding`) is still cleared by its own callback before the stale check, even when the response is stale. Reference implementations: `config-error-codes.js` (`ecVisit`), `config-stores.js` (`csVisit`), `config-model-registry.js` (`mrVisit`), `config-persona-models.js` (`pmVisit`), and `strategy.js`'s `refreshSeq`.

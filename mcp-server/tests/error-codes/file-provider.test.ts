@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readdir } from 'fs/promises';
+import { mkdtemp, rm, readdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { fileProvider } from '../../src/error-codes/providers/file-provider.js';
 import { buildSettingsSchema } from '../../src/error-codes/settings-schema.js';
 import type { ProviderContext } from '../../src/error-codes/provider-api.js';
 import { describeProviderContract, makeAllocationRequest, makeRepositoryInfo } from './provider-contract.js';
+import { runWorkers } from './fixtures/run-workers.js';
+import { __setLockRetryForTesting, __resetLockOptionsForTesting } from '../../src/storage/file-lock.js';
 
 /** Validates `rawSettings` against the provider's own declared schema (applying its defaults), the same way the allocator does before calling `allocate`. */
 function validatedSettings(rawSettings: Record<string, unknown> = {}): Readonly<Record<string, unknown>> {
@@ -29,10 +31,15 @@ describe('file-provider', () => {
 
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'file-provider-test-'));
+    // Installs a fast withLock retry policy so the parallel-allocation
+    // concurrency tests below don't pay production lock backoff (see
+    // mcp-server/src/storage/file-lock.ts).
+    __setLockRetryForTesting({ minTimeout: 5, maxTimeout: 25 });
   });
 
   afterEach(async () => {
     await rm(dataDir, { recursive: true, force: true });
+    __resetLockOptionsForTesting();
   });
 
   describeProviderContract(
@@ -91,20 +98,123 @@ describe('file-provider', () => {
       expect(second).toEqual({ ok: true, value: 2 });
     });
 
-    it(
-      'issues twenty unique values across twenty parallel allocations',
-      async () => {
-        const ctx = makeCtx(dataDir);
-        const results = await Promise.all(
-          Array.from({ length: 20 }, () => fileProvider.allocate(makeAllocationRequest(), ctx))
-        );
+    it('issues twenty unique, consecutive values across twenty parallel allocations', async () => {
+      // A separate context per call, as separate callers would have: they
+      // share one data_dir and therefore one lock. The beforeEach above
+      // installs a fast retry policy, so this completes well inside the
+      // default test timeout.
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => fileProvider.allocate(makeAllocationRequest(), makeCtx(dataDir)))
+      );
 
-        const values = results.map((r) => (r.ok ? r.value : null));
-        expect(values.every((v): v is number => v !== null)).toBe(true);
-        expect(new Set(values).size).toBe(20);
+      const values = results.map((r) => (r.ok ? r.value : null));
+      expect(values.every((v): v is number => v !== null)).toBe(true);
+      expect([...(values as number[])].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+
+      const next = await fileProvider.peek?.(makeAllocationRequest(), makeCtx(dataDir));
+      expect(next).toEqual({ ok: true, value: 21 });
+    });
+
+    it('honours start_value across parallel allocations', async () => {
+      const settings = validatedSettings({ start_value: 100 });
+      const results = await Promise.all(
+        Array.from({ length: 20 }, () => fileProvider.allocate(makeAllocationRequest(), makeCtx(dataDir, { settings })))
+      );
+      const values = results.map((r) => (r.ok ? r.value : -1)).sort((a, b) => a - b);
+      expect(values).toEqual(Array.from({ length: 20 }, (_, i) => 100 + i));
+    });
+
+    it(
+      'returns unique, consecutive values for parallel allocations from separate processes',
+      async () => {
+        // fastLock: true installs the same fast retry policy inside each
+        // spawned worker process; an explicit timeout is kept regardless
+        // since spawning four real OS processes has its own startup variance.
+        const counterFile = join(dataDir, 'shared-counters.json');
+        const values = (await runWorkers(
+          Array.from({ length: 4 }, () => ['file-provider', dataDir, counterFile, '5']),
+          { fastLock: true }
+        )) as number[];
+
+        expect([...values].sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+        const stored = JSON.parse(await readFile(counterFile, 'utf-8')) as { counters: Record<string, number> };
+        expect(stored.counters['default']).toBe(20);
       },
       20000
     );
+  });
+
+  describe('corrupt counter file', () => {
+    const corrupt: [string, string][] = [
+      ['invalid JSON', '{ not json'],
+      ['a non-integer counter', JSON.stringify({ counters: { default: 1.5 } })],
+      ['a non-numeric counter', JSON.stringify({ counters: { default: 'ten' } })],
+      ['a counters array', JSON.stringify({ counters: [1, 2] })],
+      ['a non-object top level', '[1, 2, 3]'],
+    ];
+
+    it.each(corrupt)('fails (and leaves the file untouched) for %s', async (_label, content) => {
+      const file = join(dataDir, 'counters.json');
+      await writeFile(file, content, 'utf-8');
+      const ctx = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file }) });
+
+      const allocated = await fileProvider.allocate(makeAllocationRequest(), ctx);
+      const peeked = await fileProvider.peek?.(makeAllocationRequest(), ctx);
+
+      for (const outcome of [allocated, peeked]) {
+        expect(outcome).toMatchObject({ ok: false, reason: 'failed', ambiguous: false });
+        expect((outcome as { detail: string }).detail).toContain(file);
+      }
+      expect(await readFile(file, 'utf-8')).toBe(content);
+    });
+
+    it('fails when the counter file cannot be read at all (path is a directory)', async () => {
+      const file = join(dataDir, 'is-a-directory');
+      await mkdir(file);
+      const ctx = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file }) });
+
+      const allocated = await fileProvider.allocate(makeAllocationRequest(), ctx);
+      const peeked = await fileProvider.peek?.(makeAllocationRequest(), ctx);
+
+      for (const outcome of [allocated, peeked]) {
+        expect(outcome).toMatchObject({ ok: false, reason: 'failed', ambiguous: false });
+        expect((outcome as { detail: string }).detail).toMatch(/EISDIR/);
+      }
+    });
+
+    it('starts a new sequence only when the file is missing', async () => {
+      const file = join(dataDir, 'not-yet-there.json');
+      const ctx = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file }) });
+      expect(await fileProvider.allocate(makeAllocationRequest(), ctx)).toEqual({ ok: true, value: 1 });
+    });
+  });
+
+  describe('own-property-safe keys', () => {
+    it.each(['__proto__', 'constructor', 'toString', 'hasOwnProperty'])(
+      'treats "%s" as an ordinary counter name',
+      async (name) => {
+        const file = join(dataDir, 'counters.json');
+        const ctx = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file, counter_name: name }) });
+
+        expect(await fileProvider.allocate(makeAllocationRequest(), ctx)).toEqual({ ok: true, value: 1 });
+        expect(await fileProvider.allocate(makeAllocationRequest(), ctx)).toEqual({ ok: true, value: 2 });
+        expect(await fileProvider.peek?.(makeAllocationRequest(), ctx)).toEqual({ ok: true, value: 3 });
+
+        const json = JSON.parse(await readFile(file, 'utf-8')) as { counters: Record<string, number> };
+        expect(Object.hasOwn(json.counters, name)).toBe(true);
+        expect(json.counters[name]).toBe(2);
+      }
+    );
+
+    it('keeps such a counter name independent of the others in the same file', async () => {
+      const file = join(dataDir, 'counters.json');
+      const a = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file, counter_name: '__proto__' }) });
+      const b = makeCtx(dataDir, { settings: validatedSettings({ counter_file: file, counter_name: 'plain' }) });
+
+      await fileProvider.allocate(makeAllocationRequest(), a);
+      await fileProvider.allocate(makeAllocationRequest(), a);
+      expect(await fileProvider.allocate(makeAllocationRequest(), b)).toEqual({ ok: true, value: 1 });
+    });
   });
 
   describe('repository scope', () => {
@@ -146,7 +256,7 @@ describe('file-provider', () => {
 
   describe('{repo} counter_file placeholder', () => {
     it(
-      'places the counter file inside the repository and never locks that directory',
+      'places the counter file inside the repository and leaves no lock behind',
       async () => {
         const repoDir = await mkdtemp(join(tmpdir(), 'file-provider-repo-'));
         try {
@@ -164,8 +274,8 @@ describe('file-provider', () => {
           const results = await Promise.all(
             Array.from({ length: 10 }, () => fileProvider.allocate(makeAllocationRequest({ repository }), ctx))
           );
-          const values = results.map((r) => (r.ok ? r.value : null));
-          expect(new Set(values).size).toBe(10);
+          const values = results.map((r) => (r.ok ? r.value : -1)).sort((a, b) => a - b);
+          expect(values).toEqual(Array.from({ length: 10 }, (_, i) => i + 1));
 
           const repoEntries = await readdir(repoDir);
           expect(repoEntries).toContain('.error-codes.json');

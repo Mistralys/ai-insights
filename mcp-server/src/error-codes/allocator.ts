@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto';
-import { resolveErrorCodesDir } from '../storage/store-registry.js';
+import { resolveErrorCodeProviderDataDir } from '../storage/store-registry.js';
 import { buildSettingsSchema, collectSecrets } from './settings-schema.js';
 import { createRedactingLogger, redact } from './redact.js';
 import type { ErrorCodeConfig } from './config-store.js';
-import type { TemporaryCodeEntryInput } from './temporary-codes.js';
+import type { IssuedTemporaryCode, TemporaryCodeEntryInput } from './temporary-codes.js';
 import type { AllocationOutcome, AllocationRequest, ErrorCodeProvider, FailureReason, RepositoryInfo } from './provider-api.js';
 
 /**
@@ -65,12 +65,14 @@ export interface ErrorCodeResult {
   message: string;
   /** What the agent should do next — e.g. add a `TEMPORARY ERROR CODE` marker, or check the GUI's Error Codes tab. */
   instruction: string;
+  /** A non-fatal problem the caller should report to the user, e.g. a corrupt temporary-code log that was recovered. Absent when there is nothing to report. */
+  warning?: string;
 }
 
 /** Narrow façade over `temporary-codes.ts` — the allocator never needs `listTemporaryCodes` or the raw state directory. */
 export interface TemporaryCodesDep {
   /** Issues and logs the next temporary code under `prefix`, combining it with the caller's own resolved context. */
-  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<string>;
+  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
 }
 
 /**
@@ -140,7 +142,7 @@ async function fallBackToTemporary(
 ): Promise<ErrorCodeResult> {
   const detail = rawDetail !== undefined ? redact(rawDetail, secrets) : undefined;
 
-  const code = await deps.temporaryCodes.issue(config.temporary_prefix, {
+  const issued = await deps.temporaryCodes.issue(config.temporary_prefix, {
     provider: providerId,
     fallback_reason: reason,
     detail: detail ?? null,
@@ -148,6 +150,7 @@ async function fallBackToTemporary(
     context,
   });
 
+  const code = issued.code;
   const { message, instruction } = temporaryMessage(code, reason, detail);
 
   return {
@@ -161,6 +164,7 @@ async function fallBackToTemporary(
     first_component_code: `${code}01`,
     message,
     instruction,
+    ...(issued.warning !== undefined ? { warning: issued.warning } : {}),
   };
 }
 
@@ -168,9 +172,11 @@ async function fallBackToTemporary(
  * Turns an agent's request into an {@link ErrorCodeResult}. Never throws for
  * a provider, configuration or network failure — every one of those falls
  * back to a temporary code instead. The only way this rejects is an
- * underlying failure in the temporary-code store itself (disk full, lock
- * timeout, counter exhausted), which the caller (the MCP tool) turns into
- * an MCP error.
+ * underlying failure in the temporary-code store itself (an unreadable log,
+ * disk full, a lock timeout under heavy parallel use, counter exhausted),
+ * which the caller (the MCP tool) turns into an MCP error. A corrupt but
+ * readable log does not reject: it is recovered, and the recovery is reported
+ * in `ErrorCodeResult.warning`.
  *
  * Policy, in order:
  * 1. Load the config and resolve the repository info for `input.cwd_path`.
@@ -333,7 +339,7 @@ async function callProvider(
   const log = createRedactingLogger(provider.id, secrets);
 
   try {
-    return await provider.allocate(request, { settings, signal, data_dir: resolveProviderDataDir(provider.id), log });
+    return await provider.allocate(request, { settings, signal, data_dir: resolveErrorCodeProviderDataDir(provider.id), log });
   } catch (error) {
     if (signal.aborted) {
       return { ok: false, reason: 'unavailable', ambiguous: true, detail: `provider '${provider.id}' timed out after ${timeoutMs}ms` };
@@ -341,11 +347,6 @@ async function callProvider(
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, reason: 'failed', ambiguous: true, detail: message };
   }
-}
-
-/** `~/.ai-insights/error-codes/data/{provider-id}/`, the scratch directory a provider's `ProviderContext.data_dir` points to. */
-function resolveProviderDataDir(providerId: string): string {
-  return `${resolveErrorCodesDir()}/data/${providerId}`;
 }
 
 /**

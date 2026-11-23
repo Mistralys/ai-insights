@@ -28,11 +28,10 @@
  */
 
 import { randomUUID } from 'crypto';
-import { join } from 'path';
 import { z } from 'zod';
-import { ApiError } from '../src/gui/errors.js';
+import { ApiError, describeZodIssues } from '../src/gui/errors.js';
 import { getProvider, listProviders, listProviderLoadErrors, type ProviderLoadError } from '../src/error-codes/provider-registry.js';
-import { loadErrorCodeConfig, updateErrorCodeConfig, type ErrorCodeConfig } from '../src/error-codes/config-store.js';
+import { loadErrorCodeConfig, readErrorCodeConfig, updateErrorCodeConfig, TemporaryPrefixSchema, type ErrorCodeConfig } from '../src/error-codes/config-store.js';
 import {
   buildSettingsSchema,
   toPublicSettings,
@@ -42,16 +41,11 @@ import {
 } from '../src/error-codes/settings-schema.js';
 import { createRedactingLogger, redact } from '../src/error-codes/redact.js';
 import { listTemporaryCodes, type TemporaryCodeEntry } from '../src/error-codes/temporary-codes.js';
-import { resolveErrorCodesDir, resolveErrorCodePluginDir } from '../src/storage/store-registry.js';
+import { resolveErrorCodesDir, resolveErrorCodePluginDir, resolveErrorCodeProviderDataDir } from '../src/storage/store-registry.js';
 import type { AllocationRequest, ErrorCodeProvider, ProviderContext, SettingField, TestOutcome } from '../src/error-codes/provider-api.js';
 
 function validationError(message: string, details?: unknown): never {
   throw new ApiError('VALIDATION_ERROR', message, details);
-}
-
-/** `~/.ai-insights/error-codes/data/{provider-id}/` — mirrors `allocator.ts`'s private `resolveProviderDataDir`, duplicated here rather than exported across the MCP-tool / GUI-API boundary for this one small helper. */
-function resolveProviderDataDir(providerId: string): string {
-  return join(resolveErrorCodesDir(), 'data', providerId);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,9 +104,11 @@ export interface ErrorCodeConfigResponse {
   retry: { default_wait_ms: number; max_wait_ms: number };
   /** Keyed by provider id. Only currently-registered providers appear here — an uninstalled provider's stored settings are preserved in config.json but omitted from this response, since this module has no settings descriptors to mask its secrets safely. */
   providers: Record<string, Record<string, unknown>>;
+  /** Present only when `config.json` needed salvage or could not be used as stored — see `readErrorCodeConfig()`. Never a stored value or a parser message. */
+  warning?: string;
 }
 
-function buildConfigResponse(config: ErrorCodeConfig): ErrorCodeConfigResponse {
+function buildConfigResponse(config: ErrorCodeConfig, warning?: string): ErrorCodeConfigResponse {
   const providers: Record<string, Record<string, unknown>> = {};
   for (const entry of listProviders()) {
     const stored = config.providers[entry.provider.id] ?? {};
@@ -125,13 +121,20 @@ function buildConfigResponse(config: ErrorCodeConfig): ErrorCodeConfigResponse {
     timeout_ms: config.timeout_ms,
     retry: config.retry,
     providers,
+    ...(warning !== undefined ? { warning } : {}),
   };
 }
 
-/** Returns the allocator's config, with every secret masked to `{ set: boolean }`. */
+/**
+ * Returns the allocator's config, with every secret masked to `{ set: boolean }`.
+ *
+ * Uses {@link readErrorCodeConfig} (not {@link loadErrorCodeConfig}) so a
+ * salvaged/corrupt/unreadable config.json surfaces its `warning` to the GUI
+ * instead of only to stderr, which this GET route's caller never sees.
+ */
 export async function handleGetErrorCodeConfig(): Promise<ErrorCodeConfigResponse> {
-  const config = await loadErrorCodeConfig();
-  return buildConfigResponse(config);
+  const { config, warning } = await readErrorCodeConfig();
+  return buildConfigResponse(config, warning);
 }
 
 /**
@@ -149,7 +152,7 @@ export async function handleGetErrorCodeConfig(): Promise<ErrorCodeConfigRespons
 export const PutErrorCodeConfigBodySchema = z
   .object({
     active_provider: z.string().optional(),
-    temporary_prefix: z.string().optional(),
+    temporary_prefix: TemporaryPrefixSchema.optional(),
     timeout_ms: z.number().int().positive().optional(),
     retry: z
       .object({
@@ -186,7 +189,7 @@ export const PutErrorCodeConfigBodySchema = z
 export async function handleUpdateErrorCodeConfig(body: unknown): Promise<ErrorCodeConfigResponse> {
   const parsed = PutErrorCodeConfigBodySchema.safeParse(body);
   if (!parsed.success) {
-    validationError('Invalid request body.', parsed.error.flatten().fieldErrors);
+    validationError(`Invalid request body: ${describeZodIssues(parsed.error.issues)}`, parsed.error.flatten().fieldErrors);
   }
 
   const { active_provider, temporary_prefix, timeout_ms, retry, provider_id, settings, clear_secrets } = parsed.data;
@@ -209,7 +212,7 @@ export async function handleUpdateErrorCodeConfig(body: unknown): Promise<ErrorC
     const merged = mergeSettingsUpdate(targetProvider.settings, stored, settings ?? {}, clear_secrets ?? []);
     const schemaResult = buildSettingsSchema(targetProvider.settings).safeParse(merged);
     if (!schemaResult.success) {
-      validationError('Invalid provider settings.', schemaResult.error.flatten().fieldErrors);
+      validationError(`Invalid provider settings: ${describeZodIssues(schemaResult.error.issues)}`, schemaResult.error.flatten().fieldErrors);
     }
     validatedProviderSettings = schemaResult.data;
   }
@@ -288,7 +291,7 @@ export interface TestConnectionResponse {
 export async function handleTestErrorCodeProvider(body: unknown): Promise<TestConnectionResponse> {
   const parsed = TestErrorCodeProviderBodySchema.safeParse(body);
   if (!parsed.success) {
-    validationError('Invalid request body.', parsed.error.flatten().fieldErrors);
+    validationError(`Invalid request body: ${describeZodIssues(parsed.error.issues)}`, parsed.error.flatten().fieldErrors);
   }
   const { provider_id, settings } = parsed.data;
 
@@ -303,7 +306,7 @@ export async function handleTestErrorCodeProvider(body: unknown): Promise<TestCo
 
   const schemaResult = buildSettingsSchema(provider.settings).safeParse(merge.settings);
   if (!schemaResult.success) {
-    validationError('Invalid provider settings.', schemaResult.error.flatten().fieldErrors);
+    validationError(`Invalid provider settings: ${describeZodIssues(schemaResult.error.issues)}`, schemaResult.error.flatten().fieldErrors);
   }
   const validatedSettings = schemaResult.data;
   const secrets = collectSecrets(provider.settings, validatedSettings);
@@ -321,7 +324,7 @@ export async function handleTestErrorCodeProvider(body: unknown): Promise<TestCo
   const ctx: ProviderContext = {
     settings: validatedSettings,
     signal,
-    data_dir: resolveProviderDataDir(provider_id),
+    data_dir: resolveErrorCodeProviderDataDir(provider_id),
     log,
   };
 
@@ -386,10 +389,11 @@ const DEFAULT_TEMPORARY_CODES_LIMIT = 200;
  *
  * @param query - Parsed query-string parameters from the request URL. An
  *   optional `limit` must be a positive integer.
+ * @returns The entries, plus a `warning` passed through unchanged when the log is corrupt.
  */
 export async function handleListTemporaryErrorCodesGui(
   query?: URLSearchParams
-): Promise<{ entries: TemporaryCodeEntry[] }> {
+): Promise<{ entries: TemporaryCodeEntry[]; warning?: string }> {
   let limit = DEFAULT_TEMPORARY_CODES_LIMIT;
   const limitParam = query?.get('limit');
   if (limitParam !== null && limitParam !== undefined) {
@@ -400,7 +404,7 @@ export async function handleListTemporaryErrorCodesGui(
     limit = parsedLimit;
   }
 
-  const entries = await listTemporaryCodes(resolveErrorCodesDir());
+  const { entries, warning } = await listTemporaryCodes(resolveErrorCodesDir());
   const newestFirst = [...entries].reverse();
-  return { entries: newestFirst.slice(0, limit) };
+  return { entries: newestFirst.slice(0, limit), ...(warning !== undefined ? { warning } : {}) };
 }

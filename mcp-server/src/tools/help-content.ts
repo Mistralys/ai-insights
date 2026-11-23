@@ -1431,16 +1431,17 @@ Allocates a new error-code base number through the user's configured error-code 
   - \`unavailable\` — the provider's backend could not be reached (network/DNS/5xx/timeout).
   - \`rejected\` — the provider's backend explicitly refused the request.
   - \`invalid_response\` — the provider responded, but not in a shape the core accepts (e.g. a non-positive value).
-  - \`failed\` — anything else, including an uncaught throw from the provider.
+  - \`failed\` — anything else, including an uncaught throw from the provider. For the built-in \`file\` provider this includes a counter file that exists but is corrupt or unreadable: the sequence is never restarted, the \`detail\` names the file, and it must be repaired or removed before real codes are issued again.
   - \`requested\` — the caller passed \`temporary: true\`; no provider was consulted.
 - **detail** (string, optional): Free-text explanation, already redacted of any configured secret. Absent when \`fallback_reason\` alone says enough.
 - **waited_ms** (number, optional): Present only when a \`throttled\` retry actually occurred — milliseconds waited for that single backoff.
+- **warning** (string, optional): A non-fatal problem to report to the user — for example that the temporary-code log was corrupt and has been recovered (a copy of the damaged file was kept and numbering continued above every code still visible in it). The \`code\` is valid either way.
 - **repository** (object | null): The repository resolved for \`cwd_path\` (\`root_path\`, \`folder_name\`, \`package_name\`), or \`null\` when none resolved.
 - **first_component_code** (string): \`code\` with \`"01"\` appended — the first component code ready to use immediately.
 - **message** / **instruction** (string): Human-readable summary and the concrete next step (e.g. add a \`TEMPORARY ERROR CODE\` marker and call \`ledger_list_temporary_error_codes\` later).
 
 ## The Code Format
-A real, provider-issued \`code\` is whatever digit string the active provider returns — its shape depends on the provider (the built-in \`file\` provider issues a plain incrementing integer, for example). A **temporary** code is always the configured \`temporary_prefix\` (\`"777"\` by default) followed by six zero-padded digits counting up from \`1\` — e.g. \`777000001\`, \`777000002\`. \`{prefix}000000\` (e.g. \`777000000\`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is therefore never issued by this tool.
+A real, provider-issued \`code\` is whatever digit string the active provider returns — its shape depends on the provider (the built-in \`file\` provider issues a plain incrementing integer, for example). A **temporary** code is always the configured \`temporary_prefix\` (\`"777"\` by default; 1–6 digits, never starting with 0) followed by six zero-padded digits counting up from \`1\` — e.g. \`777000001\`, \`777000002\`. \`{prefix}000000\` (e.g. \`777000000\`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is therefore never issued by this tool.
 
 ## Component-Code Convention
 Treat \`code\` as a *base*: append a two-digit, zero-padded component number in the order components are introduced — \`{base}01\`, \`{base}02\`, and so on. \`first_component_code\` already gives you \`{base}01\` so the very first call site never has to compute it by hand.
@@ -1496,6 +1497,7 @@ Lists every temporary error code logged by \`ledger_generate_error_code\`'s fall
   - **detail** (string | null): Redacted free-text detail, or \`null\`.
   - **repository** (string | null): The resolved repository's folder name at issuance, or \`null\`.
   - **context** (string | null): The caller-supplied \`context\`, or \`null\`.
+- **warning** (string, optional): Present only when the log file is corrupt. \`entries\` then holds only the recoverable entries; the log is repaired (after a copy of the damaged file is kept) the next time a temporary code is issued.
 
 ## Example Response
 \`\`\`json

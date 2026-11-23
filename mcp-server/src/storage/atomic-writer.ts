@@ -1,5 +1,6 @@
 import { writeFile, rename, unlink, mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import { randomUUID } from 'crypto';
 
 /**
  * Options for {@link atomicWriteJson}.
@@ -27,12 +28,20 @@ export interface AtomicWriteJsonOptions {
  * Writes JSON data to a file atomically using the write-to-temp-then-rename pattern.
  *
  * The process:
- * 1. Write data to {filePath}.tmp.{pid}, applying `options.mode` (when
+ * 1. Write data to {filePath}.tmp.{pid}.{uuid}, applying `options.mode` (when
  *    supplied) directly at file-creation time so the temp file is never
  *    briefly world-readable (POSIX only; a no-op on Windows — see
  *    {@link AtomicWriteJsonOptions.mode})
  * 2. Use fs.rename to atomically replace the target file (POSIX semantics)
  * 3. Clean up temp file on error
+ *
+ * The `{uuid}` suffix (from `crypto.randomUUID`) makes the temp path unique
+ * per call, not just per process: two concurrent unlocked writers to the
+ * same target within one process (same `pid`) would otherwise share a temp
+ * path and race each other's write-then-rename, corrupting or losing one
+ * writer's payload. `withLock` callers are unaffected — they already
+ * serialize access — but several call sites in this codebase write without
+ * a lock, so the uniqueness has to live here.
  *
  * This ensures that readers never see partial writes.
  *
@@ -47,7 +56,7 @@ export async function atomicWriteJson(
   options?: AtomicWriteJsonOptions
 ): Promise<void> {
   const pid = process.pid;
-  const tempPath = `${filePath}.tmp.${pid}`;
+  const tempPath = `${filePath}.tmp.${pid}.${randomUUID()}`;
 
   try {
     // Ensure the parent directory exists

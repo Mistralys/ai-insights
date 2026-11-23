@@ -101,13 +101,13 @@ const ListTemporaryErrorCodesSchema = z.object({
 
 async function listTemporaryErrorCodes(args: z.infer<typeof ListTemporaryErrorCodesSchema>) {
   try {
-    const entries = await listTemporaryCodes(resolveErrorCodesDir(), args.filter);
+    const { entries, warning } = await listTemporaryCodes(resolveErrorCodesDir(), args.filter);
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ entries }),
+          text: JSON.stringify({ entries, ...(warning !== undefined ? { warning } : {}) }),
         },
       ],
     };
@@ -140,7 +140,7 @@ export function register(server: McpServer): void {
     'ledger_generate_error_code',
     {
       description:
-        'Allocate a new error-code base number through the configured provider (falls back to a temporary code on any failure). Optional params: cwd_path (for repository-scoped providers), context (free text), temporary (true to skip the provider and issue a temporary code directly). Returns an ErrorCodeResult as JSON; the result carries fallback_reason/detail/instruction when the code is temporary. An MCP error is returned only when the temporary-code store itself fails.',
+        'Allocate a new error-code base number through the configured provider (falls back to a temporary code on any failure). Optional params: cwd_path (for repository-scoped providers), context (free text), temporary (true to skip the provider and issue a temporary code directly). Returns an ErrorCodeResult as JSON; the result carries fallback_reason/detail/instruction when the code is temporary, and a warning when a non-fatal problem was recovered (e.g. a corrupt temporary-code log). An MCP error is returned only when the temporary-code store itself fails.',
       inputSchema: GenerateErrorCodeSchema,
     },
     generateErrorCode as any
@@ -150,7 +150,7 @@ export function register(server: McpServer): void {
     'ledger_list_temporary_error_codes',
     {
       description:
-        'List logged temporary error codes issued by ledger_generate_error_code. Optional param: filter (substring match against context or repository). Use this to find temporary codes that still need replacing with a real provider-issued base.',
+        'List logged temporary error codes issued by ledger_generate_error_code. Optional param: filter (substring match against context or repository). Returns { entries, warning? }; a warning means the log is corrupt and only the recoverable entries are shown. Use this to find temporary codes that still need replacing with a real provider-issued base.',
       inputSchema: ListTemporaryErrorCodesSchema,
     },
     listTemporaryErrorCodes as any

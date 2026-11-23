@@ -28,8 +28,8 @@ let mockConfig: ErrorCodeConfig;
 let mockProvider: ErrorCodeProvider | undefined;
 let mockRepository: Awaited<ReturnType<typeof import('../../src/error-codes/project-info.js').resolveRepositoryInfo>> = null;
 let mockResolveRepositoryInfo = vi.fn(async () => mockRepository);
-let mockIssueTemporaryCode = vi.fn(async (_dir: string, prefix: string, _entry: TemporaryCodeEntryInput) => `${prefix}000001`);
-let mockListTemporaryCodes = vi.fn(async (_dir: string, _filter?: string): Promise<TemporaryCodeEntry[]> => []);
+let mockIssueTemporaryCode = vi.fn(async (_dir: string, prefix: string, _entry: TemporaryCodeEntryInput): Promise<{ code: string; warning?: string }> => ({ code: `${prefix}000001` }));
+let mockListTemporaryCodes = vi.fn(async (_dir: string, _filter?: string): Promise<{ entries: TemporaryCodeEntry[]; warning?: string }> => ({ entries: [] }));
 
 function makeConfig(overrides: Partial<ErrorCodeConfig> = {}): ErrorCodeConfig {
   return {
@@ -77,6 +77,9 @@ vi.mock('../../src/error-codes/temporary-codes.js', () => ({
 
 vi.mock('../../src/storage/store-registry.js', () => ({
   resolveErrorCodesDir: vi.fn(() => '/fake/.ai-insights/error-codes'),
+  resolveErrorCodeProviderDataDir: vi.fn(
+    (providerId: string) => `/fake/.ai-insights/error-codes/data/${providerId}`
+  ),
 }));
 
 // Import AFTER the mocks are established.
@@ -96,8 +99,8 @@ beforeEach(() => {
   mockProvider = undefined;
   mockRepository = null;
   mockResolveRepositoryInfo = vi.fn(async () => mockRepository);
-  mockIssueTemporaryCode = vi.fn(async (_dir: string, prefix: string) => `${prefix}000001`);
-  mockListTemporaryCodes = vi.fn(async () => []);
+  mockIssueTemporaryCode = vi.fn(async (_dir: string, prefix: string) => ({ code: `${prefix}000001` }));
+  mockListTemporaryCodes = vi.fn(async () => ({ entries: [] }));
   vi.clearAllMocks();
 });
 
@@ -167,6 +170,16 @@ describe('ledger_generate_error_code', () => {
     expect(parsed.repository).toEqual({ root_path: '/repo', folder_name: 'repo', package_name: 'my-pkg' });
   });
 
+  it('passes the temporary-code store warning through in the result', async () => {
+    mockIssueTemporaryCode = vi.fn(async (_dir: string, prefix: string) => ({ code: `${prefix}000042`, warning: 'temporary-codes.json was corrupt' }));
+
+    const result = await generateErrorCode({ temporary: true });
+    const parsed = parseResult(result) as { code: string; warning?: string };
+
+    expect(parsed.code).toBe('777000042');
+    expect(parsed.warning).toBe('temporary-codes.json was corrupt');
+  });
+
   it('returns an MCP error only when the temporary-code store itself fails', async () => {
     mockIssueTemporaryCode = vi.fn(async () => {
       throw new Error('temporary-codes: counter exhausted — cannot issue a value beyond 999999');
@@ -193,6 +206,16 @@ describe('ledger_generate_error_code', () => {
 });
 
 describe('ledger_list_temporary_error_codes', () => {
+  it('includes the listing warning when there is one, and omits it otherwise', async () => {
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: [], warning: 'temporary-codes.json is corrupt' }));
+    const withWarning = parseResult(await listTemporaryErrorCodes({})) as { entries: unknown[]; warning?: string };
+    expect(withWarning.warning).toBe('temporary-codes.json is corrupt');
+
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: [] }));
+    const without = parseResult(await listTemporaryErrorCodes({})) as Record<string, unknown>;
+    expect('warning' in without).toBe(false);
+  });
+
   it('returns the logged entries', async () => {
     const entries: TemporaryCodeEntry[] = [
       {
@@ -205,7 +228,7 @@ describe('ledger_list_temporary_error_codes', () => {
         context: 'ErrorCodeService',
       },
     ];
-    mockListTemporaryCodes = vi.fn(async () => entries);
+    mockListTemporaryCodes = vi.fn(async () => ({ entries }));
 
     const result = await listTemporaryErrorCodes({});
     const parsed = parseResult(result) as { entries: TemporaryCodeEntry[] };
@@ -215,7 +238,7 @@ describe('ledger_list_temporary_error_codes', () => {
   });
 
   it('honors the filter param', async () => {
-    mockListTemporaryCodes = vi.fn(async () => []);
+    mockListTemporaryCodes = vi.fn(async () => ({ entries: [] }));
 
     await listTemporaryErrorCodes({ filter: 'ErrorCodeService' });
 

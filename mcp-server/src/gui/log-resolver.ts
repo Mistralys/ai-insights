@@ -30,6 +30,7 @@
 import { readdir, readFile, appendFile, copyFile, mkdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { ApiError } from './errors.js';
+import { hasErrorCode } from '../utils/node-errors.js';
 export { ApiError };
 
 /**
@@ -473,7 +474,7 @@ export async function readLogEntries(
   try {
     raw = await readFile(resolvedFilePath, 'utf-8');
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       throw new ApiError('NOT_FOUND', `Log file not found: '${filename}'`);
     }
     throw err;
@@ -496,12 +497,4 @@ export async function readLogEntries(
   }
 
   return { entries, totalLines };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
 }
