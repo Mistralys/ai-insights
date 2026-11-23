@@ -21,6 +21,7 @@ An open-source toolkit that brings **structure, persistence, and role separation
 - [Orchestrator User Guide](references/orchestrator-user-guide) — End-to-end walkthrough: preparing plans, running workflows, monitoring via the GUI
 - [Agent Persona Overview](references/agents-overview) — All 42 agent personas: roles, modes, inputs, and outputs
 - [Workflow, Ledger & Orchestrator](references/workflow-and-ledger) — How the agentic workflow operates end-to-end
+- [IDE and Runtime Settings](references/ide-runtime-settings) — Claude Code and VS Code settings the personas and ledger workflow depend on
 - [Multi-Store Guide](references/multi-store-guide) — Multiple ledger directories: setup, CLI reference, and migration
 - [GUI Usage Scenarios](references/usage-scenarios/) — Acceptance-verification scenarios for the MCP Server Dashboard, grouped by GUI area
 

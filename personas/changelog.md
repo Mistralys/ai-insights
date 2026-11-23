@@ -21,7 +21,7 @@ dispatches now start the intended agent on Claude Code. The Synthesis Maintainer
 summaries and applies requested synthesis edits.
 
 - Ledger, Ledger-Support: No check-only work packages; the Ledger Doctor diagnoses legacy ones.
-- Ledger: Claude Code handoffs and sub-agent dispatches start the intended agent.
+- Ledger, Ledger-Support: Claude Code dispatches start the right agent; Coordinator reruns Archiver.
 - Ledger, Standalone: Claude Code dispatchers continue on a sub-agent's final report, not stall.
 - Ledger: QA re-engages when requested and narrows its run only after a failed QA pipeline.
 - Ledger-Support: Synthesis Maintainer composes summaries, applies edits, picks Archive or Refresh.

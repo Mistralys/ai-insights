@@ -130,3 +130,18 @@
 - Confirmed: User-vetted testing scenarios are also worth it, but need careful balancing to focus on the essentials.
 - Confirmed: Project vision and ledger knowledge insights have proven to be worth gold.
 - Confirmed: AX feedback is definitely useful to spot issues that are otherwise invisible.
+
+### November
+
+- Workspace architect & code maintenance engineers.
+- As you lose touch with your code, agents must take over maintenance.
+- Schedule agent-piloted code and dependency care into your projects.
+- Schedule quarterly app architectural reviews to surface high-level debt invisible at dev level.
+
+### December 2026
+
+- Copilot subscription vs Anthropic: The multi-model subscription is very useful.
+- Saving research vs fresh queries: Updating saved research cheaper and more accurate. Add an initial research and updated date, and an estimation of the duration until it's stale.
+- Not everything needs AI. Mechanical processes first, judgment-based processes come afer and can build on mechanical processes.
+- Know your models. Don't swat all flies with Opus, open models like Qwen will do many tasks beautifully.
+- Reevalutate model capabilities regularly. Sonnet today is the Opus of yesterday.
