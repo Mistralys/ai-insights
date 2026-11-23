@@ -323,6 +323,24 @@ describe('stale responses after leaving a tab (AC-13)', () => {
     expect(globalThis.mrModels).toBeNull();
   });
 
+  it('(Model Registry) a Load Defaults response settling after a non-discarding leave reconciles the retained cache without touching the DOM', async () => {
+    const mrTab = findTab('modelRegistry');
+    mrTab.render(makeConfig(), [makeModel()]);
+
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    const def = deferred<{ models: unknown[]; conflicts: unknown[] }>();
+    globalThis.API.loadDefaultModels = vi.fn().mockReturnValue(def.promise);
+    (document.getElementById('mr-load-defaults-btn') as HTMLButtonElement).dispatchEvent(new Event('click', { bubbles: true }));
+
+    leaveAndSentinel('modelRegistry', false);
+    def.resolve({ models: [makeModel(), makeModel({ id: 'm-default', slug: 'default-one' })], conflicts: [] });
+    await flushPromises();
+
+    expect(contentEl().innerHTML).toBe(SENTINEL);
+    expect(globalThis.mrModels).toHaveLength(2);
+    expect(globalThis.mrOriginal).toHaveLength(2);
+  });
+
   it('(Persona Models) a Save response settling after a discard-leave does not repopulate state', async () => {
     const pmTab = findTab('personaModels');
     pmTab.render(makeConfig(), [makeModel()], [makePersona()], { persona_models: {} });

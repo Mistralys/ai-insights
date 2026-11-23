@@ -23,7 +23,9 @@
                 mrLeaveTab(). mrDoSave and mrDoLoadDefaults capture it before
                 their request and return early when it no longer matches, so
                 a response that settles after the user left this tab cannot
-                write into #config-tab-content or repopulate cleared state
+                write into #config-tab-content or repopulate cleared state.
+                A successful stale response still reconciles a retained cache
+                via mrReconcileStale() (no DOM writes)
                 (same pattern as config-error-codes.js's ecVisit). */
 var mrModels    = null;
 var mrOriginal  = null;
@@ -44,6 +46,21 @@ function mrLeaveTab(discarded) {
   if (discarded) {
     mrModels = mrOriginal = mrEditingId = null;
   }
+}
+
+/**
+ * Reconcile a successful server mutation that settled after the user left the
+ * tab. The DOM is never touched, but a retained cache (non-discarding leave)
+ * would otherwise go stale: returning to the tab would reuse it and a later
+ * Save would treat the server-side additions as deletions. A cache that was
+ * discarded (null) is left null so the tab re-initialises on return.
+ */
+function mrReconcileStale(models) {
+  if (mrModels === null) return;
+  mrModels    = mrCloneModels(models);
+  mrOriginal  = mrCloneModels(models);
+  mrEditingId = null;
+  configDirty.modelRegistry = false;
 }
 
 /**
@@ -590,9 +607,9 @@ function mrDoSave() {
 
   API.saveModels(payload)
     .then(function (result) {
-      if (visit !== mrVisit) return;
-      /* Refresh state from server response */
       var saved = (result && result.models) ? result.models : payload;
+      if (visit !== mrVisit) { mrReconcileStale(saved); return; }
+      /* Refresh state from server response */
       mrModels   = mrCloneModels(saved);
       mrOriginal = mrCloneModels(saved);
       mrEditingId = null;
@@ -630,8 +647,8 @@ function mrDoLoadDefaults() {
 
   API.loadDefaultModels()
     .then(function (result) {
-      if (visit !== mrVisit) return;
       var loaded    = (result && result.models)    ? result.models    : [];
+      if (visit !== mrVisit) { mrReconcileStale(loaded); return; }
       var conflicts = (result && result.conflicts) ? result.conflicts : [];
 
       mrModels    = mrCloneModels(loaded);

@@ -728,8 +728,8 @@ The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash r
 
 | Function | Description |
 |----------|-------------|
-| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
-| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale. On success, refreshes state and displays slug-collision conflicts if any were returned. |
+| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response still reconciles a retained `mrModels`/`mrOriginal` cache via `mrReconcileStale()`, with no DOM writes). On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
+| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response reconciles a retained cache via `mrReconcileStale()`). On success, refreshes state and displays slug-collision conflicts if any were returned. |
 
 **Error Codes tab** (defined in `config-error-codes.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: function () { ecRenderTab(); }, leave: ecResetState, reset: ecResetState }` — Error Codes has no "keep state unless discarded" case, so `leave` and `reset` are the same function):
 
