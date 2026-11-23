@@ -39,8 +39,11 @@ is the one in the current directory.
    An empty array means there is nothing to fix: report that and stop. On a non-zero exit,
    show the error message (usually `gh` missing or not logged in) and stop.
 
-4. **Assess each thread.** Read the code at `path` around `startLine`–`line` and judge the
-   comment on its merits. Copilot is sometimes wrong, so never apply a suggestion blindly.
+4. **Assess each thread.** When `commentCount` is greater than one, fetch the complete
+   conversation using the thread's `id` or `url`, including all pages of replies.
+   Read the developer's clarifications and scope decisions before deciding what to change.
+   Read the code at `path` around `startLine`–`line` and judge the comment on its merits.
+   Copilot is sometimes wrong, so never apply a suggestion blindly.
    Classify each thread as:
    - **Fix** — the comment is correct and actionable.
    - **Dispute** — the comment is wrong, already handled, or contradicts a project rule.
