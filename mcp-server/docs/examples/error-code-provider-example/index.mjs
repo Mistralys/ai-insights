@@ -23,15 +23,20 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 
-/** Reads the current counter value, or `null` when the file is absent or unreadable. */
+/** Reads the current counter value; only an absent file starts a new sequence. */
 async function readCounterValue(filePath) {
+  let raw;
   try {
-    const raw = await readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    return typeof parsed.value === 'number' ? parsed.value : null;
-  } catch {
-    return null;
+    raw = await readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
+  const parsed = JSON.parse(raw);
+  if (!Number.isSafeInteger(parsed?.value) || parsed.value < 0) {
+    throw new Error('Counter file must contain a non-negative safe integer value.');
+  }
+  return parsed.value;
 }
 
 /** Writes the counter value, creating the parent directory if needed. */
