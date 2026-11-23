@@ -116,3 +116,4 @@ the agent to delegate to). Always deploy personas before testing agent-delegatin
 | Skill | File | Description |
 |-------|------|-------------|
 | `insights-audit-persona` | `src/insights-audit-persona.md` | Launches the Persona Curator in Audit mode to evaluate a persona against the Persona Design Guide. Requires `persona-curator` to be deployed. |
+| `insights-pr-review` | `src/insights-pr-review.md` | Takes a PR URL or number, fetches its unresolved Copilot review threads with `scripts/fetch-pr-review-comments.js`, assesses each and fixes the valid ones in the local checkout. Runs in the main session (no `agent`/`context`); needs an authenticated `gh`. Finds the script via the current directory or the global `ai-insights` command. |

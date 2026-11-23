@@ -12,6 +12,10 @@ main()
   ├── startConfigWatcher(configPath) → fs.watch for external changes
   ├── startAutoArchiveTimer() → periodic project archival
   ├── captureWorkspaceVersions() → snapshot boot versions (for stale detection)
+  ├── initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })
+  │     → built-in + plugin error-code providers; load errors logged, startup continues
+  │     → mirrors the same call at MCP server startup (src/index.ts), so both
+  │       processes' registries reflect the same built-in and plugin set
   └── createServer(handleRequest).listen(port)
         → Log "MCP GUI server running at http://localhost:{port}"
 ```
@@ -39,12 +43,14 @@ Incoming HTTP Request
           │   ├── Section A — body-parsing routes (PUT, PATCH, POST)
           │   ├── Section B — keyword-specific body-free routes (noBody:true; must precede §C)
           │   └── Section C — catch-all body-free routes (noBody:true)
+          ├── route.guards (when present) run in array order — each may throw ApiError to reject
+          │     e.g. the error-code routes' requireLoopbackRequest / requireJsonContentType (constraints.md §7)
           ├── readJsonBody(req) — enforce 1 MiB limit (skipped when noBody:true)
           ├── route.handler(body, groups?, query?) → result
           └── sendJson(res, statusCode ?? 200, result) | writeHead(204) + res.end()
           No match → 404 JSON error
 
-Error handling (any path):
+Error handling (any path, including a guard's throw):
   ApiError           → sendError(res, statusFromCode, code, message)
   PayloadTooLargeError → sendError(res, 413, ...)
   Unhandled          → stderr log + sendError(res, 500, 'INTERNAL_ERROR', ...)
@@ -471,4 +477,96 @@ Frontend on success:
 - Tab-switch cleanup runs **unconditionally** (not inside the `if (configDirty[configActiveTab])` guard) because the Stores tab has no pending state to lose.
 - `reloadStoreContext()` calls `setStoreContext()` with `skipDirCreate: true`. If a store path is temporarily unavailable (unmounted drive, offline NFS), the reload succeeds and the server continues in degraded mode — it does not throw a 500 that would leave the in-memory context stale.
 - `handleRemoveStore` uses `loadStoresConfig()` after `saveStoresConfig()` to rebuild the enriched list from the updated file, not from the stale pre-mutation snapshot.
+
+---
+
+## 14. Error-Code Provider Config & Test Flow
+
+The GUI's Error Codes settings tab (`views/config-error-codes.js`) is the frontend consumer of these routes. All five routes are guarded by `requireLoopbackRequest`; `PUT`/`POST` additionally by `requireJsonContentType` (constraints.md §7, "Request-Level Guards").
+
+```
+GET /api/error-codes/config
+  └── handleGetErrorCodeConfig (gui/api-error-codes.ts)
+      └── readErrorCodeConfig() (src/error-codes/config-store.ts) → { config, warning? }
+            — the GUI-facing read path, distinct from loadErrorCodeConfig() used by PUT/POST
+            below: a salvaged/corrupt/unreadable config.json surfaces its warning here
+            instead of only to stderr. warning names field paths only (salvaged) or a
+            fixed classification reason (corrupt/unreadable) — never a stored value or
+            the raw JSON-parser message.
+  └── Response: ErrorCodeConfigResponse — warning present only when config.json needed
+        salvage or could not be used as stored; absent for a missing or valid file
+
+PUT /api/error-codes/config  { provider_id, settings, clear_secrets? }
+  └── handleUpdateErrorCodeConfig (gui/api-error-codes.ts)
+      ├── PutErrorCodeConfigBodySchema — temporary_prefix must match TemporaryPrefixSchema (1–6 digits, no leading zero), else 400, nothing written
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → current config
+      ├── mergeSettingsUpdate(provider.settings, stored, settings, clear_secrets)
+      │     ├── non-secret field: incoming value applied when the key is present
+      │     ├── secret field, incoming absent/empty: keeps the stored value
+      │     └── secret field, key in clear_secrets: cleared to ''
+      ├── buildSettingsSchema(provider.settings).safeParse(merged) — invalid → 400, nothing written
+      └── updateErrorCodeConfig(mutator) — read-modify-write under withLock(); a provider_id
+            not targeted by this call is left byte-for-byte unchanged, which is how an
+            uninstalled provider's settings survive the round trip
+  └── Response: ErrorCodeConfigResponse — every secret masked to { set: boolean };
+        only currently-registered providers' blocks appear
+
+POST /api/error-codes/test  { provider_id, settings? }
+  └── handleTestErrorCodeProvider (gui/api-error-codes.ts)
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → stored settings for provider_id
+      ├── mergeSettingsForTest(provider.settings, stored, settings)
+      │     ├── every non-secret field unchanged → stored secrets merged in (secrets_merged: true)
+      │     └── any non-secret field changed     → incoming settings tested as-is (secrets_merged: false)
+      │           — a stored secret never reaches a provider whose destination just changed
+      ├── buildSettingsSchema(provider.settings).safeParse(merged.settings) — invalid → 400
+      ├── collectSecrets(provider.settings, validated) → redact() applied to every text field returned
+      └── provider.test(ctx) ?? provider.peek(request, ctx) ?? { supported: false, message: "…offers no connection test" }
+            — allocate() is never called by this route
+  └── Response: { supported, secrets_merged, ok?, reason?, detail?, value?, message? }
+```
+
+**Tab-side guards (`views/config-error-codes.js`).** Every async callback of the tab — the lazy load (`ecRenderTab`), Save (`ecHandleSave`) and Test connection (`ecHandleTestClick`) — captures `var visit = ecVisit` before its request and returns early when `visit !== ecVisit`. `ecResetState()` (called by `config.js` on every exit from the tab and on page re-render) increments `ecVisit`, so a response that arrives after the user left can neither replace the shared `#config-tab-content` with the Error Codes form nor repopulate the state that was just cleared. A late Save still clears `ecSaveInFlight` first (it spans visits); a late Test leaves `ecTestInFlight` alone. The lazy load's temporary-codes fetch has its own `.catch`, so a corrupt or unreadable log shows a banner in its card instead of blocking the whole tab. The client validates the temporary prefix against `EC_TEMPORARY_PREFIX_PATTERN` before sending; the server's schema stays authoritative. `ecConfigWarning` (the config response's `warning`, distinct from `ecTemporaryWarning`) is set from the lazy load's `GET` response and re-set from `ecHandleSave`'s `PUT` response (which is always `undefined`, since a successful save just wrote a fully-validated file — so a successful save always clears a prior warning); `ecResetState()` clears it on tab exit along with every other `ec*` field.
+
+**Key invariants:**
+- The fail-closed merge (`mergeSettingsForTest`) is the one place the server combines a stored secret with client-supplied settings — see the rationale in `src/error-codes/settings-schema.ts`'s docblock and in the plan that introduced it (WP-011's "Rejected Approaches").
+- `GET /api/error-codes/providers` and `GET /api/error-codes/config` never execute provider code — they only read the registry (`listProviders()`, `listProviderLoadErrors()`) and the config file.
+- Both the MCP server (`src/index.ts`) and the GUI server (`gui/server.ts`) call `initProviderRegistry()` independently at their own startup against the same `resolveErrorCodePluginDir()` — the GUI's providers list reflects exactly the same built-in/plugin set the MCP server's `ledger_generate_error_code` tool allocates through.
+
+## 15. Configuration Tab-Switch Flow (`CONFIG_TABS`)
+
+The tab-bar click handler in `views/config.js` routes every tab switch through the `CONFIG_TABS` descriptor array (`{ key, label, render, leave, reset }` per tab — see constraints.md §25 "Config Tab Modules") rather than branching on the tab key itself:
+
+```
+User clicks a tab button
+  └── tab-bar click handler (config.js)
+        ├── configDirty[configActiveTab] === true?
+        │     └── confirm() — unsaved-changes guard
+        │           ├── Cancel  → stay on current tab, no further action
+        │           └── OK      → discarded = true
+        ├── leavingTab = configFindTab(configActiveTab)
+        ├── leavingTab.leave(discarded)              ← runs unconditionally, discarded defaults to false
+        │     ├── always-reset tabs (Stores, Error Codes):
+        │     │     leave === reset → unconditional reset, regardless of discarded
+        │     │     (increments csVisit / ecVisit, clears module state)
+        │     └── reset-only-on-discard tabs (Persona Models, Model Registry):
+        │           always increments pmVisit / mrVisit (invalidating any in-flight
+        │           request's stale check); resets module state only when discarded
+        │           is true — render's arguments are not refreshed after a save, so
+        │           resetting unconditionally would re-initialise from stale data
+        ├── configActiveTab = <clicked tab key>
+        └── renderConfigTabContent() → configFindTab(configActiveTab).render(...)
+              ← dispatches purely off CONFIG_TABS; no per-tab branch in config.js itself
+
+On full page load / reload:
+renderConfigPage(app, config, models, personas, assignments, stores)
+  ├── resets every configDirty key to false
+  └── CONFIG_TABS.forEach(tab => tab.reset())    ← every tab reset unconditionally,
+        since fresh server data is always about to replace whatever state existed
+```
+
+**Why a visit-spanning flag is not reset by `leave`/`reset`:** `pmIsBuilding` (Persona Models' rebuild-in-progress flag) and `ecSaveInFlight`/`ecTestInFlight` (Error Codes' request-in-flight flags) intentionally survive a tab switch, so a rebuild or save started on one visit still completes and updates its own flag correctly if the user returns. Each is cleared by its own async callback — never by `leave`/`reset` — before that callback's own visit-token stale check runs, so the flag never gets stuck `true` even when the response that would normally clear it arrives after the tab was left.
+
+**Key invariant:** adding a sixth Configuration tab requires only a new `CONFIG_TABS` descriptor — `renderConfigTabContent()` and the tab-bar click handler both dispatch purely off the array via `configFindTab()`, with no separate branch to update.
 

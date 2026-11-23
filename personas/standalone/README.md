@@ -10,7 +10,7 @@ Key differences from ledger workflow personas:
 |----------|----------------|-------------------|
 | `role` field | Required (matches `AGENT_ROLES`) | Absent |
 | Roster / handoff | Full 9-agent pipeline | None |
-| `mcp_server_name` | In `_shared.yaml` | **Not allowed** ([constraint 19](../docs/agents/project-manifest/constraints.md#c19)) |
+| `mcp_server_name` | In `_shared.yaml` | Not allowed in `_shared.yaml` ([constraint 19](../docs/agents/project-manifest/constraints.md#c19)); a persona may set it individually for a narrow MCP tool grant (e.g. `developer.yaml`, `web-gui-specialist.yaml` — error-code allocation) |
 | File prefix | `N-name.md` (numbered) | Slug-based (e.g., `researcher.agent.md`) |
 
 > **Note:** Ledger workflow utility agents (e.g., `ledger-bootstrapper`, `ledger-doctor`) have moved to `personas/ledger-support/`. Those personas share the `central_pm` MCP server dependency and are now in their own dedicated suite. See [personas/ledger-support/README.md](../ledger-support/README.md).

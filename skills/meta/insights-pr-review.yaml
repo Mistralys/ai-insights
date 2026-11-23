@@ -1,0 +1,4 @@
+name: insights-pr-review
+description: "Fetch the unresolved Copilot review comments of a GitHub pull request (URL or number), assess each one, and fix the valid ones in the local checkout. Use when: addressing Copilot PR review feedback, working through pull request review comments, fixing issues a PR review found, reviewing a PR URL like https://github.com/ORG/REPO/pull/123."
+changelog: |
+  1.0.0 (2026-11-20): Initial release — fetches Copilot review threads via fetch-pr-review-comments.js and fixes them locally.

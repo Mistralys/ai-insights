@@ -74,6 +74,10 @@ Follow these steps for every Work Package:
 7. **Static Analysis & Style:** Run the project's static analysis tool (e.g. `eslint`, `phpstan`) and resolve the issues these changes introduced; pre-existing warnings in untouched files are out of scope. Confirm the code follows the project's style guide and established patterns (DRY, SOLID).
 8. **Code Insight Observations:** Include all observations in the `comments` parameter when calling `ledger_complete_pipeline` (see the **Code Insight Observer** section below). Every work package produces an observations section in the ledger — even where it only confirms that no issues were found.
 
+### Error Codes
+
+{{> error-code-generation}}
+
 {{> insight-observer-intro}}
 
 {{> insight-scope-and-types}}

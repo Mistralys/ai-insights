@@ -750,8 +750,8 @@ The `metrics` object in pipelines uses `.passthrough()` in Zod, meaning it accep
 
 ---
 
-### ⚠️ Lock File Persists After Server Exit
+### ⚠️ Lock Directory After a Hard Kill
 
-The `.lock` file inside `storage/ledger/{slug}/` is not automatically deleted when the server exits. It will be left on disk and overwritten on the next lock acquisition.
+`withLock` uses `proper-lockfile`, which represents the lock as a `.lock` **directory** inside the locked directory (e.g. `storage/ledger/{slug}/.lock`). It is removed when the lock is released and on a normal process exit, so it exists only while a lock is held. It is left on disk only after a hard kill (`SIGKILL`, a crash, a power loss); the next acquisition treats it as stale once it is older than the 10 s stale timeout and reclaims it.
 
-**Implication:** Safe to ignore — the lock system handles stale locks automatically.
+**Implication:** Safe to ignore — the lock system handles stale locks automatically. Every process of one user that resolves the same storage directory (both MCP servers, the GUI, parallel workflow runs) contends on the same lock; the error-code state under `~/.ai-insights/error-codes/` is serialised this way too.

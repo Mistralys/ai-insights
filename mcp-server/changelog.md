@@ -1,5 +1,36 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.12.0 - **WIP; UNRELEASED** - Pluggable Error-Code Allocation
+
+**Agents can now ask for a real error-code base number instead of guessing one.**
+`ledger_generate_error_code` allocates a base through a user-configured, third-party-
+extensible provider (built-in `file` and `errorcode-incrementor` providers ship out of
+the box), falling back to a logged temporary code on any provider, network, or
+configuration failure. `ledger_list_temporary_error_codes` lists what's still outstanding.
+
+- Tools: Added `ledger_generate_error_code` and `ledger_list_temporary_error_codes`.
+- Startup: The error-code provider registry (built-ins plus any plugin dropped into
+  `~/.ai-insights/plugins/error-codes/`) is now initialized before tool registration;
+  a plugin load failure is logged to stderr without stopping startup.
+- GUI: The Error Codes tab's Save ignores a second submit while a save is pending.
+- Providers: The Errorcode Incrementor's connection test no longer consumes a code when the base URL already carries `increment=yes`.
+- Providers: A corrupt or unreadable `file`-provider counter file now falls back to a temporary code instead of restarting the sequence.
+- Providers: `file`-provider counter names such as `__proto__` or `constructor` are stored like any other name.
+- Providers: The error-code data directory now resolves the same way for the MCP tools and the GUI on every platform.
+- Storage: A corrupt temporary-code log is repaired in place after a copy is kept, and numbering continues; the result carries a `warning`.
+- Config: The temporary prefix must be 1–6 digits; an invalid stored value falls back to `777` without resetting other settings.
+- GUI: Leaving the Error Codes tab while it loads or saves no longer overwrites the next tab.
+- GUI: Switching Configuration tabs no longer lets a slow response from the tab you left overwrite the tab you're on.
+- GUI: Persona Models and Model Registry keep what they loaded when you leave the tab and come back.
+- GUI: A rejected config save now names the field that failed and why, instead of a generic message — without ever echoing the value you typed.
+- GUI: Loading the Error Codes configuration now shows a warning if a corrupted file had to be repaired first.
+- Storage: `temporary-codes.json` is written with owner-only (`0600`) permissions, like `config.json`.
+- Storage: Atomic file writes use a more collision-resistant temporary file name, avoiding clashes between concurrent writers.
+- Plugins: Symlinked plugin files and folders are followed; a dangling link is reported as a load error.
+- Plugins: Each plugin import times out after 10 s, so one hanging plugin can no longer block startup.
+- Docs: Tool help, manifest and README document both tools, every `fallback_reason`,
+  and the temporary-code format.
+
 ## v2.11.0 - Outcome Summaries and Stricter Chain Validation
 
 **A work package whose verifier stage cannot be fixed now fails at creation, not at run time.**

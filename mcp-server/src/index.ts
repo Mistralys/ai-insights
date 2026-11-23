@@ -5,24 +5,15 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { SERVER_VERSION } from './utils/server-version.js';
-import * as projectLifecycleTools from './tools/project-lifecycle.js';
-import * as workPackageTools from './tools/work-package.js';
-import * as pipelineTools from './tools/pipeline.js';
-import * as beginWorkTools from './tools/begin-work.js';
-import * as observationTools from './tools/observations.js';
-import * as workflowTools from './tools/workflow.js';
-import * as helpTools from './tools/help.js';
-import * as pingTools from './tools/ping.js';
-import * as knowledgeTools from './tools/knowledge.js';
-import * as repositoryContextTools from './tools/repository-context.js';
-import * as standaloneImportTools from './tools/standalone-import.js';
+import { registerAllTools } from './tools/registry.js';
+import { initProviderRegistry, listProviderLoadErrors } from './error-codes/provider-registry.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { getVSCodeAgentsDir } from './utils/publish-locations.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
 import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
-import { loadStoresConfig, resolveGuiConfigPath } from './storage/store-registry.js';
+import { loadStoresConfig, resolveGuiConfigPath, resolveErrorCodePluginDir } from './storage/store-registry.js';
 import { StoreRouter } from './storage/store-router.js';
 import { MultiStoreManager } from './storage/multi-store-manager.js';
 import { setStoreContext } from './storage/store-context.js';
@@ -66,21 +57,22 @@ async function main(): Promise<void> {
   // Expose server instance for getClientInfo() accessor
   setMcpServer(server);
 
-  // NOTE: The tool list printed in the startup log below must be kept in sync
-  // with the tools registered here. Update the log message whenever a tool is
-  // added or removed in src/tools/**. There is no auto-discovery at startup.
-  // Register tools
-  projectLifecycleTools.register(server);
-  workPackageTools.register(server);
-  pipelineTools.register(server);
-  beginWorkTools.register(server);
-  observationTools.register(server);
-  workflowTools.register(server);
-  helpTools.register(server);
-  pingTools.register(server);
-  knowledgeTools.register(server);
-  repositoryContextTools.register(server);
-  standaloneImportTools.register(server);
+  // Build the error-code provider registry (built-ins + third-party plugins
+  // from ~/.ai-insights/plugins/error-codes/) before any tool registration,
+  // so ledger_generate_error_code never races an empty registry. A plugin
+  // load failure is logged to stderr and otherwise ignored — it must never
+  // stop server startup.
+  await initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() });
+  for (const loadError of listProviderLoadErrors()) {
+    process.stderr.write(
+      `[error-codes] Failed to load provider plugin from ${loadError.source}: ${loadError.message}\n`
+    );
+  }
+
+  // Register every tool module listed in TOOL_MODULES (src/tools/registry.ts)
+  // and capture the registered tool names for the startup log below. There
+  // is no hand-maintained list to keep in sync anymore — see registry.ts.
+  const registeredToolNames = registerAllTools(server);
 
   // Connect to STDIO transport
   // Note: stdout is reserved for MCP protocol, all logs go to stderr
@@ -151,11 +143,10 @@ async function main(): Promise<void> {
   startConfigWatcher(configPath);
   process.stderr.write(`[config] Watching ${configPath}\n`);
 
-  // NOTE: This list must be kept in sync manually when tools are added or
-  // removed in src/tools/**. The MCP SDK does not expose a listTools() method
-  // at startup, so dynamic generation is not currently possible.
+  // Derived from the names registerAllTools() actually registered above —
+  // this log can no longer drift from the real tool set.
   console.error(
-    '[project-ledger-mcp] Registered tools: ledger_ping, ledger_help, ledger_complete_synthesis, ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_reopen_cancelled_wp, ledger_update_acceptance_criteria, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status, ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_delete_insight, ledger_get_repository_context, ledger_import_standalone, ledger_update_synthesis'
+    `[project-ledger-mcp] Registered tools: ${registeredToolNames.join(', ')}`
   );
 
   // Initialise agent registry for auto-handoff

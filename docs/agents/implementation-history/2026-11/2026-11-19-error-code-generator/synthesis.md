@@ -1,0 +1,65 @@
+# Synthesis Report — Error Code Generator
+
+### Outcome Summary
+
+This project added a pluggable error-code allocator to the Ledger MCP server: agents can now call `ledger_generate_error_code` to get a new error-code base number, sourced through a versioned, third-party-extensible provider contract with two built-in providers (a zero-setup file-based counter and an HTTP "Errorcode Incrementor" client), a GUI settings tab for configuration, and a `ledger_list_temporary_error_codes` tool for recovering from fallback allocations. Along the way, the server's three hand-maintained tool-registration lists were consolidated into a single derived `TOOL_MODULES` registry, and the ledger Developer, standalone Developer and Web GUI Specialist personas were granted narrow, documented access to the two new tools. All 13 work packages completed with clean security sign-off after remediating one High-severity GUI access-control finding and one Medium-severity TOCTOU finding, and the full mcp-server test suite grew from a 4303-test baseline to 4499 passing tests with no regressions.
+
+### Metrics
+
+- **Work packages:** 13/13 COMPLETE, all pipeline stages passed (0 missing stages per ledger pipeline-health check).
+- **Tests:** Final full-suite run (WP-013, exit gate) — 164 test files / 4499 tests passing, 0 failures. `tsc --noEmit` clean throughout.
+- **Security audits:** 2 findings raised and remediated to PASS — WP-001 (Medium, TOCTOU window in `atomicWriteJson`'s new mode option) and WP-011 (High, spoofable Host/Origin-only loopback guard on the GUI's error-code API routes, fixed with a socket-level `remoteAddress` check). All other security-audit passes across WP-004, WP-005, WP-007, WP-008, WP-009, WP-010, WP-013 were clean on the first pass (0 Critical/High/Medium findings).
+- **Code review:** 1 Blocking finding (WP-008, null-dereference in `resolveCounterLocation` for a custom counter path with no repository resolved), fixed and re-verified. All other reviews passed with 0 Blocking / 0 Fix-Forward on first pass.
+- **Rework cycles:** WP-001 (2 implementation, 2 QA, 1 security-audit), WP-006 (1 implementation, 1 QA — stale generated `agents-overview.md`), WP-008 (1 each of implementation/QA/code-review/security-audit — the null-dereference bug), WP-011 (1 each of implementation/QA/security-audit — the loopback-guard finding). All other WPs passed every stage on the first attempt.
+- **Documentation debt caught proactively:** the Documentation stage repeatedly found and fixed `file-tree.md`/`api-surface.md` gaps left by earlier WPs (missing `src/error-codes/` entries after WP-001/WP-004/WP-005/WP-008/WP-009; a stale "three tabs" description and missing CSS class after WP-013; a stale loopback-guard description in the plugin-author guide after WP-011's security fix).
+
+### Blockers, Failures & Security Concerns (resolved)
+
+- **WP-011 — High, GUI access control (A01/A05):** `requireLoopbackRequest` validated only client-supplied `Host`/`Origin` headers, with no check against the actual TCP socket. Since the GUI binds every network interface, a direct non-browser LAN client could spoof `Host: localhost` with no `Origin` header and reach all five error-code API routes, including config read/write and the connection-test endpoint (which performs a real outbound call using the stored secret). **Fixed** by adding a primary `req.socket.remoteAddress` loopback check (127.0.0.0/8, `::1`, `::ffff:`-mapped form) ahead of the header checks; re-audited and closed.
+- **WP-001 — Medium, TOCTOU on `atomicWriteJson`'s secret-bearing mode option:** the temp file was written with default (wider) permissions and `chmod`'d only afterward, leaving a predictable-path window where a secret-bearing file could be briefly world-readable. **Fixed** by passing `mode` directly into `fs.writeFile`'s own options so the OS applies it atomically at creation.
+- **WP-008 — Blocking code-review finding:** `resolveCounterLocation()` threw an uncaught `TypeError` for a documented, legitimate configuration (custom absolute `counter_file` path with no `{repo}` placeholder, combined with no resolvable repository). The allocator's own catch-and-fallback logic masked this as a silent fallback to a temporary code rather than a crash, but the configuration was completely broken. **Fixed** by gating the repository-path substitution on `usesRepoPlaceholder` explicitly.
+- **Ledger-workflow incident (process, not product):** WP-008 hit a routing deadlock during its rework cycle — a stale `IN_PROGRESS`/QA claim plus a security-audit PASS that predated a later implementation rework caused `ledger_get_next_action` to bounce Developer and QA agents back and forth (`auto_handoff_depth` reached 91 before Ledger Doctor intervention). Resolved by a Project Manager-level status reset (`IN_PROGRESS` → `READY`) to release the stale claim and let Security Auditor re-run. No code impact, but see Strategic Recommendations below.
+
+### Strategic Recommendations
+
+- **Monkey-patch-and-restore for introspecting third-party registration APIs** (WP-002, `registerAllTools`): when a third-party SDK object exposes a registration method but no after-the-fact listing API, temporarily patch the method for the duration of one call and restore the exact original reference via `try/finally`, rather than forking the object's public surface or requiring every caller to self-report. Reusable whenever the same shape of problem recurs.
+- **Narrow per-tool MCP grant template** (WP-006): granting a single capability from a server a persona otherwise has no dependency on is now a documented, repeatable pattern — `tools:` entry + matching `cc_tools:` entry + a per-persona `mcp_server_name` override, each with an inline rationale comment. Use this instead of a server-level wildcard grant for any future narrow-scope tool access.
+- **Descriptor-driven secret-field UI pattern** (WP-013): masked `{ set: boolean }` representation, a password input that is never pre-filled, and an explicit `clear_secrets` list (rather than "empty string means clear") is a clean, reusable contract for any future settings surface that needs to round-trip secrets without ever echoing them.
+- **Policy-centralization-in-the-core pattern** (WP-007 Allocator): keeping all retry/fallback/timeout/redaction policy in one core module rather than letting each pluggable provider implement its own is the main lever that made the provider contract safe for third parties — worth calling out as a template for any future plugin system in this codebase.
+- **Ledger routing robustness:** the WP-008 ping-pong (Developer ⇄ QA auto-handoff loop when a stage outside both of their pipelines — security-audit — needed to re-run after a rework) is a real gap in the next-action computation for post-rework stage-freshness, not an agent error. Worth a dedicated Ledger Doctor / tooling fix so future projects don't need a manual PM-level status reset to break the loop.
+
+### Code Insights
+
+**Developer**
+- Settings-merge secret handling must be gated per-field on that field's own incoming value being absent/empty, never on a blanket "non-secret fields unchanged" condition (WP-001 `mergeSettingsForTest` bug, caught by QA before it shipped).
+- `peek()` on a sequence provider should return the same forward-looking "next value `allocate` would issue" as its baseline, not the last-issued value, to avoid a 0/invalid special case for a never-allocated sequence (WP-008).
+- `atomicWriteJson`'s `mode` option must be passed directly into the file-creation call's own options, never applied via a separate post-write `chmod`, to avoid a TOCTOU window on secret-bearing files (WP-001).
+
+**QA**
+- `withLock()` (proper-lockfile-based) costs roughly 350–850ms per contested acquisition — serialized high-volume test scenarios (10–20 sequential calls) took 7.5–17.5s; flagged as a latency budget a future high-throughput consumer should know about, not a defect (WP-004).
+- Several low-priority coverage gaps were intentionally left untested where the behavior was verified correct by code inspection and the missing case was low-value (duplicate-name throw path in `registerAllTools`, WP-002; `response_suffix=''` and integer-overflow branches in the HTTP provider's response parser, WP-009; `resolveErrorCodesDir()`'s throw path, WP-010).
+
+**Security Auditor**
+- The plugin-loading trust boundary (filesystem write access to `~/.ai-insights/plugins/error-codes/`) is explicitly documented as equivalent to `npm install` trust, and is not crossable from any currently-exposed surface — confirmed by dedicated audit of the registry's first-ever runtime code-loading extension point (WP-005).
+- Recommended defense-in-depth items not required for sign-off: no `import()` timeout for a hanging plugin (WP-005); `counter_file`'s path setting carries no containment validation, by documented design, reachable only through the already-trusted local config-write surface (WP-008); `temporary-codes.json` is not written with the restrictive `0o600` mode that `config.json` uses (WP-007).
+
+**Reviewer**
+- `ecHandleSave()` in the Error Codes GUI tab lacks an in-flight guard mirroring the Test-connection button's `ecTestInFlight`, so two rapid Save clicks before the first PUT resolves fire two concurrent requests. Not an AC violation (only Test connection debounce was required) but flagged as a recommended low-priority follow-up (WP-013).
+- The Error Codes subsection was deliberately placed immediately before each persona's insight-observer heading across all three personas sharing the partial, establishing a placement precedent for future shared-partial insertions (WP-006).
+
+### Deferred & Follow-Up Items
+
+- **Deferred — `ecSaveInFlight` guard for the Error Codes GUI tab's Save button** (WP-013, Reviewer/QA/Security Auditor, medium priority). No acceptance criterion required Save-button debounce, only Test-connection debounce, so this was knowingly left for a future pass rather than blocking the WP.
+- **Deferred — `build-personas.js --check` does not itself detect stale `agents-overview.md`** (WP-006, Developer, low priority). Flagged for the Workspace Architect/tooling owners to consider folding `generate-agents-overview.js --check` into `build-personas.js`'s own `--check` mode so one command catches both.
+- **Out-of-scope — no concurrency guard on `initProviderRegistry()`** (WP-005, QA, low priority). Repeated/concurrent calls within one process are not explicitly locked against each other; current callers (MCP server startup, GUI server startup) each call it once, so this is a latent gap rather than an active defect.
+- **Out-of-scope — symlinked plugin entries are silently skipped by the plugin loader** (WP-005, QA, low priority). Not covered by the current test suite; no current plugin-authoring guidance recommends symlinks, so this is a documented gap rather than a blocker.
+- **Out-of-scope — v2.11.0 changelog heading is missing its "WIP; UNRELEASED" marker** (WP-010, Release Engineer, low priority). Pre-existing anomaly from before this plan, noted for awareness only; does not affect this plan's own v2.12.0 WIP entry.
+- **Out-of-scope — `isLoopbackAddress()`'s hex IPv4-mapped-form handling and `127.x.x.x` test coverage beyond `127.0.0.1`** (WP-011, QA, low priority). Theoretical gaps not reachable via Node's actual socket API; recorded for completeness, not required for the security sign-off.
+- **Process follow-up — Ledger next-action computation after a rework cycle** (project-level incident, Ledger Doctor / QA / Developer, high priority). The WP-008 Developer⇄QA auto-handoff loop (depth 91) exposed a real gap: when a rework cycle invalidates a stage outside both the Developer's and QA's pipeline scope (here, security-audit needing to re-run after an implementation fix), neither role's `ledger_get_next_action` recognizes that a third role must act first, and they bounce to each other indefinitely. Recommend a dedicated fix to the next-action routing logic for this "no active role has pending work, but a prior-passed stage is stale" case, rather than requiring a manual PM-level status reset each time it recurs.
+
+### Next Steps
+
+- Prioritize the ledger routing-loop fix identified above (stale-stage-after-rework next-action computation) before the next multi-stage plan runs, to avoid repeat manual interventions.
+- Consider a small follow-up WP to add the `ecSaveInFlight` guard to the Error Codes GUI tab, bundled with any other small GUI polish items from this plan.
+- When planning the next error-code-related work (e.g. an additional built-in provider, or surfacing allocation history elsewhere in the GUI), reuse the three reusable patterns captured above (monkey-patch-and-restore introspection, narrow per-tool MCP grants, descriptor-driven secret-field UI) rather than re-deriving them.
+- No functional work remains outstanding from this plan — all acceptance criteria across all 13 WPs are met, and the exit gate (full mcp-server `npm test` + `npm run build`) passed clean with no regressions against baseline.

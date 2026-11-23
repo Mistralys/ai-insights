@@ -3,6 +3,14 @@
    Section 4d-mr of the MCP Server Dashboard SPA
    Depends on: API (api-client.js), UI (components.js), escapeHtml (utils.js), crypto.randomUUID (browser built-in), configDirty (config.js)
    Must be loaded BEFORE config.js.
+
+   Tab contract (see config.js's CONFIG_TABS registry): this module is
+   registered as { render, leave: mrLeaveTab, reset: mrResetState }.
+   mrLeaveTab(discarded) resets module state only when discarded is true —
+   the page-load arguments passed to renderModelRegistryTab() are not
+   refreshed after a save, so resetting unconditionally on every leave would
+   re-initialise from stale data on return. mrResetState() (used for a full
+   page reload) always resets.
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
@@ -10,10 +18,58 @@
 /* Module-level state for Model Registry tab.
    mrModels:    working copy of the model list (may have edits / pending deletions).
    mrOriginal:  snapshot loaded from the server — used for dirty comparison.
-   mrEditingId: id of the row currently in edit mode (null when none). */
+   mrEditingId: id of the row currently in edit mode (null when none).
+   mrVisit:     Monotonic visit token, incremented by mrResetState() and
+                mrLeaveTab(). mrDoSave and mrDoLoadDefaults capture it before
+                their request and return early when it no longer matches, so
+                a response that settles after the user left this tab cannot
+                write into #config-tab-content or repopulate cleared state.
+                A successful stale response still reconciles a retained cache
+                via mrReconcileStale() (no DOM writes)
+                (same pattern as config-error-codes.js's ecVisit). */
 var mrModels    = null;
 var mrOriginal  = null;
 var mrEditingId = null;
+var mrVisit     = 0;
+
+/**
+ * Leave the tab: always invalidate in-flight requests (increments mrVisit).
+ * Resets module state only when `discarded` is true (the user confirmed
+ * discarding unsaved changes) — a non-discarding leave must preserve
+ * unsaved edits, since renderModelRegistryTab()'s page-load arguments are
+ * not refreshed after a save and would otherwise overwrite them on return.
+ *
+ * Called by config.js's CONFIG_TABS registry.
+ */
+function mrLeaveTab(discarded) {
+  mrVisit++;
+  if (discarded) {
+    mrModels = mrOriginal = mrEditingId = null;
+  }
+}
+
+/**
+ * Reconcile a successful server mutation that settled after the user left the
+ * tab. The DOM is never touched, but a retained cache (non-discarding leave)
+ * would otherwise go stale: returning to the tab would reuse it and a later
+ * Save would treat the server-side additions as deletions. A cache that was
+ * discarded (null) is left null so the tab re-initialises on return.
+ */
+function mrReconcileStale(models) {
+  if (mrModels === null) return;
+  mrModels    = mrCloneModels(models);
+  mrOriginal  = mrCloneModels(models);
+  mrEditingId = null;
+  configDirty.modelRegistry = false;
+}
+
+/**
+ * Reset all module state unconditionally. Used on a full Configuration page
+ * reload, where fresh server data is always about to replace it.
+ */
+function mrResetState() {
+  mrLeaveTab(true);
+}
 
 /* Slug validation regex — mirrors the server-side rule. */
 var MR_SLUG_REGEX = /^[A-Za-z0-9][A-Za-z0-9 .()\-]*$/;
@@ -547,10 +603,13 @@ function mrDoSave() {
     return { id: m.id, name: m.name, slug: m.slug, cc_model: m.cc_model };
   });
 
+  var visit = mrVisit;
+
   API.saveModels(payload)
     .then(function (result) {
-      /* Refresh state from server response */
       var saved = (result && result.models) ? result.models : payload;
+      if (visit !== mrVisit) { mrReconcileStale(saved); return; }
+      /* Refresh state from server response */
       mrModels   = mrCloneModels(saved);
       mrOriginal = mrCloneModels(saved);
       mrEditingId = null;
@@ -561,6 +620,7 @@ function mrDoSave() {
       if (msg2) msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Saved successfully.</span>';
     })
     .catch(function (err) {
+      if (visit !== mrVisit) return;
       var msg2 = document.getElementById('mr-msg');
       if (saveBtn) saveBtn.disabled = false;
       if (err && err.code === 'CONFLICT') {
@@ -583,9 +643,12 @@ function mrDoLoadDefaults() {
   var msgEl = document.getElementById('mr-msg');
   if (msgEl) msgEl.innerHTML = '<span style="color:var(--color-text-muted);font-size:13px;">Loading defaults…</span>';
 
+  var visit = mrVisit;
+
   API.loadDefaultModels()
     .then(function (result) {
       var loaded    = (result && result.models)    ? result.models    : [];
+      if (visit !== mrVisit) { mrReconcileStale(loaded); return; }
       var conflicts = (result && result.conflicts) ? result.conflicts : [];
 
       mrModels    = mrCloneModels(loaded);
@@ -612,6 +675,7 @@ function mrDoLoadDefaults() {
       }
     })
     .catch(function (err) {
+      if (visit !== mrVisit) return;
       var msg2 = document.getElementById('mr-msg');
       if (msg2) msg2.innerHTML = '<p class="error-banner">Failed to load defaults: ' + escapeHtml(err.message || String(err)) + '</p>';
     });

@@ -21,6 +21,8 @@
 | `zod` | ^3.24.1 | Runtime schema validation and type inference |
 | `proper-lockfile` | ^4.1.2 | Cross-platform file locking with retry logic |
 
+No HTTP client dependency is added for the `errorcode-incrementor` error-code provider (`src/error-codes/providers/errorcode-incrementor-provider.ts`): it uses Node's global `fetch` directly, and the core's own `AbortSignal.timeout()`-derived `ctx.signal` (see `allocator.ts`) for its request timeout — both already available on the Node version this project targets.
+
 ### Development
 
 | Package | Version | Purpose |
@@ -104,11 +106,11 @@ Sits above `LedgerStore` and the plain-function modules. Adds store-level routin
 ### 3. **Atomic Write Pattern**
 
 All file writes use the **write-to-temp-then-rename pattern**:
-1. Write JSON to `{filePath}.tmp.{pid}`
+1. Write JSON to `{filePath}.tmp.{pid}.{uuid}`
 2. Use `fs.rename()` to atomically replace target file (POSIX semantics)
 3. Clean up temp file on error
 
-This ensures readers never see partial writes.
+This ensures readers never see partial writes. The `{uuid}` suffix (`crypto.randomUUID()`) makes the temp path unique per *call*, not just per process, so two concurrent unlocked writers to the same target within one process never share a temp path.
 
 **Key Files:**
 - `src/storage/atomic-writer.ts`

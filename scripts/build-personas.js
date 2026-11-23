@@ -7,7 +7,7 @@
  *
  * Every wrapper-side check (agent-slug cross-references, insight_agent
  * pairing, rendered sub-agent references, philosophy tone, changelog entry
- * size) runs unconditionally, through the single `runBuildChecks()`
+ * size, a stale docs/references/agents-overview.md) runs unconditionally, through the single `runBuildChecks()`
  * descriptor list in `lib/build-checks.js` — a failing or crashing check
  * never hides a later one or the post-build steps. The process exit call
  * happens exactly once, at the end of the script, via `resolveExitCode()`,
@@ -20,6 +20,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { generateNameMapping, writeNameMapping } from './lib/name-mapping.js';
+import { checkAgentsOverview, writeAgentsOverview } from './lib/agents-overview.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { validateSubagentReferences } from './lib/subagent-reference-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
@@ -109,6 +110,17 @@ if (!CHECK) {
   });
   writeNameMapping(outPath, entries);
   console.log(`Generated personas/name-mapping.json with ${entries.length} entries (${ledgerCount} ledger, ${nonLedgerCount} non-ledger).`);
+
+  // Post-build: regenerate docs/references/agents-overview.md (real builds only).
+  // ORDERING DEPENDENCY: the 'agents-overview' check descriptor below runs on
+  // every invocation and passes in a real build only because this step runs
+  // BEFORE runBuildChecks(). Do not move it below that call (a source-order
+  // test in scripts/tests/agents-overview.test.js guards this). The write skips
+  // a date-only change, so an unchanged overview is left untouched.
+  const { written } = writeAgentsOverview({ root: ROOT });
+  console.log(written
+    ? 'Regenerated docs/references/agents-overview.md.'
+    : 'docs/references/agents-overview.md already up to date — no update needed.');
 }
 
 // Hoist the library load above the descriptor list so both the agent-slug
@@ -201,6 +213,15 @@ const checks = [
       path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
       path.join(ROOT, 'personas', 'shared', 'partials'),
     ], { stripComments: stripCommentsFn }),
+  },
+  {
+    id: 'agents-overview',
+    label: 'stale docs/references/agents-overview.md',
+    severity: 'error',
+    // Runs in every mode. In --check it fails on a stale overview (what CI
+    // runs); in a real build it verifies the post-step write above, which
+    // must therefore stay before runBuildChecks().
+    run: () => checkAgentsOverview({ root: ROOT }),
   },
   {
     id: 'changelog-size',

@@ -36,6 +36,7 @@ The Project Ledger MCP Server manages persistent project state for multi-agent A
 - **Self-healing counters** — auto-corrects counter drift on status queries
 - **GUI dashboard** — web UI for monitoring, search, filtering, and dark mode
 - **Multi-store mode** — register multiple independent ledger roots; separate projects by machine, team, or concern
+- **Pluggable error-code allocation** — `ledger_generate_error_code` hands out error-code bases through a user-configured, third-party-extensible provider; falls back to a logged temporary code on any failure
 
 ---
 
@@ -80,6 +81,18 @@ Opens [http://localhost:3420](http://localhost:3420) — a web dashboard for mon
 
 ---
 
+## Error Codes
+
+Agents call `ledger_generate_error_code` to allocate a new error-code base number — a numeric prefix for a class or module's component codes (`{base}01`, `{base}02`, …) — without picking the number themselves. The base is sourced through whichever provider you've configured in the GUI's Error Codes tab:
+
+- **`file`** (built-in, zero setup) — keeps a sequence in a locked local JSON file, scoped globally or per repository.
+- **`errorcode-incrementor`** (built-in) — allocates against an HTTP backend you control.
+- **Third-party plugins** — dropped into `~/.ai-insights/plugins/error-codes/`, loaded at server startup against the versioned provider contract in `src/error-codes/provider-api.ts`. See [`docs/error-code-providers.md`](docs/error-code-providers.md) for the plugin-authoring guide.
+
+Every allocation call is safe to make even when the provider is down: on any provider, network, or configuration failure, the server falls back to a temporary code (`{prefix}` + six digits, e.g. `777000001`) instead of failing the call outright, and logs it for later replacement — `ledger_list_temporary_error_codes` lists what's still outstanding. If the temporary-code log itself is ever damaged, the server keeps a copy of the damaged file, continues numbering above every code still visible in it, and reports the recovery as a `warning` in the result, so the fallback guarantee holds and no code is reissued. See [`ledger_help`](#quick-start)'s `ledger_generate_error_code` and `ledger_list_temporary_error_codes` entries, or [`docs/agents/project-manifest/api-surface.md`](docs/agents/project-manifest/api-surface.md#error-code-tools), for the full response shape.
+
+---
+
 ## Troubleshooting
 
 ### "MCP server unavailable"
@@ -99,6 +112,23 @@ Opens [http://localhost:3420](http://localhost:3420) — a web dashboard for mon
 1. Another process may be holding the lock — wait and retry
 2. If a process crashed, delete the `.lock` file inside `storage/ledger/{slug}/`
 3. Use `./menu.sh kill-orchestrator` to clean up stale processes
+
+### `ledger_generate_error_code` Returned a Temporary Code
+
+Check the response's `fallback_reason`:
+
+1. `misconfigured` — the active provider isn't installed, or its stored settings are invalid. Open the GUI's Error Codes tab and fix the provider configuration, then re-run the allocation.
+2. `unavailable` — the provider's backend could not be reached (network/DNS/timeout). Check connectivity to that backend and retry.
+3. `throttled` — the provider asked to back off; the server already retried once automatically before falling back. Retry later.
+4. `rejected` or `invalid_response` — the provider's backend explicitly refused the request, or responded in an unexpected shape. Check that backend's own logs.
+5. `failed` — an uncaught error from the provider; check the MCP server's stderr log for the redacted `detail`.
+6. `requested` — expected: the caller passed `temporary: true` on purpose.
+
+In every case, call `ledger_list_temporary_error_codes` once the provider is working again to find and replace the temporary code with a real base.
+
+### Error-Code Plugin Fails to Load
+
+A third-party provider plugin under `~/.ai-insights/plugins/error-codes/` that fails to load (invalid shape, unsupported `apiVersion`, an `id` clashing with a built-in provider) is logged to stderr at startup as `[error-codes] Failed to load provider plugin from {path}: {message}` and then skipped — it never stops server startup, and the built-in provider under that `id` keeps working. Fix the plugin per the message and restart the MCP server to reload it.
 
 ---
 

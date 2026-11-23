@@ -32,6 +32,7 @@ import {
   handleListChunks,
   handleGetChunkFile,
   ApiError,
+  __awaitPendingSelfHealsForTesting,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../../src/utils/constants.js';
@@ -108,6 +109,11 @@ describe('gui/api.ts', () => {
 
   afterEach(async () => {
     __resetForTesting();
+    // Wait for any in-flight fire-and-forget self-heal write (handleGetProject,
+    // gui/api.ts) to settle before removing the temp directory — otherwise the
+    // write can still be in progress when rm() runs, racing it and surfacing as
+    // an ENOTEMPTY error.
+    await __awaitPendingSelfHealsForTesting();
     await rm(ledgerRoot, { recursive: true, force: true });
   });
 
@@ -264,7 +270,28 @@ describe('gui/api.ts', () => {
       expect(result.timing?.project_elapsed_ms).toBe(10 * 60 * 1000);
 
       // Allow the fire-and-forget self-heal write to settle, then verify persistence.
-      await new Promise((r) => setTimeout(r, 20));
+      await __awaitPendingSelfHealsForTesting();
+      const healedMeta = await store.readProjectMeta();
+      expect(healedMeta.duration_ms).toBe(10 * 60 * 1000);
+    });
+
+    it('__awaitPendingSelfHealsForTesting() resolves only once the self-heal write is visible on disk', async () => {
+      await createProject(ledgerRoot, '2026-02-11-self-heal-visibility', {
+        date_created: '2026-02-11T10:00:00.000Z',
+        synthesis_generated_at: '2026-02-11T10:10:00.000Z',
+      });
+      const store = new LedgerStore(join(tmpdir(), '2026-02-11-self-heal-visibility'), ledgerRoot);
+      const rawMeta = JSON.parse(await readFile(store.metaPath(), 'utf-8'));
+      delete rawMeta.duration_ms;
+      rawMeta.date_created = '2026-02-11T10:00:00.000Z';
+      await writeFile(store.metaPath(), JSON.stringify(rawMeta, null, 2) + '\n', 'utf-8');
+
+      await handleGetProject(ledgerRoot, '2026-02-11-self-heal-visibility');
+
+      // No sleep, no retry loop: the helper's resolution is itself the signal that the
+      // fire-and-forget write landed, so the write must already be visible by the time
+      // the very next statement reads it back.
+      await __awaitPendingSelfHealsForTesting();
       const healedMeta = await store.readProjectMeta();
       expect(healedMeta.duration_ms).toBe(10 * 60 * 1000);
     });
@@ -308,7 +335,7 @@ describe('gui/api.ts', () => {
       const result = await handleGetProject(ledgerRoot, '2026-02-13-active-self-heal');
       expect(result.timing?.total_active_ms).toBe(9000);
 
-      await new Promise((r) => setTimeout(r, 20));
+      await __awaitPendingSelfHealsForTesting();
       const healedMeta = await store.readProjectMeta();
       expect(healedMeta.active_ms).toBe(9000);
       expect(healedMeta.pipeline_runs).toBe(1);
@@ -332,7 +359,7 @@ describe('gui/api.ts', () => {
       });
 
       await handleGetProject(ledgerRoot, '2026-02-14-active-stale');
-      await new Promise((r) => setTimeout(r, 20));
+      await __awaitPendingSelfHealsForTesting();
       const healedMeta = await store.readProjectMeta();
       expect(healedMeta.active_ms).toBe(7000);
       expect(healedMeta.pipeline_runs).toBe(2);
@@ -349,7 +376,7 @@ describe('gui/api.ts', () => {
       await store.writeWorkPackage('WP-001', makeWp('WP-001')); // no pipelines
 
       await handleGetProject(ledgerRoot, '2026-02-15-active-none');
-      await new Promise((r) => setTimeout(r, 20));
+      await __awaitPendingSelfHealsForTesting();
       const healedMeta = await store.readProjectMeta();
       expect(healedMeta.active_ms).toBeNull();
       expect(healedMeta.pipeline_runs).toBe(0);
@@ -371,7 +398,7 @@ describe('gui/api.ts', () => {
       const result = await handleGetProject(ledgerRoot, '2026-02-16-active-unsynthesised');
       expect(result.timing?.total_active_ms).toBe(2000);
 
-      await new Promise((r) => setTimeout(r, 20));
+      await __awaitPendingSelfHealsForTesting();
       const meta = await store.readProjectMeta();
       expect(meta.active_ms).toBeUndefined();
       expect(meta.pipeline_runs).toBeUndefined();
