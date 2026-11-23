@@ -105,7 +105,7 @@ export function describeProviderContract(
     it('allocate() increases monotonically across repeated calls', async () => {
       const provider = makeProvider();
       const first = await provider.allocate(makeAllocationRequest(), makeCtx());
-      const second = await provider.allocate(makeAllocationRequest(), makeCtx());
+      const second = await provider.allocate(makeAllocationRequest({ request_id: 'contract-test-request-2' }), makeCtx());
 
       expect(first.ok).toBe(true);
       expect(second.ok).toBe(true);
