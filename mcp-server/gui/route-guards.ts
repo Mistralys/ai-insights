@@ -140,7 +140,7 @@ export function requireLoopbackRequest(req: IncomingMessage, port: number): void
  */
 export function requireJsonContentType(req: IncomingMessage): void {
   const contentType = req.headers['content-type'];
-  if (contentType === undefined || !contentType.toLowerCase().includes('application/json')) {
+  if (contentType === undefined || contentType.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
     throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'This endpoint requires a Content-Type of application/json.');
   }
 }
