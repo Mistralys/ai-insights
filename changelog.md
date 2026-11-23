@@ -1,15 +1,18 @@
 # AI Insights Changelog
 
 ## v2.15.0 - Outcome Summaries and Safer Chains
-> mcp v2.11.0 · personas v3.38.0
+> mcp v2.12.0 · personas v3.39.0
 
 **Work packages whose verifier stage cannot be fixed are now rejected at creation.** Planning
 personas also stop producing check-only work packages. Agents now write project outcome summaries
 themselves, and Claude Code handoffs reliably start the intended agent. VS Code personas, skills
-and MCP config now deploy to the global Copilot home.
+and MCP config now deploy to the global Copilot home. Developers can also request real
+error-code bases through a configurable provider.
 
 - MCP: Work package creation rejects chains whose verifier stage has no stage able to fix it.
 - Personas: Planning personas no longer produce check-only work packages.
+- MCP: Agents can request real error-code bases through a configurable provider, with a temporary fallback.
+- Personas: Developer and Web GUI Specialist can request error-code bases.
 - MCP: Standalone import and synthesis refresh accept agent-supplied outcome summaries.
 - Personas: Synthesis Maintainer composes summaries and applies requested synthesis edits.
 - Personas: Claude Code handoffs and sub-agent dispatches start the intended agent.
